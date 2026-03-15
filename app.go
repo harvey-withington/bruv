@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bruv/internal/config"
 	"bruv/internal/index"
 	"bruv/internal/model"
 	"bruv/internal/repo"
@@ -8,6 +9,9 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"time"
+
+	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const AppVersion = "0.1.0-dev"
@@ -43,26 +47,43 @@ func (a *App) Version() string {
 	return AppVersion
 }
 
+// PickFolder opens a native folder picker dialog and returns the selected path.
+func (a *App) PickFolder(title string) (string, error) {
+	result, err := wailsRuntime.OpenDirectoryDialog(a.ctx, wailsRuntime.OpenDialogOptions{
+		Title: title,
+	})
+	if err != nil {
+		return "", err
+	}
+	return result, nil
+}
+
 // --- Repository Management ---
 
-// InitRepository creates a new BRUV repository at the given path.
-func (a *App) InitRepository(path, name string) error {
-	r, err := repo.Init(path, name)
+// InitRepository creates a new BRUV repository under the given base path.
+// A subfolder is created automatically using the slugified repo name.
+// Returns the actual repo root path on success.
+func (a *App) InitRepository(basePath, name string) (string, error) {
+	r, err := repo.Init(basePath, name)
 	if err != nil {
-		return err
+		return "", err
 	}
 	a.repo = r
 
 	// Load any community card type schemas from the types/ directory
 	if a.registry != nil {
-		_ = a.registry.LoadExternalTypes(path + "/types")
+		_ = a.registry.LoadExternalTypes(filepath.Join(r.Root, "types"))
 	}
 
 	// Open the SQLite index and do an initial (empty) rebuild
-	if err := a.openIndex(path); err != nil {
+	if err := a.openIndex(r.Root); err != nil {
 		fmt.Printf("warning: failed to open index: %v\n", err)
 	}
-	return nil
+
+	// Add to recent repos
+	_ = config.AddRecent(r.Root, name)
+
+	return r.Root, nil
 }
 
 // OpenRepository opens an existing BRUV repository.
@@ -85,12 +106,35 @@ func (a *App) OpenRepository(path string) error {
 			fmt.Printf("warning: index refresh failed: %v\n", err)
 		}
 	}
+
+	// Add to recent repos
+	_ = config.AddRecent(path, r.Manifest.Name)
+
 	return nil
 }
 
 // HasRepository returns true if a repository is currently open.
 func (a *App) HasRepository() bool {
 	return a.repo != nil
+}
+
+// CloseRepository closes the current repository and its index.
+func (a *App) CloseRepository() {
+	if a.idx != nil {
+		a.idx.Close()
+		a.idx = nil
+	}
+	a.repo = nil
+}
+
+// ListRecentRepos returns recently opened repositories.
+func (a *App) ListRecentRepos() ([]config.RecentRepo, error) {
+	return config.LoadRecent()
+}
+
+// RemoveRecentRepo removes a path from the recent repos list.
+func (a *App) RemoveRecentRepo(path string) error {
+	return config.RemoveRecent(path)
 }
 
 // --- Brand ---
@@ -116,6 +160,13 @@ func (a *App) ListBrands() ([]model.Brand, error) {
 	return a.repo.ListBrands()
 }
 
+func (a *App) DeleteBrand(slug string) error {
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
+	return a.repo.DeleteBrand(slug)
+}
+
 // --- Stream ---
 
 func (a *App) CreateStream(brandSlug, name string) (*model.Stream, error) {
@@ -132,6 +183,13 @@ func (a *App) ListStreams(brandSlug string) ([]model.Stream, error) {
 	return a.repo.ListStreams(brandSlug)
 }
 
+func (a *App) DeleteStream(brandSlug, streamSlug string) error {
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
+	return a.repo.DeleteStream(brandSlug, streamSlug)
+}
+
 // --- Project ---
 
 func (a *App) CreateProject(brandSlug, streamSlug, name string) (*model.Project, error) {
@@ -146,6 +204,13 @@ func (a *App) ListProjects(brandSlug, streamSlug string) ([]model.Project, error
 		return nil, fmt.Errorf("no repository open")
 	}
 	return a.repo.ListProjects(brandSlug, streamSlug)
+}
+
+func (a *App) DeleteProject(brandSlug, streamSlug, projectSlug string) error {
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
+	return a.repo.DeleteProject(brandSlug, streamSlug, projectSlug)
 }
 
 // --- Category ---
@@ -192,6 +257,78 @@ func (a *App) DeleteCard(id string) error {
 		return fmt.Errorf("no repository open")
 	}
 	return a.repo.DeleteCard(id)
+}
+
+// UpdateCardTitle updates a card's title.
+func (a *App) UpdateCardTitle(id, title string) (*model.Card, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.UpdateCard(id, func(c *model.Card) {
+		c.Title = title
+	})
+}
+
+// UpdateCardFields sets the type-specific fields on a card.
+func (a *App) UpdateCardFields(id string, fields map[string]any) (*model.Card, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.UpdateCard(id, func(c *model.Card) {
+		c.Fields = fields
+	})
+}
+
+// UpdateCardTags replaces a card's tags.
+func (a *App) UpdateCardTags(id string, tags []string) (*model.Card, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.UpdateCard(id, func(c *model.Card) {
+		c.Tags = tags
+	})
+}
+
+// UpdateCardDueDate sets or clears a card's due date (ISO 8601 string, or empty to clear).
+func (a *App) UpdateCardDueDate(id, dueDate string) (*model.Card, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.UpdateCard(id, func(c *model.Card) {
+		if dueDate == "" {
+			c.DueDate = nil
+		} else {
+			t, err := time.Parse(time.RFC3339, dueDate)
+			if err != nil {
+				t, _ = time.Parse("2006-01-02", dueDate)
+			}
+			c.DueDate = &t
+		}
+	})
+}
+
+// AddChecklistItem adds a checklist item to a card.
+func (a *App) AddChecklistItem(cardID, text string) (*model.Card, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.AddChecklistItem(cardID, text)
+}
+
+// ToggleChecklistItem toggles a checklist item's done state.
+func (a *App) ToggleChecklistItem(cardID, itemID string) (*model.Card, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.ToggleChecklistItem(cardID, itemID)
+}
+
+// RemoveChecklistItem removes a checklist item from a card.
+func (a *App) RemoveChecklistItem(cardID, itemID string) (*model.Card, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.RemoveChecklistItem(cardID, itemID)
 }
 
 // --- Pin ---

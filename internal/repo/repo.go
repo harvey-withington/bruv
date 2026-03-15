@@ -16,23 +16,30 @@ type Repository struct {
 
 // Directory layout constants
 const (
-	bruvDir      = ".bruv"
-	manifestFile = "manifest.json"
-	brandsDir    = "brands"
-	cardsDir     = "cards"
-	pinsDir      = "pins"
-	typesDir     = "types"
-	streamsDir   = "streams"
-	projectsDir  = "projects"
+	bruvDir       = ".bruv"
+	manifestFile  = "manifest.json"
+	brandsDir     = "brands"
+	cardsDir      = "cards"
+	pinsDir       = "pins"
+	typesDir      = "types"
+	streamsDir    = "streams"
+	projectsDir   = "projects"
 	categoriesDir = "categories"
 )
 
-// Init creates a new BRUV repository at the given root path.
-func Init(root string, name string) (*Repository, error) {
-	root, err := filepath.Abs(root)
+// Init creates a new BRUV repository inside a subfolder of basePath,
+// named after the slugified repo name.
+func Init(basePath string, name string) (*Repository, error) {
+	basePath, err := filepath.Abs(basePath)
 	if err != nil {
 		return nil, fmt.Errorf("resolve path: %w", err)
 	}
+
+	slug := Slugify(name)
+	if slug == "" {
+		return nil, fmt.Errorf("invalid repository name %q", name)
+	}
+	root := filepath.Join(basePath, slug)
 
 	metaDir := filepath.Join(root, bruvDir)
 	if fileExists(filepath.Join(metaDir, manifestFile)) {

@@ -49,7 +49,7 @@ func TestInitRejectsExistingRepo(t *testing.T) {
 	if _, err := Init(dir, "First"); err != nil {
 		t.Fatalf("first Init: %v", err)
 	}
-	if _, err := Init(dir, "Second"); err == nil {
+	if _, err := Init(dir, "First"); err == nil {
 		t.Fatal("expected error on second Init, got nil")
 	}
 }
@@ -61,7 +61,7 @@ func TestOpenExistingRepo(t *testing.T) {
 		t.Fatalf("Init: %v", err)
 	}
 
-	reopened, err := Open(dir)
+	reopened, err := Open(original.Root)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

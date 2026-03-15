@@ -1,54 +1,48 @@
 <script lang="ts">
-  import { Version } from '../wailsjs/go/main/App.js'
+  import { nav } from './lib/store.svelte'
+  import WelcomeScreen from './components/WelcomeScreen.svelte'
+  import Sidebar from './components/Sidebar.svelte'
+  import TopBar from './components/TopBar.svelte'
+  import Board from './components/Board.svelte'
+  import CardDetail from './components/CardDetail.svelte'
 
-  let version = $state('...')
+  let searchCardId = $state<string | null>(null)
 
-  $effect(() => {
-    Version().then((v: string) => {
-      version = v
-    })
-  })
+  function handleSearchSelectCard(cardId: string) {
+    searchCardId = cardId
+  }
 </script>
 
-<main>
-  <div class="hero">
-    <h1 class="logo">BRUV</h1>
-    <p class="tagline">Your most organised mate.</p>
-    <div class="version">v{version}</div>
+{#if nav.repoOpen}
+  <div class="app-shell">
+    <Sidebar />
+    <div class="main-area">
+      <TopBar onSelectCard={handleSearchSelectCard} />
+      <Board />
+    </div>
   </div>
-</main>
+
+  {#if searchCardId}
+    <CardDetail
+      cardId={searchCardId}
+      onClose={() => searchCardId = null}
+    />
+  {/if}
+{:else}
+  <WelcomeScreen />
+{/if}
 
 <style>
-  main {
+  .app-shell {
     display: flex;
-    align-items: center;
-    justify-content: center;
     height: 100vh;
-    user-select: none;
+    overflow: hidden;
   }
 
-  .hero {
-    text-align: center;
-  }
-
-  .logo {
-    font-size: 4rem;
-    font-weight: 800;
-    letter-spacing: 0.15em;
-    margin: 0;
-    color: #f5f5f5;
-  }
-
-  .tagline {
-    font-size: 1.1rem;
-    color: #a1a1aa;
-    margin: 0.5rem 0 0;
-    font-weight: 400;
-  }
-
-  .version {
-    margin-top: 2rem;
-    font-size: 0.75rem;
-    color: #52525b;
+  .main-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 </style>

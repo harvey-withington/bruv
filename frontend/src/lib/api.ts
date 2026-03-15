@@ -1,0 +1,32 @@
+// Typed wrappers around Wails Go bindings
+
+import { Version, HasRepository, InitRepository, OpenRepository, CloseRepository,
+  PickFolder, ListRecentRepos, RemoveRecentRepo,
+  CreateBrand, GetBrand, ListBrands, DeleteBrand,
+  CreateStream, ListStreams, DeleteStream,
+  CreateProject, ListProjects, DeleteProject,
+  CreateCategory, ListCategories,
+  CreateCard, GetCard, ListCards, DeleteCard,
+  UpdateCardTitle, UpdateCardFields, UpdateCardTags, UpdateCardDueDate,
+  AddChecklistItem, ToggleChecklistItem, RemoveChecklistItem,
+  PinCard, UnpinCard, GetCardPins,
+  ListCardTypes, ValidateCardFields,
+  SearchCards, RebuildIndex, RefreshIndex,
+  ListCardIDsInCategory, ListCardIDsByTag,
+} from '../../wailsjs/go/main/App.js'
+
+export {
+  Version, HasRepository, InitRepository, OpenRepository, CloseRepository,
+  PickFolder, ListRecentRepos, RemoveRecentRepo,
+  CreateBrand, GetBrand, ListBrands, DeleteBrand,
+  CreateStream, ListStreams, DeleteStream,
+  CreateProject, ListProjects, DeleteProject,
+  CreateCategory, ListCategories,
+  CreateCard, GetCard, ListCards, DeleteCard,
+  UpdateCardTitle, UpdateCardFields, UpdateCardTags, UpdateCardDueDate,
+  AddChecklistItem, ToggleChecklistItem, RemoveChecklistItem,
+  PinCard, UnpinCard, GetCardPins,
+  ListCardTypes, ValidateCardFields,
+  SearchCards, RebuildIndex, RefreshIndex,
+  ListCardIDsInCategory, ListCardIDsByTag,
+}

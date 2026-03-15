@@ -12,6 +12,7 @@ export const nav = $state({
 
   // Sidebar collapsed state
   sidebarCollapsed: false,
+  sidebarWidth: 260,
 })
 
 // Board data — populated when a project is selected
@@ -34,6 +35,22 @@ export const board = $state({
   loading: false,
 })
 
+// Tag colors — tag name → hex color
+export const tagColors = $state<{ map: Record<string, string> }>({ map: {} })
+
+// Drag and drop state
+export const dnd = $state<{
+  dragging: null | { type: 'card'; cardId: string; fromCategoryId: string } | { type: 'column'; categoryId: string }
+  overCategoryId: string | null
+  overCardIndex: number | null
+  overColumnIndex: number | null
+}>({
+  dragging: null,
+  overCategoryId: null,
+  overCardIndex: null,
+  overColumnIndex: null,
+})
+
 // Search state
 export const search = $state({
   query: '',
@@ -44,4 +61,5 @@ export const search = $state({
     Rank: number
   }>,
   open: false,
+  matchingIds: new Set<string>(),
 })

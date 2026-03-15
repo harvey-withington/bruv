@@ -107,6 +107,19 @@ func (r *Repository) UpdateCategory(brandSlug, streamSlug, projectSlug, category
 	return category, nil
 }
 
+// ReorderCategories updates the position of all categories based on the given ordered slug list.
+func (r *Repository) ReorderCategories(brandSlug, streamSlug, projectSlug string, orderedSlugs []string) error {
+	for i, slug := range orderedSlugs {
+		_, err := r.UpdateCategory(brandSlug, streamSlug, projectSlug, slug, func(c *model.Category) {
+			c.Position = i
+		})
+		if err != nil {
+			return fmt.Errorf("reorder category %q: %w", slug, err)
+		}
+	}
+	return nil
+}
+
 // DeleteCategory removes a Category.
 func (r *Repository) DeleteCategory(brandSlug, streamSlug, projectSlug, categorySlug string) error {
 	path := r.categoryFilePath(brandSlug, streamSlug, projectSlug, categorySlug)

@@ -2,9 +2,89 @@
     box-sizing: border-box;
 }
 
+:root {
+    /* Surface */
+    --bg-base: #18181b;
+    --bg-surface: #1c1c1f;
+    --bg-elevated: #27272a;
+    --bg-overlay: rgba(0,0,0,0.5);
+    --bg-subtle: rgba(255,255,255,0.05);
+    --bg-subtle-hover: rgba(255,255,255,0.1);
+
+    /* Borders */
+    --border: #3f3f46;
+    --border-muted: #2e2e32;
+    --border-hover: #52525b;
+
+    /* Text */
+    --text-primary: #f5f5f5;
+    --text-strong: #e4e4e7;
+    --text-body: #d4d4d8;
+    --text-secondary: #a1a1aa;
+    --text-muted: #71717a;
+    --text-faint: #52525b;
+
+    /* Accent */
+    --accent: #6366f1;
+    --accent-hover: #4f46e5;
+    --accent-light: #818cf8;
+    --accent-glow-1: rgba(99,102,241,0.4);
+    --accent-glow-2: rgba(99,102,241,0.2);
+    --accent-glow-3: rgba(99,102,241,0.1);
+
+    /* Semantic */
+    --success: #22c55e;
+    --danger: #ef4444;
+    --danger-light: #f87171;
+
+    /* Shadow */
+    --shadow: rgba(0,0,0,0.3);
+    --shadow-lg: rgba(0,0,0,0.5);
+}
+
+[data-theme="light"] {
+    /* Surface */
+    --bg-base: #f0f2f5;
+    --bg-surface: #ebecf0;
+    --bg-elevated: #ffffff;
+    --bg-overlay: rgba(0,0,0,0.3);
+    --bg-subtle: rgba(0,0,0,0.04);
+    --bg-subtle-hover: rgba(0,0,0,0.08);
+
+    /* Borders */
+    --border: #dfe1e6;
+    --border-muted: #e4e6ea;
+    --border-hover: #c1c7d0;
+
+    /* Text */
+    --text-primary: #091e42;
+    --text-strong: #172b4d;
+    --text-body: #42526e;
+    --text-secondary: #6b778c;
+    --text-muted: #8993a4;
+    --text-faint: #b3bac5;
+
+    /* Accent — keep same */
+    --accent: #5e60ce;
+    --accent-hover: #4f46e5;
+    --accent-light: #818cf8;
+    --accent-glow-1: rgba(94,96,206,0.3);
+    --accent-glow-2: rgba(94,96,206,0.15);
+    --accent-glow-3: rgba(94,96,206,0.08);
+
+    /* Semantic — keep same */
+    --success: #22c55e;
+    --danger: #ef4444;
+    --danger-light: #f87171;
+
+    /* Shadow */
+    --shadow: rgba(0,0,0,0.1);
+    --shadow-lg: rgba(0,0,0,0.2);
+}
+
 html {
-    background-color: #18181b;
-    color: #f5f5f5;
+    background-color: var(--bg-base);
+    color: var(--text-primary);
 }
 
 body {

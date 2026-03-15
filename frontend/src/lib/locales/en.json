@@ -1,0 +1,49 @@
+{
+  "app.name": "BRUV",
+  "app.loading": "Loading board…",
+  "app.no_project": "Select a project from the sidebar to view its board.",
+  "app.no_project_breadcrumb": "No project selected",
+
+  "welcome.title": "Welcome to BRUV",
+  "welcome.subtitle": "Brand Repository Utility Vault",
+  "welcome.create_repo": "Create New Repository",
+  "welcome.open_repo": "Open Existing Repository",
+  "welcome.recent": "Recent Repositories",
+  "welcome.browse": "Browse",
+  "welcome.init_title": "Create a new repository",
+  "welcome.init_placeholder": "Repository path",
+  "welcome.init_submit": "Create",
+  "welcome.init_cancel": "Cancel",
+  "welcome.open_title": "Open an existing repository",
+  "welcome.open_placeholder": "Repository path",
+  "welcome.open_submit": "Open",
+  "welcome.open_cancel": "Cancel",
+
+  "sidebar.close_repo": "Close Repository",
+
+  "board.add_category": "Add category",
+  "board.add_category_long": "+ Add another category",
+  "board.category_placeholder": "Enter category title...",
+
+  "column.add_card": "Add card",
+  "column.add_card_long": "+ Add a card",
+  "column.card_placeholder": "Enter a title for this card...",
+
+  "search.placeholder": "Search cards…",
+
+  "card.delete_confirm": "Delete this card? This cannot be undone.",
+  "card.delete": "Delete Card",
+  "card.description": "Description",
+  "card.description_placeholder": "Add a more detailed description…",
+  "card.description_save": "Save",
+  "card.due_date": "Due Date",
+  "card.tags": "Tags",
+  "card.tags_placeholder": "Add a tag…",
+  "card.checklist": "Checklist",
+  "card.checklist_placeholder": "Add an item…",
+  "card.checklist_add": "Add",
+
+  "theme.toggle": "Toggle theme",
+  "theme.light": "Light",
+  "theme.dark": "Dark"
+}

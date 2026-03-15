@@ -1,6 +1,16 @@
 <script lang="ts">
   import { search } from '../lib/store.svelte'
   import { SearchCards } from '../lib/api'
+  import { Search, X } from 'lucide-svelte'
+  import { t } from '../lib/i18n.svelte'
+
+  function clearSearch() {
+    search.query = ''
+    search.results = []
+    search.open = false
+    search.matchingIds = new Set()
+    inputEl?.focus()
+  }
 
   let inputEl: HTMLInputElement | undefined = $state()
   let debounceTimer: ReturnType<typeof setTimeout> | undefined
@@ -27,9 +37,11 @@
         const results = await SearchCards(search.query, 20)
         search.results = results || []
         search.open = search.results.length > 0
+        search.matchingIds = new Set(search.results.map(r => r.CardID))
       } catch {
         search.results = []
         search.open = false
+        search.matchingIds = new Set()
       }
     }, 250)
   }
@@ -49,6 +61,7 @@
     search.open = false
     search.query = ''
     search.results = []
+    search.matchingIds = new Set()
     onSelectCard?.(cardId)
   }
 
@@ -56,6 +69,7 @@
     if (e.key === 'Escape') {
       search.open = false
       search.query = ''
+      search.matchingIds = new Set()
       inputEl?.blur()
     }
   }
@@ -63,7 +77,7 @@
 
 <div class="search-container">
   <div class="search-box">
-    <span class="search-icon">🔍</span>
+    <span class="search-icon"><Search size={14} /></span>
     <input
       bind:this={inputEl}
       type="text"
@@ -72,9 +86,12 @@
       onfocus={handleFocus}
       onblur={handleBlur}
       onkeydown={handleKeydown}
-      placeholder="Search cards…"
+      placeholder={t('search.placeholder')}
       class="search-input"
     />
+    {#if search.query}
+      <button class="search-clear" onclick={clearSearch}><X size={12} /></button>
+    {/if}
   </div>
 
   {#if search.open}
@@ -94,19 +111,34 @@
     position: relative;
   }
 
+  .search-clear {
+    background: none;
+    border: none;
+    color: var(--text-faint);
+    cursor: pointer;
+    padding: 0.2rem;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    transition: color 0.1s;
+  }
+  .search-clear:hover {
+    color: var(--text-strong);
+  }
+
   .search-box {
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    background: #27272a;
-    border: 1px solid #3f3f46;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 0.3rem 0.6rem;
     transition: border-color 0.15s;
   }
 
   .search-box:focus-within {
-    border-color: #6366f1;
+    border-color: var(--accent);
   }
 
   .search-icon {
@@ -117,14 +149,14 @@
   .search-input {
     background: none;
     border: none;
-    color: #f5f5f5;
+    color: var(--text-primary);
     font-size: 0.8rem;
     outline: none;
     width: 200px;
   }
 
   .search-input::placeholder {
-    color: #52525b;
+    color: var(--text-faint);
   }
 
   .search-results {
@@ -133,10 +165,10 @@
     left: 0;
     right: 0;
     margin-top: 4px;
-    background: #1c1c1f;
-    border: 1px solid #3f3f46;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
     border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 8px 24px var(--shadow-lg);
     max-height: 300px;
     overflow-y: auto;
     z-index: 50;
@@ -150,8 +182,8 @@
     padding: 0.5rem 0.75rem;
     background: none;
     border: none;
-    border-bottom: 1px solid #2e2e32;
-    color: #d4d4d8;
+    border-bottom: 1px solid var(--border-muted);
+    color: var(--text-body);
     font-size: 0.85rem;
     cursor: pointer;
     text-align: left;
@@ -163,7 +195,7 @@
   }
 
   .search-result:hover {
-    background: #27272a;
+    background: var(--bg-elevated);
   }
 
   .result-badge {

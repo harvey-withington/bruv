@@ -1,6 +1,8 @@
 <script lang="ts">
   import { nav } from '../lib/store.svelte'
   import { InitRepository, OpenRepository, PickFolder, ListRecentRepos, RemoveRecentRepo } from '../lib/api'
+  import { X, FolderPlus, FolderOpen, FolderSearch } from 'lucide-svelte'
+  import { t } from '../lib/i18n.svelte'
 
   async function browseFolder(title: string) {
     try {
@@ -79,32 +81,32 @@
 
 <div class="welcome">
   <div class="welcome-card">
-    <h1 class="logo">BRUV</h1>
-    <p class="tagline">Your most organised mate.</p>
+    <h1 class="logo">{t('app.name')}</h1>
+    <p class="tagline">{t('welcome.subtitle')}</p>
 
     {#if mode === 'choose'}
       <div class="actions">
         <button class="btn btn-primary" onclick={() => mode = 'init'}>
-          Create New Repository
+          <FolderPlus size={16} /> {t('welcome.create_repo')}
         </button>
         <button class="btn btn-secondary" onclick={() => mode = 'open'}>
-          Open Existing Repository
+          <FolderOpen size={16} /> {t('welcome.open_repo')}
         </button>
       </div>
 
       {#if recentRepos.length > 0}
         <div class="recent">
-          <h3 class="recent-title">Recent Repositories</h3>
+          <h3 class="recent-title">{t('welcome.recent')}</h3>
           <div class="recent-list">
             {#each recentRepos as repo}
-              <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-              <div class="recent-item" onclick={() => openRecent(repo.path)}>
-                <div class="recent-info">
+              <button class="recent-item" onclick={() => openRecent(repo.path)}>
+                <span class="recent-info">
                   <span class="recent-name">{repo.name}</span>
                   <span class="recent-path">{repo.path}</span>
-                </div>
-                <button class="recent-remove" onclick={(e) => removeRecent(e, repo.path)} title="Remove from recent">✕</button>
-              </div>
+                </span>
+                <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+                <span class="recent-remove" role="button" tabindex="-1" onclick={(e) => removeRecent(e, repo.path)} title="Remove from recent"><X size={12} /></span>
+              </button>
             {/each}
           </div>
         </div>
@@ -120,12 +122,12 @@
           <span>Base Folder</span>
           <div class="path-row">
             <input type="text" bind:value={repoPath} placeholder="C:\Users\you\repos" />
-            <button class="btn btn-browse" onclick={() => browseFolder('Choose base folder')}>Browse</button>
+            <button class="btn btn-browse" onclick={() => browseFolder('Choose base folder')}><FolderSearch size={14} /> {t('welcome.browse')}</button>
           </div>
         </label>
         {#if error}<p class="error">{error}</p>{/if}
         <div class="form-actions">
-          <button class="btn btn-primary" onclick={handleInit}>Create</button>
+          <button class="btn btn-primary" onclick={handleInit}>{t('welcome.init_submit')}</button>
           <button class="btn btn-ghost" onclick={() => { mode = 'choose'; error = '' }}>Back</button>
         </div>
       </div>
@@ -136,12 +138,12 @@
           <span>Repository Path</span>
           <div class="path-row">
             <input type="text" bind:value={repoPath} placeholder="C:\Users\you\my-workspace" />
-            <button class="btn btn-browse" onclick={() => browseFolder('Choose repository folder')}>Browse</button>
+            <button class="btn btn-browse" onclick={() => browseFolder('Choose repository folder')}><FolderSearch size={14} /> {t('welcome.browse')}</button>
           </div>
         </label>
         {#if error}<p class="error">{error}</p>{/if}
         <div class="form-actions">
-          <button class="btn btn-primary" onclick={handleOpen}>Open</button>
+          <button class="btn btn-primary" onclick={handleOpen}>{t('welcome.open_submit')}</button>
           <button class="btn btn-ghost" onclick={() => { mode = 'choose'; error = '' }}>Back</button>
         </div>
       </div>
@@ -170,12 +172,12 @@
     font-weight: 800;
     letter-spacing: 0.15em;
     margin: 0;
-    color: #f5f5f5;
+    color: var(--text-primary);
   }
 
   .tagline {
     font-size: 1rem;
-    color: #a1a1aa;
+    color: var(--text-secondary);
     margin: 0.5rem 0 2rem;
   }
 
@@ -200,23 +202,23 @@
 
   .form label span {
     font-size: 0.8rem;
-    color: #a1a1aa;
+    color: var(--text-secondary);
     font-weight: 500;
   }
 
   .form input {
     padding: 0.5rem 0.75rem;
     border-radius: 6px;
-    border: 1px solid #3f3f46;
-    background: #27272a;
-    color: #f5f5f5;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
     font-size: 0.9rem;
     outline: none;
     transition: border-color 0.15s;
   }
 
   .form input:focus {
-    border-color: #6366f1;
+    border-color: var(--accent);
   }
 
   .path-row {
@@ -230,14 +232,14 @@
   }
 
   .btn-browse {
-    background: #3f3f46;
-    color: #e4e4e7;
+    background: var(--border);
+    color: var(--text-strong);
     flex-shrink: 0;
     padding: 0.5rem 0.75rem;
     font-size: 0.8rem;
   }
   .btn-browse:hover {
-    background: #52525b;
+    background: var(--border-hover);
   }
 
   .form-actions {
@@ -247,7 +249,7 @@
   }
 
   .error {
-    color: #f87171;
+    color: var(--danger-light);
     font-size: 0.8rem;
     margin: 0;
   }
@@ -263,27 +265,27 @@
   }
 
   .btn-primary {
-    background: #6366f1;
+    background: var(--accent);
     color: #fff;
   }
   .btn-primary:hover {
-    background: #4f46e5;
+    background: var(--accent-hover);
   }
 
   .btn-secondary {
-    background: #3f3f46;
-    color: #e4e4e7;
+    background: var(--border);
+    color: var(--text-strong);
   }
   .btn-secondary:hover {
-    background: #52525b;
+    background: var(--border-hover);
   }
 
   .btn-ghost {
     background: transparent;
-    color: #a1a1aa;
+    color: var(--text-secondary);
   }
   .btn-ghost:hover {
-    color: #e4e4e7;
+    color: var(--text-strong);
   }
 
   .recent {
@@ -296,7 +298,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: #52525b;
+    color: var(--text-faint);
     margin: 0 0 0.5rem;
   }
 
@@ -321,8 +323,8 @@
   }
 
   .recent-item:hover {
-    background: #27272a;
-    border-color: #3f3f46;
+    background: var(--bg-elevated);
+    border-color: var(--border);
   }
 
   .recent-info {
@@ -336,7 +338,7 @@
   .recent-name {
     font-size: 0.85rem;
     font-weight: 500;
-    color: #e4e4e7;
+    color: var(--text-strong);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -344,7 +346,7 @@
 
   .recent-path {
     font-size: 0.7rem;
-    color: #52525b;
+    color: var(--text-faint);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -362,10 +364,10 @@
   }
 
   .recent-item:hover .recent-remove {
-    color: #52525b;
+    color: var(--text-faint);
   }
 
   .recent-remove:hover {
-    color: #f87171 !important;
+    color: var(--danger-light) !important;
   }
 </style>

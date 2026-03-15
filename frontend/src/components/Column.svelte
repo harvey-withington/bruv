@@ -1,5 +1,8 @@
 <script lang="ts">
   import CardItem from './CardItem.svelte'
+  import { X, GripVertical } from 'lucide-svelte'
+  import { dnd } from '../lib/store.svelte'
+  import { t } from '../lib/i18n.svelte'
 
   type CardData = {
     id: string
@@ -19,10 +22,11 @@
     cards: CardData[]
   }
 
-  let { category, onCardClick, onAddCard }: {
+  let { category, onCardClick, onAddCard, onCardDrop }: {
     category: CategoryData
     onCardClick?: (cardId: string) => void
     onAddCard?: (categoryId: string) => void
+    onCardDrop?: (cardId: string, fromCategoryId: string, toCategoryId: string, toIndex: number) => void
   } = $props()
 
   let adding = $state(false)
@@ -31,7 +35,6 @@
   function startAdding() {
     adding = true
     newTitle = ''
-    // Focus the input after DOM update
     setTimeout(() => {
       const input = document.querySelector(`#add-input-${category.id}`) as HTMLInputElement
       input?.focus()
@@ -50,11 +53,63 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter') {
-      submitCard()
-    } else if (e.key === 'Escape') {
-      cancelAdding()
+    if (e.key === 'Enter') submitCard()
+    else if (e.key === 'Escape') cancelAdding()
+  }
+
+  // --- Card drop zone ---
+  function handleCardDragOver(e: DragEvent) {
+    if (dnd.dragging?.type !== 'card') return
+    e.preventDefault()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+    dnd.overCategoryId = category.id
+
+    // Calculate which card index we're hovering over
+    const list = (e.currentTarget as HTMLElement)
+    const cards = Array.from(list.querySelectorAll('.card-wrapper'))
+    let idx = cards.length // default: append at end
+    for (let i = 0; i < cards.length; i++) {
+      const rect = cards[i].getBoundingClientRect()
+      if (e.clientY < rect.top + rect.height / 2) {
+        idx = i
+        break
+      }
     }
+    dnd.overCardIndex = idx
+  }
+
+  function handleCardDragLeave(e: DragEvent) {
+    // Only clear if actually leaving this column
+    const related = e.relatedTarget as HTMLElement | null
+    if (related && (e.currentTarget as HTMLElement).contains(related)) return
+    if (dnd.overCategoryId === category.id) {
+      dnd.overCategoryId = null
+      dnd.overCardIndex = null
+    }
+  }
+
+  function handleCardDropOnList(e: DragEvent) {
+    e.preventDefault()
+    if (dnd.dragging?.type !== 'card') return
+    const { cardId, fromCategoryId } = dnd.dragging
+    const toIndex = dnd.overCardIndex ?? category.cards.length
+    onCardDrop?.(cardId, fromCategoryId, category.id, toIndex)
+    dnd.dragging = null
+    dnd.overCategoryId = null
+    dnd.overCardIndex = null
+  }
+
+  // --- Column drag ---
+  function handleColDragStart(e: DragEvent) {
+    if (!e.dataTransfer) return
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', category.id)
+    dnd.dragging = { type: 'column', categoryId: category.id }
+  }
+
+  function handleColDragEnd() {
+    dnd.dragging = null
+    dnd.overColumnIndex = null
   }
 
   export function getNewTitle() {
@@ -68,15 +123,36 @@
 </script>
 
 <div class="column">
-  <div class="column-header">
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="column-header"
+    draggable="true"
+    ondragstart={handleColDragStart}
+    ondragend={handleColDragEnd}
+  >
+    <span class="drag-handle"><GripVertical size={14} /></span>
     <h3 class="column-title">{category.name}</h3>
     <span class="card-count">{category.cards.length}</span>
   </div>
 
-  <div class="card-list">
-    {#each category.cards as card (card.id)}
-      <CardItem {card} onclick={() => onCardClick?.(card.id)} />
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="card-list"
+    ondragover={handleCardDragOver}
+    ondragleave={handleCardDragLeave}
+    ondrop={handleCardDropOnList}
+  >
+    {#each category.cards as card, i (card.id)}
+      {#if dnd.dragging?.type === 'card' && dnd.overCategoryId === category.id && dnd.overCardIndex === i}
+        <div class="drop-indicator"></div>
+      {/if}
+      <div class="card-wrapper">
+        <CardItem {card} categoryId={category.id} onclick={() => onCardClick?.(card.id)} />
+      </div>
     {/each}
+    {#if dnd.dragging?.type === 'card' && dnd.overCategoryId === category.id && (dnd.overCardIndex ?? 0) >= category.cards.length}
+      <div class="drop-indicator"></div>
+    {/if}
   </div>
 
   <div class="column-footer">
@@ -87,17 +163,17 @@
           type="text"
           bind:value={newTitle}
           onkeydown={handleKeydown}
-          placeholder="Enter a title for this card..."
+          placeholder={t('column.card_placeholder')}
           class="add-input"
         />
         <div class="add-actions">
-          <button class="btn-add" onclick={submitCard}>Add card</button>
-          <button class="btn-cancel" onclick={cancelAdding}>✕</button>
+          <button class="btn-add" onclick={submitCard}>{t('column.add_card')}</button>
+          <button class="btn-cancel" onclick={cancelAdding}><X size={14} /></button>
         </div>
       </div>
     {:else}
       <button class="add-card-btn" onclick={startAdding}>
-        + Add a card
+        {t('column.add_card_long')}
       </button>
     {/if}
   </div>
@@ -108,31 +184,51 @@
     width: 272px;
     min-width: 272px;
     max-height: calc(100vh - 4rem);
-    background: #1c1c1f;
+    background: var(--bg-surface);
     border-radius: 10px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    transition: outline 0.15s;
   }
 
   .column-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 0.4rem;
     padding: 0.6rem 0.75rem;
+    cursor: grab;
+  }
+
+  .drag-handle {
+    color: var(--text-faint);
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+
+  .card-wrapper {
+    width: 100%;
+  }
+
+  .drop-indicator {
+    height: 3px;
+    background: var(--accent);
+    border-radius: 2px;
+    margin: 0 0.25rem;
   }
 
   .column-title {
     margin: 0;
     font-size: 0.85rem;
     font-weight: 600;
-    color: #e4e4e7;
+    color: var(--text-strong);
   }
 
   .card-count {
     font-size: 0.7rem;
-    color: #71717a;
-    background: #27272a;
+    color: var(--text-muted);
+    background: var(--bg-elevated);
     padding: 0.1rem 0.4rem;
     border-radius: 10px;
   }
@@ -141,6 +237,7 @@
     flex: 1;
     overflow-y: auto;
     padding: 0 0.5rem;
+    min-height: 40px;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
@@ -156,7 +253,7 @@
     background: none;
     border: none;
     border-radius: 6px;
-    color: #71717a;
+    color: var(--text-muted);
     font-size: 0.85rem;
     cursor: pointer;
     text-align: left;
@@ -164,8 +261,8 @@
   }
 
   .add-card-btn:hover {
-    background: #27272a;
-    color: #d4d4d8;
+    background: var(--bg-elevated);
+    color: var(--text-body);
   }
 
   .add-form {
@@ -179,15 +276,15 @@
     padding: 0.5rem;
     border-radius: 6px;
     border: none;
-    background: #27272a;
-    color: #f5f5f5;
+    background: var(--bg-elevated);
+    color: var(--text-primary);
     font-size: 0.85rem;
     outline: none;
     box-sizing: border-box;
   }
 
   .add-input:focus {
-    box-shadow: 0 0 0 2px #6366f1;
+    box-shadow: 0 0 0 2px var(--accent);
   }
 
   .add-actions {
@@ -200,25 +297,25 @@
     padding: 0.35rem 0.75rem;
     border: none;
     border-radius: 4px;
-    background: #6366f1;
+    background: var(--accent);
     color: #fff;
     font-size: 0.8rem;
     cursor: pointer;
     font-weight: 500;
   }
   .btn-add:hover {
-    background: #4f46e5;
+    background: var(--accent-hover);
   }
 
   .btn-cancel {
     background: none;
     border: none;
-    color: #71717a;
+    color: var(--text-muted);
     cursor: pointer;
     font-size: 1rem;
     padding: 0.2rem 0.4rem;
   }
   .btn-cancel:hover {
-    color: #f5f5f5;
+    color: var(--text-primary);
   }
 </style>

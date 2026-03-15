@@ -1,21 +1,61 @@
 <script lang="ts">
   import { nav } from './lib/store.svelte'
+  import { loadTheme } from './lib/theme.svelte'
+  import { loadLocale } from './lib/i18n.svelte'
   import WelcomeScreen from './components/WelcomeScreen.svelte'
   import Sidebar from './components/Sidebar.svelte'
   import TopBar from './components/TopBar.svelte'
   import Board from './components/Board.svelte'
   import CardDetail from './components/CardDetail.svelte'
 
+  // Restore persisted preferences
+  loadTheme()
+  loadLocale()
+
+  // Restore sidebar width
+  const savedWidth = localStorage.getItem('bruv-sidebar-width')
+  if (savedWidth) nav.sidebarWidth = Math.max(160, Math.min(500, Number(savedWidth)))
+
   let searchCardId = $state<string | null>(null)
+  let resizing = $state(false)
 
   function handleSearchSelectCard(cardId: string) {
     searchCardId = cardId
   }
+
+  function onSplitterDown(e: MouseEvent) {
+    if (nav.sidebarCollapsed) return
+    e.preventDefault()
+    resizing = true
+    const startX = e.clientX
+    const startW = nav.sidebarWidth
+
+    function onMove(ev: MouseEvent) {
+      const delta = ev.clientX - startX
+      nav.sidebarWidth = Math.max(160, Math.min(500, startW + delta))
+    }
+
+    function onUp() {
+      resizing = false
+      localStorage.setItem('bruv-sidebar-width', String(nav.sidebarWidth))
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
 </script>
 
 {#if nav.repoOpen}
-  <div class="app-shell">
+  <div class="app-shell" class:resizing>
     <Sidebar />
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="splitter"
+      class:collapsed={nav.sidebarCollapsed}
+      onmousedown={onSplitterDown}
+    ></div>
     <div class="main-area">
       <TopBar onSelectCard={handleSearchSelectCard} />
       <Board />
@@ -37,6 +77,40 @@
     display: flex;
     height: 100vh;
     overflow: hidden;
+  }
+
+  .app-shell.resizing {
+    cursor: col-resize;
+    user-select: none;
+  }
+
+  .splitter {
+    width: 4px;
+    cursor: col-resize;
+    background: transparent;
+    transition: background 0.15s;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 10;
+    margin-left: -2px;
+    margin-right: -2px;
+  }
+
+  .splitter::before {
+    content: '';
+    position: absolute;
+    inset: 0 -3px;
+  }
+
+  .splitter:hover,
+  .app-shell.resizing .splitter {
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent-glow-1);
+  }
+
+  .splitter.collapsed {
+    cursor: default;
+    pointer-events: none;
   }
 
   .main-area {

@@ -1,6 +1,8 @@
 <script lang="ts">
   import SearchBar from './SearchBar.svelte'
+  import ThemeToggle from './ThemeToggle.svelte'
   import { nav } from '../lib/store.svelte'
+  import { t } from '../lib/i18n.svelte'
 
   let { onSelectCard }: { onSelectCard?: (cardId: string) => void } = $props()
 </script>
@@ -18,11 +20,14 @@
         {/if}
       {/if}
     {:else}
-      <span class="crumb empty">No project selected</span>
+      <span class="crumb empty">{t('app.no_project_breadcrumb')}</span>
     {/if}
   </div>
 
-  <SearchBar {onSelectCard} />
+  <div class="topbar-actions">
+    <SearchBar {onSelectCard} />
+    <ThemeToggle />
+  </div>
 </header>
 
 <style>
@@ -31,9 +36,15 @@
     align-items: center;
     justify-content: space-between;
     padding: 0.5rem 1rem;
-    background: #18181b;
-    border-bottom: 1px solid #2e2e32;
+    background: var(--bg-base);
+    border-bottom: 1px solid var(--border-muted);
     flex-shrink: 0;
+  }
+
+  .topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
 
   .breadcrumb {
@@ -44,20 +55,20 @@
   }
 
   .crumb {
-    color: #71717a;
+    color: var(--text-muted);
   }
 
   .crumb.active {
-    color: #e4e4e7;
+    color: var(--text-strong);
     font-weight: 500;
   }
 
   .crumb.empty {
-    color: #3f3f46;
+    color: var(--text-faint);
     font-style: italic;
   }
 
   .sep {
-    color: #3f3f46;
+    color: var(--text-faint);
   }
 </style>

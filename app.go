@@ -235,7 +235,14 @@ func (a *App) CreateCard(cardType, title string) (*model.Card, error) {
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
-	return a.repo.CreateCard(cardType, title)
+	card, err := a.repo.CreateCard(cardType, title)
+	if err != nil {
+		return nil, err
+	}
+	if a.idx != nil {
+		_ = a.idx.IndexCard(card, time.Now())
+	}
+	return card, nil
 }
 
 func (a *App) GetCard(id string) (*model.Card, error) {
@@ -256,7 +263,14 @@ func (a *App) DeleteCard(id string) error {
 	if a.repo == nil {
 		return fmt.Errorf("no repository open")
 	}
-	return a.repo.DeleteCard(id)
+	err := a.repo.DeleteCard(id)
+	if err != nil {
+		return err
+	}
+	if a.idx != nil {
+		_ = a.idx.RemoveCard(id)
+	}
+	return nil
 }
 
 // UpdateCardTitle updates a card's title.
@@ -264,9 +278,13 @@ func (a *App) UpdateCardTitle(id, title string) (*model.Card, error) {
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
-	return a.repo.UpdateCard(id, func(c *model.Card) {
+	card, err := a.repo.UpdateCard(id, func(c *model.Card) {
 		c.Title = title
 	})
+	if err == nil && a.idx != nil {
+		_ = a.idx.IndexCard(card, time.Now())
+	}
+	return card, err
 }
 
 // UpdateCardFields sets the type-specific fields on a card.
@@ -274,9 +292,13 @@ func (a *App) UpdateCardFields(id string, fields map[string]any) (*model.Card, e
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
-	return a.repo.UpdateCard(id, func(c *model.Card) {
+	card, err := a.repo.UpdateCard(id, func(c *model.Card) {
 		c.Fields = fields
 	})
+	if err == nil && a.idx != nil {
+		_ = a.idx.IndexCard(card, time.Now())
+	}
+	return card, err
 }
 
 // UpdateCardTags replaces a card's tags.
@@ -284,9 +306,13 @@ func (a *App) UpdateCardTags(id string, tags []string) (*model.Card, error) {
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
-	return a.repo.UpdateCard(id, func(c *model.Card) {
+	card, err := a.repo.UpdateCard(id, func(c *model.Card) {
 		c.Tags = tags
 	})
+	if err == nil && a.idx != nil {
+		_ = a.idx.IndexCard(card, time.Now())
+	}
+	return card, err
 }
 
 // UpdateCardDueDate sets or clears a card's due date (ISO 8601 string, or empty to clear).
@@ -294,7 +320,7 @@ func (a *App) UpdateCardDueDate(id, dueDate string) (*model.Card, error) {
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
-	return a.repo.UpdateCard(id, func(c *model.Card) {
+	card, err := a.repo.UpdateCard(id, func(c *model.Card) {
 		if dueDate == "" {
 			c.DueDate = nil
 		} else {
@@ -305,6 +331,10 @@ func (a *App) UpdateCardDueDate(id, dueDate string) (*model.Card, error) {
 			c.DueDate = &t
 		}
 	})
+	if err == nil && a.idx != nil {
+		_ = a.idx.IndexCard(card, time.Now())
+	}
+	return card, err
 }
 
 // AddChecklistItem adds a checklist item to a card.
@@ -337,14 +367,32 @@ func (a *App) PinCard(cardID, projectID, categoryID string) error {
 	if a.repo == nil {
 		return fmt.Errorf("no repository open")
 	}
-	return a.repo.PinCard(cardID, projectID, categoryID)
+	if err := a.repo.PinCard(cardID, projectID, categoryID); err != nil {
+		return err
+	}
+	if a.idx != nil {
+		pins, err := a.repo.GetCardPins(cardID)
+		if err == nil {
+			_ = a.idx.IndexPins(cardID, pins)
+		}
+	}
+	return nil
 }
 
 func (a *App) UnpinCard(cardID, projectID, categoryID string) error {
 	if a.repo == nil {
 		return fmt.Errorf("no repository open")
 	}
-	return a.repo.UnpinCard(cardID, projectID, categoryID)
+	if err := a.repo.UnpinCard(cardID, projectID, categoryID); err != nil {
+		return err
+	}
+	if a.idx != nil {
+		pins, err := a.repo.GetCardPins(cardID)
+		if err == nil {
+			_ = a.idx.IndexPins(cardID, pins)
+		}
+	}
+	return nil
 }
 
 func (a *App) GetCardPins(cardID string) ([]model.Pin, error) {
@@ -352,6 +400,71 @@ func (a *App) GetCardPins(cardID string) ([]model.Pin, error) {
 		return nil, fmt.Errorf("no repository open")
 	}
 	return a.repo.GetCardPins(cardID)
+}
+
+// MoveCardInCategory reorders a card within its current category.
+func (a *App) MoveCardInCategory(cardID, projectID, categoryID string, newPosition int) error {
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
+	if err := a.repo.MoveCardInCategory(cardID, projectID, categoryID, newPosition); err != nil {
+		return err
+	}
+	if a.idx != nil {
+		pins, err := a.repo.GetCardPins(cardID)
+		if err == nil {
+			_ = a.idx.IndexPins(cardID, pins)
+		}
+	}
+	return nil
+}
+
+// MoveCardToCategory moves a card from one category to another.
+func (a *App) MoveCardToCategory(cardID, projectID, fromCategoryID, toCategoryID string, newPosition int) error {
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
+	if err := a.repo.MoveCardToCategory(cardID, projectID, fromCategoryID, toCategoryID, newPosition); err != nil {
+		return err
+	}
+	if a.idx != nil {
+		pins, err := a.repo.GetCardPins(cardID)
+		if err == nil {
+			_ = a.idx.IndexPins(cardID, pins)
+		}
+	}
+	return nil
+}
+
+// ReorderCategories updates category positions based on the given ordered slug list.
+func (a *App) ReorderCategories(brandSlug, streamSlug, projectSlug string, orderedSlugs []string) error {
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
+	return a.repo.ReorderCategories(brandSlug, streamSlug, projectSlug, orderedSlugs)
+}
+
+// --- Tag Colors ---
+
+func (a *App) GetTagColors() (map[string]string, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.GetTagColors()
+}
+
+func (a *App) SetTagColor(tag, color string) (map[string]string, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.SetTagColor(tag, color)
+}
+
+func (a *App) AssignTagColor(tag string) (map[string]string, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.AssignTagColor(tag)
 }
 
 // --- Schema ---

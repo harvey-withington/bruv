@@ -1,6 +1,8 @@
 <script lang="ts">
-  import { nav, board } from '../lib/store.svelte'
-  import { CloseRepository, CreateBrand, CreateStream, CreateProject, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, ListCategories, GetCard, GetCardPins, ListCardIDsInCategory } from '../lib/api'
+  import { nav, board, tagColors } from '../lib/store.svelte'
+  import { CloseRepository, CreateBrand, CreateStream, CreateProject, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, ListCategories, GetCard, GetCardPins, ListCardIDsInCategory, GetTagColors } from '../lib/api'
+  import { LogOut, Trash2, ChevronRight, ChevronDown, ChevronLeft, Plus, X, PanelLeftClose, PanelLeftOpen } from 'lucide-svelte'
+  import { t } from '../lib/i18n.svelte'
 
   async function handleCloseRepo() {
     await CloseRepository()
@@ -88,6 +90,9 @@
   async function loadBoard(brandSlug: string, streamSlug: string, projectSlug: string) {
     board.loading = true
     try {
+      // Load tag colors so labels render correctly
+      try { tagColors.map = await GetTagColors() || {} } catch { /* ignore */ }
+
       const cats = await ListCategories(brandSlug, streamSlug, projectSlug) || []
       const populated = await Promise.all(cats.map(async (cat: any) => {
         let cardIds: string[] = []
@@ -223,18 +228,18 @@
   }
 </script>
 
-<aside class="sidebar" class:collapsed={nav.sidebarCollapsed}>
+<aside class="sidebar" class:collapsed={nav.sidebarCollapsed} style:width="{nav.sidebarCollapsed ? 48 : nav.sidebarWidth}px" style:min-width="{nav.sidebarCollapsed ? 48 : nav.sidebarWidth}px">
   <div class="sidebar-header">
     <span class="sidebar-title">BRUV</span>
     <button class="header-btn" onclick={() => nav.sidebarCollapsed = !nav.sidebarCollapsed}>
-      {nav.sidebarCollapsed ? '▸' : '◂'}
+      {#if nav.sidebarCollapsed}<PanelLeftOpen size={16} />{:else}<PanelLeftClose size={16} />{/if}
     </button>
   </div>
 
   {#if !nav.sidebarCollapsed}
     <button class="close-repo-btn" onclick={handleCloseRepo}>
-      <span class="close-repo-icon">←</span>
-      Close Repository
+      <LogOut size={14} />
+      {t('sidebar.close_repo')}
     </button>
 
     <nav class="nav-tree">
@@ -242,10 +247,10 @@
         <div class="tree-node">
           <div class="tree-row">
             <button class="tree-item brand-item" onclick={() => toggleBrand(brand.slug)}>
-              <span class="chevron">{expandedBrands.has(brand.slug) ? '▾' : '▸'}</span>
+              <span class="chevron">{#if expandedBrands.has(brand.slug)}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</span>
               <span class="label">{brand.name}</span>
             </button>
-            <button class="row-action delete-action" onclick={(e) => handleDeleteBrand(e, brand.slug)} title="Delete brand">✕</button>
+            <button class="row-action delete-action" onclick={(e) => handleDeleteBrand(e, brand.slug)} title="Delete brand"><Trash2 size={12} /></button>
           </div>
 
           {#if expandedBrands.has(brand.slug) && streamsByBrand[brand.slug]}
@@ -254,10 +259,10 @@
                 <div class="tree-node">
                   <div class="tree-row">
                     <button class="tree-item stream-item" onclick={() => toggleStream(brand.slug, stream.slug)}>
-                      <span class="chevron">{expandedStreams.has(`${brand.slug}/${stream.slug}`) ? '▾' : '▸'}</span>
+                      <span class="chevron">{#if expandedStreams.has(`${brand.slug}/${stream.slug}`)}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</span>
                       <span class="label">{stream.name}</span>
                     </button>
-                    <button class="row-action delete-action" onclick={(e) => handleDeleteStream(e, brand.slug, stream.slug)} title="Delete stream">✕</button>
+                    <button class="row-action delete-action" onclick={(e) => handleDeleteStream(e, brand.slug, stream.slug)} title="Delete stream"><Trash2 size={12} /></button>
                   </div>
 
                   {#if expandedStreams.has(`${brand.slug}/${stream.slug}`) && projectsByStream[`${brand.slug}/${stream.slug}`]}
@@ -271,7 +276,7 @@
                           >
                             <span class="label">{project.name}</span>
                           </button>
-                          <button class="row-action delete-action" onclick={(e) => handleDeleteProject(e, brand.slug, stream.slug, project.slug)} title="Delete project">✕</button>
+                          <button class="row-action delete-action" onclick={(e) => handleDeleteProject(e, brand.slug, stream.slug, project.slug)} title="Delete project"><Trash2 size={12} /></button>
                         </div>
                       {/each}
 
@@ -287,7 +292,7 @@
                           />
                           <div class="inline-actions">
                             <button class="inline-btn-ok" onclick={() => handleCreateProject(brand.slug, stream.slug)}>Add</button>
-                            <button class="inline-btn-cancel" onclick={() => { addingProjectFor = null; newProjectName = '' }}>✕</button>
+                            <button class="inline-btn-cancel" onclick={() => { addingProjectFor = null; newProjectName = '' }}><X size={14} /></button>
                           </div>
                         </div>
                       {:else}
@@ -312,7 +317,7 @@
                   />
                   <div class="inline-actions">
                     <button class="inline-btn-ok" onclick={() => handleCreateStream(brand.slug)}>Add</button>
-                    <button class="inline-btn-cancel" onclick={() => { addingStreamFor = null; newStreamName = '' }}>✕</button>
+                    <button class="inline-btn-cancel" onclick={() => { addingStreamFor = null; newStreamName = '' }}><X size={14} /></button>
                   </div>
                 </div>
               {:else}
@@ -341,7 +346,7 @@
           />
           <div class="inline-actions">
             <button class="inline-btn-ok" onclick={handleCreateBrand}>Add</button>
-            <button class="inline-btn-cancel" onclick={() => { addingBrand = false; newBrandName = '' }}>✕</button>
+            <button class="inline-btn-cancel" onclick={() => { addingBrand = false; newBrandName = '' }}><X size={14} /></button>
           </div>
         </div>
       {:else}
@@ -355,20 +360,12 @@
 
 <style>
   .sidebar {
-    width: 260px;
-    min-width: 260px;
-    background: #1c1c1f;
-    border-right: 1px solid #2e2e32;
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border-muted);
     display: flex;
     flex-direction: column;
     height: 100vh;
-    transition: width 0.2s, min-width 0.2s;
     overflow: hidden;
-  }
-
-  .sidebar.collapsed {
-    width: 48px;
-    min-width: 48px;
   }
 
   .sidebar-header {
@@ -376,14 +373,14 @@
     align-items: center;
     justify-content: space-between;
     padding: 0.75rem 1rem;
-    border-bottom: 1px solid #2e2e32;
+    border-bottom: 1px solid var(--border-muted);
   }
 
   .sidebar-title {
     font-size: 1rem;
     font-weight: 700;
     letter-spacing: 0.1em;
-    color: #f5f5f5;
+    color: var(--text-primary);
   }
 
   .collapsed .sidebar-title {
@@ -393,13 +390,13 @@
   .header-btn {
     background: none;
     border: none;
-    color: #71717a;
+    color: var(--text-muted);
     cursor: pointer;
     font-size: 0.9rem;
     padding: 0.25rem;
   }
   .header-btn:hover {
-    color: #f5f5f5;
+    color: var(--text-primary);
   }
 
   .close-repo-btn {
@@ -409,10 +406,10 @@
     width: calc(100% - 1rem);
     margin: 0.5rem;
     padding: 0.45rem 0.75rem;
-    border: 1px solid #3f3f46;
+    border: 1px solid var(--border);
     border-radius: 6px;
-    background: #27272a;
-    color: #a1a1aa;
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
     font-size: 0.8rem;
     font-weight: 500;
     cursor: pointer;
@@ -420,13 +417,9 @@
   }
 
   .close-repo-btn:hover {
-    background: #3f3f46;
-    color: #e4e4e7;
-    border-color: #52525b;
-  }
-
-  .close-repo-icon {
-    font-size: 1rem;
+    background: var(--border);
+    color: var(--text-strong);
+    border-color: var(--border-hover);
   }
 
   .nav-tree {
@@ -447,7 +440,7 @@
     padding: 0.35rem 0.75rem;
     background: none;
     border: none;
-    color: #d4d4d8;
+    color: var(--text-body);
     font-size: 0.85rem;
     cursor: pointer;
     text-align: left;
@@ -458,12 +451,12 @@
   }
 
   .tree-item:hover {
-    background: #27272a;
+    background: var(--bg-elevated);
   }
 
   .tree-item.selected {
-    background: #3f3f46;
-    color: #f5f5f5;
+    background: var(--border);
+    color: var(--text-primary);
     font-weight: 500;
   }
 
@@ -471,7 +464,7 @@
     font-size: 0.7rem;
     width: 0.8rem;
     flex-shrink: 0;
-    color: #71717a;
+    color: var(--text-muted);
   }
 
   .tree-children {
@@ -480,16 +473,16 @@
 
   .brand-item {
     font-weight: 600;
-    color: #e4e4e7;
+    color: var(--text-strong);
   }
 
   .stream-item {
-    color: #a1a1aa;
+    color: var(--text-secondary);
   }
 
   .project-item {
     padding-left: 2rem;
-    color: #d4d4d8;
+    color: var(--text-body);
   }
 
   .tree-row {
@@ -514,16 +507,16 @@
   }
 
   .tree-row:hover .row-action {
-    color: #52525b;
+    color: var(--text-faint);
   }
 
   .row-action.delete-action:hover {
-    color: #f87171;
+    color: var(--danger-light);
   }
 
   .empty-hint {
     padding: 1rem;
-    color: #52525b;
+    color: var(--text-faint);
     font-size: 0.8rem;
     text-align: center;
   }
@@ -534,14 +527,14 @@
     padding: 0.3rem 0.75rem;
     background: none;
     border: none;
-    color: #52525b;
+    color: var(--text-faint);
     font-size: 0.8rem;
     cursor: pointer;
     text-align: left;
     transition: color 0.1s;
   }
   .add-btn:hover {
-    color: #a1a1aa;
+    color: var(--text-secondary);
   }
   .add-btn.nested {
     padding-left: 2rem;
@@ -561,15 +554,15 @@
     width: 100%;
     padding: 0.3rem 0.5rem;
     border-radius: 4px;
-    border: 1px solid #3f3f46;
-    background: #27272a;
-    color: #f5f5f5;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
     font-size: 0.8rem;
     outline: none;
     box-sizing: border-box;
   }
   .inline-input:focus {
-    border-color: #6366f1;
+    border-color: var(--accent);
   }
 
   .inline-actions {
@@ -581,24 +574,24 @@
     padding: 0.2rem 0.5rem;
     border: none;
     border-radius: 3px;
-    background: #6366f1;
+    background: var(--accent);
     color: #fff;
     font-size: 0.75rem;
     cursor: pointer;
   }
   .inline-btn-ok:hover {
-    background: #4f46e5;
+    background: var(--accent-hover);
   }
 
   .inline-btn-cancel {
     background: none;
     border: none;
-    color: #71717a;
+    color: var(--text-muted);
     cursor: pointer;
     font-size: 0.85rem;
     padding: 0.1rem 0.3rem;
   }
   .inline-btn-cancel:hover {
-    color: #f5f5f5;
+    color: var(--text-primary);
   }
 </style>

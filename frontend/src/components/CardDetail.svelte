@@ -1,6 +1,18 @@
 <script lang="ts">
   import { GetCard, UpdateCardTitle, UpdateCardFields, UpdateCardTags, UpdateCardDueDate,
-    AddChecklistItem, ToggleChecklistItem, RemoveChecklistItem, DeleteCard } from '../lib/api'
+    AddChecklistItem, ToggleChecklistItem, RemoveChecklistItem, DeleteCard,
+    AssignTagColor, SetTagColor, GetTagColors } from '../lib/api'
+  import { tagColors } from '../lib/store.svelte'
+  import { X, Trash2, Square, CheckSquare, Palette } from 'lucide-svelte'
+  import { t } from '../lib/i18n.svelte'
+
+  const TAG_PALETTE = [
+    '#61bd4f', '#f2d600', '#ff9f1a', '#eb5a46', '#c377e0',
+    '#0079bf', '#00c2e0', '#51e898', '#ff78cb', '#344563',
+    '#b3bac5', '#096dd9',
+  ]
+
+  let colorPickerTag = $state<string | null>(null)
 
   let { cardId, onClose, onUpdated }: {
     cardId: string
@@ -77,8 +89,19 @@
     const tags = [...(card.tags || []), tag]
     try {
       card = await UpdateCardTags(cardId, tags)
+      // Auto-assign a color from the palette
+      const colors = await AssignTagColor(tag)
+      tagColors.map = colors || {}
       newTag = ''
       onUpdated?.()
+    } catch (e) { console.error(e) }
+  }
+
+  async function changeTagColor(tag: string, color: string) {
+    try {
+      const colors = await SetTagColor(tag, color)
+      tagColors.map = colors || {}
+      colorPickerTag = null
     } catch (e) { console.error(e) }
   }
 
@@ -130,7 +153,7 @@
   }
 
   async function handleDelete() {
-    if (!confirm('Delete this card? This cannot be undone.')) return
+    if (!confirm(t('card.delete_confirm'))) return
     try {
       await DeleteCard(cardId)
       onUpdated?.()
@@ -155,7 +178,7 @@
 <div class="modal-backdrop" onclick={handleBackdropClick}>
   <div class="modal">
     {#if loading}
-      <div class="modal-loading">Loading card…</div>
+      <div class="modal-loading">{t('app.loading')}</div>
     {:else if card}
       <div class="modal-header">
         <span class="type-badge" style="background: {typeColors[card.type] || '#71717a'}">{card.type}</span>
@@ -174,13 +197,13 @@
           </h2>
         {/if}
 
-        <button class="close-btn" onclick={onClose}>✕</button>
+        <button class="close-btn" onclick={onClose}><X size={18} /></button>
       </div>
 
       <div class="modal-body">
         <!-- Description -->
         <section class="section">
-          <h3 class="section-title">Description</h3>
+          <h3 class="section-title">{t('card.description')}</h3>
           {#if editingDescription}
             <textarea
               class="desc-textarea"
@@ -189,7 +212,7 @@
               rows="4"
             ></textarea>
             <div class="section-actions">
-              <button class="btn-save" onclick={saveDescription}>Save</button>
+              <button class="btn-save" onclick={saveDescription}>{t('card.description_save')}</button>
               <button class="btn-cancel-sm" onclick={() => { editingDescription = false; descriptionDraft = card.fields?.description || '' }}>Cancel</button>
             </div>
           {:else}
@@ -198,7 +221,7 @@
               {#if card.fields?.description}
                 <p>{card.fields.description}</p>
               {:else}
-                <p class="placeholder">Add a more detailed description…</p>
+                <p class="placeholder">{t('card.description_placeholder')}</p>
               {/if}
             </div>
           {/if}
@@ -206,7 +229,7 @@
 
         <!-- Due Date -->
         <section class="section">
-          <h3 class="section-title">Due Date</h3>
+          <h3 class="section-title">{t('card.due_date')}</h3>
           <input
             type="date"
             class="date-input"
@@ -217,13 +240,26 @@
 
         <!-- Tags -->
         <section class="section">
-          <h3 class="section-title">Tags</h3>
+          <h3 class="section-title">{t('card.tags')}</h3>
           <div class="tags-list">
             {#each (card.tags || []) as tag}
-              <span class="tag">
-                {tag}
-                <button class="tag-remove" onclick={() => removeTag(tag)}>✕</button>
+              <span class="tag-chip" style:background={tagColors.map[tag] || 'var(--border)'}>
+                <span class="tag-label">{tag}</span>
+                <button class="tag-color-btn" onclick={() => colorPickerTag = colorPickerTag === tag ? null : tag} title="Change color"><Palette size={10} /></button>
+                <button class="tag-remove" onclick={() => removeTag(tag)}><X size={12} /></button>
               </span>
+              {#if colorPickerTag === tag}
+                <div class="color-picker">
+                  {#each TAG_PALETTE as color}
+                    <button
+                      class="color-swatch"
+                      class:active={tagColors.map[tag] === color}
+                      style:background={color}
+                      onclick={() => changeTagColor(tag, color)}
+                    ></button>
+                  {/each}
+                </div>
+              {/if}
             {/each}
           </div>
           <div class="tag-add">
@@ -231,7 +267,7 @@
               type="text"
               bind:value={newTag}
               onkeydown={handleTagKeydown}
-              placeholder="Add a tag…"
+              placeholder={t('card.tags_placeholder')}
               class="tag-input"
             />
           </div>
@@ -240,7 +276,7 @@
         <!-- Checklist -->
         <section class="section">
           <h3 class="section-title">
-            Checklist
+            {t('card.checklist')}
             {#if card.checklist?.length > 0}
               <span class="checklist-progress">
                 {card.checklist.filter((c: any) => c.done).length}/{card.checklist.length}
@@ -261,10 +297,10 @@
             {#each (card.checklist || []) as item}
               <div class="checklist-item" class:done={item.done}>
                 <button class="checkbox" onclick={() => toggleChecklist(item.id)}>
-                  {item.done ? '☑' : '☐'}
+                  {#if item.done}<CheckSquare size={16} />{:else}<Square size={16} />{/if}
                 </button>
                 <span class="checklist-text">{item.text}</span>
-                <button class="checklist-remove" onclick={() => removeChecklist(item.id)}>✕</button>
+                <button class="checklist-remove" onclick={() => removeChecklist(item.id)}><Trash2 size={12} /></button>
               </div>
             {/each}
           </div>
@@ -274,17 +310,17 @@
               type="text"
               bind:value={newChecklistText}
               onkeydown={handleChecklistKeydown}
-              placeholder="Add an item…"
+              placeholder={t('card.checklist_placeholder')}
               class="checklist-input"
             />
-            <button class="btn-add-sm" onclick={addChecklist}>Add</button>
+            <button class="btn-add-sm" onclick={addChecklist}>{t('card.checklist_add')}</button>
           </div>
         </section>
       </div>
 
       <div class="modal-footer">
         <span class="meta">Created {card.created_at?.slice(0, 10) || '—'}</span>
-        <button class="btn-delete" onclick={handleDelete}>Delete Card</button>
+        <button class="btn-delete" onclick={handleDelete}><Trash2 size={14} /> {t('card.delete')}</button>
       </div>
     {/if}
   </div>
@@ -294,7 +330,7 @@
   .modal-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.6);
+    background: var(--bg-overlay);
     display: flex;
     align-items: flex-start;
     justify-content: center;
@@ -304,7 +340,7 @@
   }
 
   .modal {
-    background: #1c1c1f;
+    background: var(--bg-surface);
     border-radius: 10px;
     width: 600px;
     max-width: 95vw;
@@ -312,13 +348,13 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 8px 32px var(--shadow-lg);
   }
 
   .modal-loading {
     padding: 2rem;
     text-align: center;
-    color: #71717a;
+    color: var(--text-muted);
   }
 
   .modal-header {
@@ -326,7 +362,7 @@
     align-items: center;
     gap: 0.75rem;
     padding: 1rem 1.25rem;
-    border-bottom: 1px solid #2e2e32;
+    border-bottom: 1px solid var(--border-muted);
   }
 
   .type-badge {
@@ -344,23 +380,23 @@
     margin: 0;
     font-size: 1.1rem;
     font-weight: 600;
-    color: #f5f5f5;
+    color: var(--text-primary);
     flex: 1;
     cursor: pointer;
     line-height: 1.3;
   }
   .modal-title:hover {
-    color: #a5b4fc;
+    color: var(--accent-light);
   }
 
   .title-input {
     flex: 1;
     font-size: 1.1rem;
     font-weight: 600;
-    background: #27272a;
-    border: 1px solid #6366f1;
+    background: var(--bg-elevated);
+    border: 1px solid var(--accent);
     border-radius: 4px;
-    color: #f5f5f5;
+    color: var(--text-primary);
     padding: 0.3rem 0.5rem;
     outline: none;
   }
@@ -368,13 +404,13 @@
   .close-btn {
     background: none;
     border: none;
-    color: #71717a;
+    color: var(--text-muted);
     font-size: 1.2rem;
     cursor: pointer;
     padding: 0.25rem;
     flex-shrink: 0;
   }
-  .close-btn:hover { color: #f5f5f5; }
+  .close-btn:hover { color: var(--text-primary); }
 
   .modal-body {
     flex: 1;
@@ -388,7 +424,7 @@
   .section-title {
     font-size: 0.8rem;
     font-weight: 600;
-    color: #a1a1aa;
+    color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     margin: 0 0 0.5rem;
@@ -403,24 +439,24 @@
     border-radius: 6px;
     transition: background 0.1s;
   }
-  .desc-display:hover { background: #27272a; }
-  .desc-display p { margin: 0; color: #d4d4d8; font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; }
-  .desc-display .placeholder { color: #52525b; font-style: italic; }
+  .desc-display:hover { background: var(--bg-elevated); }
+  .desc-display p { margin: 0; color: var(--text-body); font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; }
+  .desc-display .placeholder { color: var(--text-faint); font-style: italic; }
 
   .desc-textarea {
     width: 100%;
     padding: 0.5rem;
     border-radius: 6px;
-    border: 1px solid #3f3f46;
-    background: #27272a;
-    color: #f5f5f5;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
     font-size: 0.9rem;
     font-family: inherit;
     resize: vertical;
     outline: none;
     box-sizing: border-box;
   }
-  .desc-textarea:focus { border-color: #6366f1; }
+  .desc-textarea:focus { border-color: var(--accent); }
 
   .section-actions {
     display: flex;
@@ -431,13 +467,13 @@
   .date-input {
     padding: 0.4rem 0.6rem;
     border-radius: 6px;
-    border: 1px solid #3f3f46;
-    background: #27272a;
-    color: #f5f5f5;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
     font-size: 0.85rem;
     outline: none;
   }
-  .date-input:focus { border-color: #6366f1; }
+  .date-input:focus { border-color: var(--accent); }
 
   .tags-list {
     display: flex;
@@ -446,56 +482,99 @@
     margin-bottom: 0.4rem;
   }
 
-  .tag {
+  .tag-chip {
     font-size: 0.75rem;
     padding: 0.15rem 0.5rem;
     border-radius: 4px;
-    background: #3f3f46;
-    color: #d4d4d8;
+    color: #fff;
     display: flex;
     align-items: center;
     gap: 0.3rem;
   }
 
+  .tag-label {
+    white-space: nowrap;
+  }
+
+  .tag-color-btn {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.6);
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+  }
+  .tag-color-btn:hover { color: #fff; }
+
   .tag-remove {
     background: none;
     border: none;
-    color: #71717a;
+    color: rgba(255, 255, 255, 0.6);
     cursor: pointer;
     font-size: 0.7rem;
     padding: 0;
     line-height: 1;
+    display: flex;
+    align-items: center;
   }
-  .tag-remove:hover { color: #f87171; }
+  .tag-remove:hover { color: var(--danger-light); }
+
+  .color-picker {
+    display: flex;
+    gap: 0.25rem;
+    flex-wrap: wrap;
+    padding: 0.4rem;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    width: 100%;
+  }
+
+  .color-swatch {
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: border-color 0.1s, transform 0.1s;
+  }
+  .color-swatch:hover {
+    transform: scale(1.15);
+  }
+  .color-swatch.active {
+    border-color: #fff;
+  }
 
   .tag-input {
     padding: 0.35rem 0.5rem;
     border-radius: 4px;
-    border: 1px solid #3f3f46;
-    background: #27272a;
-    color: #f5f5f5;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
     font-size: 0.8rem;
     outline: none;
     width: 150px;
   }
-  .tag-input:focus { border-color: #6366f1; }
+  .tag-input:focus { border-color: var(--accent); }
 
   .checklist-progress {
     font-size: 0.7rem;
-    color: #71717a;
+    color: var(--text-muted);
     font-weight: 400;
   }
 
   .checklist-bar {
     height: 4px;
-    background: #3f3f46;
+    background: var(--border);
     border-radius: 2px;
     overflow: hidden;
     margin-bottom: 0.5rem;
   }
   .checklist-bar-fill {
     height: 100%;
-    background: #22c55e;
+    background: var(--success);
     border-radius: 2px;
     transition: width 0.2s;
   }
@@ -516,18 +595,18 @@
   .checkbox {
     background: none;
     border: none;
-    color: #71717a;
+    color: var(--text-muted);
     cursor: pointer;
     font-size: 1rem;
     padding: 0;
   }
-  .checklist-item.done .checkbox { color: #22c55e; }
-  .checklist-item.done .checklist-text { text-decoration: line-through; color: #52525b; }
+  .checklist-item.done .checkbox { color: var(--success); }
+  .checklist-item.done .checklist-text { text-decoration: line-through; color: var(--text-faint); }
 
   .checklist-text {
     flex: 1;
     font-size: 0.85rem;
-    color: #d4d4d8;
+    color: var(--text-body);
   }
 
   .checklist-remove {
@@ -538,8 +617,8 @@
     font-size: 0.75rem;
     padding: 0.15rem 0.3rem;
   }
-  .checklist-item:hover .checklist-remove { color: #71717a; }
-  .checklist-remove:hover { color: #f87171 !important; }
+  .checklist-item:hover .checklist-remove { color: var(--text-muted); }
+  .checklist-remove:hover { color: var(--danger-light) !important; }
 
   .checklist-add {
     display: flex;
@@ -551,58 +630,58 @@
     flex: 1;
     padding: 0.35rem 0.5rem;
     border-radius: 4px;
-    border: 1px solid #3f3f46;
-    background: #27272a;
-    color: #f5f5f5;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
     font-size: 0.8rem;
     outline: none;
   }
-  .checklist-input:focus { border-color: #6366f1; }
+  .checklist-input:focus { border-color: var(--accent); }
 
   .btn-save {
     padding: 0.3rem 0.7rem;
     border: none;
     border-radius: 4px;
-    background: #6366f1;
+    background: var(--accent);
     color: #fff;
     font-size: 0.8rem;
     cursor: pointer;
   }
-  .btn-save:hover { background: #4f46e5; }
+  .btn-save:hover { background: var(--accent-hover); }
 
   .btn-cancel-sm {
     padding: 0.3rem 0.7rem;
     border: none;
     border-radius: 4px;
     background: transparent;
-    color: #71717a;
+    color: var(--text-muted);
     font-size: 0.8rem;
     cursor: pointer;
   }
-  .btn-cancel-sm:hover { color: #f5f5f5; }
+  .btn-cancel-sm:hover { color: var(--text-primary); }
 
   .btn-add-sm {
     padding: 0.3rem 0.6rem;
     border: none;
     border-radius: 4px;
-    background: #3f3f46;
-    color: #d4d4d8;
+    background: var(--border);
+    color: var(--text-body);
     font-size: 0.8rem;
     cursor: pointer;
   }
-  .btn-add-sm:hover { background: #52525b; }
+  .btn-add-sm:hover { background: var(--border-hover); }
 
   .modal-footer {
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 0.75rem 1.25rem;
-    border-top: 1px solid #2e2e32;
+    border-top: 1px solid var(--border-muted);
   }
 
   .meta {
     font-size: 0.75rem;
-    color: #52525b;
+    color: var(--text-faint);
   }
 
   .btn-delete {
@@ -610,9 +689,9 @@
     border: none;
     border-radius: 4px;
     background: transparent;
-    color: #71717a;
+    color: var(--text-muted);
     font-size: 0.8rem;
     cursor: pointer;
   }
-  .btn-delete:hover { color: #f87171; background: rgba(248, 113, 113, 0.1); }
+  .btn-delete:hover { color: var(--danger-light); background: rgba(248, 113, 113, 0.1); }
 </style>

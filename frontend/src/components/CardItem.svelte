@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { search, tagColors, dnd } from '../lib/store.svelte'
+
   type CardData = {
     id: string
     type: string
@@ -9,7 +11,20 @@
     checklist_done: number
   }
 
-  let { card, onclick }: { card: CardData; onclick?: () => void } = $props()
+  let { card, categoryId, onclick }: { card: CardData; categoryId: string; onclick?: () => void } = $props()
+
+  function handleDragStart(e: DragEvent) {
+    if (!e.dataTransfer) return
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', card.id)
+    dnd.dragging = { type: 'card', cardId: card.id, fromCategoryId: categoryId }
+  }
+
+  function handleDragEnd() {
+    dnd.dragging = null
+    dnd.overCategoryId = null
+    dnd.overCardIndex = null
+  }
 
   const typeColors: Record<string, string> = {
     feature: '#6366f1',
@@ -20,11 +35,19 @@
   }
 
   function badgeColor(type: string) {
-    return typeColors[type] || '#71717a'
+    return typeColors[type] || 'var(--text-muted)'
   }
 </script>
 
-<button class="card-item" onclick={onclick}>
+<button
+  class="card-item"
+  class:search-highlight={search.matchingIds.has(card.id)}
+  class:dragging={dnd.dragging?.type === 'card' && dnd.dragging.cardId === card.id}
+  draggable="true"
+  ondragstart={handleDragStart}
+  ondragend={handleDragEnd}
+  onclick={onclick}
+>
   <div class="card-header">
     <span class="type-badge" style="background: {badgeColor(card.type)}">{card.type}</span>
     {#if card.due_date}
@@ -44,7 +67,7 @@
     {#if card.tags.length > 0}
       <div class="tags">
         {#each card.tags.slice(0, 3) as tag}
-          <span class="tag">{tag}</span>
+          <span class="tag" style:background={tagColors.map[tag] || 'var(--border)'}>{tag}</span>
         {/each}
         {#if card.tags.length > 3}
           <span class="tag tag-more">+{card.tags.length - 3}</span>
@@ -56,22 +79,31 @@
 
 <style>
   .card-item {
-    background: #27272a;
-    border: 1px solid #3f3f46;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
     border-radius: 8px;
     padding: 0.6rem 0.75rem;
-    cursor: pointer;
+    cursor: grab;
     text-align: left;
     width: 100%;
-    transition: border-color 0.15s, box-shadow 0.15s;
+    transition: border-color 0.15s, box-shadow 0.15s, opacity 0.15s;
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
   }
 
+  .card-item.dragging {
+    opacity: 0.4;
+  }
+
   .card-item:hover {
-    border-color: #52525b;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    border-color: var(--border-hover);
+    box-shadow: 0 2px 8px var(--shadow);
+  }
+
+  .card-item.search-highlight {
+    border-color: var(--accent-light);
+    box-shadow: 0 0 8px var(--accent-glow-1), 0 0 20px var(--accent-glow-2), 0 0 40px var(--accent-glow-3);
   }
 
   .card-header {
@@ -94,13 +126,13 @@
 
   .due-date {
     font-size: 0.7rem;
-    color: #a1a1aa;
+    color: var(--text-secondary);
   }
 
   .card-title {
     margin: 0;
     font-size: 0.85rem;
-    color: #e4e4e7;
+    color: var(--text-strong);
     line-height: 1.3;
     font-weight: 400;
   }
@@ -114,11 +146,11 @@
 
   .checklist-count {
     font-size: 0.7rem;
-    color: #71717a;
+    color: var(--text-muted);
   }
 
   .checklist-count.all-done {
-    color: #22c55e;
+    color: var(--success);
   }
 
   .tags {
@@ -131,12 +163,12 @@
     font-size: 0.6rem;
     padding: 0.05rem 0.35rem;
     border-radius: 3px;
-    background: #3f3f46;
-    color: #a1a1aa;
+    background: var(--border);
+    color: #fff;
   }
 
   .tag-more {
     background: transparent;
-    color: #71717a;
+    color: var(--text-muted);
   }
 </style>

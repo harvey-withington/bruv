@@ -138,6 +138,31 @@ func (r *Repository) MoveCardInCategory(cardID, projectID, categoryID string, ne
 	return r.savePinFile(pinFile)
 }
 
+// MoveCardToCategory moves a card from one category to another within the same project.
+func (r *Repository) MoveCardToCategory(cardID, projectID, fromCategoryID, toCategoryID string, newPosition int) error {
+	pinFile, err := r.loadPinFile(cardID)
+	if err != nil {
+		return err
+	}
+
+	found := false
+	for i := range pinFile.Pins {
+		if pinFile.Pins[i].ProjectID == projectID && pinFile.Pins[i].CategoryID == fromCategoryID {
+			pinFile.Pins[i].ProjectID = toCategoryID
+			pinFile.Pins[i].CategoryID = toCategoryID
+			pinFile.Pins[i].Position = newPosition
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("card %q is not pinned to project %q / category %q", cardID, projectID, fromCategoryID)
+	}
+
+	return r.savePinFile(pinFile)
+}
+
 // Internal helpers
 
 func (r *Repository) pinsBasePath() string {

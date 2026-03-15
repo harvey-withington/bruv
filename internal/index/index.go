@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -212,10 +213,22 @@ type SearchResult struct {
 }
 
 // Search performs a full-text search across the index.
+// Each word in the query gets a prefix wildcard so partial matches work (e.g. "Prem" → "Prem*").
 func (idx *Index) Search(query string, limit int) ([]SearchResult, error) {
 	if limit <= 0 {
 		limit = 50
 	}
+
+	// Build prefix query: split into words, append * to each for prefix matching
+	words := strings.Fields(query)
+	if len(words) == 0 {
+		return nil, nil
+	}
+	for i, w := range words {
+		w = strings.TrimRight(w, "*")
+		words[i] = w + "*"
+	}
+	ftsQuery := strings.Join(words, " ")
 
 	rows, err := idx.db.Query(`
 		SELECT f.id, f.title, c.type, rank
@@ -224,7 +237,7 @@ func (idx *Index) Search(query string, limit int) ([]SearchResult, error) {
 		WHERE cards_fts MATCH ?
 		ORDER BY rank
 		LIMIT ?`,
-		query, limit,
+		ftsQuery, limit,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("search query: %w", err)

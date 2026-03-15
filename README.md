@@ -1,6 +1,6 @@
 # BRUV
 
-> Your most organised mate.
+> Your most organised best bud.
 
 An AI-native, local-first productivity app combining the structure of a kanban board with the intelligence of an LLM assistant. Built by Good Egg Software.
 

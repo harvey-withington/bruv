@@ -148,7 +148,6 @@ func (r *Repository) MoveCardToCategory(cardID, projectID, fromCategoryID, toCat
 	found := false
 	for i := range pinFile.Pins {
 		if pinFile.Pins[i].ProjectID == projectID && pinFile.Pins[i].CategoryID == fromCategoryID {
-			pinFile.Pins[i].ProjectID = toCategoryID
 			pinFile.Pins[i].CategoryID = toCategoryID
 			pinFile.Pins[i].Position = newPosition
 			found = true

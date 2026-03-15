@@ -10,6 +10,12 @@ export function toggleTheme() {
   localStorage.setItem('bruv-theme', theme.mode)
 }
 
+export function setTheme(mode: 'light' | 'dark') {
+  theme.mode = mode
+  applyTheme()
+  localStorage.setItem('bruv-theme', mode)
+}
+
 export function loadTheme() {
   const saved = localStorage.getItem('bruv-theme') as 'light' | 'dark' | null
   if (saved === 'light' || saved === 'dark') {

@@ -24,6 +24,13 @@
   "board.add_category": "Add category",
   "board.add_category_long": "+ Add another category",
   "board.category_placeholder": "Enter category title...",
+  "board.delete_category": "Delete category",
+  "board.delete_category_confirm": "Delete \"{name}\"?",
+  "board.delete_category_empty": "This category has no cards and will be deleted.",
+  "board.delete_category_has_cards": "This category has {count} card(s). Move them before deleting:",
+  "board.move_cards_to": "Move cards to",
+  "board.delete_and_move": "Move & Delete",
+  "board.delete_only": "Delete",
 
   "column.add_card": "Add card",
   "column.add_card_long": "+ Add a card",
@@ -45,5 +52,33 @@
 
   "theme.toggle": "Toggle theme",
   "theme.light": "Light",
-  "theme.dark": "Dark"
+  "theme.dark": "Dark",
+
+  "prefs.title": "Preferences",
+  "prefs.reopen_last_repo": "Re-open last repository on launch",
+  "prefs.theme": "Theme",
+  "prefs.theme_dark": "Dark",
+  "prefs.theme_light": "Light",
+  "prefs.theme_system": "System",
+  "prefs.locale": "Language",
+  "prefs.confirm_delete": "Confirm before deleting",
+  "prefs.sidebar_width": "Default sidebar width",
+  "prefs.saved": "Preferences saved",
+
+  "profile.title": "User Profile",
+  "profile.display_name": "Display Name",
+  "profile.display_name_placeholder": "Your name",
+  "profile.role": "Role",
+  "profile.role_placeholder": "e.g. Software Engineer, Content Creator",
+  "profile.bio": "Bio",
+  "profile.bio_placeholder": "A short description about yourself",
+  "profile.expertise": "Areas of Expertise",
+  "profile.expertise_placeholder": "Add an area of expertise…",
+  "profile.context": "Additional Context for AI",
+  "profile.context_placeholder": "Any additional context you'd like AI assistants to know about you…",
+  "profile.saved": "Profile saved",
+
+  "common.save": "Save",
+  "common.cancel": "Cancel",
+  "common.close": "Close"
 }

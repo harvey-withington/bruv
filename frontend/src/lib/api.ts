@@ -5,7 +5,7 @@ import { Version, HasRepository, InitRepository, OpenRepository, CloseRepository
   CreateBrand, GetBrand, ListBrands, DeleteBrand,
   CreateStream, ListStreams, DeleteStream,
   CreateProject, ListProjects, DeleteProject,
-  CreateCategory, ListCategories,
+  CreateCategory, ListCategories, DeleteCategory, MoveCategoryCards,
   CreateCard, GetCard, ListCards, DeleteCard,
   UpdateCardTitle, UpdateCardFields, UpdateCardTags, UpdateCardDueDate,
   AddChecklistItem, ToggleChecklistItem, RemoveChecklistItem,
@@ -15,6 +15,8 @@ import { Version, HasRepository, InitRepository, OpenRepository, CloseRepository
   ListCardTypes, ValidateCardFields,
   SearchCards, RebuildIndex, RefreshIndex,
   ListCardIDsInCategory, ListCardIDsByTag,
+  GetPreferences, SetPreferences,
+  GetProfile, SetProfile,
 } from '../../wailsjs/go/main/App.js'
 
 export {
@@ -23,7 +25,7 @@ export {
   CreateBrand, GetBrand, ListBrands, DeleteBrand,
   CreateStream, ListStreams, DeleteStream,
   CreateProject, ListProjects, DeleteProject,
-  CreateCategory, ListCategories,
+  CreateCategory, ListCategories, DeleteCategory, MoveCategoryCards,
   CreateCard, GetCard, ListCards, DeleteCard,
   UpdateCardTitle, UpdateCardFields, UpdateCardTags, UpdateCardDueDate,
   AddChecklistItem, ToggleChecklistItem, RemoveChecklistItem,
@@ -33,4 +35,6 @@ export {
   ListCardTypes, ValidateCardFields,
   SearchCards, RebuildIndex, RefreshIndex,
   ListCardIDsInCategory, ListCardIDsByTag,
+  GetPreferences, SetPreferences,
+  GetProfile, SetProfile,
 }

@@ -2,13 +2,17 @@
   import Column from './Column.svelte'
   import CardDetail from './CardDetail.svelte'
   import { board, nav, tagColors, dnd } from '../lib/store.svelte'
-  import { CreateCard, PinCard, CreateCategory, ListCategories, GetCard, ListCardIDsInCategory, GetTagColors, MoveCardInCategory, MoveCardToCategory, ReorderCategories } from '../lib/api'
+  import { CreateCard, PinCard, CreateCategory, ListCategories, GetCard, ListCardIDsInCategory, GetTagColors, MoveCardInCategory, MoveCardToCategory, ReorderCategories, DeleteCategory, MoveCategoryCards } from '../lib/api'
   import { X, Plus } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
 
   let addingCategory = $state(false)
   let newCategoryName = $state('')
   let selectedCardId = $state<string | null>(null)
+
+  // Category delete confirmation state
+  let deletingCategory = $state<{ id: string; slug: string; name: string; cardCount: number } | null>(null)
+  let moveTargetId = $state<string>('')
 
   async function handleAddCard(categoryId: string) {
     // Find the column component's new title
@@ -149,6 +153,35 @@
     }
   }
 
+  function handleDeleteCategoryRequest(categoryId: string, categorySlug: string, categoryName: string, cardCount: number) {
+    deletingCategory = { id: categoryId, slug: categorySlug, name: categoryName, cardCount }
+    // Default move target: first other category
+    const other = board.categories.find(c => c.id !== categoryId)
+    moveTargetId = other?.id || ''
+  }
+
+  function cancelDeleteCategory() {
+    deletingCategory = null
+    moveTargetId = ''
+  }
+
+  async function confirmDeleteCategory() {
+    if (!deletingCategory || !nav.brandSlug || !nav.streamSlug || !nav.projectSlug) return
+    const { id, slug, cardCount } = deletingCategory
+    try {
+      // If cards exist and a move target is chosen, move them first
+      if (cardCount > 0 && moveTargetId) {
+        await MoveCategoryCards(nav.brandSlug, nav.streamSlug, nav.projectSlug, id, moveTargetId)
+      }
+      await DeleteCategory(nav.brandSlug, nav.streamSlug, nav.projectSlug, slug)
+      deletingCategory = null
+      moveTargetId = ''
+      await refreshBoard()
+    } catch (e) {
+      console.error('Delete category failed:', e)
+    }
+  }
+
   async function handleAddCategory() {
     if (!newCategoryName.trim() || !nav.brandSlug || !nav.streamSlug || !nav.projectSlug) return
 
@@ -235,6 +268,7 @@
             onCardClick={handleCardClick}
             onAddCard={handleAddCard}
             onCardDrop={handleCardDrop}
+            onDeleteCategory={handleDeleteCategoryRequest}
           />
         </div>
       {/each}
@@ -267,6 +301,38 @@
   {/if}
 </div>
 
+{#if deletingCategory}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="delete-overlay" onclick={cancelDeleteCategory}>
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="delete-dialog" onclick={(e: MouseEvent) => e.stopPropagation()}>
+      <h3 class="delete-title">{t('board.delete_category_confirm', { name: deletingCategory.name })}</h3>
+
+      {#if deletingCategory.cardCount === 0}
+        <p class="delete-msg">{t('board.delete_category_empty')}</p>
+        <div class="delete-actions">
+          <button class="btn-ghost" onclick={cancelDeleteCategory}>{t('common.cancel')}</button>
+          <button class="btn-danger" onclick={confirmDeleteCategory}>{t('board.delete_only')}</button>
+        </div>
+      {:else}
+        <p class="delete-msg">{t('board.delete_category_has_cards', { count: deletingCategory.cardCount })}</p>
+        <label class="move-label">
+          <span>{t('board.move_cards_to')}</span>
+          <select bind:value={moveTargetId}>
+            {#each board.categories.filter(c => c.id !== deletingCategory?.id) as cat}
+              <option value={cat.id}>{cat.name}</option>
+            {/each}
+          </select>
+        </label>
+        <div class="delete-actions">
+          <button class="btn-ghost" onclick={cancelDeleteCategory}>{t('common.cancel')}</button>
+          <button class="btn-danger" onclick={confirmDeleteCategory} disabled={!moveTargetId}>{t('board.delete_and_move')}</button>
+        </div>
+      {/if}
+    </div>
+  </div>
+{/if}
+
 {#if selectedCardId}
   <CardDetail
     cardId={selectedCardId}
@@ -276,6 +342,88 @@
 {/if}
 
 <style>
+  .delete-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--bg-overlay);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+
+  .delete-dialog {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem;
+    width: 380px;
+    box-shadow: 0 8px 32px var(--shadow-lg);
+  }
+
+  .delete-title {
+    margin: 0 0 0.75rem;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .delete-msg {
+    margin: 0 0 1rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+  }
+
+  .move-label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+  }
+
+  .move-label select {
+    padding: 0.4rem 0.6rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    outline: none;
+  }
+  .move-label select:focus { border-color: var(--accent); }
+
+  .delete-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+
+  .btn-ghost {
+    padding: 0.4rem 0.85rem;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  .btn-ghost:hover { color: var(--text-primary); }
+
+  .btn-danger {
+    padding: 0.4rem 0.85rem;
+    border: none;
+    border-radius: 6px;
+    background: var(--danger);
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .btn-danger:hover { background: var(--danger-light); }
+  .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+
   .board {
     flex: 1;
     overflow-x: auto;

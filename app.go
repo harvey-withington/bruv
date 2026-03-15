@@ -18,10 +18,11 @@ const AppVersion = "0.1.0-dev"
 
 // App struct
 type App struct {
-	ctx      context.Context
-	repo     *repo.Repository
-	registry *schema.Registry
-	idx      *index.Index
+	ctx         context.Context
+	repo        *repo.Repository
+	registry    *schema.Registry
+	idx         *index.Index
+	savedBounds *config.WindowBounds
 }
 
 // NewApp creates a new App application struct
@@ -40,6 +41,45 @@ func (a *App) startup(ctx context.Context) {
 		fmt.Printf("warning: failed to load card type schemas: %v\n", err)
 	}
 	a.registry = reg
+}
+
+// domReady is called after the frontend DOM is ready.
+// We restore the saved window position here and show the window.
+func (a *App) domReady(ctx context.Context) {
+	if a.savedBounds != nil {
+		wailsRuntime.WindowSetSize(ctx, a.savedBounds.Width, a.savedBounds.Height)
+		wailsRuntime.WindowSetPosition(ctx, a.savedBounds.X, a.savedBounds.Y)
+
+		if a.savedBounds.Maximised {
+			wailsRuntime.WindowMaximise(ctx)
+		}
+	}
+	wailsRuntime.WindowShow(ctx)
+}
+
+// beforeClose is called when the window is about to close.
+// We save the current window position and size.
+func (a *App) beforeClose(ctx context.Context) bool {
+	maximised := wailsRuntime.WindowIsMaximised(ctx)
+
+	// If maximised, un-maximise briefly to get the restored position
+	if maximised {
+		wailsRuntime.WindowUnmaximise(ctx)
+	}
+
+	x, y := wailsRuntime.WindowGetPosition(ctx)
+	w, h := wailsRuntime.WindowGetSize(ctx)
+
+	wb := &config.WindowBounds{
+		X:         x,
+		Y:         y,
+		Width:     w,
+		Height:    h,
+		Maximised: maximised,
+	}
+	_ = config.SaveWindowBounds(wb)
+
+	return false // allow close
 }
 
 // Version returns the current application version
@@ -227,6 +267,42 @@ func (a *App) ListCategories(brandSlug, streamSlug, projectSlug string) ([]model
 		return nil, fmt.Errorf("no repository open")
 	}
 	return a.repo.ListCategories(brandSlug, streamSlug, projectSlug)
+}
+
+func (a *App) DeleteCategory(brandSlug, streamSlug, projectSlug, categorySlug string) error {
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
+	return a.repo.DeleteCategory(brandSlug, streamSlug, projectSlug, categorySlug)
+}
+
+// MoveCategoryCards moves all card pins from one category to another, then deletes the source category.
+func (a *App) MoveCategoryCards(brandSlug, streamSlug, projectSlug, fromCategoryID, toCategoryID string) error {
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
+	if a.idx == nil {
+		return fmt.Errorf("no index available")
+	}
+
+	// Get all card IDs in the source category
+	cardIDs, err := a.idx.ListCardIDsInCategory(fromCategoryID, fromCategoryID)
+	if err != nil {
+		return fmt.Errorf("list cards in category: %w", err)
+	}
+
+	// Move each card's pin to the target category
+	for i, cardID := range cardIDs {
+		if err := a.repo.MoveCardToCategory(cardID, fromCategoryID, fromCategoryID, toCategoryID, i); err != nil {
+			return fmt.Errorf("move card %s: %w", cardID, err)
+		}
+		// Re-index pins
+		if pins, err := a.repo.GetCardPins(cardID); err == nil {
+			_ = a.idx.IndexPins(cardID, pins)
+		}
+	}
+
+	return nil
 }
 
 // --- Card ---
@@ -536,4 +612,24 @@ func (a *App) ListCardIDsByTag(tag string) ([]string, error) {
 		return nil, fmt.Errorf("no index available")
 	}
 	return a.idx.ListCardIDsByTag(tag)
+}
+
+// --- User Preferences ---
+
+func (a *App) GetPreferences() (config.Preferences, error) {
+	return config.LoadPreferences()
+}
+
+func (a *App) SetPreferences(p config.Preferences) error {
+	return config.SavePreferences(p)
+}
+
+// --- User Profile ---
+
+func (a *App) GetProfile() (config.UserProfile, error) {
+	return config.LoadProfile()
+}
+
+func (a *App) SetProfile(p config.UserProfile) error {
+	return config.SaveProfile(p)
 }

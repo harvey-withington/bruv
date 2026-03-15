@@ -11,6 +11,7 @@
     nav.brandSlug = null
     nav.streamSlug = null
     nav.projectSlug = null
+    localStorage.removeItem('bruv-last-nav')
     board.categories = []
     brands = []
     streamsByBrand = {}
@@ -39,9 +40,31 @@
 
   $effect(() => {
     if (nav.repoOpen) {
-      loadBrands()
+      loadBrandsAndRestore()
     }
   })
+
+  async function loadBrandsAndRestore() {
+    await loadBrands()
+    // Restore last nav state if available
+    try {
+      const raw = localStorage.getItem('bruv-last-nav')
+      if (!raw) return
+      const last = JSON.parse(raw) as { brandSlug: string; streamSlug: string; projectSlug: string }
+      if (!last.brandSlug || !last.streamSlug || !last.projectSlug) return
+      // Expand brand
+      expandedBrands.add(last.brandSlug)
+      expandedBrands = new Set(expandedBrands)
+      streamsByBrand[last.brandSlug] = await ListStreams(last.brandSlug) || []
+      // Expand stream
+      const streamKey = `${last.brandSlug}/${last.streamSlug}`
+      expandedStreams.add(streamKey)
+      expandedStreams = new Set(expandedStreams)
+      projectsByStream[streamKey] = await ListProjects(last.brandSlug, last.streamSlug) || []
+      // Select the project and load board
+      await selectProject(last.brandSlug, last.streamSlug, last.projectSlug)
+    } catch { /* ignore — just show sidebar without selection */ }
+  }
 
   async function loadBrands() {
     try {
@@ -84,6 +107,7 @@
     nav.brandSlug = brandSlug
     nav.streamSlug = streamSlug
     nav.projectSlug = projectSlug
+    localStorage.setItem('bruv-last-nav', JSON.stringify({ brandSlug, streamSlug, projectSlug }))
     await loadBoard(brandSlug, streamSlug, projectSlug)
   }
 

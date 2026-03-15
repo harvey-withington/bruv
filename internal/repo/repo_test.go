@@ -275,6 +275,135 @@ func TestCategoryCRUD(t *testing.T) {
 	}
 }
 
+// --- Category Reorder ---
+
+func TestReorderCategories(t *testing.T) {
+	r := setupTestRepo(t)
+	r.CreateBrand("B")
+	r.CreateStream("b", "v1")
+	r.CreateProject("b", "v1", "P")
+	r.CreateCategory("b", "v1", "p", "Alpha", 0)
+	r.CreateCategory("b", "v1", "p", "Beta", 1)
+	r.CreateCategory("b", "v1", "p", "Gamma", 2)
+
+	// Reverse the order
+	if err := r.ReorderCategories("b", "v1", "p", []string{"gamma", "beta", "alpha"}); err != nil {
+		t.Fatalf("ReorderCategories: %v", err)
+	}
+
+	cats, _ := r.ListCategories("b", "v1", "p")
+	if len(cats) != 3 {
+		t.Fatalf("count = %d, want 3", len(cats))
+	}
+	if cats[0].Name != "Gamma" || cats[1].Name != "Beta" || cats[2].Name != "Alpha" {
+		t.Errorf("wrong order after reorder: %v, %v, %v", cats[0].Name, cats[1].Name, cats[2].Name)
+	}
+}
+
+func TestDeleteCategoryNonExistentFails(t *testing.T) {
+	r := setupTestRepo(t)
+	r.CreateBrand("B")
+	r.CreateStream("b", "v1")
+	r.CreateProject("b", "v1", "P")
+
+	if err := r.DeleteCategory("b", "v1", "p", "nonexistent"); err == nil {
+		t.Fatal("expected error deleting non-existent category")
+	}
+}
+
+// --- Move Card Between Categories ---
+
+func TestMoveCardToCategory(t *testing.T) {
+	r := setupTestRepo(t)
+	r.CreateBrand("B")
+	r.CreateStream("b", "v1")
+	proj, _ := r.CreateProject("b", "v1", "P")
+	catA, _ := r.CreateCategory("b", "v1", "p", "Todo", 0)
+	catB, _ := r.CreateCategory("b", "v1", "p", "Done", 1)
+
+	card, _ := r.CreateCard("task", "Move me")
+	r.PinCard(card.ID, proj.ID, catA.ID)
+
+	// Move card from Todo to Done
+	if err := r.MoveCardToCategory(card.ID, proj.ID, catA.ID, catB.ID, 0); err != nil {
+		t.Fatalf("MoveCardToCategory: %v", err)
+	}
+
+	// Card should no longer be in Todo
+	pinsInA, _ := r.ListCardsInCategory(proj.ID, catA.ID)
+	if len(pinsInA) != 0 {
+		t.Errorf("Todo should have 0 cards, got %d", len(pinsInA))
+	}
+
+	// Card should be in Done
+	pinsInB, _ := r.ListCardsInCategory(proj.ID, catB.ID)
+	if len(pinsInB) != 1 {
+		t.Errorf("Done should have 1 card, got %d", len(pinsInB))
+	}
+}
+
+func TestMoveCardInCategoryReorder(t *testing.T) {
+	r := setupTestRepo(t)
+	r.CreateBrand("B")
+	r.CreateStream("b", "v1")
+	proj, _ := r.CreateProject("b", "v1", "P")
+	cat, _ := r.CreateCategory("b", "v1", "p", "Todo", 0)
+
+	card1, _ := r.CreateCard("task", "First")
+	card2, _ := r.CreateCard("task", "Second")
+	r.PinCard(card1.ID, proj.ID, cat.ID)
+	r.PinCard(card2.ID, proj.ID, cat.ID)
+
+	// Move card1 to position 1 (after card2)
+	if err := r.MoveCardInCategory(card1.ID, proj.ID, cat.ID, 1); err != nil {
+		t.Fatalf("MoveCardInCategory: %v", err)
+	}
+
+	pins, _ := r.GetCardPins(card1.ID)
+	for _, p := range pins {
+		if p.ProjectID == proj.ID && p.CategoryID == cat.ID {
+			if p.Position != 1 {
+				t.Errorf("card1 position = %d, want 1", p.Position)
+			}
+		}
+	}
+}
+
+// --- Tag Colors ---
+
+func TestTagColorCRUD(t *testing.T) {
+	r := setupTestRepo(t)
+
+	// Set colors
+	if _, err := r.SetTagColor("urgent", "#ff0000"); err != nil {
+		t.Fatalf("SetTagColor: %v", err)
+	}
+	if _, err := r.SetTagColor("feature", "#00ff00"); err != nil {
+		t.Fatalf("SetTagColor: %v", err)
+	}
+
+	// Get colors
+	colors, err := r.GetTagColors()
+	if err != nil {
+		t.Fatalf("GetTagColors: %v", err)
+	}
+	if colors["urgent"] != "#ff0000" {
+		t.Errorf("urgent = %q, want %q", colors["urgent"], "#ff0000")
+	}
+	if colors["feature"] != "#00ff00" {
+		t.Errorf("feature = %q, want %q", colors["feature"], "#00ff00")
+	}
+
+	// Overwrite
+	if _, err := r.SetTagColor("urgent", "#cc0000"); err != nil {
+		t.Fatalf("SetTagColor overwrite: %v", err)
+	}
+	colors, _ = r.GetTagColors()
+	if colors["urgent"] != "#cc0000" {
+		t.Errorf("after overwrite: urgent = %q, want %q", colors["urgent"], "#cc0000")
+	}
+}
+
 // --- Card CRUD ---
 
 func TestCardCRUD(t *testing.T) {

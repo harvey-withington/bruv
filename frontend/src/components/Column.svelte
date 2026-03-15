@@ -1,6 +1,6 @@
 <script lang="ts">
   import CardItem from './CardItem.svelte'
-  import { X, GripVertical } from 'lucide-svelte'
+  import { X, GripVertical, Trash2 } from 'lucide-svelte'
   import { dnd } from '../lib/store.svelte'
   import { t } from '../lib/i18n.svelte'
 
@@ -22,11 +22,12 @@
     cards: CardData[]
   }
 
-  let { category, onCardClick, onAddCard, onCardDrop }: {
+  let { category, onCardClick, onAddCard, onCardDrop, onDeleteCategory }: {
     category: CategoryData
     onCardClick?: (cardId: string) => void
     onAddCard?: (categoryId: string) => void
     onCardDrop?: (cardId: string, fromCategoryId: string, toCategoryId: string, toIndex: number) => void
+    onDeleteCategory?: (categoryId: string, categorySlug: string, categoryName: string, cardCount: number) => void
   } = $props()
 
   let adding = $state(false)
@@ -133,6 +134,11 @@
     <span class="drag-handle"><GripVertical size={14} /></span>
     <h3 class="column-title">{category.name}</h3>
     <span class="card-count">{category.cards.length}</span>
+    <button
+      class="col-delete-btn"
+      title={t('board.delete_category')}
+      onclick={(e: MouseEvent) => { e.stopPropagation(); onDeleteCategory?.(category.id, category.slug, category.name, category.cards.length) }}
+    ><Trash2 size={13} /></button>
   </div>
 
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -232,6 +238,22 @@
     padding: 0.1rem 0.4rem;
     border-radius: 10px;
   }
+
+  .col-delete-btn {
+    background: none;
+    border: none;
+    color: var(--text-faint);
+    cursor: pointer;
+    padding: 0.2rem;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    margin-left: auto;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s;
+  }
+  .column-header:hover .col-delete-btn { opacity: 1; }
+  .col-delete-btn:hover { color: var(--danger); }
 
   .card-list {
     flex: 1;

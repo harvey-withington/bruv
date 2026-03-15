@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "title": "Feature",
+  "description": "A software feature with acceptance criteria and complexity",
+  "properties": {
+    "description": {
+      "type": "string",
+      "description": "Detailed description of the feature"
+    },
+    "acceptance_criteria": {
+      "type": "string",
+      "description": "What must be true for this feature to be considered done"
+    },
+    "version_target": {
+      "type": "string",
+      "description": "Target version for this feature"
+    },
+    "complexity": {
+      "type": "string",
+      "enum": ["trivial", "low", "medium", "high", "epic"],
+      "description": "Estimated complexity"
+    }
+  },
+  "required": ["description"]
+}

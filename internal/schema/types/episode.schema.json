@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "title": "Episode",
+  "description": "A podcast episode with recording status and show notes",
+  "properties": {
+    "description": {
+      "type": "string",
+      "description": "Episode description or summary"
+    },
+    "recording_status": {
+      "type": "string",
+      "enum": ["not_started", "scripted", "recorded", "edited", "published"],
+      "description": "Current recording/production status"
+    },
+    "publish_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Scheduled or actual publish date"
+    },
+    "show_notes": {
+      "type": "string",
+      "description": "Show notes content"
+    },
+    "duration_minutes": {
+      "type": "integer",
+      "description": "Episode duration in minutes"
+    }
+  },
+  "required": ["description"]
+}

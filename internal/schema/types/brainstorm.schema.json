@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "title": "Brainstorm",
+  "description": "A loose container for early ideas",
+  "properties": {
+    "notes": {
+      "type": "string",
+      "description": "Freeform notes and ideas"
+    }
+  },
+  "required": []
+}

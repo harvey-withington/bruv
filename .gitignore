@@ -1,0 +1,23 @@
+build/bin
+node_modules
+frontend/dist
+frontend/wailsjs
+
+# IDE
+.vscode/
+!.vscode/launch.json
+!.vscode/tasks.json
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib

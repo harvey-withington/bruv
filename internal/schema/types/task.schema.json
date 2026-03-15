@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "title": "Task",
+  "description": "A discrete action item with optional due date and assignee",
+  "properties": {
+    "description": {
+      "type": "string",
+      "description": "What needs to be done"
+    },
+    "assignee": {
+      "type": "string",
+      "description": "Person responsible for this task"
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "urgent"],
+      "description": "Task priority level"
+    }
+  },
+  "required": []
+}

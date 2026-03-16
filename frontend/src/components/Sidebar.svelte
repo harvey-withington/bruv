@@ -1,6 +1,6 @@
 <script lang="ts">
   import { nav, board, tagColors } from '../lib/store.svelte'
-  import { CloseRepository, CreateBrand, RenameBrand, CreateStream, RenameStream, CreateProject, RenameProject, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, ListCategories, GetCard, GetCardPins, ListCardIDsInCategory, GetTagColors } from '../lib/api'
+  import { CloseRepository, CreateBrand, RenameBrand, CreateStream, RenameStream, CreateProject, RenameProject, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, ListCategories, GetCard, GetCardPins, ListCardIDsInCategory, GetTagColors, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject } from '../lib/api'
   import { LogOut, Trash2, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle } from 'lucide-svelte'
   import ThemeToggle from './ThemeToggle.svelte'
   import BruvIcon from './BruvIcon.svelte'
@@ -199,12 +199,6 @@
       const name = await findUniqueName(t('default.brand_name'), brands.map(b => b.name))
       const created = await CreateBrand(name)
       await loadBrands()
-      // Move new item to end so it appears where the "+" button was
-      const idx = brands.findIndex(b => b.slug === created.slug)
-      if (idx !== -1 && idx !== brands.length - 1) {
-        const [item] = brands.splice(idx, 1)
-        brands.push(item)
-      }
       expandedBrands.add(created.slug)
       expandedBrands = new Set(expandedBrands)
       streamsByBrand[created.slug] = []
@@ -233,13 +227,6 @@
       const name = await findUniqueName(t('default.stream_name'), existing.map(s => s.name))
       const created = await CreateStream(brandSlug, name)
       streamsByBrand[brandSlug] = await ListStreams(brandSlug) || []
-      // Move new item to end so it appears where the "+" button was
-      const streams = streamsByBrand[brandSlug]
-      const sIdx = streams.findIndex(s => s.slug === created.slug)
-      if (sIdx !== -1 && sIdx !== streams.length - 1) {
-        const [item] = streams.splice(sIdx, 1)
-        streams.push(item)
-      }
       const streamKey = `${brandSlug}/${created.slug}`
       expandedStreams.add(streamKey)
       expandedStreams = new Set(expandedStreams)
@@ -270,13 +257,6 @@
       const name = await findUniqueName(t('default.project_name'), existing.map(p => p.name))
       const created = await CreateProject(brandSlug, streamSlug, name)
       projectsByStream[streamKey] = await ListProjects(brandSlug, streamSlug) || []
-      // Move new item to end so it appears where the "+" button was
-      const projects = projectsByStream[streamKey]
-      const pIdx = projects.findIndex(p => p.slug === created.slug)
-      if (pIdx !== -1 && pIdx !== projects.length - 1) {
-        const [item] = projects.splice(pIdx, 1)
-        projects.push(item)
-      }
       const key = `${brandSlug}/${streamSlug}/${created.slug}`
       renameCancelled = false
       renamingProjectKey = key
@@ -384,6 +364,146 @@
       projectsByStream[key] = await ListProjects(brandSlug, streamSlug) || []
     } catch (e) { console.error('DeleteProject:', e) }
   }
+
+  // --- Drag & drop reorder / move / copy ---
+
+  type DragItem =
+    | { type: 'brand'; slug: string }
+    | { type: 'stream'; brandSlug: string; slug: string }
+    | { type: 'project'; brandSlug: string; streamSlug: string; slug: string }
+
+  let dragging = $state<DragItem | null>(null)
+  let dropTarget = $state<{ type: string; parentKey: string; index: number } | null>(null)
+  let isCopyMode = $state(false)
+
+  function handleDragStart(e: DragEvent, item: DragItem) {
+    e.stopPropagation()
+    dragging = item
+    isCopyMode = e.ctrlKey
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'copyMove'
+      e.dataTransfer.setData('text/plain', '')
+    }
+  }
+
+  function handleDragEnd() {
+    dragging = null
+    dropTarget = null
+    isCopyMode = false
+  }
+
+  function handleDragOverItem(e: DragEvent, type: string, parentKey: string, itemIndex: number) {
+    if (!dragging || dragging.type !== type) return
+    e.preventDefault()
+    e.stopPropagation()
+    isCopyMode = e.ctrlKey
+    if (e.dataTransfer) e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'
+
+    // Use mouse position to decide before/after
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const midY = rect.top + rect.height / 2
+    const insertIndex = e.clientY < midY ? itemIndex : itemIndex + 1
+
+    dropTarget = { type, parentKey, index: insertIndex }
+  }
+
+  function handleDragOverGap(e: DragEvent, type: string, parentKey: string, gapIndex: number) {
+    if (!dragging || dragging.type !== type) return
+    e.preventDefault()
+    e.stopPropagation()
+    isCopyMode = e.ctrlKey
+    if (e.dataTransfer) e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'
+    dropTarget = { type, parentKey, index: gapIndex }
+  }
+
+  async function handleDrop(e: DragEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!dragging || !dropTarget || dragging.type !== dropTarget.type) {
+      dragging = null; dropTarget = null; isCopyMode = false
+      return
+    }
+
+    const copy = e.ctrlKey
+    const toIndex = dropTarget.index
+    const toParent = dropTarget.parentKey
+    const d = dragging
+    dragging = null; dropTarget = null; isCopyMode = false
+
+    try {
+      if (d.type === 'brand') {
+        if (copy) {
+          await CopyBrand(d.slug)
+          await loadBrands()
+        } else {
+          const fromIndex = brands.findIndex(b => b.slug === d.slug)
+          if (fromIndex === -1) return
+          const adjustedTo = toIndex > fromIndex ? toIndex - 1 : toIndex
+          if (fromIndex === adjustedTo) return
+          const [item] = brands.splice(fromIndex, 1)
+          brands.splice(adjustedTo, 0, item)
+          brands = [...brands]
+          await ReorderBrands(brands.map(b => b.slug))
+        }
+      } else if (d.type === 'stream') {
+        const fromBrand = d.brandSlug
+        const toBrand = toParent // parentKey is brandSlug
+        if (copy) {
+          await CopyStream(fromBrand, d.slug, toBrand)
+          streamsByBrand[toBrand] = await ListStreams(toBrand) || []
+          if (fromBrand !== toBrand) streamsByBrand[fromBrand] = await ListStreams(fromBrand) || []
+        } else if (fromBrand === toBrand) {
+          // Reorder within same brand
+          const streams = streamsByBrand[fromBrand] || []
+          const fromIndex = streams.findIndex(s => s.slug === d.slug)
+          if (fromIndex === -1) return
+          const adjustedTo = toIndex > fromIndex ? toIndex - 1 : toIndex
+          if (fromIndex === adjustedTo) return
+          const [item] = streams.splice(fromIndex, 1)
+          streams.splice(adjustedTo, 0, item)
+          streamsByBrand[fromBrand] = [...streams]
+          await ReorderStreams(fromBrand, streams.map(s => s.slug))
+        } else {
+          // Move to different brand
+          await MoveStream(fromBrand, d.slug, toBrand)
+          streamsByBrand[fromBrand] = await ListStreams(fromBrand) || []
+          streamsByBrand[toBrand] = await ListStreams(toBrand) || []
+        }
+      } else if (d.type === 'project') {
+        const fromBrand = d.brandSlug
+        const fromStream = d.streamSlug
+        const fromKey = `${fromBrand}/${fromStream}`
+        // toParent is "brandSlug/streamSlug"
+        const [toBrand, toStream] = toParent.split('/')
+        const toKey = toParent
+        if (copy) {
+          await CopyProject(fromBrand, fromStream, d.slug, toBrand, toStream)
+          projectsByStream[toKey] = await ListProjects(toBrand, toStream) || []
+          if (fromKey !== toKey) projectsByStream[fromKey] = await ListProjects(fromBrand, fromStream) || []
+        } else if (fromKey === toKey) {
+          // Reorder within same stream
+          const projects = projectsByStream[fromKey] || []
+          const fromIndex = projects.findIndex(p => p.slug === d.slug)
+          if (fromIndex === -1) return
+          const adjustedTo = toIndex > fromIndex ? toIndex - 1 : toIndex
+          if (fromIndex === adjustedTo) return
+          const [item] = projects.splice(fromIndex, 1)
+          projects.splice(adjustedTo, 0, item)
+          projectsByStream[fromKey] = [...projects]
+          await ReorderProjects(fromBrand, fromStream, projects.map(p => p.slug))
+        } else {
+          // Move to different stream
+          await MoveProject(fromBrand, fromStream, d.slug, toBrand, toStream)
+          projectsByStream[fromKey] = await ListProjects(fromBrand, fromStream) || []
+          projectsByStream[toKey] = await ListProjects(toBrand, toStream) || []
+        }
+      }
+    } catch (err) { console.error('Drag/drop:', err) }
+  }
+
+  function isDropIndicator(type: string, parentKey: string, index: number): boolean {
+    return dropTarget?.type === type && dropTarget?.parentKey === parentKey && dropTarget?.index === index
+  }
 </script>
 
 <aside class="sidebar" class:collapsed={nav.sidebarCollapsed} style:width="{nav.sidebarCollapsed ? 48 : nav.sidebarWidth}px" style:min-width="{nav.sidebarCollapsed ? 48 : nav.sidebarWidth}px">
@@ -401,10 +521,25 @@
       {t('sidebar.close_repo')}
     </button>
 
-    <nav class="nav-tree">
-      {#each brands as brand}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <nav class="nav-tree"
+      ondragover={(e) => { if (dragging) { e.preventDefault(); isCopyMode = e.ctrlKey; if (e.dataTransfer) e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move' } }}
+      ondrop={handleDrop}
+    >
+      {#each brands as brand, brandIdx}
+        {#if isDropIndicator('brand', '', brandIdx)}
+          <div class="drop-indicator" class:copy-mode={isCopyMode}></div>
+        {/if}
         <div class="tree-node">
-          <div class="tree-row">
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div class="tree-row"
+            draggable={renamingBrand !== brand.slug}
+            ondragstart={(e) => handleDragStart(e, { type: 'brand', slug: brand.slug })}
+            ondragend={handleDragEnd}
+            ondragover={(e) => handleDragOverItem(e, 'brand', '', brandIdx)}
+            ondrop={handleDrop}
+            class:dragging-item={dragging?.type === 'brand' && dragging?.slug === brand.slug}
+          >
             {#if renamingBrand === brand.slug}
               <input
                 class="rename-input brand-level"
@@ -423,9 +558,20 @@
 
           {#if expandedBrands.has(brand.slug) && streamsByBrand[brand.slug]}
             <div class="tree-children">
-              {#each streamsByBrand[brand.slug] as stream}
+              {#each streamsByBrand[brand.slug] as stream, streamIdx}
+                {#if isDropIndicator('stream', brand.slug, streamIdx)}
+                  <div class="drop-indicator" class:copy-mode={isCopyMode}></div>
+                {/if}
                 <div class="tree-node">
-                  <div class="tree-row">
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <div class="tree-row"
+                    draggable={renamingStreamKey !== `${brand.slug}/${stream.slug}`}
+                    ondragstart={(e) => handleDragStart(e, { type: 'stream', brandSlug: brand.slug, slug: stream.slug })}
+                    ondragend={handleDragEnd}
+                    ondragover={(e) => handleDragOverItem(e, 'stream', brand.slug, streamIdx)}
+                    ondrop={handleDrop}
+                    class:dragging-item={dragging?.type === 'stream' && dragging?.slug === stream.slug}
+                  >
                     {#if renamingStreamKey === `${brand.slug}/${stream.slug}`}
                       <input
                         class="rename-input stream-level"
@@ -444,8 +590,19 @@
 
                   {#if expandedStreams.has(`${brand.slug}/${stream.slug}`) && projectsByStream[`${brand.slug}/${stream.slug}`]}
                     <div class="tree-children">
-                      {#each projectsByStream[`${brand.slug}/${stream.slug}`] as project}
-                        <div class="tree-row">
+                      {#each projectsByStream[`${brand.slug}/${stream.slug}`] as project, projectIdx}
+                        {#if isDropIndicator('project', `${brand.slug}/${stream.slug}`, projectIdx)}
+                          <div class="drop-indicator" class:copy-mode={isCopyMode}></div>
+                        {/if}
+                        <!-- svelte-ignore a11y_no_static_element_interactions -->
+                        <div class="tree-row"
+                          draggable={renamingProjectKey !== `${brand.slug}/${stream.slug}/${project.slug}`}
+                          ondragstart={(e) => handleDragStart(e, { type: 'project', brandSlug: brand.slug, streamSlug: stream.slug, slug: project.slug })}
+                          ondragend={handleDragEnd}
+                          ondragover={(e) => handleDragOverItem(e, 'project', `${brand.slug}/${stream.slug}`, projectIdx)}
+                          ondrop={handleDrop}
+                          class:dragging-item={dragging?.type === 'project' && dragging?.slug === project.slug}
+                        >
                           {#if renamingProjectKey === `${brand.slug}/${stream.slug}/${project.slug}`}
                             <input
                               class="rename-input project-level"
@@ -465,28 +622,49 @@
                           {/if}
                         </div>
                       {/each}
+                      {#if isDropIndicator('project', `${brand.slug}/${stream.slug}`, projectsByStream[`${brand.slug}/${stream.slug}`]?.length ?? 0)}
+                        <div class="drop-indicator" class:copy-mode={isCopyMode}></div>
+                      {/if}
 
-                      <button class="add-btn nested" onclick={() => handleCreateProject(brand.slug, stream.slug)} title={t('tooltip.add_project')}>
+                      <!-- svelte-ignore a11y_no_static_element_interactions -->
+                      <button class="add-btn nested" onclick={() => handleCreateProject(brand.slug, stream.slug)} title={t('tooltip.add_project')}
+                        ondragover={(e) => handleDragOverGap(e, 'project', `${brand.slug}/${stream.slug}`, projectsByStream[`${brand.slug}/${stream.slug}`]?.length ?? 0)}
+                        ondrop={handleDrop}
+                      >
                         + Add project
                       </button>
                     </div>
                   {/if}
                 </div>
               {/each}
+              {#if isDropIndicator('stream', brand.slug, streamsByBrand[brand.slug]?.length ?? 0)}
+                <div class="drop-indicator" class:copy-mode={isCopyMode}></div>
+              {/if}
 
-              <button class="add-btn" onclick={() => handleCreateStream(brand.slug)} title={t('tooltip.add_stream')}>
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <button class="add-btn" onclick={() => handleCreateStream(brand.slug)} title={t('tooltip.add_stream')}
+                ondragover={(e) => handleDragOverGap(e, 'stream', brand.slug, streamsByBrand[brand.slug]?.length ?? 0)}
+                ondrop={handleDrop}
+              >
                 + Add stream
               </button>
             </div>
           {/if}
         </div>
       {/each}
+      {#if isDropIndicator('brand', '', brands.length)}
+        <div class="drop-indicator" class:copy-mode={isCopyMode}></div>
+      {/if}
 
       {#if brands.length === 0}
         <p class="empty-hint">No brands yet.</p>
       {/if}
 
-      <button class="add-btn" onclick={handleCreateBrand} title={t('tooltip.add_brand')}>
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <button class="add-btn" onclick={handleCreateBrand} title={t('tooltip.add_brand')}
+        ondragover={(e) => handleDragOverGap(e, 'brand', '', brands.length)}
+        ondrop={handleDrop}
+      >
         + Add brand
       </button>
     </nav>
@@ -639,6 +817,11 @@
   .tree-row {
     display: flex;
     align-items: center;
+    cursor: grab;
+  }
+
+  .tree-row:active {
+    cursor: grabbing;
   }
 
   .tree-row .tree-item {
@@ -743,5 +926,22 @@
   .footer-btn:hover {
     color: var(--text-primary);
     background: var(--bg-subtle-hover);
+  }
+
+  /* Drag & drop */
+  .dragging-item {
+    opacity: 0.4;
+  }
+
+  .drop-indicator {
+    height: 2px;
+    background: var(--accent);
+    border-radius: 1px;
+    margin: 0 0.5rem;
+  }
+
+  .drop-indicator.copy-mode {
+    background: var(--success, #22c55e);
+    height: 3px;
   }
 </style>

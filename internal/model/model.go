@@ -12,12 +12,13 @@ type Manifest struct {
 
 // Brand is the top-level container representing a coherent identity or organisation.
 type Brand struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Slug         string `json:"slug"`
-	Logo         string `json:"logo,omitempty"`
-	Website      string `json:"website,omitempty"`
-	SystemPrompt string `json:"system_prompt,omitempty"`
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	Slug         string    `json:"slug"`
+	Logo         string    `json:"logo,omitempty"`
+	Website      string    `json:"website,omitempty"`
+	SystemPrompt string    `json:"system_prompt,omitempty"`
+	Position     int       `json:"position"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -28,6 +29,7 @@ type Stream struct {
 	BrandID   string    `json:"brand_id"`
 	Name      string    `json:"name"`
 	Slug      string    `json:"slug"`
+	Position  int       `json:"position"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -39,6 +41,7 @@ type Project struct {
 	BrandID   string    `json:"brand_id"`
 	Name      string    `json:"name"`
 	Slug      string    `json:"slug"`
+	Position  int       `json:"position"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -74,17 +77,17 @@ type ChecklistItem struct {
 // Card is the atomic unit of work. Exists once in the repository, can be pinned
 // to multiple Projects via Pins.
 type Card struct {
-	ID           string            `json:"id"`
-	Type         string            `json:"type"`
-	Title        string            `json:"title"`
-	CreatedAt    time.Time         `json:"created_at"`
-	UpdatedAt    time.Time         `json:"updated_at"`
-	ContextLevel ContextLevel      `json:"context_level"`
-	Fields       map[string]any    `json:"fields"`
-	Checklist    []ChecklistItem   `json:"checklist"`
-	Attachments  []string          `json:"attachments"`
-	DueDate      *time.Time        `json:"due_date"`
-	Tags         []string          `json:"tags"`
+	ID           string          `json:"id"`
+	Type         string          `json:"type"`
+	Title        string          `json:"title"`
+	CreatedAt    time.Time       `json:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at"`
+	ContextLevel ContextLevel    `json:"context_level"`
+	Fields       map[string]any  `json:"fields"`
+	Checklist    []ChecklistItem `json:"checklist"`
+	Attachments  []string        `json:"attachments"`
+	DueDate      *time.Time      `json:"due_date"`
+	Tags         []string        `json:"tags"`
 }
 
 // Pin represents a card's membership in a specific Project/Category.

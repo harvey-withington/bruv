@@ -44,11 +44,13 @@ export const dnd = $state<{
   overCategoryId: string | null
   overCardIndex: number | null
   overColumnIndex: number | null
+  copyMode: boolean
 }>({
   dragging: null,
   overCategoryId: null,
   overCardIndex: null,
   overColumnIndex: null,
+  copyMode: false,
 })
 
 // Search state

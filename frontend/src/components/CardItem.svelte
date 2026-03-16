@@ -15,7 +15,7 @@
 
   function handleDragStart(e: DragEvent) {
     if (!e.dataTransfer) return
-    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.effectAllowed = 'copyMove'
     e.dataTransfer.setData('text/plain', card.id)
     dnd.dragging = { type: 'card', cardId: card.id, fromCategoryId: categoryId }
   }

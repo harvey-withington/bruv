@@ -27,6 +27,10 @@ func (r *Repository) CreateStream(brandSlug, name string) (*model.Stream, error)
 		return nil, fmt.Errorf("stream %q already exists in brand %q", name, brandSlug)
 	}
 
+	// Count existing streams so the new one is appended at the end
+	existingStreams, _ := r.ListStreams(brandSlug)
+	position := len(existingStreams)
+
 	if err := os.MkdirAll(streamDir, 0755); err != nil {
 		return nil, fmt.Errorf("create stream directory: %w", err)
 	}
@@ -37,6 +41,7 @@ func (r *Repository) CreateStream(brandSlug, name string) (*model.Stream, error)
 		BrandID:   brand.ID,
 		Name:      name,
 		Slug:      slug,
+		Position:  position,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -83,6 +88,16 @@ func (r *Repository) ListStreams(brandSlug string) ([]model.Stream, error) {
 		}
 		streams = append(streams, *stream)
 	}
+
+	// Sort by position
+	for i := 0; i < len(streams); i++ {
+		for j := i + 1; j < len(streams); j++ {
+			if streams[j].Position < streams[i].Position {
+				streams[i], streams[j] = streams[j], streams[i]
+			}
+		}
+	}
+
 	return streams, nil
 }
 
@@ -100,6 +115,19 @@ func (r *Repository) UpdateStream(brandSlug, streamSlug string, update func(*mod
 		return nil, fmt.Errorf("write stream: %w", err)
 	}
 	return stream, nil
+}
+
+// ReorderStreams updates the position of all streams within a brand based on the given ordered slug list.
+func (r *Repository) ReorderStreams(brandSlug string, orderedSlugs []string) error {
+	for i, slug := range orderedSlugs {
+		_, err := r.UpdateStream(brandSlug, slug, func(s *model.Stream) {
+			s.Position = i
+		})
+		if err != nil {
+			return fmt.Errorf("reorder stream %q: %w", slug, err)
+		}
+	}
+	return nil
 }
 
 // DeleteStream removes a Stream and all its contents.

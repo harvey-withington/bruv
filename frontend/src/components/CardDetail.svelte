@@ -3,7 +3,7 @@
     AddChecklistItem, ToggleChecklistItem, RemoveChecklistItem, DeleteCard,
     AssignTagColor, SetTagColor, GetTagColors } from '../lib/api'
   import { tagColors } from '../lib/store.svelte'
-  import { X, Trash2, Square, CheckSquare, Palette } from 'lucide-svelte'
+  import { X, Trash2, Square, CheckSquare, Palette, Save } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
 
   const TAG_PALETTE = [
@@ -16,7 +16,7 @@
 
   let { cardId, onClose, onUpdated, autoEditTitle }: {
     cardId: string
-    onClose: () => void
+    onClose: (opts?: { escaped?: boolean }) => void
     onUpdated?: () => void
     autoEditTitle?: boolean
   } = $props()
@@ -87,8 +87,7 @@
   async function handleTitleKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()
-      await saveTitle()
-      onClose()
+      await saveAndClose()
     } else if (e.key === 'Enter' || e.key === 'Tab') {
       e.preventDefault()
       saveTitle()
@@ -111,8 +110,7 @@
   async function handleDescKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()
-      await saveDescription()
-      onClose()
+      await saveAndClose()
     } else if (e.key === 'Escape') {
       editingDescription = false
       descriptionDraft = card.fields?.description || ''
@@ -197,6 +195,16 @@
     } catch (e) { console.error(e) }
   }
 
+  async function saveAndClose() {
+    if (editingTitle && titleDraft.trim() && titleDraft !== card.title) {
+      await saveTitle()
+    }
+    if (editingDescription) {
+      await saveDescription()
+    }
+    onClose()
+  }
+
   function handleBackdropClick(e: MouseEvent) {
     if ((e.target as HTMLElement).classList.contains('modal-backdrop')) {
       onClose()
@@ -204,7 +212,12 @@
   }
 
   function handleBackdropKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') onClose()
+    if (e.key === 'Escape') {
+      onClose({ escaped: true })
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault()
+      saveAndClose()
+    }
   }
 </script>
 
@@ -234,7 +247,7 @@
           </h2>
         {/if}
 
-        <button class="close-btn" onclick={onClose} title={t('tooltip.close_card')}><X size={18} /></button>
+        <button class="close-btn" onclick={() => onClose()} title={t('tooltip.close_card')}><X size={18} /></button>
       </div>
 
       <div class="modal-body">
@@ -250,7 +263,6 @@
               rows="4"
             ></textarea>
             <div class="section-actions">
-              <button class="btn-save" onclick={saveDescription}>{t('card.description_save')}</button>
               <button class="btn-cancel-sm" onclick={() => { editingDescription = false; descriptionDraft = card.fields?.description || '' }}>Cancel</button>
             </div>
           {:else}
@@ -358,7 +370,10 @@
 
       <div class="modal-footer">
         <span class="meta">Created {card.created_at?.slice(0, 10) || '—'}</span>
-        <button class="btn-delete" onclick={handleDelete} title={t('tooltip.delete_card')}><Trash2 size={14} /> {t('card.delete')}</button>
+        <div class="footer-actions">
+          <button class="btn-delete" onclick={handleDelete} title={t('tooltip.delete_card')}><Trash2 size={14} /> {t('card.delete')}</button>
+          <button class="btn-save" onclick={saveAndClose}><Save size={14} /> {t('card.save')}</button>
+        </div>
       </div>
     {/if}
   </div>
@@ -715,6 +730,12 @@
     justify-content: space-between;
     padding: 0.75rem 1.25rem;
     border-top: 1px solid var(--border-muted);
+  }
+
+  .footer-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
 
   .meta {

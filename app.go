@@ -373,6 +373,71 @@ func (a *App) ListCards() ([]model.Card, error) {
 	return a.repo.ListCards()
 }
 
+// DuplicateCard creates a copy of a card with a new ID and pins it to the given category.
+func (a *App) DuplicateCard(cardID, categoryID string) (*model.Card, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	newCard, err := a.repo.DuplicateCard(cardID)
+	if err != nil {
+		return nil, err
+	}
+	// Pin with categoryID for both projectID and categoryID (frontend convention)
+	if err := a.repo.PinCard(newCard.ID, categoryID, categoryID); err != nil {
+		return nil, err
+	}
+	if a.idx != nil {
+		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
+	}
+	return newCard, nil
+}
+
+// CopyCategory duplicates a category and all its cards within the same project.
+func (a *App) CopyCategory(brandSlug, streamSlug, projectSlug, categorySlug string) (*model.Category, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	// Get source category
+	srcCats, err := a.repo.ListCategories(brandSlug, streamSlug, projectSlug)
+	if err != nil {
+		return nil, err
+	}
+	var srcCat *model.Category
+	for _, c := range srcCats {
+		if c.Slug == categorySlug {
+			cc := c
+			srcCat = &cc
+			break
+		}
+	}
+	if srcCat == nil {
+		return nil, fmt.Errorf("category %q not found", categorySlug)
+	}
+
+	// Create new category with " Copy" suffix
+	newCat, err := a.repo.CreateCategory(brandSlug, streamSlug, projectSlug, srcCat.Name+" Copy", len(srcCats))
+	if err != nil {
+		return nil, err
+	}
+
+	// Duplicate all cards from source to new category
+	if a.idx != nil {
+		cardIDs, err := a.idx.ListCardIDsInCategory(srcCat.ID, srcCat.ID)
+		if err == nil {
+			for _, cardID := range cardIDs {
+				newCard, err := a.repo.DuplicateCard(cardID)
+				if err != nil {
+					continue
+				}
+				_ = a.repo.PinCard(newCard.ID, newCat.ID, newCat.ID)
+			}
+		}
+		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
+	}
+
+	return newCat, nil
+}
+
 func (a *App) DeleteCard(id string) error {
 	if a.repo == nil {
 		return fmt.Errorf("no repository open")
@@ -548,6 +613,193 @@ func (a *App) MoveCardToCategory(cardID, projectID, fromCategoryID, toCategoryID
 		}
 	}
 	return nil
+}
+
+// --- Move & Copy ---
+
+// MoveProject moves a project from one stream to another.
+func (a *App) MoveProject(fromBrand, fromStream, projectSlug, toBrand, toStream string) error {
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
+	_, err := a.repo.MoveProject(fromBrand, fromStream, projectSlug, toBrand, toStream)
+	return err
+}
+
+// MoveStream moves a stream from one brand to another.
+func (a *App) MoveStream(fromBrand, streamSlug, toBrand string) error {
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
+	_, err := a.repo.MoveStream(fromBrand, streamSlug, toBrand)
+	return err
+}
+
+// duplicateCardsForProject duplicates all cards in source categories and pins them
+// to the corresponding destination categories. Uses the index to find cards.
+// oldCatIDs and newCatIDs map category slug → category ID.
+func (a *App) duplicateCardsForProject(oldCatIDs, newCatIDs map[string]string) {
+	if a.idx == nil || a.repo == nil {
+		return
+	}
+	for slug, oldCatID := range oldCatIDs {
+		newCatID, ok := newCatIDs[slug]
+		if !ok {
+			continue
+		}
+		// Frontend convention: projectID == categoryID in pins
+		cardIDs, err := a.idx.ListCardIDsInCategory(oldCatID, oldCatID)
+		if err != nil || len(cardIDs) == 0 {
+			continue
+		}
+		for _, cardID := range cardIDs {
+			newCard, err := a.repo.DuplicateCard(cardID)
+			if err != nil {
+				continue
+			}
+			// Pin with categoryID for both projectID and categoryID
+			_ = a.repo.PinCard(newCard.ID, newCatID, newCatID)
+		}
+	}
+}
+
+// snapshotCatIDs returns a map of category slug → category ID for a project.
+func (a *App) snapshotCatIDs(brand, stream, project string) map[string]string {
+	cats, _ := a.repo.ListCategories(brand, stream, project)
+	m := make(map[string]string, len(cats))
+	for _, c := range cats {
+		m[c.Slug] = c.ID
+	}
+	return m
+}
+
+// CopyBrand deep-copies a brand and all its contents, including cards.
+func (a *App) CopyBrand(brandSlug string) (*model.Brand, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+
+	// Snapshot all source category IDs before copy
+	type projCatSnapshot struct {
+		streamSlug  string
+		projectSlug string
+		catIDs      map[string]string
+	}
+	var snapshots []projCatSnapshot
+	srcStreams, _ := a.repo.ListStreams(brandSlug)
+	for _, s := range srcStreams {
+		projects, _ := a.repo.ListProjects(brandSlug, s.Slug)
+		for _, p := range projects {
+			snapshots = append(snapshots, projCatSnapshot{
+				streamSlug:  s.Slug,
+				projectSlug: p.Slug,
+				catIDs:      a.snapshotCatIDs(brandSlug, s.Slug, p.Slug),
+			})
+		}
+	}
+
+	result, err := a.repo.CopyBrand(brandSlug)
+	if err != nil {
+		return nil, err
+	}
+
+	// Duplicate cards for each project using new category IDs
+	for _, snap := range snapshots {
+		newCatIDs := a.snapshotCatIDs(result.Slug, snap.streamSlug, snap.projectSlug)
+		a.duplicateCardsForProject(snap.catIDs, newCatIDs)
+	}
+
+	if a.idx != nil {
+		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
+	}
+	return result, nil
+}
+
+// CopyStream deep-copies a stream into the target brand, including cards.
+func (a *App) CopyStream(fromBrand, streamSlug, toBrand string) (*model.Stream, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+
+	// Snapshot source category IDs
+	type projCatSnapshot struct {
+		projectSlug string
+		catIDs      map[string]string
+	}
+	var snapshots []projCatSnapshot
+	srcProjects, _ := a.repo.ListProjects(fromBrand, streamSlug)
+	for _, p := range srcProjects {
+		snapshots = append(snapshots, projCatSnapshot{
+			projectSlug: p.Slug,
+			catIDs:      a.snapshotCatIDs(fromBrand, streamSlug, p.Slug),
+		})
+	}
+
+	result, err := a.repo.CopyStream(fromBrand, streamSlug, toBrand)
+	if err != nil {
+		return nil, err
+	}
+
+	// Duplicate cards for each project
+	for _, snap := range snapshots {
+		newCatIDs := a.snapshotCatIDs(toBrand, result.Slug, snap.projectSlug)
+		a.duplicateCardsForProject(snap.catIDs, newCatIDs)
+	}
+
+	if a.idx != nil {
+		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
+	}
+	return result, nil
+}
+
+// CopyProject deep-copies a project into the target stream, including cards.
+func (a *App) CopyProject(fromBrand, fromStream, projectSlug, toBrand, toStream string) (*model.Project, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+
+	// Snapshot source category IDs
+	oldCatIDs := a.snapshotCatIDs(fromBrand, fromStream, projectSlug)
+
+	result, err := a.repo.CopyProject(fromBrand, fromStream, projectSlug, toBrand, toStream)
+	if err != nil {
+		return nil, err
+	}
+
+	// Duplicate cards
+	newCatIDs := a.snapshotCatIDs(toBrand, toStream, result.Slug)
+	a.duplicateCardsForProject(oldCatIDs, newCatIDs)
+
+	if a.idx != nil {
+		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
+	}
+	return result, nil
+}
+
+// --- Reorder ---
+
+// ReorderBrands updates brand positions based on the given ordered slug list.
+func (a *App) ReorderBrands(orderedSlugs []string) error {
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
+	return a.repo.ReorderBrands(orderedSlugs)
+}
+
+// ReorderStreams updates stream positions within a brand based on the given ordered slug list.
+func (a *App) ReorderStreams(brandSlug string, orderedSlugs []string) error {
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
+	return a.repo.ReorderStreams(brandSlug, orderedSlugs)
+}
+
+// ReorderProjects updates project positions within a stream based on the given ordered slug list.
+func (a *App) ReorderProjects(brandSlug, streamSlug string, orderedSlugs []string) error {
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
+	return a.repo.ReorderProjects(brandSlug, streamSlug, orderedSlugs)
 }
 
 // ReorderCategories updates category positions based on the given ordered slug list.

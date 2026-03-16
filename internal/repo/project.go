@@ -31,6 +31,10 @@ func (r *Repository) CreateProject(brandSlug, streamSlug, name string) (*model.P
 		return nil, fmt.Errorf("project %q already exists in stream %q", name, streamSlug)
 	}
 
+	// Count existing projects so the new one is appended at the end
+	existingProjects, _ := r.ListProjects(brandSlug, streamSlug)
+	position := len(existingProjects)
+
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
 		return nil, fmt.Errorf("create project directory: %w", err)
 	}
@@ -42,6 +46,7 @@ func (r *Repository) CreateProject(brandSlug, streamSlug, name string) (*model.P
 		BrandID:   brand.ID,
 		Name:      name,
 		Slug:      slug,
+		Position:  position,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -88,6 +93,16 @@ func (r *Repository) ListProjects(brandSlug, streamSlug string) ([]model.Project
 		}
 		projects = append(projects, *project)
 	}
+
+	// Sort by position
+	for i := 0; i < len(projects); i++ {
+		for j := i + 1; j < len(projects); j++ {
+			if projects[j].Position < projects[i].Position {
+				projects[i], projects[j] = projects[j], projects[i]
+			}
+		}
+	}
+
 	return projects, nil
 }
 
@@ -105,6 +120,19 @@ func (r *Repository) UpdateProject(brandSlug, streamSlug, projectSlug string, up
 		return nil, fmt.Errorf("write project: %w", err)
 	}
 	return project, nil
+}
+
+// ReorderProjects updates the position of all projects within a stream based on the given ordered slug list.
+func (r *Repository) ReorderProjects(brandSlug, streamSlug string, orderedSlugs []string) error {
+	for i, slug := range orderedSlugs {
+		_, err := r.UpdateProject(brandSlug, streamSlug, slug, func(p *model.Project) {
+			p.Position = i
+		})
+		if err != nil {
+			return fmt.Errorf("reorder project %q: %w", slug, err)
+		}
+	}
+	return nil
 }
 
 // DeleteProject removes a Project and all its contents.

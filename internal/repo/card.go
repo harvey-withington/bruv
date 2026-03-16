@@ -187,6 +187,23 @@ func (r *Repository) PromoteChecklistItem(cardID, itemID, targetType string) (*m
 	return newCard, nil
 }
 
+// DuplicateCard creates a copy of an existing card with a new ID.
+func (r *Repository) DuplicateCard(srcCardID string) (*model.Card, error) {
+	src, err := r.GetCard(srcCardID)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	newCard := *src
+	newCard.ID = uuid.New().String()
+	newCard.CreatedAt = now
+	newCard.UpdatedAt = now
+	if err := writeJSON(r.cardFilePath(newCard.ID), &newCard); err != nil {
+		return nil, fmt.Errorf("write duplicated card: %w", err)
+	}
+	return &newCard, nil
+}
+
 // ListCardsByType returns all Cards of a specific type.
 func (r *Repository) ListCardsByType(cardType string) ([]model.Card, error) {
 	allCards, err := r.ListCards()

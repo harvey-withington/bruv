@@ -28,9 +28,11 @@
   "board.delete_category": "Delete category",
   "board.delete_category_confirm": "Delete \"{name}\"?",
   "board.delete_category_empty": "This category has no cards and will be deleted.",
-  "board.delete_category_has_cards": "This category has {count} card(s). Move them before deleting:",
-  "board.move_cards_to": "Move cards to",
+  "board.delete_category_has_cards": "This category has {count} card(s).",
+  "board.move_cards_to": "Move Cards To",
   "board.delete_and_move": "Move & Delete",
+  "board.delete_all": "Delete All",
+  "board.delete_cards_warning": "All {count} card(s) will be permanently deleted.",
   "board.delete_only": "Delete",
 
   "column.add_card": "Add card",
@@ -41,6 +43,7 @@
 
   "card.delete_confirm": "Delete this card? This cannot be undone.",
   "card.delete": "Delete Card",
+  "card.save": "Save",
   "card.description": "Description",
   "card.description_placeholder": "Add a more detailed description…",
   "card.description_save": "Save",

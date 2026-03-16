@@ -2,7 +2,7 @@
   import Column from './Column.svelte'
   import CardDetail from './CardDetail.svelte'
   import { board, nav, tagColors, dnd, search } from '../lib/store.svelte'
-  import { CreateCard, PinCard, CreateCategory, RenameCategory, ListCategories, GetCard, ListCardIDsInCategory, GetTagColors, MoveCardInCategory, MoveCardToCategory, ReorderCategories, DeleteCategory, DeleteCard, MoveCategoryCards, SearchCards } from '../lib/api'
+  import { CreateCard, PinCard, CreateCategory, RenameCategory, ListCategories, GetCard, ListCardIDsInCategory, GetTagColors, MoveCardInCategory, MoveCardToCategory, ReorderCategories, DeleteCategory, DeleteCard, MoveCategoryCards, DuplicateCard, CopyCategory, SearchCards } from '../lib/api'
   import { t } from '../lib/i18n.svelte'
 
   let renamingCategorySlug = $state<string | null>(null)
@@ -15,6 +15,7 @@
   // Category delete confirmation state
   let deletingCategory = $state<{ id: string; slug: string; name: string; cardCount: number } | null>(null)
   let moveTargetId = $state<string>('')
+  let moveCards = $state(true)
 
   async function handleAddCard(categoryId: string) {
     try {
@@ -40,13 +41,13 @@
     selectedCardId = cardId
   }
 
-  async function closeCardDetail() {
+  async function closeCardDetail(opts?: { escaped?: boolean }) {
     const cardId = selectedCardId
     const wasAutoEdit = autoEditTitle
     selectedCardId = null
     autoEditTitle = false
-    // If card was just created and title wasn't changed, delete it
-    if (wasAutoEdit && cardId) {
+    // Only delete unnamed new card if user pressed ESC without editing the name
+    if (opts?.escaped && wasAutoEdit && cardId) {
       try {
         const card = await GetCard(cardId)
         if (card.title === t('default.card_name')) {
@@ -62,9 +63,13 @@
     refreshBoard()
   }
 
-  async function handleCardDrop(cardId: string, fromCategoryId: string, toCategoryId: string, toIndex: number) {
+  async function handleCardDrop(cardId: string, fromCategoryId: string, toCategoryId: string, toIndex: number, copy?: boolean) {
     try {
-      if (fromCategoryId === toCategoryId) {
+      if (copy) {
+        // Ctrl+drop: duplicate the card into the target category
+        await DuplicateCard(cardId, toCategoryId)
+        await refreshBoard()
+      } else if (fromCategoryId === toCategoryId) {
         // Reorder within the same column — optimistic update
         const col = board.categories.find(c => c.id === toCategoryId)
         if (col) {
@@ -112,7 +117,8 @@
   function handleColumnsDragOver(e: DragEvent) {
     if (dnd.dragging?.type !== 'column') return
     e.preventDefault()
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+    if (e.dataTransfer) e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'
+    dnd.copyMode = e.ctrlKey
 
     const container = e.currentTarget as HTMLElement
     const cols = Array.from(container.querySelectorAll(':scope > .col-slot'))
@@ -138,21 +144,40 @@
     if (!dnd.dragging || dnd.dragging.type !== 'column') return
     const draggedId = dnd.dragging.categoryId
     const fromIdx = board.categories.findIndex(c => c.id === draggedId)
-    let toIdx = dnd.overColumnIndex ?? board.categories.length
     if (fromIdx === -1) return
 
-    // Adjust target if dragging forward
-    if (toIdx > fromIdx) toIdx--
-    if (fromIdx === toIdx) {
-      dnd.dragging = null
-      dnd.overColumnIndex = null
+    const copy = e.ctrlKey
+    let toIdx = dnd.overColumnIndex ?? board.categories.length
+    dnd.dragging = null
+    dnd.overColumnIndex = null
+
+    if (copy) {
+      // Ctrl+drop: duplicate the entire column with all its cards
+      const col = board.categories[fromIdx]
+      if (nav.brandSlug && nav.streamSlug && nav.projectSlug) {
+        try {
+          await CopyCategory(nav.brandSlug, nav.streamSlug, nav.projectSlug, col.slug)
+          await refreshBoard()
+          // Move the new copy (appended at end) to the drop position
+          if (board.categories.length > 1) {
+            const newCol = board.categories.splice(board.categories.length - 1, 1)[0]
+            board.categories.splice(toIdx, 0, newCol)
+            const orderedSlugs = board.categories.map(c => c.slug)
+            await ReorderCategories(nav.brandSlug, nav.streamSlug, nav.projectSlug, orderedSlugs)
+          }
+        } catch (e) {
+          console.error('Column copy failed:', e)
+        }
+      }
       return
     }
 
+    // Adjust target if dragging forward
+    if (toIdx > fromIdx) toIdx--
+    if (fromIdx === toIdx) return
+
     const col = board.categories.splice(fromIdx, 1)[0]
     board.categories.splice(toIdx, 0, col)
-    dnd.dragging = null
-    dnd.overColumnIndex = null
 
     // Persist
     if (nav.brandSlug && nav.streamSlug && nav.projectSlug) {
@@ -191,13 +216,24 @@
     if (!deletingCategory || !nav.brandSlug || !nav.streamSlug || !nav.projectSlug) return
     const { id, slug, cardCount } = deletingCategory
     try {
-      // If cards exist and a move target is chosen, move them first
-      if (cardCount > 0 && moveTargetId) {
-        await MoveCategoryCards(nav.brandSlug, nav.streamSlug, nav.projectSlug, id, moveTargetId)
+      if (cardCount > 0) {
+        if (moveCards && moveTargetId) {
+          // Move cards to the selected category
+          await MoveCategoryCards(nav.brandSlug, nav.streamSlug, nav.projectSlug, id, moveTargetId)
+        } else if (!moveCards) {
+          // Delete all cards in this category
+          const cat = board.categories.find(c => c.id === id)
+          if (cat) {
+            for (const card of cat.cards) {
+              await DeleteCard(card.id)
+            }
+          }
+        }
       }
       await DeleteCategory(nav.brandSlug, nav.streamSlug, nav.projectSlug, slug)
       deletingCategory = null
       moveTargetId = ''
+      moveCards = true
       await refreshBoard()
     } catch (e) {
       console.error('Delete category failed:', e)
@@ -320,7 +356,7 @@
     <div class="columns" ondragover={handleColumnsDragOver} ondragleave={handleColumnsDragLeave} ondrop={handleColumnsDrop}>
       {#each board.categories as category, colIdx (category.id)}
         {#if dnd.dragging?.type === 'column' && dnd.overColumnIndex === colIdx}
-          <div class="col-drop-indicator"></div>
+          <div class="col-drop-indicator" class:copy={dnd.copyMode}></div>
         {/if}
         <div class="col-slot">
           <Column
@@ -338,7 +374,7 @@
         </div>
       {/each}
       {#if dnd.dragging?.type === 'column' && (dnd.overColumnIndex ?? 0) >= board.categories.length}
-        <div class="col-drop-indicator"></div>
+        <div class="col-drop-indicator" class:copy={dnd.copyMode}></div>
       {/if}
 
       <div class="add-column">
@@ -365,17 +401,25 @@
         </div>
       {:else}
         <p class="delete-msg">{t('board.delete_category_has_cards', { count: deletingCategory.cardCount })}</p>
-        <label class="move-label">
+        <label class="move-check">
+          <input type="checkbox" bind:checked={moveCards} />
           <span>{t('board.move_cards_to')}</span>
-          <select bind:value={moveTargetId}>
+        </label>
+        {#if moveCards}
+          <select class="move-select" bind:value={moveTargetId}>
             {#each board.categories.filter(c => c.id !== deletingCategory?.id) as cat}
               <option value={cat.id}>{cat.name}</option>
             {/each}
           </select>
-        </label>
+        {/if}
+        {#if !moveCards}
+          <p class="delete-warning">{t('board.delete_cards_warning', { count: deletingCategory.cardCount })}</p>
+        {/if}
         <div class="delete-actions">
           <button class="btn-ghost" onclick={cancelDeleteCategory}>{t('common.cancel')}</button>
-          <button class="btn-danger" onclick={confirmDeleteCategory} disabled={!moveTargetId}>{t('board.delete_and_move')}</button>
+          <button class="btn-danger" onclick={confirmDeleteCategory} disabled={moveCards && !moveTargetId}>
+            {moveCards ? t('board.delete_and_move') : t('board.delete_all')}
+          </button>
         </div>
       {/if}
     </div>
@@ -424,16 +468,21 @@
     color: var(--text-secondary);
   }
 
-  .move-label {
+  .move-check {
     display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-    margin-bottom: 1rem;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0.5rem;
     font-size: 0.85rem;
     color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .move-check input[type="checkbox"] {
+    accent-color: var(--accent);
   }
 
-  .move-label select {
+  .move-select {
+    width: 100%;
     padding: 0.4rem 0.6rem;
     border-radius: 6px;
     border: 1px solid var(--border);
@@ -441,8 +490,16 @@
     color: var(--text-primary);
     font-size: 0.85rem;
     outline: none;
+    margin-bottom: 1rem;
   }
-  .move-label select:focus { border-color: var(--accent); }
+  .move-select:focus { border-color: var(--accent); }
+
+  .delete-warning {
+    margin: 0 0 1rem;
+    font-size: 0.82rem;
+    color: var(--danger);
+    font-weight: 500;
+  }
 
   .delete-actions {
     display: flex;
@@ -500,6 +557,9 @@
     background: var(--accent);
     border-radius: 2px;
     flex-shrink: 0;
+  }
+  .col-drop-indicator.copy {
+    background: var(--success, #22c55e);
   }
 
   .loading {

@@ -26,7 +26,7 @@
     category: CategoryData
     onCardClick?: (cardId: string) => void
     onAddCard?: (categoryId: string) => void
-    onCardDrop?: (cardId: string, fromCategoryId: string, toCategoryId: string, toIndex: number) => void
+    onCardDrop?: (cardId: string, fromCategoryId: string, toCategoryId: string, toIndex: number, copy?: boolean) => void
     onDeleteCategory?: (categoryId: string, categorySlug: string, categoryName: string, cardCount: number) => void
     renaming?: boolean
     renamingName?: string
@@ -49,7 +49,8 @@
   function handleCardDragOver(e: DragEvent) {
     if (dnd.dragging?.type !== 'card') return
     e.preventDefault()
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+    if (e.dataTransfer) e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'
+    dnd.copyMode = e.ctrlKey
     dnd.overCategoryId = category.id
 
     // Calculate which card index we're hovering over
@@ -81,7 +82,7 @@
     if (dnd.dragging?.type !== 'card') return
     const { cardId, fromCategoryId } = dnd.dragging
     const toIndex = dnd.overCardIndex ?? category.cards.length
-    onCardDrop?.(cardId, fromCategoryId, category.id, toIndex)
+    onCardDrop?.(cardId, fromCategoryId, category.id, toIndex, e.ctrlKey)
     dnd.dragging = null
     dnd.overCategoryId = null
     dnd.overCardIndex = null
@@ -90,7 +91,7 @@
   // --- Column drag ---
   function handleColDragStart(e: DragEvent) {
     if (!e.dataTransfer) return
-    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.effectAllowed = 'copyMove'
     e.dataTransfer.setData('text/plain', category.id)
     dnd.dragging = { type: 'column', categoryId: category.id }
   }
@@ -140,14 +141,14 @@
   >
     {#each category.cards as card, i (card.id)}
       {#if dnd.dragging?.type === 'card' && dnd.overCategoryId === category.id && dnd.overCardIndex === i}
-        <div class="drop-indicator"></div>
+        <div class="drop-indicator" class:copy={dnd.copyMode}></div>
       {/if}
       <div class="card-wrapper">
         <CardItem {card} categoryId={category.id} onclick={() => onCardClick?.(card.id)} />
       </div>
     {/each}
     {#if dnd.dragging?.type === 'card' && dnd.overCategoryId === category.id && (dnd.overCardIndex ?? 0) >= category.cards.length}
-      <div class="drop-indicator"></div>
+      <div class="drop-indicator" class:copy={dnd.copyMode}></div>
     {/if}
   </div>
 
@@ -195,6 +196,9 @@
     background: var(--accent);
     border-radius: 2px;
     margin: 0 0.25rem;
+  }
+  .drop-indicator.copy {
+    background: var(--success, #22c55e);
   }
 
   .column-rename-input {

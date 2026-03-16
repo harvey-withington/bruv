@@ -21,6 +21,10 @@ func (r *Repository) CreateBrand(name string) (*model.Brand, error) {
 		return nil, fmt.Errorf("brand %q already exists", name)
 	}
 
+	// Count existing brands so the new one is appended at the end
+	existing, _ := r.ListBrands()
+	position := len(existing)
+
 	if err := os.MkdirAll(brandDir, 0755); err != nil {
 		return nil, fmt.Errorf("create brand directory: %w", err)
 	}
@@ -30,6 +34,7 @@ func (r *Repository) CreateBrand(name string) (*model.Brand, error) {
 		ID:        uuid.New().String(),
 		Name:      name,
 		Slug:      slug,
+		Position:  position,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -76,6 +81,16 @@ func (r *Repository) ListBrands() ([]model.Brand, error) {
 		}
 		brands = append(brands, *brand)
 	}
+
+	// Sort by position
+	for i := 0; i < len(brands); i++ {
+		for j := i + 1; j < len(brands); j++ {
+			if brands[j].Position < brands[i].Position {
+				brands[i], brands[j] = brands[j], brands[i]
+			}
+		}
+	}
+
 	return brands, nil
 }
 
@@ -93,6 +108,19 @@ func (r *Repository) UpdateBrand(slug string, update func(*model.Brand)) (*model
 		return nil, fmt.Errorf("write brand: %w", err)
 	}
 	return brand, nil
+}
+
+// ReorderBrands updates the position of all brands based on the given ordered slug list.
+func (r *Repository) ReorderBrands(orderedSlugs []string) error {
+	for i, slug := range orderedSlugs {
+		_, err := r.UpdateBrand(slug, func(b *model.Brand) {
+			b.Position = i
+		})
+		if err != nil {
+			return fmt.Errorf("reorder brand %q: %w", slug, err)
+		}
+	}
+	return nil
 }
 
 // DeleteBrand removes a Brand and all its contents from the repository.

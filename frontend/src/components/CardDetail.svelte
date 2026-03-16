@@ -14,20 +14,23 @@
 
   let colorPickerTag = $state<string | null>(null)
 
-  let { cardId, onClose, onUpdated }: {
+  let { cardId, onClose, onUpdated, autoEditTitle }: {
     cardId: string
     onClose: () => void
     onUpdated?: () => void
+    autoEditTitle?: boolean
   } = $props()
 
   let card = $state<any>(null)
   let loading = $state(true)
   let editingTitle = $state(false)
   let titleDraft = $state('')
+  let titleInputEl = $state<HTMLInputElement | null>(null)
   let newTag = $state('')
   let newChecklistText = $state('')
   let descriptionDraft = $state('')
   let editingDescription = $state(false)
+  let descTextareaEl = $state<HTMLTextAreaElement | null>(null)
 
   const typeColors: Record<string, string> = {
     feature: '#6366f1',
@@ -41,12 +44,28 @@
     loadCard()
   })
 
+  $effect(() => {
+    if (editingTitle && titleInputEl) {
+      titleInputEl.focus()
+      titleInputEl.select()
+    }
+  })
+
+  $effect(() => {
+    if (editingDescription && descTextareaEl) {
+      descTextareaEl.focus()
+    }
+  })
+
   async function loadCard() {
     loading = true
     try {
       card = await GetCard(cardId)
       titleDraft = card.title
       descriptionDraft = card.fields?.description || ''
+      if (autoEditTitle) {
+        editingTitle = true
+      }
     } catch (e) {
       console.error('Failed to load card:', e)
     }
@@ -65,9 +84,19 @@
     } catch (e) { console.error(e) }
   }
 
-  function handleTitleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter') saveTitle()
-    else if (e.key === 'Escape') { editingTitle = false; titleDraft = card.title }
+  async function handleTitleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault()
+      await saveTitle()
+      onClose()
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault()
+      saveTitle()
+      editingDescription = true
+    } else if (e.key === 'Escape') {
+      editingTitle = false
+      titleDraft = card.title
+    }
   }
 
   async function saveDescription() {
@@ -79,8 +108,15 @@
     } catch (e) { console.error(e) }
   }
 
-  function handleDescKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') { editingDescription = false; descriptionDraft = card.fields?.description || '' }
+  async function handleDescKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault()
+      await saveDescription()
+      onClose()
+    } else if (e.key === 'Escape') {
+      editingDescription = false
+      descriptionDraft = card.fields?.description || ''
+    }
   }
 
   async function addTag() {
@@ -186,18 +222,19 @@
         {#if editingTitle}
           <input
             class="title-input"
+            bind:this={titleInputEl}
             bind:value={titleDraft}
             onkeydown={handleTitleKeydown}
             onblur={saveTitle}
           />
         {:else}
           <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-        <h2 class="modal-title" onclick={() => { editingTitle = true; setTimeout(() => (document.querySelector('.title-input') as HTMLElement)?.focus(), 0) }}>
+        <h2 class="modal-title" onclick={() => { editingTitle = true }} title={t('tooltip.edit_title')}>
             {card.title}
           </h2>
         {/if}
 
-        <button class="close-btn" onclick={onClose}><X size={18} /></button>
+        <button class="close-btn" onclick={onClose} title={t('tooltip.close_card')}><X size={18} /></button>
       </div>
 
       <div class="modal-body">
@@ -207,6 +244,7 @@
           {#if editingDescription}
             <textarea
               class="desc-textarea"
+              bind:this={descTextareaEl}
               bind:value={descriptionDraft}
               onkeydown={handleDescKeydown}
               rows="4"
@@ -217,7 +255,7 @@
             </div>
           {:else}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="desc-display" onclick={() => { editingDescription = true; setTimeout(() => (document.querySelector('.desc-textarea') as HTMLElement)?.focus(), 0) }}>
+            <div class="desc-display" onclick={() => { editingDescription = true }} title={t('tooltip.edit_description')}>
               {#if card.fields?.description}
                 <p>{card.fields.description}</p>
               {:else}
@@ -245,8 +283,8 @@
             {#each (card.tags || []) as tag}
               <span class="tag-chip" style:background={tagColors.map[tag] || 'var(--border)'}>
                 <span class="tag-label">{tag}</span>
-                <button class="tag-color-btn" onclick={() => colorPickerTag = colorPickerTag === tag ? null : tag} title="Change color"><Palette size={10} /></button>
-                <button class="tag-remove" onclick={() => removeTag(tag)}><X size={12} /></button>
+                <button class="tag-color-btn" onclick={() => colorPickerTag = colorPickerTag === tag ? null : tag} title={t('tooltip.change_tag_color')}><Palette size={10} /></button>
+                <button class="tag-remove" onclick={() => removeTag(tag)} title={t('tooltip.remove_tag')}><X size={12} /></button>
               </span>
               {#if colorPickerTag === tag}
                 <div class="color-picker">
@@ -296,11 +334,11 @@
           <div class="checklist-items">
             {#each (card.checklist || []) as item}
               <div class="checklist-item" class:done={item.done}>
-                <button class="checkbox" onclick={() => toggleChecklist(item.id)}>
+                <button class="checkbox" onclick={() => toggleChecklist(item.id)} title={t('tooltip.toggle_checklist')}>
                   {#if item.done}<CheckSquare size={16} />{:else}<Square size={16} />{/if}
                 </button>
                 <span class="checklist-text">{item.text}</span>
-                <button class="checklist-remove" onclick={() => removeChecklist(item.id)}><Trash2 size={12} /></button>
+                <button class="checklist-remove" onclick={() => removeChecklist(item.id)} title={t('tooltip.remove_checklist_item')}><Trash2 size={12} /></button>
               </div>
             {/each}
           </div>
@@ -320,7 +358,7 @@
 
       <div class="modal-footer">
         <span class="meta">Created {card.created_at?.slice(0, 10) || '—'}</span>
-        <button class="btn-delete" onclick={handleDelete}><Trash2 size={14} /> {t('card.delete')}</button>
+        <button class="btn-delete" onclick={handleDelete} title={t('tooltip.delete_card')}><Trash2 size={14} /> {t('card.delete')}</button>
       </div>
     {/if}
   </div>

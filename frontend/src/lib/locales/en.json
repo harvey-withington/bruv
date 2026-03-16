@@ -85,5 +85,37 @@
 
   "common.save": "Save",
   "common.cancel": "Cancel",
-  "common.close": "Close"
+  "common.close": "Close",
+
+  "default.brand_name": "New Brand",
+  "default.stream_name": "New Stream",
+  "default.project_name": "New Project",
+  "default.category_name": "New Category",
+  "default.card_name": "New Card",
+
+  "tooltip.collapse_sidebar": "Collapse sidebar",
+  "tooltip.expand_sidebar": "Expand sidebar",
+  "tooltip.close_repo": "Close the current repository",
+  "tooltip.add_brand": "Add a new brand",
+  "tooltip.add_stream": "Add a new stream",
+  "tooltip.add_project": "Add a new project",
+  "tooltip.delete_brand": "Delete brand",
+  "tooltip.delete_stream": "Delete stream",
+  "tooltip.delete_project": "Delete project",
+  "tooltip.add_category": "Add a new category",
+  "tooltip.cancel_add_category": "Cancel adding category",
+  "tooltip.drag_column": "Drag to reorder column",
+  "tooltip.delete_category": "Delete this category",
+  "tooltip.add_card": "Add a new card",
+  "tooltip.cancel_add_card": "Cancel adding card",
+  "tooltip.close_card": "Close card detail",
+  "tooltip.edit_title": "Click to edit title",
+  "tooltip.edit_description": "Click to edit description",
+  "tooltip.remove_tag": "Remove tag",
+  "tooltip.change_tag_color": "Change tag color",
+  "tooltip.toggle_checklist": "Toggle item",
+  "tooltip.remove_checklist_item": "Remove item",
+  "tooltip.clear_search": "Clear search",
+  "tooltip.delete_card": "Delete this card permanently",
+  "tooltip.cancel": "Cancel"
 }

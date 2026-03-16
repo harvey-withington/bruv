@@ -202,6 +202,15 @@ func (a *App) ListBrands() ([]model.Brand, error) {
 	return a.repo.ListBrands()
 }
 
+func (a *App) RenameBrand(slug, newName string) (*model.Brand, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.UpdateBrand(slug, func(b *model.Brand) {
+		b.Name = newName
+	})
+}
+
 func (a *App) DeleteBrand(slug string) error {
 	if a.repo == nil {
 		return fmt.Errorf("no repository open")
@@ -223,6 +232,15 @@ func (a *App) ListStreams(brandSlug string) ([]model.Stream, error) {
 		return nil, fmt.Errorf("no repository open")
 	}
 	return a.repo.ListStreams(brandSlug)
+}
+
+func (a *App) RenameStream(brandSlug, streamSlug, newName string) (*model.Stream, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.UpdateStream(brandSlug, streamSlug, func(s *model.Stream) {
+		s.Name = newName
+	})
 }
 
 func (a *App) DeleteStream(brandSlug, streamSlug string) error {
@@ -248,6 +266,15 @@ func (a *App) ListProjects(brandSlug, streamSlug string) ([]model.Project, error
 	return a.repo.ListProjects(brandSlug, streamSlug)
 }
 
+func (a *App) RenameProject(brandSlug, streamSlug, projectSlug, newName string) (*model.Project, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.UpdateProject(brandSlug, streamSlug, projectSlug, func(p *model.Project) {
+		p.Name = newName
+	})
+}
+
 func (a *App) DeleteProject(brandSlug, streamSlug, projectSlug string) error {
 	if a.repo == nil {
 		return fmt.Errorf("no repository open")
@@ -269,6 +296,15 @@ func (a *App) ListCategories(brandSlug, streamSlug, projectSlug string) ([]model
 		return nil, fmt.Errorf("no repository open")
 	}
 	return a.repo.ListCategories(brandSlug, streamSlug, projectSlug)
+}
+
+func (a *App) RenameCategory(brandSlug, streamSlug, projectSlug, categorySlug, newName string) (*model.Category, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.UpdateCategory(brandSlug, streamSlug, projectSlug, categorySlug, func(c *model.Category) {
+		c.Name = newName
+	})
 }
 
 func (a *App) DeleteCategory(brandSlug, streamSlug, projectSlug, categorySlug string) error {

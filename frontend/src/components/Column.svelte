@@ -1,6 +1,6 @@
 <script lang="ts">
   import CardItem from './CardItem.svelte'
-  import { X, GripVertical, Trash2 } from 'lucide-svelte'
+  import { GripVertical, Trash2 } from 'lucide-svelte'
   import { dnd } from '../lib/store.svelte'
   import { t } from '../lib/i18n.svelte'
 
@@ -22,41 +22,28 @@
     cards: CardData[]
   }
 
-  let { category, onCardClick, onAddCard, onCardDrop, onDeleteCategory }: {
+  let { category, onCardClick, onAddCard, onCardDrop, onDeleteCategory, renaming, renamingName, onRenamingNameChange, onCommitRename, onCancelRename }: {
     category: CategoryData
     onCardClick?: (cardId: string) => void
     onAddCard?: (categoryId: string) => void
     onCardDrop?: (cardId: string, fromCategoryId: string, toCategoryId: string, toIndex: number) => void
     onDeleteCategory?: (categoryId: string, categorySlug: string, categoryName: string, cardCount: number) => void
+    renaming?: boolean
+    renamingName?: string
+    onRenamingNameChange?: (value: string) => void
+    onCommitRename?: () => void
+    onCancelRename?: () => void
   } = $props()
 
-  let adding = $state(false)
-  let newTitle = $state('')
+  let renameInputEl = $state<HTMLInputElement | null>(null)
 
-  function startAdding() {
-    adding = true
-    newTitle = ''
-    setTimeout(() => {
-      const input = document.querySelector(`#add-input-${category.id}`) as HTMLInputElement
-      input?.focus()
-    }, 0)
-  }
-
-  function cancelAdding() {
-    adding = false
-    newTitle = ''
-  }
-
-  function submitCard() {
-    if (newTitle.trim() && onAddCard) {
-      onAddCard(category.id)
+  $effect(() => {
+    if (renaming && renameInputEl) {
+      renameInputEl.focus()
+      renameInputEl.select()
     }
-  }
+  })
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter') submitCard()
-    else if (e.key === 'Escape') cancelAdding()
-  }
 
   // --- Card drop zone ---
   function handleCardDragOver(e: DragEvent) {
@@ -113,14 +100,6 @@
     dnd.overColumnIndex = null
   }
 
-  export function getNewTitle() {
-    const title = newTitle.trim()
-    newTitle = ''
-    adding = false
-    return title
-  }
-
-  export { newTitle, adding }
 </script>
 
 <div class="column">
@@ -131,14 +110,25 @@
     ondragstart={handleColDragStart}
     ondragend={handleColDragEnd}
   >
-    <span class="drag-handle"><GripVertical size={14} /></span>
-    <h3 class="column-title">{category.name}</h3>
-    <span class="card-count">{category.cards.length}</span>
-    <button
-      class="col-delete-btn"
-      title={t('board.delete_category')}
-      onclick={(e: MouseEvent) => { e.stopPropagation(); onDeleteCategory?.(category.id, category.slug, category.name, category.cards.length) }}
-    ><Trash2 size={13} /></button>
+    <span class="drag-handle" title={t('tooltip.drag_column')}><GripVertical size={14} /></span>
+    {#if renaming}
+      <input
+        class="column-rename-input"
+        bind:this={renameInputEl}
+        value={renamingName}
+        oninput={(e: Event) => onRenamingNameChange?.((e.target as HTMLInputElement).value)}
+        onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') onCommitRename?.(); if (e.key === 'Escape') onCancelRename?.() }}
+        onblur={() => onCommitRename?.()}
+      />
+    {:else}
+      <h3 class="column-title">{category.name}</h3>
+      <span class="card-count">{category.cards.length}</span>
+      <button
+        class="col-delete-btn"
+        title={t('tooltip.delete_category')}
+        onclick={(e: MouseEvent) => { e.stopPropagation(); onDeleteCategory?.(category.id, category.slug, category.name, category.cards.length) }}
+      ><Trash2 size={13} /></button>
+    {/if}
   </div>
 
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -162,26 +152,9 @@
   </div>
 
   <div class="column-footer">
-    {#if adding}
-      <div class="add-form">
-        <input
-          id="add-input-{category.id}"
-          type="text"
-          bind:value={newTitle}
-          onkeydown={handleKeydown}
-          placeholder={t('column.card_placeholder')}
-          class="add-input"
-        />
-        <div class="add-actions">
-          <button class="btn-add" onclick={submitCard}>{t('column.add_card')}</button>
-          <button class="btn-cancel" onclick={cancelAdding}><X size={14} /></button>
-        </div>
-      </div>
-    {:else}
-      <button class="add-card-btn" onclick={startAdding}>
-        {t('column.add_card_long')}
-      </button>
-    {/if}
+    <button class="add-card-btn" onclick={() => onAddCard?.(category.id)} title={t('tooltip.add_card')}>
+      {t('column.add_card_long')}
+    </button>
   </div>
 </div>
 
@@ -222,6 +195,19 @@
     background: var(--accent);
     border-radius: 2px;
     margin: 0 0.25rem;
+  }
+
+  .column-rename-input {
+    flex: 1;
+    font-size: 0.85rem;
+    font-weight: 600;
+    background: var(--bg-elevated);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    color: var(--text-strong);
+    padding: 0.2rem 0.4rem;
+    outline: none;
+    min-width: 0;
   }
 
   .column-title {
@@ -287,57 +273,4 @@
     color: var(--text-body);
   }
 
-  .add-form {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-  }
-
-  .add-input {
-    width: 100%;
-    padding: 0.5rem;
-    border-radius: 6px;
-    border: none;
-    background: var(--bg-elevated);
-    color: var(--text-primary);
-    font-size: 0.85rem;
-    outline: none;
-    box-sizing: border-box;
-  }
-
-  .add-input:focus {
-    box-shadow: 0 0 0 2px var(--accent);
-  }
-
-  .add-actions {
-    display: flex;
-    gap: 0.4rem;
-    align-items: center;
-  }
-
-  .btn-add {
-    padding: 0.35rem 0.75rem;
-    border: none;
-    border-radius: 4px;
-    background: var(--accent);
-    color: #fff;
-    font-size: 0.8rem;
-    cursor: pointer;
-    font-weight: 500;
-  }
-  .btn-add:hover {
-    background: var(--accent-hover);
-  }
-
-  .btn-cancel {
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    font-size: 1rem;
-    padding: 0.2rem 0.4rem;
-  }
-  .btn-cancel:hover {
-    color: var(--text-primary);
-  }
 </style>

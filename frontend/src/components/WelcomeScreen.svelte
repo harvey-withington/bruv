@@ -3,6 +3,7 @@
   import { InitRepository, OpenRepository, PickFolder, ListRecentRepos, RemoveRecentRepo } from '../lib/api'
   import { X, FolderPlus, FolderOpen, FolderSearch } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
+  import BruvIcon from './BruvIcon.svelte'
 
   async function browseFolder(title: string) {
     try {
@@ -81,6 +82,7 @@
 
 <div class="welcome">
   <div class="welcome-card">
+    <div class="welcome-icon"><BruvIcon size={96} /></div>
     <h1 class="logo">{t('app.name')}</h1>
     <p class="tagline">{t('welcome.subtitle')}</p>
 
@@ -165,6 +167,10 @@
     max-width: 400px;
     width: 100%;
     padding: 2rem;
+  }
+
+  .welcome-icon {
+    margin-bottom: 0.75rem;
   }
 
   .logo {

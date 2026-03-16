@@ -90,7 +90,7 @@
       class="search-input"
     />
     {#if search.query}
-      <button class="search-clear" onclick={clearSearch}><X size={12} /></button>
+      <button class="search-clear" onclick={clearSearch} title={t('tooltip.clear_search')}><X size={12} /></button>
     {/if}
   </div>
 

@@ -2,39 +2,35 @@
   import Column from './Column.svelte'
   import CardDetail from './CardDetail.svelte'
   import { board, nav, tagColors, dnd, search } from '../lib/store.svelte'
-  import { CreateCard, PinCard, CreateCategory, ListCategories, GetCard, ListCardIDsInCategory, GetTagColors, MoveCardInCategory, MoveCardToCategory, ReorderCategories, DeleteCategory, MoveCategoryCards, SearchCards } from '../lib/api'
-  import { X, Plus } from 'lucide-svelte'
+  import { CreateCard, PinCard, CreateCategory, RenameCategory, ListCategories, GetCard, ListCardIDsInCategory, GetTagColors, MoveCardInCategory, MoveCardToCategory, ReorderCategories, DeleteCategory, DeleteCard, MoveCategoryCards, SearchCards } from '../lib/api'
   import { t } from '../lib/i18n.svelte'
 
-  let addingCategory = $state(false)
-  let newCategoryName = $state('')
+  let renamingCategorySlug = $state<string | null>(null)
+  let renamingCategoryName = $state('')
+  let renamingCategoryOriginal = $state('')
+  let renameCatCancelled = $state(false)
   let selectedCardId = $state<string | null>(null)
+  let autoEditTitle = $state(false)
 
   // Category delete confirmation state
   let deletingCategory = $state<{ id: string; slug: string; name: string; cardCount: number } | null>(null)
   let moveTargetId = $state<string>('')
 
   async function handleAddCard(categoryId: string) {
-    // Find the column component's new title
-    const input = document.querySelector(`#add-input-${categoryId}`) as HTMLInputElement
-    const title = input?.value?.trim()
-    if (!title) return
-
     try {
-      // Create a card of type "task" by default, pinned to this category
-      const card = await CreateCard('task', title)
+      // Create a card with default name, pinned to this category
+      const card = await CreateCard('task', t('default.card_name'))
 
-      // Find the category to get its ID for pinning
       const cat = board.categories.find(c => c.id === categoryId)
       if (cat) {
-        // Find the project to get its ID
-        // For now, pin using the category's project association
-        // The project ID is stored on the category in the backend
         await PinCard(card.id, cat.id, cat.id)
       }
 
-      // Refresh the board
       await refreshBoard()
+
+      // Auto-open the card detail modal so user can rename
+      selectedCardId = card.id
+      autoEditTitle = true
     } catch (e) {
       console.error('Failed to add card:', e)
     }
@@ -44,11 +40,25 @@
     selectedCardId = cardId
   }
 
-  function closeCardDetail() {
+  async function closeCardDetail() {
+    const cardId = selectedCardId
+    const wasAutoEdit = autoEditTitle
     selectedCardId = null
+    autoEditTitle = false
+    // If card was just created and title wasn't changed, delete it
+    if (wasAutoEdit && cardId) {
+      try {
+        const card = await GetCard(cardId)
+        if (card.title === t('default.card_name')) {
+          await DeleteCard(cardId)
+          await refreshBoard()
+        }
+      } catch (e) { console.error('Cleanup card:', e) }
+    }
   }
 
   function handleCardUpdated() {
+    autoEditTitle = false
     refreshBoard()
   }
 
@@ -156,7 +166,16 @@
     }
   }
 
-  function handleDeleteCategoryRequest(categoryId: string, categorySlug: string, categoryName: string, cardCount: number) {
+  async function handleDeleteCategoryRequest(categoryId: string, categorySlug: string, categoryName: string, cardCount: number) {
+    if (cardCount === 0) {
+      // Empty category — delete immediately without confirmation
+      if (!nav.brandSlug || !nav.streamSlug || !nav.projectSlug) return
+      try {
+        await DeleteCategory(nav.brandSlug, nav.streamSlug, nav.projectSlug, categorySlug)
+        await refreshBoard()
+      } catch (e) { console.error('Delete category failed:', e) }
+      return
+    }
     deletingCategory = { id: categoryId, slug: categorySlug, name: categoryName, cardCount }
     // Default move target: first other category
     const other = board.categories.find(c => c.id !== categoryId)
@@ -186,22 +205,51 @@
   }
 
   async function handleAddCategory() {
-    if (!newCategoryName.trim() || !nav.brandSlug || !nav.streamSlug || !nav.projectSlug) return
-
+    if (!nav.brandSlug || !nav.streamSlug || !nav.projectSlug) return
     try {
+      const existingNames = board.categories.map(c => c.name)
+      const baseName = t('default.category_name')
+      let name = baseName
+      const lower = existingNames.map(n => n.toLowerCase())
+      if (lower.includes(name.toLowerCase())) {
+        for (let i = 2; ; i++) {
+          name = `${baseName} ${i}`
+          if (!lower.includes(name.toLowerCase())) break
+        }
+      }
       const position = board.categories.length
-      await CreateCategory(nav.brandSlug, nav.streamSlug, nav.projectSlug, newCategoryName.trim(), position)
-      newCategoryName = ''
-      addingCategory = false
+      const created = await CreateCategory(nav.brandSlug, nav.streamSlug, nav.projectSlug, name, position)
       await refreshBoard()
+      renameCatCancelled = false
+      renamingCategorySlug = created.slug
+      renamingCategoryName = created.name
+      renamingCategoryOriginal = created.name
     } catch (e) {
       console.error('Failed to add category:', e)
     }
   }
 
-  function handleCategoryKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter') handleAddCategory()
-    else if (e.key === 'Escape') { addingCategory = false; newCategoryName = '' }
+  async function commitRenameCategory(slug: string) {
+    if (renameCatCancelled || renamingCategorySlug === null) return
+    const name = renamingCategoryName.trim()
+    renamingCategorySlug = null
+    if (!name || !nav.brandSlug || !nav.streamSlug || !nav.projectSlug) return
+    try {
+      await RenameCategory(nav.brandSlug, nav.streamSlug, nav.projectSlug, slug, name)
+      await refreshBoard()
+    } catch (e) { console.error('RenameCategory:', e) }
+  }
+
+  async function cancelRenameCategory(slug: string) {
+    const unchanged = renamingCategoryName.trim() === renamingCategoryOriginal
+    renameCatCancelled = true
+    renamingCategorySlug = null
+    if (unchanged && nav.brandSlug && nav.streamSlug && nav.projectSlug) {
+      try {
+        await DeleteCategory(nav.brandSlug, nav.streamSlug, nav.projectSlug, slug)
+        await refreshBoard()
+      } catch (e) { console.error('DeleteCategory:', e) }
+    }
   }
 
   async function refreshBoard() {
@@ -281,6 +329,11 @@
             onAddCard={handleAddCard}
             onCardDrop={handleCardDrop}
             onDeleteCategory={handleDeleteCategoryRequest}
+            renaming={renamingCategorySlug === category.slug}
+            renamingName={renamingCategoryName}
+            onRenamingNameChange={(v) => renamingCategoryName = v}
+            onCommitRename={() => commitRenameCategory(category.slug)}
+            onCancelRename={() => cancelRenameCategory(category.slug)}
           />
         </div>
       {/each}
@@ -289,25 +342,9 @@
       {/if}
 
       <div class="add-column">
-        {#if addingCategory}
-          <div class="add-column-form">
-            <input
-              type="text"
-              bind:value={newCategoryName}
-              onkeydown={handleCategoryKeydown}
-              placeholder={t('board.category_placeholder')}
-              class="add-column-input"
-            />
-            <div class="add-column-actions">
-              <button class="btn-add" onclick={handleAddCategory}>{t('board.add_category')}</button>
-              <button class="btn-cancel" onclick={() => { addingCategory = false; newCategoryName = '' }}><X size={14} /></button>
-            </div>
-          </div>
-        {:else}
-          <button class="add-column-btn" onclick={() => { addingCategory = true; setTimeout(() => (document.querySelector('.add-column-input') as HTMLElement)?.focus(), 0) }}>
-            {t('board.add_category_long')}
-          </button>
-        {/if}
+        <button class="add-column-btn" onclick={handleAddCategory} title={t('tooltip.add_category')}>
+          {t('board.add_category_long')}
+        </button>
       </div>
     </div>
   {/if}
@@ -350,6 +387,7 @@
     cardId={selectedCardId}
     onClose={closeCardDetail}
     onUpdated={handleCardUpdated}
+    {autoEditTitle}
   />
 {/if}
 
@@ -505,60 +543,4 @@
     background: var(--bg-subtle-hover);
   }
 
-  .add-column-form {
-    width: 272px;
-    background: var(--bg-surface);
-    border-radius: 10px;
-    padding: 0.5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-  }
-
-  .add-column-input {
-    width: 100%;
-    padding: 0.5rem;
-    border-radius: 6px;
-    border: none;
-    background: var(--bg-elevated);
-    color: var(--text-primary);
-    font-size: 0.85rem;
-    outline: none;
-    box-sizing: border-box;
-  }
-  .add-column-input:focus {
-    box-shadow: 0 0 0 2px var(--accent);
-  }
-
-  .add-column-actions {
-    display: flex;
-    gap: 0.4rem;
-    align-items: center;
-  }
-
-  .btn-add {
-    padding: 0.35rem 0.75rem;
-    border: none;
-    border-radius: 4px;
-    background: var(--accent);
-    color: #fff;
-    font-size: 0.8rem;
-    cursor: pointer;
-    font-weight: 500;
-  }
-  .btn-add:hover {
-    background: var(--accent-hover);
-  }
-
-  .btn-cancel {
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    font-size: 1rem;
-    padding: 0.2rem 0.4rem;
-  }
-  .btn-cancel:hover {
-    color: var(--text-primary);
-  }
 </style>

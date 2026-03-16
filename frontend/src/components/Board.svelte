@@ -1,8 +1,8 @@
 <script lang="ts">
   import Column from './Column.svelte'
   import CardDetail from './CardDetail.svelte'
-  import { board, nav, tagColors, dnd } from '../lib/store.svelte'
-  import { CreateCard, PinCard, CreateCategory, ListCategories, GetCard, ListCardIDsInCategory, GetTagColors, MoveCardInCategory, MoveCardToCategory, ReorderCategories, DeleteCategory, MoveCategoryCards } from '../lib/api'
+  import { board, nav, tagColors, dnd, search } from '../lib/store.svelte'
+  import { CreateCard, PinCard, CreateCategory, ListCategories, GetCard, ListCardIDsInCategory, GetTagColors, MoveCardInCategory, MoveCardToCategory, ReorderCategories, DeleteCategory, MoveCategoryCards, SearchCards } from '../lib/api'
   import { X, Plus } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
 
@@ -78,17 +78,20 @@
           if (fromIdx !== -1) {
             const card = fromCol.cards.splice(fromIdx, 1)[0]
             toCol.cards.splice(toIndex, 0, card)
-            // Move the card on backend
+            // Move the card on backend (updates both ProjectID and CategoryID)
             await MoveCardToCategory(cardId, fromCategoryId, fromCategoryId, toCategoryId, toIndex)
-            // Re-persist positions in both columns
+            // Re-persist positions in source column
             for (let i = 0; i < fromCol.cards.length; i++) {
-              await MoveCardInCategory(fromCol.cards[i].id, fromCategoryId, fromCategoryId, i)
+              try { await MoveCardInCategory(fromCol.cards[i].id, fromCategoryId, fromCategoryId, i) } catch { /* skip */ }
             }
+            // Re-persist positions in target column (moved card now has toCategoryId as projectID)
             for (let i = 0; i < toCol.cards.length; i++) {
-              await MoveCardInCategory(toCol.cards[i].id, toCategoryId, toCategoryId, i)
+              try { await MoveCardInCategory(toCol.cards[i].id, toCategoryId, toCategoryId, i) } catch { /* skip */ }
             }
           }
         }
+        // Always refresh after cross-column move to ensure UI matches backend
+        await refreshBoard()
       }
     } catch (e) {
       console.error('Card drop failed:', e)
@@ -243,6 +246,15 @@
       board.categories = []
     }
     board.loading = false
+
+    // Re-run search to keep highlights current
+    if (search.query.trim()) {
+      try {
+        const results = await SearchCards(search.query, 20)
+        search.results = results || []
+        search.matchingIds = new Set(search.results.map(r => r.CardID))
+      } catch { /* keep existing results */ }
+    }
   }
 </script>
 

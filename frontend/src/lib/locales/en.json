@@ -1,11 +1,12 @@
 {
   "app.name": "BRUV",
+  "app.starting": "Loading…",
   "app.loading": "Loading board…",
   "app.no_project": "Select a project from the sidebar to view its board.",
   "app.no_project_breadcrumb": "No project selected",
 
   "welcome.title": "Welcome to BRUV",
-  "welcome.subtitle": "Brand Repository Utility Vault",
+  "welcome.subtitle": "Your most organised best bud",
   "welcome.create_repo": "Create New Repository",
   "welcome.open_repo": "Open Existing Repository",
   "welcome.recent": "Recent Repositories",
@@ -62,7 +63,7 @@
   "prefs.theme_system": "System",
   "prefs.locale": "Language",
   "prefs.confirm_delete": "Confirm before deleting",
-  "prefs.sidebar_width": "Default sidebar width",
+  "prefs.sidebar_width": "Sidebar Width",
   "prefs.saved": "Preferences saved",
 
   "profile.title": "User Profile",
@@ -77,6 +78,10 @@
   "profile.context": "Additional Context for AI",
   "profile.context_placeholder": "Any additional context you'd like AI assistants to know about you…",
   "profile.saved": "Profile saved",
+
+  "toolbar.labels": "Labels",
+  "toolbar.project_settings": "Project Settings",
+  "toolbar.ai_chat": "AI Chat",
 
   "common.save": "Save",
   "common.cancel": "Cancel",

@@ -1,14 +1,14 @@
 <script lang="ts">
   import SearchBar from './SearchBar.svelte'
-  import ThemeToggle from './ThemeToggle.svelte'
-  import { Settings, UserCircle } from 'lucide-svelte'
+  import { Tags, SlidersHorizontal, BotMessageSquare } from 'lucide-svelte'
   import { nav } from '../lib/store.svelte'
   import { t } from '../lib/i18n.svelte'
 
-  let { onSelectCard, onOpenPrefs, onOpenProfile }: {
+  let { onSelectCard, onOpenLabels, onOpenProjectSettings, onCreateAIChat }: {
     onSelectCard?: (cardId: string) => void
-    onOpenPrefs?: () => void
-    onOpenProfile?: () => void
+    onOpenLabels?: () => void
+    onOpenProjectSettings?: () => void
+    onCreateAIChat?: () => void
   } = $props()
 </script>
 
@@ -29,12 +29,17 @@
     {/if}
   </div>
 
-  <div class="topbar-actions">
+  <div class="topbar-center">
     <SearchBar {onSelectCard} />
-    <ThemeToggle />
-    <button class="icon-btn" onclick={onOpenPrefs} title={t('prefs.title')}><Settings size={16} /></button>
-    <button class="icon-btn" onclick={onOpenProfile} title={t('profile.title')}><UserCircle size={16} /></button>
   </div>
+
+  {#if nav.projectSlug}
+    <div class="topbar-actions">
+      <button class="icon-btn" onclick={onCreateAIChat} title={t('toolbar.ai_chat')}><BotMessageSquare size={16} /></button>
+      <button class="icon-btn" onclick={onOpenLabels} title={t('toolbar.labels')}><Tags size={16} /></button>
+      <button class="icon-btn" onclick={onOpenProjectSettings} title={t('toolbar.project_settings')}><SlidersHorizontal size={16} /></button>
+    </div>
+  {/if}
 </header>
 
 <style>
@@ -48,10 +53,19 @@
     flex-shrink: 0;
   }
 
+  .topbar-center {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    padding: 0 1rem;
+    min-width: 0;
+  }
+
   .topbar-actions {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.25rem;
+    flex-shrink: 0;
   }
 
   .breadcrumb {
@@ -59,6 +73,7 @@
     align-items: center;
     gap: 0.3rem;
     font-size: 0.8rem;
+    flex-shrink: 0;
   }
 
   .crumb {

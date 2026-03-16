@@ -1,7 +1,7 @@
 <script lang="ts">
   import { nav } from './lib/store.svelte'
   import { loadTheme } from './lib/theme.svelte'
-  import { loadLocale } from './lib/i18n.svelte'
+  import { loadLocale, t } from './lib/i18n.svelte'
   import WelcomeScreen from './components/WelcomeScreen.svelte'
   import Sidebar from './components/Sidebar.svelte'
   import TopBar from './components/TopBar.svelte'
@@ -21,6 +21,8 @@
   if (savedWidth) nav.sidebarWidth = Math.max(160, Math.min(500, Number(savedWidth)))
 
   // Auto-reopen last repo if preference is enabled
+  let appLoading = $state(true)
+
   async function tryReopenLastRepo() {
     try {
       const prefs = await GetPreferences()
@@ -32,6 +34,7 @@
       nav.repoOpen = true
       nav.repoPath = last.path
     } catch { /* silently fall back to welcome screen */ }
+    finally { appLoading = false }
   }
   tryReopenLastRepo()
 
@@ -68,9 +71,16 @@
   }
 </script>
 
-{#if nav.repoOpen}
+{#if appLoading}
+  <div class="loading-screen">
+    <span class="loading-text">{t('app.starting')}</span>
+  </div>
+{:else if nav.repoOpen}
   <div class="app-shell" class:resizing>
-    <Sidebar />
+    <Sidebar
+      onOpenPrefs={() => showPrefs = true}
+      onOpenProfile={() => showProfile = true}
+    />
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="splitter"
@@ -80,8 +90,9 @@
     <div class="main-area">
       <TopBar
         onSelectCard={handleSearchSelectCard}
-        onOpenPrefs={() => showPrefs = true}
-        onOpenProfile={() => showProfile = true}
+        onOpenLabels={() => { /* TODO: open labels dialog */ }}
+        onOpenProjectSettings={() => { /* TODO: open project settings */ }}
+        onCreateAIChat={() => { /* TODO: create AI chat card */ }}
       />
       <Board />
     </div>
@@ -151,5 +162,19 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+  }
+
+  .loading-screen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    background: var(--bg-base);
+  }
+
+  .loading-text {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    letter-spacing: 0.05em;
   }
 </style>

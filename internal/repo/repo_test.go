@@ -335,10 +335,58 @@ func TestMoveCardToCategory(t *testing.T) {
 		t.Errorf("Todo should have 0 cards, got %d", len(pinsInA))
 	}
 
-	// Card should be in Done
-	pinsInB, _ := r.ListCardsInCategory(proj.ID, catB.ID)
+	// Card should be in Done — both ProjectID and CategoryID updated
+	pinsInB, _ := r.ListCardsInCategory(catB.ID, catB.ID)
 	if len(pinsInB) != 1 {
 		t.Errorf("Done should have 1 card, got %d", len(pinsInB))
+	}
+
+	// Verify pin fields were both updated
+	pins, _ := r.GetCardPins(card.ID)
+	if len(pins) != 1 {
+		t.Fatalf("expected 1 pin, got %d", len(pins))
+	}
+	if pins[0].ProjectID != catB.ID {
+		t.Errorf("pin ProjectID = %q, want %q", pins[0].ProjectID, catB.ID)
+	}
+	if pins[0].CategoryID != catB.ID {
+		t.Errorf("pin CategoryID = %q, want %q", pins[0].CategoryID, catB.ID)
+	}
+}
+
+func TestMoveCardToCategoryFrontendConvention(t *testing.T) {
+	// Simulates the frontend convention where projectID == categoryID
+	r := setupTestRepo(t)
+	r.CreateBrand("B")
+	r.CreateStream("b", "v1")
+	r.CreateProject("b", "v1", "P")
+	catA, _ := r.CreateCategory("b", "v1", "p", "Todo", 0)
+	catB, _ := r.CreateCategory("b", "v1", "p", "Done", 1)
+
+	card, _ := r.CreateCard("task", "Drag me")
+	// Pin with projectID == categoryID (frontend convention)
+	r.PinCard(card.ID, catA.ID, catA.ID)
+
+	// Move using fromCategoryId as projectID (frontend convention)
+	if err := r.MoveCardToCategory(card.ID, catA.ID, catA.ID, catB.ID, 0); err != nil {
+		t.Fatalf("MoveCardToCategory: %v", err)
+	}
+
+	// Card must be findable via ListCardsInCategory(catB.ID, catB.ID)
+	pinsInB, _ := r.ListCardsInCategory(catB.ID, catB.ID)
+	if len(pinsInB) != 1 {
+		t.Errorf("card should be visible in target category, got %d pins", len(pinsInB))
+	}
+
+	// Must NOT appear in source category
+	pinsInA, _ := r.ListCardsInCategory(catA.ID, catA.ID)
+	if len(pinsInA) != 0 {
+		t.Errorf("card should not be in source category, got %d pins", len(pinsInA))
+	}
+
+	// MoveCardInCategory should work on the moved card with new IDs
+	if err := r.MoveCardInCategory(card.ID, catB.ID, catB.ID, 5); err != nil {
+		t.Fatalf("MoveCardInCategory after cross-column move should work: %v", err)
 	}
 }
 

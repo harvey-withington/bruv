@@ -30,7 +30,7 @@
         prefs.theme = p.theme || 'dark'
         prefs.locale = p.locale || 'en'
         prefs.confirm_before_delete = p.confirm_before_delete ?? true
-        prefs.sidebar_width = p.sidebar_width || 260
+        prefs.sidebar_width = nav.sidebarWidth
       }
     } catch { /* use defaults */ }
     loaded = true

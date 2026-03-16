@@ -165,7 +165,9 @@
     left: 0;
     right: 0;
     margin-top: 4px;
-    background: var(--bg-surface);
+    background: color-mix(in srgb, var(--bg-surface) 50%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border);
     border-radius: 8px;
     box-shadow: 0 8px 24px var(--shadow-lg);

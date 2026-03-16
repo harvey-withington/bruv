@@ -1,8 +1,14 @@
 <script lang="ts">
   import { nav, board, tagColors } from '../lib/store.svelte'
   import { CloseRepository, CreateBrand, CreateStream, CreateProject, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, ListCategories, GetCard, GetCardPins, ListCardIDsInCategory, GetTagColors } from '../lib/api'
-  import { LogOut, Trash2, ChevronRight, ChevronDown, ChevronLeft, Plus, X, PanelLeftClose, PanelLeftOpen } from 'lucide-svelte'
+  import { LogOut, Trash2, ChevronRight, ChevronDown, ChevronLeft, Plus, X, PanelLeftClose, PanelLeftOpen, Settings, UserCircle } from 'lucide-svelte'
+  import ThemeToggle from './ThemeToggle.svelte'
   import { t } from '../lib/i18n.svelte'
+
+  let { onOpenPrefs, onOpenProfile }: {
+    onOpenPrefs?: () => void
+    onOpenProfile?: () => void
+  } = $props()
 
   async function handleCloseRepo() {
     await CloseRepository()
@@ -379,6 +385,22 @@
         </button>
       {/if}
     </nav>
+
+    <div class="sidebar-footer">
+      <button class="footer-btn" onclick={onOpenProfile} title={t('profile.title')}><UserCircle size={16} /></button>
+      <span class="footer-spacer"></span>
+      <ThemeToggle />
+      <button class="footer-btn" onclick={onOpenPrefs} title={t('prefs.title')}><Settings size={16} /></button>
+    </div>
+  {/if}
+
+  {#if nav.sidebarCollapsed}
+    <div class="sidebar-footer">
+      <button class="footer-btn" onclick={onOpenProfile} title={t('profile.title')}><UserCircle size={16} /></button>
+      <span class="footer-spacer"></span>
+      <ThemeToggle />
+      <button class="footer-btn" onclick={onOpenPrefs} title={t('prefs.title')}><Settings size={16} /></button>
+    </div>
   {/if}
 </aside>
 
@@ -617,5 +639,35 @@
   }
   .inline-btn-cancel:hover {
     color: var(--text-primary);
+  }
+
+  .sidebar-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.25rem;
+    padding: 0.5rem;
+    border-top: 1px solid var(--border-muted);
+    margin-top: auto;
+  }
+
+  .footer-spacer {
+    flex: 1;
+  }
+
+  .footer-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.35rem;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    transition: color 0.15s, background 0.15s;
+  }
+  .footer-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-subtle-hover);
   }
 </style>

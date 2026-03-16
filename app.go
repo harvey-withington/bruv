@@ -18,11 +18,12 @@ const AppVersion = "0.1.0-dev"
 
 // App struct
 type App struct {
-	ctx         context.Context
-	repo        *repo.Repository
-	registry    *schema.Registry
-	idx         *index.Index
-	savedBounds *config.WindowBounds
+	ctx            context.Context
+	repo           *repo.Repository
+	registry       *schema.Registry
+	idx            *index.Index
+	savedBounds    *config.WindowBounds
+	boundsRestored bool
 }
 
 // NewApp creates a new App application struct
@@ -46,13 +47,14 @@ func (a *App) startup(ctx context.Context) {
 // domReady is called after the frontend DOM is ready.
 // We restore the saved window position here and show the window.
 func (a *App) domReady(ctx context.Context) {
-	if a.savedBounds != nil {
+	if a.savedBounds != nil && !a.boundsRestored {
 		wailsRuntime.WindowSetSize(ctx, a.savedBounds.Width, a.savedBounds.Height)
 		wailsRuntime.WindowSetPosition(ctx, a.savedBounds.X, a.savedBounds.Y)
 
 		if a.savedBounds.Maximised {
 			wailsRuntime.WindowMaximise(ctx)
 		}
+		a.boundsRestored = true
 	}
 	wailsRuntime.WindowShow(ctx)
 }

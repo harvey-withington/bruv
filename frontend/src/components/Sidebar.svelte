@@ -1,7 +1,7 @@
 <script lang="ts">
   import { nav, board, tagColors } from '../lib/store.svelte'
   import { CloseRepository, CreateBrand, RenameBrand, CreateStream, RenameStream, CreateProject, RenameProject, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, ListCategories, GetCard, GetCardPins, ListCardIDsInCategory, GetTagColors, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject } from '../lib/api'
-  import { LogOut, Trash2, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle } from 'lucide-svelte'
+  import { LogOut, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle } from 'lucide-svelte'
   import ThemeToggle from './ThemeToggle.svelte'
   import BruvIcon from './BruvIcon.svelte'
   import { t } from '../lib/i18n.svelte'
@@ -48,6 +48,7 @@
   let renamingProjectName = $state('')
   let renamingProjectOriginal = $state('')
   let renameCancelled = $state(false)
+  let renameIsCreate = $state(false)
 
   $effect(() => {
     if (nav.repoOpen) {
@@ -203,6 +204,7 @@
       expandedBrands = new Set(expandedBrands)
       streamsByBrand[created.slug] = []
       renameCancelled = false
+      renameIsCreate = true
       renamingBrand = created.slug
       renamingBrandName = created.name
       renamingBrandOriginal = created.name
@@ -232,6 +234,7 @@
       expandedStreams = new Set(expandedStreams)
       projectsByStream[streamKey] = []
       renameCancelled = false
+      renameIsCreate = true
       renamingStreamKey = streamKey
       renamingStreamName = created.name
       renamingStreamOriginal = created.name
@@ -259,6 +262,7 @@
       projectsByStream[streamKey] = await ListProjects(brandSlug, streamSlug) || []
       const key = `${brandSlug}/${streamSlug}/${created.slug}`
       renameCancelled = false
+      renameIsCreate = true
       renamingProjectKey = key
       renamingProjectName = created.name
       renamingProjectOriginal = created.name
@@ -284,7 +288,7 @@
     const unchanged = renamingBrandName.trim() === renamingBrandOriginal
     renameCancelled = true
     renamingBrand = null
-    if (unchanged) {
+    if (renameIsCreate && unchanged) {
       try {
         await DeleteBrand(slug)
         await loadBrands()
@@ -296,7 +300,7 @@
     const unchanged = renamingStreamName.trim() === renamingStreamOriginal
     renameCancelled = true
     renamingStreamKey = null
-    if (unchanged) {
+    if (renameIsCreate && unchanged) {
       try {
         await DeleteStream(brandSlug, streamSlug)
         streamsByBrand[brandSlug] = await ListStreams(brandSlug) || []
@@ -308,13 +312,45 @@
     const unchanged = renamingProjectName.trim() === renamingProjectOriginal
     renameCancelled = true
     renamingProjectKey = null
-    if (unchanged) {
+    if (renameIsCreate && unchanged) {
       try {
         await DeleteProject(brandSlug, streamSlug, projectSlug)
         const key = `${brandSlug}/${streamSlug}`
         projectsByStream[key] = await ListProjects(brandSlug, streamSlug) || []
       } catch (e) { console.error('DeleteProject:', e) }
     }
+  }
+
+  // --- Edit (rename) handlers ---
+
+  function handleEditBrand(e: MouseEvent, slug: string, name: string) {
+    e.stopPropagation()
+    renameCancelled = false
+    renameIsCreate = false
+    renamingBrand = slug
+    renamingBrandName = name
+    renamingBrandOriginal = name
+    setTimeout(() => { const el = document.querySelector('.rename-input') as HTMLInputElement; el?.focus(); el?.select() }, 0)
+  }
+
+  function handleEditStream(e: MouseEvent, brandSlug: string, streamSlug: string, name: string) {
+    e.stopPropagation()
+    renameCancelled = false
+    renameIsCreate = false
+    renamingStreamKey = `${brandSlug}/${streamSlug}`
+    renamingStreamName = name
+    renamingStreamOriginal = name
+    setTimeout(() => { const el = document.querySelector('.rename-input') as HTMLInputElement; el?.focus(); el?.select() }, 0)
+  }
+
+  function handleEditProject(e: MouseEvent, brandSlug: string, streamSlug: string, projectSlug: string, name: string) {
+    e.stopPropagation()
+    renameCancelled = false
+    renameIsCreate = false
+    renamingProjectKey = `${brandSlug}/${streamSlug}/${projectSlug}`
+    renamingProjectName = name
+    renamingProjectOriginal = name
+    setTimeout(() => { const el = document.querySelector('.rename-input') as HTMLInputElement; el?.focus(); el?.select() }, 0)
   }
 
   // --- Delete handlers ---
@@ -552,6 +588,7 @@
                 <span class="chevron">{#if expandedBrands.has(brand.slug)}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</span>
                 <span class="label">{brand.name}</span>
               </button>
+              <button class="row-action edit-action" onclick={(e) => handleEditBrand(e, brand.slug, brand.name)} title={t('tooltip.rename_brand')}><Pencil size={12} /></button>
               <button class="row-action delete-action" onclick={(e) => handleDeleteBrand(e, brand.slug)} title={t('tooltip.delete_brand')}><Trash2 size={12} /></button>
             {/if}
           </div>
@@ -584,6 +621,7 @@
                         <span class="chevron">{#if expandedStreams.has(`${brand.slug}/${stream.slug}`)}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</span>
                         <span class="label">{stream.name}</span>
                       </button>
+                      <button class="row-action edit-action" onclick={(e) => handleEditStream(e, brand.slug, stream.slug, stream.name)} title={t('tooltip.rename_stream')}><Pencil size={12} /></button>
                       <button class="row-action delete-action" onclick={(e) => handleDeleteStream(e, brand.slug, stream.slug)} title={t('tooltip.delete_stream')}><Trash2 size={12} /></button>
                     {/if}
                   </div>
@@ -618,6 +656,7 @@
                             >
                               <span class="label">{project.name}</span>
                             </button>
+                            <button class="row-action edit-action" onclick={(e) => handleEditProject(e, brand.slug, stream.slug, project.slug, project.name)} title={t('tooltip.rename_project')}><Pencil size={12} /></button>
                             <button class="row-action delete-action" onclick={(e) => handleDeleteProject(e, brand.slug, stream.slug, project.slug)} title={t('tooltip.delete_project')}><Trash2 size={12} /></button>
                           {/if}
                         </div>
@@ -842,6 +881,10 @@
 
   .tree-row:hover .row-action {
     color: var(--text-faint);
+  }
+
+  .row-action.edit-action:hover {
+    color: var(--accent-light, var(--accent));
   }
 
   .row-action.delete-action:hover {

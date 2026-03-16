@@ -11,15 +11,13 @@ import (
 
 // CreateBrand creates a new Brand in the repository.
 func (r *Repository) CreateBrand(name string) (*model.Brand, error) {
-	slug := Slugify(name)
-	if slug == "" {
+	baseSlug := Slugify(name)
+	if baseSlug == "" {
 		return nil, fmt.Errorf("invalid brand name: %q", name)
 	}
+	slug := uniqueSlug(baseSlug, func(s string) bool { return fileExists(r.brandPath(s)) })
 
 	brandDir := r.brandPath(slug)
-	if fileExists(brandDir) {
-		return nil, fmt.Errorf("brand %q already exists", name)
-	}
 
 	// Count existing brands so the new one is appended at the end
 	existing, _ := r.ListBrands()
@@ -121,6 +119,35 @@ func (r *Repository) ReorderBrands(orderedSlugs []string) error {
 		}
 	}
 	return nil
+}
+
+// RenameBrand renames a Brand and moves its directory if the slug changes.
+func (r *Repository) RenameBrand(slug, newName string) (*model.Brand, error) {
+	brand, err := r.GetBrand(slug)
+	if err != nil {
+		return nil, err
+	}
+
+	newSlug := Slugify(newName)
+	if newSlug == "" {
+		return nil, fmt.Errorf("invalid brand name: %q", newName)
+	}
+
+	brand.Name = newName
+	brand.UpdatedAt = time.Now().UTC()
+
+	if newSlug != slug {
+		newSlug = uniqueSlug(newSlug, func(s string) bool { return s != slug && fileExists(r.brandPath(s)) })
+		brand.Slug = newSlug
+		if err := os.Rename(r.brandPath(slug), r.brandPath(newSlug)); err != nil {
+			return nil, fmt.Errorf("rename brand directory: %w", err)
+		}
+	}
+
+	if err := writeJSON(r.brandFilePath(brand.Slug), brand); err != nil {
+		return nil, fmt.Errorf("write brand: %w", err)
+	}
+	return brand, nil
 }
 
 // DeleteBrand removes a Brand and all its contents from the repository.

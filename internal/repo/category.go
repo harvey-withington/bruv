@@ -16,15 +16,11 @@ func (r *Repository) CreateCategory(brandSlug, streamSlug, projectSlug, name str
 		return nil, err
 	}
 
-	slug := Slugify(name)
-	if slug == "" {
+	baseSlug := Slugify(name)
+	if baseSlug == "" {
 		return nil, fmt.Errorf("invalid category name: %q", name)
 	}
-
-	catPath := r.categoryFilePath(brandSlug, streamSlug, projectSlug, slug)
-	if fileExists(catPath) {
-		return nil, fmt.Errorf("category %q already exists in project %q", name, projectSlug)
-	}
+	slug := uniqueSlug(baseSlug, func(s string) bool { return fileExists(r.categoryFilePath(brandSlug, streamSlug, projectSlug, s)) })
 
 	now := time.Now().UTC()
 	category := &model.Category{
@@ -42,7 +38,7 @@ func (r *Repository) CreateCategory(brandSlug, streamSlug, projectSlug, name str
 		return nil, fmt.Errorf("create categories directory: %w", err)
 	}
 
-	if err := writeJSON(catPath, category); err != nil {
+	if err := writeJSON(r.categoryFilePath(brandSlug, streamSlug, projectSlug, slug), category); err != nil {
 		return nil, fmt.Errorf("write category: %w", err)
 	}
 
@@ -118,6 +114,36 @@ func (r *Repository) ReorderCategories(brandSlug, streamSlug, projectSlug string
 		}
 	}
 	return nil
+}
+
+// RenameCategory renames a Category and moves its file if the slug changes.
+func (r *Repository) RenameCategory(brandSlug, streamSlug, projectSlug, categorySlug, newName string) (*model.Category, error) {
+	category, err := r.GetCategory(brandSlug, streamSlug, projectSlug, categorySlug)
+	if err != nil {
+		return nil, err
+	}
+
+	newSlug := Slugify(newName)
+	if newSlug == "" {
+		return nil, fmt.Errorf("invalid category name: %q", newName)
+	}
+
+	category.Name = newName
+	category.UpdatedAt = time.Now().UTC()
+
+	if newSlug != categorySlug {
+		newSlug = uniqueSlug(newSlug, func(s string) bool {
+			return s != categorySlug && fileExists(r.categoryFilePath(brandSlug, streamSlug, projectSlug, s))
+		})
+		category.Slug = newSlug
+		// Remove old file
+		os.Remove(r.categoryFilePath(brandSlug, streamSlug, projectSlug, categorySlug))
+	}
+
+	if err := writeJSON(r.categoryFilePath(brandSlug, streamSlug, projectSlug, category.Slug), category); err != nil {
+		return nil, fmt.Errorf("write category: %w", err)
+	}
+	return category, nil
 }
 
 // DeleteCategory removes a Category.

@@ -206,9 +206,14 @@ func (a *App) RenameBrand(slug, newName string) (*model.Brand, error) {
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
-	return a.repo.UpdateBrand(slug, func(b *model.Brand) {
-		b.Name = newName
-	})
+	brand, err := a.repo.RenameBrand(slug, newName)
+	if err != nil {
+		return nil, err
+	}
+	if a.idx != nil {
+		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
+	}
+	return brand, nil
 }
 
 func (a *App) DeleteBrand(slug string) error {
@@ -238,9 +243,14 @@ func (a *App) RenameStream(brandSlug, streamSlug, newName string) (*model.Stream
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
-	return a.repo.UpdateStream(brandSlug, streamSlug, func(s *model.Stream) {
-		s.Name = newName
-	})
+	stream, err := a.repo.RenameStream(brandSlug, streamSlug, newName)
+	if err != nil {
+		return nil, err
+	}
+	if a.idx != nil {
+		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
+	}
+	return stream, nil
 }
 
 func (a *App) DeleteStream(brandSlug, streamSlug string) error {
@@ -270,9 +280,14 @@ func (a *App) RenameProject(brandSlug, streamSlug, projectSlug, newName string) 
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
-	return a.repo.UpdateProject(brandSlug, streamSlug, projectSlug, func(p *model.Project) {
-		p.Name = newName
-	})
+	project, err := a.repo.RenameProject(brandSlug, streamSlug, projectSlug, newName)
+	if err != nil {
+		return nil, err
+	}
+	if a.idx != nil {
+		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
+	}
+	return project, nil
 }
 
 func (a *App) DeleteProject(brandSlug, streamSlug, projectSlug string) error {
@@ -302,9 +317,14 @@ func (a *App) RenameCategory(brandSlug, streamSlug, projectSlug, categorySlug, n
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
-	return a.repo.UpdateCategory(brandSlug, streamSlug, projectSlug, categorySlug, func(c *model.Category) {
-		c.Name = newName
-	})
+	cat, err := a.repo.RenameCategory(brandSlug, streamSlug, projectSlug, categorySlug, newName)
+	if err != nil {
+		return nil, err
+	}
+	if a.idx != nil {
+		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
+	}
+	return cat, nil
 }
 
 func (a *App) DeleteCategory(brandSlug, streamSlug, projectSlug, categorySlug string) error {

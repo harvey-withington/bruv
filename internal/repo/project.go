@@ -21,15 +21,13 @@ func (r *Repository) CreateProject(brandSlug, streamSlug, name string) (*model.P
 		return nil, err
 	}
 
-	slug := Slugify(name)
-	if slug == "" {
+	baseSlug := Slugify(name)
+	if baseSlug == "" {
 		return nil, fmt.Errorf("invalid project name: %q", name)
 	}
+	slug := uniqueSlug(baseSlug, func(s string) bool { return fileExists(r.projectPath(brandSlug, streamSlug, s)) })
 
 	projectDir := r.projectPath(brandSlug, streamSlug, slug)
-	if fileExists(projectDir) {
-		return nil, fmt.Errorf("project %q already exists in stream %q", name, streamSlug)
-	}
 
 	// Count existing projects so the new one is appended at the end
 	existingProjects, _ := r.ListProjects(brandSlug, streamSlug)
@@ -133,6 +131,35 @@ func (r *Repository) ReorderProjects(brandSlug, streamSlug string, orderedSlugs 
 		}
 	}
 	return nil
+}
+
+// RenameProject renames a Project and moves its directory if the slug changes.
+func (r *Repository) RenameProject(brandSlug, streamSlug, projectSlug, newName string) (*model.Project, error) {
+	project, err := r.GetProject(brandSlug, streamSlug, projectSlug)
+	if err != nil {
+		return nil, err
+	}
+
+	newSlug := Slugify(newName)
+	if newSlug == "" {
+		return nil, fmt.Errorf("invalid project name: %q", newName)
+	}
+
+	project.Name = newName
+	project.UpdatedAt = time.Now().UTC()
+
+	if newSlug != projectSlug {
+		newSlug = uniqueSlug(newSlug, func(s string) bool { return s != projectSlug && fileExists(r.projectPath(brandSlug, streamSlug, s)) })
+		project.Slug = newSlug
+		if err := os.Rename(r.projectPath(brandSlug, streamSlug, projectSlug), r.projectPath(brandSlug, streamSlug, newSlug)); err != nil {
+			return nil, fmt.Errorf("rename project directory: %w", err)
+		}
+	}
+
+	if err := writeJSON(r.projectFilePath(brandSlug, streamSlug, project.Slug), project); err != nil {
+		return nil, fmt.Errorf("write project: %w", err)
+	}
+	return project, nil
 }
 
 // DeleteProject removes a Project and all its contents.

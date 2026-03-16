@@ -37,18 +37,17 @@
   let expandedStreams = $state<Set<string>>(new Set())
   let projectsByStream = $state<Record<string, Project[]>>({})
 
-  // Inline rename state (create-then-rename flow)
-  let renamingBrand = $state<string | null>(null)
-  let renamingBrandName = $state('')
-  let renamingBrandOriginal = $state('')
-  let renamingStreamKey = $state<string | null>(null)
-  let renamingStreamName = $state('')
-  let renamingStreamOriginal = $state('')
-  let renamingProjectKey = $state<string | null>(null)
-  let renamingProjectName = $state('')
-  let renamingProjectOriginal = $state('')
-  let renameCancelled = $state(false)
-  let renameIsCreate = $state(false)
+  // Inline rename state — unified for brand/stream/project
+  let renaming = $state<{
+    type: 'brand' | 'stream' | 'project'
+    key: string
+    name: string
+    original: string
+    isCreate: boolean
+    brandSlug: string
+    streamSlug: string
+    projectSlug: string
+  } | null>(null)
 
   $effect(() => {
     if (nav.repoOpen) {
@@ -203,24 +202,9 @@
       expandedBrands.add(created.slug)
       expandedBrands = new Set(expandedBrands)
       streamsByBrand[created.slug] = []
-      renameCancelled = false
-      renameIsCreate = true
-      renamingBrand = created.slug
-      renamingBrandName = created.name
-      renamingBrandOriginal = created.name
+      renaming = { type: 'brand', key: created.slug, name: created.name, original: created.name, isCreate: true, brandSlug: created.slug, streamSlug: '', projectSlug: '' }
       setTimeout(() => { const el = document.querySelector('.rename-input') as HTMLInputElement; el?.scrollIntoView({ block: 'nearest' }); el?.select() }, 0)
     } catch (e) { console.error('CreateBrand:', e) }
-  }
-
-  async function commitRenameBrand(slug: string) {
-    if (renameCancelled || renamingBrand === null) return
-    const name = renamingBrandName.trim()
-    renamingBrand = null
-    if (!name) return
-    try {
-      await RenameBrand(slug, name)
-      await loadBrands()
-    } catch (e) { console.error('RenameBrand:', e) }
   }
 
   async function handleCreateStream(brandSlug: string) {
@@ -233,24 +217,9 @@
       expandedStreams.add(streamKey)
       expandedStreams = new Set(expandedStreams)
       projectsByStream[streamKey] = []
-      renameCancelled = false
-      renameIsCreate = true
-      renamingStreamKey = streamKey
-      renamingStreamName = created.name
-      renamingStreamOriginal = created.name
+      renaming = { type: 'stream', key: streamKey, name: created.name, original: created.name, isCreate: true, brandSlug, streamSlug: created.slug, projectSlug: '' }
       setTimeout(() => { const el = document.querySelector('.rename-input') as HTMLInputElement; el?.scrollIntoView({ block: 'nearest' }); el?.select() }, 0)
     } catch (e) { console.error('CreateStream:', e) }
-  }
-
-  async function commitRenameStream(brandSlug: string, streamSlug: string) {
-    if (renameCancelled || renamingStreamKey === null) return
-    const name = renamingStreamName.trim()
-    renamingStreamKey = null
-    if (!name) return
-    try {
-      await RenameStream(brandSlug, streamSlug, name)
-      streamsByBrand[brandSlug] = await ListStreams(brandSlug) || []
-    } catch (e) { console.error('RenameStream:', e) }
   }
 
   async function handleCreateProject(brandSlug: string, streamSlug: string) {
@@ -260,96 +229,105 @@
       const name = await findUniqueName(t('default.project_name'), existing.map(p => p.name))
       const created = await CreateProject(brandSlug, streamSlug, name)
       projectsByStream[streamKey] = await ListProjects(brandSlug, streamSlug) || []
-      const key = `${brandSlug}/${streamSlug}/${created.slug}`
-      renameCancelled = false
-      renameIsCreate = true
-      renamingProjectKey = key
-      renamingProjectName = created.name
-      renamingProjectOriginal = created.name
+      renaming = { type: 'project', key: `${brandSlug}/${streamSlug}/${created.slug}`, name: created.name, original: created.name, isCreate: true, brandSlug, streamSlug, projectSlug: created.slug }
       setTimeout(() => { const el = document.querySelector('.rename-input') as HTMLInputElement; el?.scrollIntoView({ block: 'nearest' }); el?.select() }, 0)
     } catch (e) { console.error('CreateProject:', e) }
   }
 
-  async function commitRenameProject(brandSlug: string, streamSlug: string, projectSlug: string) {
-    if (renameCancelled || renamingProjectKey === null) return
-    const name = renamingProjectName.trim()
-    renamingProjectKey = null
+  // --- Unified commit / cancel / edit ---
+
+  async function commitRename() {
+    if (!renaming) return
+    const { type, name: rawName, brandSlug, streamSlug, projectSlug } = renaming
+    const name = rawName.trim()
+    renaming = null
     if (!name) return
     try {
-      await RenameProject(brandSlug, streamSlug, projectSlug, name)
-      const key = `${brandSlug}/${streamSlug}`
-      projectsByStream[key] = await ListProjects(brandSlug, streamSlug) || []
-    } catch (e) { console.error('RenameProject:', e) }
-  }
-
-  // --- Cancel rename (Escape) — delete if name unchanged ---
-
-  async function cancelRenameBrand(slug: string) {
-    const unchanged = renamingBrandName.trim() === renamingBrandOriginal
-    renameCancelled = true
-    renamingBrand = null
-    if (renameIsCreate && unchanged) {
-      try {
-        await DeleteBrand(slug)
+      if (type === 'brand') {
+        const updated = await RenameBrand(brandSlug, name)
+        const newSlug = updated.slug
+        if (newSlug !== brandSlug) {
+          // Migrate expanded/cached state to new slug
+          if (expandedBrands.has(brandSlug)) {
+            expandedBrands.delete(brandSlug)
+            expandedBrands.add(newSlug)
+            expandedBrands = new Set(expandedBrands)
+          }
+          if (streamsByBrand[brandSlug]) {
+            streamsByBrand[newSlug] = streamsByBrand[brandSlug]
+            delete streamsByBrand[brandSlug]
+          }
+          const oldPfx = `${brandSlug}/`, newPfx = `${newSlug}/`
+          const newExp = new Set<string>()
+          for (const k of expandedStreams) newExp.add(k.startsWith(oldPfx) ? newPfx + k.slice(oldPfx.length) : k)
+          expandedStreams = newExp
+          const newProj: Record<string, Project[]> = {}
+          for (const [k, v] of Object.entries(projectsByStream)) newProj[k.startsWith(oldPfx) ? newPfx + k.slice(oldPfx.length) : k] = v
+          projectsByStream = newProj
+          if (nav.brandSlug === brandSlug) {
+            nav.brandSlug = newSlug
+            localStorage.setItem('bruv-last-nav', JSON.stringify({ brandSlug: newSlug, streamSlug: nav.streamSlug, projectSlug: nav.projectSlug }))
+          }
+        }
         await loadBrands()
-      } catch (e) { console.error('DeleteBrand:', e) }
-    }
-  }
-
-  async function cancelRenameStream(brandSlug: string, streamSlug: string) {
-    const unchanged = renamingStreamName.trim() === renamingStreamOriginal
-    renameCancelled = true
-    renamingStreamKey = null
-    if (renameIsCreate && unchanged) {
-      try {
-        await DeleteStream(brandSlug, streamSlug)
+      } else if (type === 'stream') {
+        const updated = await RenameStream(brandSlug, streamSlug, name)
+        const newSlug = updated.slug
+        if (newSlug !== streamSlug) {
+          const oldKey = `${brandSlug}/${streamSlug}`, newKey = `${brandSlug}/${newSlug}`
+          if (expandedStreams.has(oldKey)) {
+            expandedStreams.delete(oldKey)
+            expandedStreams.add(newKey)
+            expandedStreams = new Set(expandedStreams)
+          }
+          if (projectsByStream[oldKey]) {
+            projectsByStream[newKey] = projectsByStream[oldKey]
+            delete projectsByStream[oldKey]
+          }
+          if (nav.brandSlug === brandSlug && nav.streamSlug === streamSlug) {
+            nav.streamSlug = newSlug
+            localStorage.setItem('bruv-last-nav', JSON.stringify({ brandSlug: nav.brandSlug, streamSlug: newSlug, projectSlug: nav.projectSlug }))
+          }
+        }
         streamsByBrand[brandSlug] = await ListStreams(brandSlug) || []
-      } catch (e) { console.error('DeleteStream:', e) }
-    }
-  }
-
-  async function cancelRenameProject(brandSlug: string, streamSlug: string, projectSlug: string) {
-    const unchanged = renamingProjectName.trim() === renamingProjectOriginal
-    renameCancelled = true
-    renamingProjectKey = null
-    if (renameIsCreate && unchanged) {
-      try {
-        await DeleteProject(brandSlug, streamSlug, projectSlug)
+      } else {
+        const updated = await RenameProject(brandSlug, streamSlug, projectSlug, name)
+        const newSlug = updated.slug
+        if (newSlug !== projectSlug && nav.brandSlug === brandSlug && nav.streamSlug === streamSlug && nav.projectSlug === projectSlug) {
+          nav.projectSlug = newSlug
+          localStorage.setItem('bruv-last-nav', JSON.stringify({ brandSlug: nav.brandSlug, streamSlug: nav.streamSlug, projectSlug: newSlug }))
+        }
         const key = `${brandSlug}/${streamSlug}`
         projectsByStream[key] = await ListProjects(brandSlug, streamSlug) || []
-      } catch (e) { console.error('DeleteProject:', e) }
+      }
+    } catch (e) { console.error('Rename:', e) }
+  }
+
+  async function cancelRename() {
+    if (!renaming) return
+    const { type, name: rawName, original, isCreate, brandSlug, streamSlug, projectSlug } = renaming
+    const unchanged = rawName.trim() === original
+    renaming = null
+    if (isCreate && unchanged) {
+      try {
+        if (type === 'brand') {
+          await DeleteBrand(brandSlug)
+          await loadBrands()
+        } else if (type === 'stream') {
+          await DeleteStream(brandSlug, streamSlug)
+          streamsByBrand[brandSlug] = await ListStreams(brandSlug) || []
+        } else {
+          await DeleteProject(brandSlug, streamSlug, projectSlug)
+          const key = `${brandSlug}/${streamSlug}`
+          projectsByStream[key] = await ListProjects(brandSlug, streamSlug) || []
+        }
+      } catch (e) { console.error('CancelRename:', e) }
     }
   }
 
-  // --- Edit (rename) handlers ---
-
-  function handleEditBrand(e: MouseEvent, slug: string, name: string) {
+  function startEdit(e: MouseEvent, type: 'brand' | 'stream' | 'project', key: string, name: string, brandSlug: string, streamSlug = '', projectSlug = '') {
     e.stopPropagation()
-    renameCancelled = false
-    renameIsCreate = false
-    renamingBrand = slug
-    renamingBrandName = name
-    renamingBrandOriginal = name
-    setTimeout(() => { const el = document.querySelector('.rename-input') as HTMLInputElement; el?.focus(); el?.select() }, 0)
-  }
-
-  function handleEditStream(e: MouseEvent, brandSlug: string, streamSlug: string, name: string) {
-    e.stopPropagation()
-    renameCancelled = false
-    renameIsCreate = false
-    renamingStreamKey = `${brandSlug}/${streamSlug}`
-    renamingStreamName = name
-    renamingStreamOriginal = name
-    setTimeout(() => { const el = document.querySelector('.rename-input') as HTMLInputElement; el?.focus(); el?.select() }, 0)
-  }
-
-  function handleEditProject(e: MouseEvent, brandSlug: string, streamSlug: string, projectSlug: string, name: string) {
-    e.stopPropagation()
-    renameCancelled = false
-    renameIsCreate = false
-    renamingProjectKey = `${brandSlug}/${streamSlug}/${projectSlug}`
-    renamingProjectName = name
-    renamingProjectOriginal = name
+    renaming = { type, key, name, original: name, isCreate: false, brandSlug, streamSlug, projectSlug }
     setTimeout(() => { const el = document.querySelector('.rename-input') as HTMLInputElement; el?.focus(); el?.select() }, 0)
   }
 
@@ -569,26 +547,26 @@
         <div class="tree-node">
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div class="tree-row"
-            draggable={renamingBrand !== brand.slug}
+            draggable={renaming?.key !== brand.slug}
             ondragstart={(e) => handleDragStart(e, { type: 'brand', slug: brand.slug })}
             ondragend={handleDragEnd}
             ondragover={(e) => handleDragOverItem(e, 'brand', '', brandIdx)}
             ondrop={handleDrop}
             class:dragging-item={dragging?.type === 'brand' && dragging?.slug === brand.slug}
           >
-            {#if renamingBrand === brand.slug}
+            {#if renaming && renaming.key === brand.slug}
               <input
                 class="rename-input brand-level"
-                bind:value={renamingBrandName}
-                onkeydown={(e) => { if (e.key === 'Enter') commitRenameBrand(brand.slug); if (e.key === 'Escape') cancelRenameBrand(brand.slug) }}
-                onblur={() => commitRenameBrand(brand.slug)}
+                bind:value={renaming.name}
+                onkeydown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') cancelRename() }}
+                onblur={() => commitRename()}
               />
             {:else}
               <button class="tree-item brand-item" onclick={() => toggleBrand(brand.slug)}>
                 <span class="chevron">{#if expandedBrands.has(brand.slug)}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</span>
                 <span class="label">{brand.name}</span>
               </button>
-              <button class="row-action edit-action" onclick={(e) => handleEditBrand(e, brand.slug, brand.name)} title={t('tooltip.rename_brand')}><Pencil size={12} /></button>
+              <button class="row-action edit-action" onclick={(e) => startEdit(e, 'brand', brand.slug, brand.name, brand.slug)} title={t('tooltip.rename_brand')}><Pencil size={12} /></button>
               <button class="row-action delete-action" onclick={(e) => handleDeleteBrand(e, brand.slug)} title={t('tooltip.delete_brand')}><Trash2 size={12} /></button>
             {/if}
           </div>
@@ -602,26 +580,26 @@
                 <div class="tree-node">
                   <!-- svelte-ignore a11y_no_static_element_interactions -->
                   <div class="tree-row"
-                    draggable={renamingStreamKey !== `${brand.slug}/${stream.slug}`}
+                    draggable={renaming?.key !== `${brand.slug}/${stream.slug}`}
                     ondragstart={(e) => handleDragStart(e, { type: 'stream', brandSlug: brand.slug, slug: stream.slug })}
                     ondragend={handleDragEnd}
                     ondragover={(e) => handleDragOverItem(e, 'stream', brand.slug, streamIdx)}
                     ondrop={handleDrop}
                     class:dragging-item={dragging?.type === 'stream' && dragging?.slug === stream.slug}
                   >
-                    {#if renamingStreamKey === `${brand.slug}/${stream.slug}`}
+                    {#if renaming && renaming.key === `${brand.slug}/${stream.slug}`}
                       <input
                         class="rename-input stream-level"
-                        bind:value={renamingStreamName}
-                        onkeydown={(e) => { if (e.key === 'Enter') commitRenameStream(brand.slug, stream.slug); if (e.key === 'Escape') cancelRenameStream(brand.slug, stream.slug) }}
-                        onblur={() => commitRenameStream(brand.slug, stream.slug)}
+                        bind:value={renaming.name}
+                        onkeydown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') cancelRename() }}
+                        onblur={() => commitRename()}
                       />
                     {:else}
                       <button class="tree-item stream-item" onclick={() => toggleStream(brand.slug, stream.slug)}>
                         <span class="chevron">{#if expandedStreams.has(`${brand.slug}/${stream.slug}`)}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</span>
                         <span class="label">{stream.name}</span>
                       </button>
-                      <button class="row-action edit-action" onclick={(e) => handleEditStream(e, brand.slug, stream.slug, stream.name)} title={t('tooltip.rename_stream')}><Pencil size={12} /></button>
+                      <button class="row-action edit-action" onclick={(e) => startEdit(e, 'stream', `${brand.slug}/${stream.slug}`, stream.name, brand.slug, stream.slug)} title={t('tooltip.rename_stream')}><Pencil size={12} /></button>
                       <button class="row-action delete-action" onclick={(e) => handleDeleteStream(e, brand.slug, stream.slug)} title={t('tooltip.delete_stream')}><Trash2 size={12} /></button>
                     {/if}
                   </div>
@@ -634,19 +612,19 @@
                         {/if}
                         <!-- svelte-ignore a11y_no_static_element_interactions -->
                         <div class="tree-row"
-                          draggable={renamingProjectKey !== `${brand.slug}/${stream.slug}/${project.slug}`}
+                          draggable={renaming?.key !== `${brand.slug}/${stream.slug}/${project.slug}`}
                           ondragstart={(e) => handleDragStart(e, { type: 'project', brandSlug: brand.slug, streamSlug: stream.slug, slug: project.slug })}
                           ondragend={handleDragEnd}
                           ondragover={(e) => handleDragOverItem(e, 'project', `${brand.slug}/${stream.slug}`, projectIdx)}
                           ondrop={handleDrop}
                           class:dragging-item={dragging?.type === 'project' && dragging?.slug === project.slug}
                         >
-                          {#if renamingProjectKey === `${brand.slug}/${stream.slug}/${project.slug}`}
+                          {#if renaming && renaming.key === `${brand.slug}/${stream.slug}/${project.slug}`}
                             <input
                               class="rename-input project-level"
-                              bind:value={renamingProjectName}
-                              onkeydown={(e) => { if (e.key === 'Enter') commitRenameProject(brand.slug, stream.slug, project.slug); if (e.key === 'Escape') cancelRenameProject(brand.slug, stream.slug, project.slug) }}
-                              onblur={() => commitRenameProject(brand.slug, stream.slug, project.slug)}
+                              bind:value={renaming.name}
+                              onkeydown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') cancelRename() }}
+                              onblur={() => commitRename()}
                             />
                           {:else}
                             <button
@@ -656,7 +634,7 @@
                             >
                               <span class="label">{project.name}</span>
                             </button>
-                            <button class="row-action edit-action" onclick={(e) => handleEditProject(e, brand.slug, stream.slug, project.slug, project.name)} title={t('tooltip.rename_project')}><Pencil size={12} /></button>
+                            <button class="row-action edit-action" onclick={(e) => startEdit(e, 'project', `${brand.slug}/${stream.slug}/${project.slug}`, project.name, brand.slug, stream.slug, project.slug)} title={t('tooltip.rename_project')}><Pencil size={12} /></button>
                             <button class="row-action delete-action" onclick={(e) => handleDeleteProject(e, brand.slug, stream.slug, project.slug)} title={t('tooltip.delete_project')}><Trash2 size={12} /></button>
                           {/if}
                         </div>

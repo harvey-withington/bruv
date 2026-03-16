@@ -103,6 +103,19 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
+// uniqueSlug appends a numeric suffix (-2, -3, …) if the base slug is already taken.
+func uniqueSlug(base string, taken func(string) bool) string {
+	if !taken(base) {
+		return base
+	}
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s-%d", base, i)
+		if !taken(candidate) {
+			return candidate
+		}
+	}
+}
+
 // Slugify converts a name to a filesystem-safe slug.
 func Slugify(name string) string {
 	result := make([]byte, 0, len(name))

@@ -17,15 +17,13 @@ func (r *Repository) CreateStream(brandSlug, name string) (*model.Stream, error)
 		return nil, err
 	}
 
-	slug := Slugify(name)
-	if slug == "" {
+	baseSlug := Slugify(name)
+	if baseSlug == "" {
 		return nil, fmt.Errorf("invalid stream name: %q", name)
 	}
+	slug := uniqueSlug(baseSlug, func(s string) bool { return fileExists(r.streamPath(brandSlug, s)) })
 
 	streamDir := r.streamPath(brandSlug, slug)
-	if fileExists(streamDir) {
-		return nil, fmt.Errorf("stream %q already exists in brand %q", name, brandSlug)
-	}
 
 	// Count existing streams so the new one is appended at the end
 	existingStreams, _ := r.ListStreams(brandSlug)
@@ -128,6 +126,35 @@ func (r *Repository) ReorderStreams(brandSlug string, orderedSlugs []string) err
 		}
 	}
 	return nil
+}
+
+// RenameStream renames a Stream and moves its directory if the slug changes.
+func (r *Repository) RenameStream(brandSlug, streamSlug, newName string) (*model.Stream, error) {
+	stream, err := r.GetStream(brandSlug, streamSlug)
+	if err != nil {
+		return nil, err
+	}
+
+	newSlug := Slugify(newName)
+	if newSlug == "" {
+		return nil, fmt.Errorf("invalid stream name: %q", newName)
+	}
+
+	stream.Name = newName
+	stream.UpdatedAt = time.Now().UTC()
+
+	if newSlug != streamSlug {
+		newSlug = uniqueSlug(newSlug, func(s string) bool { return s != streamSlug && fileExists(r.streamPath(brandSlug, s)) })
+		stream.Slug = newSlug
+		if err := os.Rename(r.streamPath(brandSlug, streamSlug), r.streamPath(brandSlug, newSlug)); err != nil {
+			return nil, fmt.Errorf("rename stream directory: %w", err)
+		}
+	}
+
+	if err := writeJSON(r.streamFilePath(brandSlug, stream.Slug), stream); err != nil {
+		return nil, fmt.Errorf("write stream: %w", err)
+	}
+	return stream, nil
 }
 
 // DeleteStream removes a Stream and all its contents.

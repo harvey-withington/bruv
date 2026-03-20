@@ -1,7 +1,12 @@
 build/bin
+build/appicon.png
+build/windows/icon.ico
 node_modules
 frontend/dist
 frontend/wailsjs
+frontend/public/bruv-icon.svg
+frontend/public/bruv-icon.png
+frontend/public/icon.ico
 
 # IDE
 .vscode/

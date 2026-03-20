@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import Column from './Column.svelte'
   import CardDetail from './CardDetail.svelte'
   import { board, nav, tagColors, dnd, search } from '../lib/store.svelte'
@@ -12,6 +13,13 @@
   let renameCatIsNew = $state(false)
   let selectedCardId = $state<string | null>(null)
   let autoEditTitle = $state(false)
+
+  // Close board's card dialog when navigating via internal links
+  onMount(() => {
+    function handleClose() { selectedCardId = null; autoEditTitle = false }
+    document.addEventListener('bruv:close-card-detail', handleClose)
+    return () => document.removeEventListener('bruv:close-card-detail', handleClose)
+  })
 
   // Category delete confirmation state
   let deletingCategory = $state<{ id: string; slug: string; name: string; cardCount: number } | null>(null)
@@ -357,7 +365,7 @@
   {#if board.loading}
     <div class="loading">{t('app.loading')}</div>
 
-  {:else if !nav.projectSlug}
+  {:else if !nav.projectSlug && !nav.inboxMode}
     <div class="empty-board">
       <p class="empty-text">{t('app.no_project')}</p>
     </div>
@@ -372,15 +380,16 @@
           <Column
             {category}
             onCardClick={handleCardClick}
-            onAddCard={handleAddCard}
-            onCardDrop={handleCardDrop}
-            onDeleteCategory={handleDeleteCategoryRequest}
-            onStartRename={startRenameCategory}
+            onAddCard={nav.inboxMode ? undefined : handleAddCard}
+            onCardDrop={nav.inboxMode ? undefined : handleCardDrop}
+            onDeleteCategory={nav.inboxMode ? undefined : handleDeleteCategoryRequest}
+            onStartRename={nav.inboxMode ? undefined : startRenameCategory}
             renaming={renamingCategorySlug === category.slug}
             renamingName={renamingCategoryName}
             onRenamingNameChange={(v) => renamingCategoryName = v}
             onCommitRename={() => commitRenameCategory(category.slug)}
             onCancelRename={() => cancelRenameCategory(category.slug)}
+            isReadonly={nav.inboxMode}
           />
         </div>
       {/each}
@@ -388,11 +397,13 @@
         <div class="col-drop-indicator" class:copy={dnd.copyMode}></div>
       {/if}
 
-      <div class="add-column">
-        <button class="add-column-btn" onclick={handleAddCategory} title={t('tooltip.add_category')}>
-          {t('board.add_category_long')}
-        </button>
-      </div>
+      {#if !nav.inboxMode}
+        <div class="add-column">
+          <button class="add-column-btn" onclick={handleAddCategory} title={t('tooltip.add_category')}>
+            {t('board.add_category_long')}
+          </button>
+        </div>
+      {/if}
     </div>
   {/if}
 </div>

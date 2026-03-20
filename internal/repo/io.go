@@ -6,7 +6,15 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
+
+// SanitizeText replaces reserved internal characters in user-supplied text.
+// U+203A (›) is used as a delimiter in project context breadcrumbs and must
+// not appear in user data.
+func SanitizeText(s string) string {
+	return strings.ReplaceAll(s, "\u203a", ">")
+}
 
 // readJSON reads a JSON file from disk and unmarshals it into dest.
 func readJSON(path string, dest any) error {

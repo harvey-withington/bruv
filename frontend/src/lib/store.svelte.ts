@@ -10,6 +10,9 @@ export const nav = $state({
   streamSlug: null as string | null,
   projectSlug: null as string | null,
 
+  // Inbox mode (showing orphaned cards)
+  inboxMode: false,
+
   // Sidebar collapsed state
   sidebarCollapsed: false,
   sidebarWidth: 260,
@@ -52,6 +55,9 @@ export const dnd = $state<{
   overColumnIndex: null,
   copyMode: false,
 })
+
+// Global card-open request (set by bruv: link clicks, consumed by App.svelte)
+export const navigate = $state<{ openCardId: string | null }>({ openCardId: null })
 
 // Search state
 export const search = $state({

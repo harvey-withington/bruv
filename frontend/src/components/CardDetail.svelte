@@ -4,7 +4,9 @@
     AssignTagColor, SetTagColor, GetTagColors } from '../lib/api'
   import { tagColors } from '../lib/store.svelte'
   import { X, Trash2, Square, CheckSquare, Palette, Save } from 'lucide-svelte'
+  import { renderMarkdown, renderInline } from '../lib/markdown'
   import { t } from '../lib/i18n.svelte'
+  import MentionPicker from './MentionPicker.svelte'
 
   const TAG_PALETTE = [
     '#61bd4f', '#f2d600', '#ff9f1a', '#eb5a46', '#c377e0',
@@ -31,6 +33,13 @@
   let descriptionDraft = $state('')
   let editingDescription = $state(false)
   let descTextareaEl = $state<HTMLTextAreaElement | null>(null)
+  let checklistInputEl = $state<HTMLInputElement | null>(null)
+
+  // @ mention picker state
+  let mentionVisible = $state(false)
+  let mentionAnchor = $state<{ top: number; left: number } | null>(null)
+  let mentionTarget = $state<'desc' | 'checklist' | null>(null)
+  let mentionTriggerPos = $state<number>(0)
 
   const typeColors: Record<string, string> = {
     feature: '#6366f1',
@@ -108,6 +117,7 @@
   }
 
   async function handleDescKeydown(e: KeyboardEvent) {
+    if (mentionVisible) return
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()
       await saveAndClose()
@@ -115,6 +125,60 @@
       editingDescription = false
       descriptionDraft = card.fields?.description || ''
     }
+  }
+
+  function handleDescInput(e: Event) {
+    const el = e.target as HTMLTextAreaElement
+    checkForMention(el, 'desc')
+  }
+
+  function handleChecklistInput(e: Event) {
+    const el = e.target as HTMLInputElement
+    checkForMention(el, 'checklist')
+  }
+
+  function checkForMention(el: HTMLTextAreaElement | HTMLInputElement, target: 'desc' | 'checklist') {
+    const pos = el.selectionStart ?? 0
+    const text = el.value
+    // Look for @ at current position (just typed)
+    if (pos > 0 && text[pos - 1] === '@') {
+      // Only trigger if @ is at start or preceded by whitespace
+      if (pos === 1 || /\s/.test(text[pos - 2])) {
+        mentionTriggerPos = pos - 1
+        mentionTarget = target
+        // Calculate anchor position from the element's bounding rect
+        const rect = el.getBoundingClientRect()
+        mentionAnchor = { top: rect.bottom + 4, left: rect.left }
+        mentionVisible = true
+        return
+      }
+    }
+  }
+
+  function handleMentionSelect(markdown: string) {
+    if (mentionTarget === 'desc' && descTextareaEl) {
+      const before = descriptionDraft.slice(0, mentionTriggerPos)
+      const after = descriptionDraft.slice(descTextareaEl.selectionStart ?? mentionTriggerPos + 1)
+      descriptionDraft = before + markdown + after
+      mentionVisible = false
+      mentionTarget = null
+      // Restore focus and cursor
+      const newPos = before.length + markdown.length
+      setTimeout(() => { descTextareaEl?.focus(); descTextareaEl?.setSelectionRange(newPos, newPos) }, 0)
+    } else if (mentionTarget === 'checklist' && checklistInputEl) {
+      const before = newChecklistText.slice(0, mentionTriggerPos)
+      const after = newChecklistText.slice(checklistInputEl.selectionStart ?? mentionTriggerPos + 1)
+      newChecklistText = before + markdown + after
+      mentionVisible = false
+      mentionTarget = null
+      const newPos = before.length + markdown.length
+      setTimeout(() => { checklistInputEl?.focus(); checklistInputEl?.setSelectionRange(newPos, newPos) }, 0)
+    }
+  }
+
+  function handleMentionClose() {
+    mentionVisible = false
+    mentionTarget = null
   }
 
   async function addTag() {
@@ -183,6 +247,7 @@
   }
 
   function handleChecklistKeydown(e: KeyboardEvent) {
+    if (mentionVisible) return
     if (e.key === 'Enter') addChecklist()
   }
 
@@ -243,7 +308,7 @@
         {:else}
           <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
         <h2 class="modal-title" onclick={() => { editingTitle = true }} title={t('tooltip.edit_title')}>
-            {card.title}
+            {@html renderInline(card.title)}
           </h2>
         {/if}
 
@@ -260,15 +325,16 @@
               bind:this={descTextareaEl}
               bind:value={descriptionDraft}
               onkeydown={handleDescKeydown}
+              oninput={handleDescInput}
               rows="4"
             ></textarea>
             <div class="section-actions">
               <button class="btn-cancel-sm" onclick={() => { editingDescription = false; descriptionDraft = card.fields?.description || '' }}>Cancel</button>
             </div>
           {:else}
-            <div class="desc-display" role="button" tabindex="0" onclick={() => { editingDescription = true }} title={t('tooltip.edit_description')}>
+            <div class="desc-display" role="button" tabindex="0" onclick={(e) => { if ((e.target as HTMLElement).closest('a')) return; editingDescription = true }} title={t('tooltip.edit_description')}>
               {#if card.fields?.description}
-                <p>{card.fields.description}</p>
+                <div class="markdown-content">{@html renderMarkdown(card.fields.description)}</div>
               {:else}
                 <p class="placeholder">{t('card.description_placeholder')}</p>
               {/if}
@@ -348,7 +414,7 @@
                 <button class="checkbox" onclick={() => toggleChecklist(item.id)} title={t('tooltip.toggle_checklist')}>
                   {#if item.done}<CheckSquare size={16} />{:else}<Square size={16} />{/if}
                 </button>
-                <span class="checklist-text">{item.text}</span>
+                <span class="checklist-text">{@html renderInline(item.text)}</span>
                 <button class="checklist-remove" onclick={() => removeChecklist(item.id)} title={t('tooltip.remove_checklist_item')}><Trash2 size={12} /></button>
               </div>
             {/each}
@@ -357,8 +423,10 @@
           <div class="checklist-add">
             <input
               type="text"
+              bind:this={checklistInputEl}
               bind:value={newChecklistText}
               onkeydown={handleChecklistKeydown}
+              oninput={handleChecklistInput}
               placeholder={t('card.checklist_placeholder')}
               class="checklist-input"
             />
@@ -368,15 +436,23 @@
       </div>
 
       <div class="modal-footer">
+        <button class="btn-delete" onclick={handleDelete} title={t('tooltip.delete_card')}><Trash2 size={14} /> {t('card.delete')}</button>
         <span class="meta">Created {card.created_at?.slice(0, 10) || '—'}</span>
         <div class="footer-actions">
-          <button class="btn-delete" onclick={handleDelete} title={t('tooltip.delete_card')}><Trash2 size={14} /> {t('card.delete')}</button>
+          <button class="btn-close" onclick={() => onClose()} title={t('tooltip.cancel')}>{t('common.cancel')}</button>
           <button class="btn-save" onclick={saveAndClose}><Save size={14} /> {t('card.save')}</button>
         </div>
       </div>
     {/if}
   </div>
 </div>
+
+<MentionPicker
+  visible={mentionVisible}
+  anchor={mentionAnchor}
+  onSelect={handleMentionSelect}
+  onClose={handleMentionClose}
+/>
 
 <style>
   .modal-backdrop {
@@ -492,7 +568,8 @@
     transition: background 0.1s;
   }
   .desc-display:hover { background: var(--bg-elevated); }
-  .desc-display p { margin: 0; color: var(--text-body); font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; }
+  .desc-display p { margin: 0; color: var(--text-body); font-size: 0.9rem; line-height: 1.5; }
+  .desc-display .placeholder { white-space: pre-wrap; }
   .desc-display .placeholder { color: var(--text-faint); font-style: italic; }
 
   .desc-textarea {
@@ -524,7 +601,10 @@
     color: var(--text-primary);
     font-size: 0.85rem;
     outline: none;
+    color-scheme: dark light;
   }
+  :global([data-theme="dark"]) .date-input { color-scheme: dark; }
+  :global([data-theme="light"]) .date-input { color-scheme: light; }
   .date-input:focus { border-color: var(--accent); }
 
   .tags-list {
@@ -741,6 +821,17 @@
     font-size: 0.75rem;
     color: var(--text-faint);
   }
+
+  .btn-close {
+    padding: 0.3rem 0.7rem;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  .btn-close:hover { color: var(--text-primary); }
 
   .btn-delete {
     padding: 0.3rem 0.7rem;

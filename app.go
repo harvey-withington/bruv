@@ -182,6 +182,7 @@ func (a *App) RemoveRecentRepo(path string) error {
 // --- Brand ---
 
 func (a *App) CreateBrand(name string) (*model.Brand, error) {
+	name = repo.SanitizeText(name)
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
@@ -203,6 +204,7 @@ func (a *App) ListBrands() ([]model.Brand, error) {
 }
 
 func (a *App) RenameBrand(slug, newName string) (*model.Brand, error) {
+	newName = repo.SanitizeText(newName)
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
@@ -226,6 +228,7 @@ func (a *App) DeleteBrand(slug string) error {
 // --- Stream ---
 
 func (a *App) CreateStream(brandSlug, name string) (*model.Stream, error) {
+	name = repo.SanitizeText(name)
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
@@ -240,6 +243,7 @@ func (a *App) ListStreams(brandSlug string) ([]model.Stream, error) {
 }
 
 func (a *App) RenameStream(brandSlug, streamSlug, newName string) (*model.Stream, error) {
+	newName = repo.SanitizeText(newName)
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
@@ -263,6 +267,7 @@ func (a *App) DeleteStream(brandSlug, streamSlug string) error {
 // --- Project ---
 
 func (a *App) CreateProject(brandSlug, streamSlug, name string) (*model.Project, error) {
+	name = repo.SanitizeText(name)
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
@@ -277,6 +282,7 @@ func (a *App) ListProjects(brandSlug, streamSlug string) ([]model.Project, error
 }
 
 func (a *App) RenameProject(brandSlug, streamSlug, projectSlug, newName string) (*model.Project, error) {
+	newName = repo.SanitizeText(newName)
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
@@ -300,6 +306,7 @@ func (a *App) DeleteProject(brandSlug, streamSlug, projectSlug string) error {
 // --- Category ---
 
 func (a *App) CreateCategory(brandSlug, streamSlug, projectSlug, name string, position int) (*model.Category, error) {
+	name = repo.SanitizeText(name)
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
@@ -314,6 +321,7 @@ func (a *App) ListCategories(brandSlug, streamSlug, projectSlug string) ([]model
 }
 
 func (a *App) RenameCategory(brandSlug, streamSlug, projectSlug, categorySlug, newName string) (*model.Category, error) {
+	newName = repo.SanitizeText(newName)
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
@@ -366,6 +374,7 @@ func (a *App) MoveCategoryCards(brandSlug, streamSlug, projectSlug, fromCategory
 // --- Card ---
 
 func (a *App) CreateCard(cardType, title string) (*model.Card, error) {
+	title = repo.SanitizeText(title)
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
@@ -374,7 +383,7 @@ func (a *App) CreateCard(cardType, title string) (*model.Card, error) {
 		return nil, err
 	}
 	if a.idx != nil {
-		_ = a.idx.IndexCard(card, time.Now())
+		_ = a.idx.IndexCard(card, time.Now(), "")
 	}
 	return card, nil
 }
@@ -475,6 +484,7 @@ func (a *App) DeleteCard(id string) error {
 
 // UpdateCardTitle updates a card's title.
 func (a *App) UpdateCardTitle(id, title string) (*model.Card, error) {
+	title = repo.SanitizeText(title)
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
@@ -482,13 +492,18 @@ func (a *App) UpdateCardTitle(id, title string) (*model.Card, error) {
 		c.Title = title
 	})
 	if err == nil && a.idx != nil {
-		_ = a.idx.IndexCard(card, time.Now())
+		_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
 	}
 	return card, err
 }
 
 // UpdateCardFields sets the type-specific fields on a card.
 func (a *App) UpdateCardFields(id string, fields map[string]any) (*model.Card, error) {
+	for k, v := range fields {
+		if s, ok := v.(string); ok {
+			fields[k] = repo.SanitizeText(s)
+		}
+	}
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
@@ -496,13 +511,16 @@ func (a *App) UpdateCardFields(id string, fields map[string]any) (*model.Card, e
 		c.Fields = fields
 	})
 	if err == nil && a.idx != nil {
-		_ = a.idx.IndexCard(card, time.Now())
+		_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
 	}
 	return card, err
 }
 
 // UpdateCardTags replaces a card's tags.
 func (a *App) UpdateCardTags(id string, tags []string) (*model.Card, error) {
+	for i, t := range tags {
+		tags[i] = repo.SanitizeText(t)
+	}
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
@@ -510,7 +528,7 @@ func (a *App) UpdateCardTags(id string, tags []string) (*model.Card, error) {
 		c.Tags = tags
 	})
 	if err == nil && a.idx != nil {
-		_ = a.idx.IndexCard(card, time.Now())
+		_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
 	}
 	return card, err
 }
@@ -532,13 +550,14 @@ func (a *App) UpdateCardDueDate(id, dueDate string) (*model.Card, error) {
 		}
 	})
 	if err == nil && a.idx != nil {
-		_ = a.idx.IndexCard(card, time.Now())
+		_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
 	}
 	return card, err
 }
 
 // AddChecklistItem adds a checklist item to a card.
 func (a *App) AddChecklistItem(cardID, text string) (*model.Card, error) {
+	text = repo.SanitizeText(text)
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
@@ -600,6 +619,47 @@ func (a *App) GetCardPins(cardID string) ([]model.Pin, error) {
 		return nil, fmt.Errorf("no repository open")
 	}
 	return a.repo.GetCardPins(cardID)
+}
+
+// CardLocation describes where a card lives in the brand/stream/project hierarchy.
+type CardLocation struct {
+	BrandSlug   string `json:"brandSlug"`
+	StreamSlug  string `json:"streamSlug"`
+	ProjectSlug string `json:"projectSlug"`
+}
+
+// GetCardLocation resolves a card's first pin to the brand/stream/project slugs
+// so the frontend can navigate to the correct board before opening the card.
+func (a *App) GetCardLocation(cardID string) (*CardLocation, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	pins, err := a.repo.GetCardPins(cardID)
+	if err != nil || len(pins) == 0 {
+		return nil, fmt.Errorf("card %q has no pins", cardID)
+	}
+	targetCatID := pins[0].CategoryID
+
+	brands, _ := a.repo.ListBrands()
+	for _, b := range brands {
+		streams, _ := a.repo.ListStreams(b.Slug)
+		for _, s := range streams {
+			projects, _ := a.repo.ListProjects(b.Slug, s.Slug)
+			for _, p := range projects {
+				cats, _ := a.repo.ListCategories(b.Slug, s.Slug, p.Slug)
+				for _, c := range cats {
+					if c.ID == targetCatID {
+						return &CardLocation{
+							BrandSlug:   b.Slug,
+							StreamSlug:  s.Slug,
+							ProjectSlug: p.Slug,
+						}, nil
+					}
+				}
+			}
+		}
+	}
+	return nil, fmt.Errorf("could not resolve location for card %q", cardID)
 }
 
 // MoveCardInCategory reorders a card within its current category.
@@ -915,6 +975,14 @@ func (a *App) ListCardIDsInCategory(projectID, categoryID string) ([]string, err
 		return nil, fmt.Errorf("no index available")
 	}
 	return a.idx.ListCardIDsInCategory(projectID, categoryID)
+}
+
+// ListOrphanedCardIDs returns IDs of cards that have no pins (Inbox cards).
+func (a *App) ListOrphanedCardIDs() ([]string, error) {
+	if a.idx == nil {
+		return nil, fmt.Errorf("no index available")
+	}
+	return a.idx.ListOrphanedCardIDs()
 }
 
 // ListCardIDsByTag returns card IDs with a given tag via the index.

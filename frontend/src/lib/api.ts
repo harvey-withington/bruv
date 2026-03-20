@@ -81,6 +81,7 @@ export const RemoveChecklistItem = (...args: Parameters<ReturnType<typeof getBac
 export const PinCard = (...args: Parameters<ReturnType<typeof getBackend>['PinCard']>) => getBackend().PinCard(...args)
 export const UnpinCard = (...args: Parameters<ReturnType<typeof getBackend>['UnpinCard']>) => getBackend().UnpinCard(...args)
 export const GetCardPins = (...args: Parameters<ReturnType<typeof getBackend>['GetCardPins']>) => getBackend().GetCardPins(...args)
+export const GetCardLocation = (...args: Parameters<ReturnType<typeof getBackend>['GetCardLocation']>) => getBackend().GetCardLocation(...args)
 
 // Move & reorder
 export const MoveCardInCategory = (...args: Parameters<ReturnType<typeof getBackend>['MoveCardInCategory']>) => getBackend().MoveCardInCategory(...args)
@@ -111,6 +112,7 @@ export const SearchCards = (...args: Parameters<ReturnType<typeof getBackend>['S
 export const RebuildIndex = () => getBackend().RebuildIndex()
 export const RefreshIndex = () => getBackend().RefreshIndex()
 export const ListCardIDsInCategory = (...args: Parameters<ReturnType<typeof getBackend>['ListCardIDsInCategory']>) => getBackend().ListCardIDsInCategory(...args)
+export const ListOrphanedCardIDs = () => getBackend().ListOrphanedCardIDs()
 export const ListCardIDsByTag = (...args: Parameters<ReturnType<typeof getBackend>['ListCardIDsByTag']>) => getBackend().ListCardIDsByTag(...args)
 
 // User preferences

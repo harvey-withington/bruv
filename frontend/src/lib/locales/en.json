@@ -128,5 +128,8 @@
   "tooltip.clear_search": "Clear search",
   "tooltip.delete_card": "Delete this card permanently",
   "tooltip.cancel": "Cancel",
-  "tooltip.llm_settings": "AI settings"
+  "tooltip.llm_settings": "AI settings",
+
+  "mention.placeholder": "Search cards & projects…",
+  "mention.no_results": "No results found"
 }

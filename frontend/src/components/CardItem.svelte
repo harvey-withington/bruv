@@ -1,5 +1,6 @@
 <script lang="ts">
   import { search, tagColors, dnd } from '../lib/store.svelte'
+  import { renderInline } from '../lib/markdown'
 
   type CardData = {
     id: string
@@ -56,7 +57,7 @@
     {/if}
   </div>
 
-  <p class="card-title">{card.title}</p>
+  <p class="card-title">{@html renderInline(card.title)}</p>
 
   <div class="card-footer">
     {#if card.checklist_total > 0}

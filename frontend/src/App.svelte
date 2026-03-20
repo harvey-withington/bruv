@@ -1,5 +1,6 @@
 <script lang="ts">
   import { nav } from './lib/store.svelte'
+  import { onMount } from 'svelte'
   import { loadTheme } from './lib/theme.svelte'
   import { loadLocale, t } from './lib/i18n.svelte'
   import WelcomeScreen from './components/WelcomeScreen.svelte'
@@ -11,7 +12,7 @@
   import UserProfile from './components/UserProfile.svelte'
   import LLMSettings from './components/LLMSettings.svelte'
 
-  import { GetPreferences, ListRecentRepos, OpenRepository } from './lib/api'
+  import { GetPreferences, ListRecentRepos, OpenRepository, GetCardLocation } from './lib/api'
 
   // Restore persisted preferences
   loadTheme()
@@ -48,6 +49,34 @@
   function handleSearchSelectCard(cardId: string) {
     searchCardId = cardId
   }
+
+  // Listen for internal bruv: link navigation events
+  onMount(() => {
+    async function handleBruvNav(e: Event) {
+      const detail = (e as CustomEvent).detail
+      if (detail.type === 'card') {
+        // Close ALL open card dialogs (both search-opened and board-opened)
+        searchCardId = null
+        document.dispatchEvent(new CustomEvent('bruv:close-card-detail'))
+        try {
+          const loc = await GetCardLocation(detail.id)
+          if (loc) {
+            // Ask sidebar to select this project (which loads the board)
+            document.dispatchEvent(new CustomEvent('bruv:select-project', { detail: loc }))
+          }
+        } catch { /* card may be unpinned — just open it without switching */ }
+        requestAnimationFrame(() => { searchCardId = detail.id })
+      } else if (detail.type === 'project') {
+        searchCardId = null
+        nav.brandSlug = detail.brand
+        nav.streamSlug = detail.stream
+        nav.projectSlug = detail.project
+        localStorage.setItem('bruv-last-nav', JSON.stringify({ brandSlug: detail.brand, streamSlug: detail.stream, projectSlug: detail.project }))
+      }
+    }
+    document.addEventListener('bruv:navigate', handleBruvNav)
+    return () => document.removeEventListener('bruv:navigate', handleBruvNav)
+  })
 
   function onSplitterDown(e: MouseEvent) {
     if (nav.sidebarCollapsed) return

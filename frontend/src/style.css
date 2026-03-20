@@ -132,3 +132,137 @@ body {
 ::-webkit-scrollbar-corner {
     background: transparent;
 }
+
+/* --- Markdown rendered content --- */
+
+.markdown-content {
+    font-size: 0.9rem;
+    line-height: 1.6;
+    color: var(--text-body);
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.markdown-content p { margin: 0 0 0.5em; }
+.markdown-content p:last-child { margin-bottom: 0; }
+.markdown-content h1, .markdown-content h2, .markdown-content h3,
+.markdown-content h4, .markdown-content h5, .markdown-content h6 {
+    margin: 0.75em 0 0.25em;
+    color: var(--text-primary);
+    line-height: 1.3;
+}
+.markdown-content h1 { font-size: 1.3em; }
+.markdown-content h2 { font-size: 1.15em; }
+.markdown-content h3 { font-size: 1.05em; }
+
+.markdown-content ul, .markdown-content ol { margin: 0.25em 0; padding-left: 1.5em; }
+.markdown-content li { margin: 0.15em 0; }
+
+.markdown-content blockquote {
+    margin: 0.5em 0;
+    padding: 0.25em 0.75em;
+    border-left: 3px solid var(--accent);
+    color: var(--text-secondary);
+    background: var(--bg-subtle);
+    border-radius: 0 4px 4px 0;
+}
+
+.markdown-content code {
+    font-family: "Fira Code", "Consolas", monospace;
+    font-size: 0.85em;
+    background: var(--bg-subtle);
+    padding: 0.1em 0.35em;
+    border-radius: 3px;
+    color: var(--accent-light);
+}
+
+.markdown-content pre {
+    margin: 0.5em 0;
+    padding: 0.6em 0.8em;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-muted);
+    border-radius: 6px;
+    overflow-x: auto;
+}
+.markdown-content pre code {
+    background: none;
+    padding: 0;
+    font-size: 0.85em;
+    color: var(--text-body);
+}
+
+.markdown-content hr {
+    border: none;
+    border-top: 1px solid var(--border-muted);
+    margin: 0.75em 0;
+}
+
+.markdown-content table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 0.5em 0;
+    font-size: 0.85em;
+}
+.markdown-content th, .markdown-content td {
+    border: 1px solid var(--border);
+    padding: 0.3em 0.6em;
+    text-align: left;
+}
+.markdown-content th {
+    background: var(--bg-subtle);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.markdown-content a,
+.card-title a,
+.checklist-text a,
+.column-title a,
+.modal-title a,
+.label a {
+    color: var(--accent-light);
+    text-decoration: none;
+}
+.markdown-content a:visited,
+.card-title a:visited,
+.checklist-text a:visited,
+.column-title a:visited,
+.modal-title a:visited,
+.label a:visited {
+    color: var(--accent-light);
+}
+.markdown-content a:hover,
+.card-title a:hover,
+.checklist-text a:hover,
+.column-title a:hover,
+.modal-title a:hover,
+.label a:hover {
+    text-decoration: underline;
+}
+
+.markdown-content img {
+    max-width: 100%;
+    border-radius: 6px;
+}
+
+.markdown-content del {
+    color: var(--text-muted);
+}
+
+/* Internal BRUV links */
+.bruv-link {
+    color: var(--accent-light);
+    text-decoration: none;
+    cursor: pointer;
+    border-bottom: 1px dashed var(--accent-light);
+    transition: color 0.1s, border-color 0.1s;
+}
+.bruv-link::before {
+    content: '⌘ ';
+    font-size: 0.8em;
+    opacity: 0.6;
+}
+.bruv-link:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}

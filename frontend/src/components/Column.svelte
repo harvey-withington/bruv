@@ -3,6 +3,7 @@
   import { GripVertical, Pencil, Trash2 } from 'lucide-svelte'
   import { dnd } from '../lib/store.svelte'
   import { t } from '../lib/i18n.svelte'
+  import { renderInline } from '../lib/markdown'
 
   type CardData = {
     id: string
@@ -22,7 +23,7 @@
     cards: CardData[]
   }
 
-  let { category, onCardClick, onAddCard, onCardDrop, onDeleteCategory, onStartRename, renaming, renamingName, onRenamingNameChange, onCommitRename, onCancelRename }: {
+  let { category, onCardClick, onAddCard, onCardDrop, onDeleteCategory, onStartRename, renaming, renamingName, onRenamingNameChange, onCommitRename, onCancelRename, isReadonly }: {
     category: CategoryData
     onCardClick?: (cardId: string) => void
     onAddCard?: (categoryId: string) => void
@@ -34,6 +35,7 @@
     onRenamingNameChange?: (value: string) => void
     onCommitRename?: () => void
     onCancelRename?: () => void
+    isReadonly?: boolean
   } = $props()
 
   let renameInputEl = $state<HTMLInputElement | null>(null)
@@ -113,7 +115,7 @@
     ondragstart={handleColDragStart}
     ondragend={handleColDragEnd}
   >
-    <span class="drag-handle" title={t('tooltip.drag_column')}><GripVertical size={14} /></span>
+    {#if !isReadonly}<span class="drag-handle" title={t('tooltip.drag_column')}><GripVertical size={14} /></span>{/if}
     {#if renaming}
       <input
         class="column-rename-input"
@@ -124,18 +126,20 @@
         onblur={() => onCommitRename?.()}
       />
     {:else}
-      <h3 class="column-title">{category.name}</h3>
+      <h3 class="column-title">{@html renderInline(category.name)}</h3>
       <span class="card-count">{category.cards.length}</span>
-      <button
-        class="col-action-btn"
-        title={t('tooltip.rename_category')}
-        onclick={(e: MouseEvent) => { e.stopPropagation(); onStartRename?.(category.slug, category.name) }}
-      ><Pencil size={13} /></button>
-      <button
-        class="col-action-btn col-delete-btn"
-        title={t('tooltip.delete_category')}
-        onclick={(e: MouseEvent) => { e.stopPropagation(); onDeleteCategory?.(category.id, category.slug, category.name, category.cards.length) }}
-      ><Trash2 size={13} /></button>
+      {#if !isReadonly}
+        <button
+          class="col-action-btn"
+          title={t('tooltip.rename_category')}
+          onclick={(e: MouseEvent) => { e.stopPropagation(); onStartRename?.(category.slug, category.name) }}
+        ><Pencil size={13} /></button>
+        <button
+          class="col-action-btn col-delete-btn"
+          title={t('tooltip.delete_category')}
+          onclick={(e: MouseEvent) => { e.stopPropagation(); onDeleteCategory?.(category.id, category.slug, category.name, category.cards.length) }}
+        ><Trash2 size={13} /></button>
+      {/if}
     {/if}
   </div>
 
@@ -159,11 +163,13 @@
     {/if}
   </div>
 
-  <div class="column-footer">
-    <button class="add-card-btn" onclick={() => onAddCard?.(category.id)} title={t('tooltip.add_card')}>
-      {t('column.add_card_long')}
-    </button>
-  </div>
+  {#if !isReadonly}
+    <div class="column-footer">
+      <button class="add-card-btn" onclick={() => onAddCard?.(category.id)} title={t('tooltip.add_card')}>
+        {t('column.add_card_long')}
+      </button>
+    </div>
+  {/if}
 </div>
 
 <style>

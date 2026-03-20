@@ -64,14 +64,15 @@ func (idx *Index) Close() error {
 func (idx *Index) createTables() error {
 	schema := `
 	CREATE TABLE IF NOT EXISTS cards (
-		id            TEXT PRIMARY KEY,
-		type          TEXT NOT NULL,
-		title         TEXT NOT NULL,
-		context_level TEXT NOT NULL DEFAULT 'project',
-		due_date      TEXT,
-		created_at    TEXT NOT NULL,
-		updated_at    TEXT NOT NULL,
-		file_mtime    TEXT NOT NULL
+		id              TEXT PRIMARY KEY,
+		type            TEXT NOT NULL,
+		title           TEXT NOT NULL,
+		context_level   TEXT NOT NULL DEFAULT 'project',
+		due_date        TEXT,
+		created_at      TEXT NOT NULL,
+		updated_at      TEXT NOT NULL,
+		file_mtime      TEXT NOT NULL,
+		project_context TEXT NOT NULL DEFAULT ''
 	);
 
 	CREATE TABLE IF NOT EXISTS pins (
@@ -103,13 +104,22 @@ func (idx *Index) createTables() error {
 	);
 	`
 	_, err := idx.db.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Migration: add project_context column if missing (existing databases)
+	idx.db.Exec("ALTER TABLE cards ADD COLUMN project_context TEXT NOT NULL DEFAULT ''")
+
+	return nil
 }
 
 // --- Card Indexing ---
 
 // IndexCard inserts or replaces a card in the index.
-func (idx *Index) IndexCard(card *model.Card, fileMtime time.Time) error {
+// projectContext is an optional string of brand/stream/project names that gets
+// prepended to the FTS content so cards are searchable by project name.
+func (idx *Index) IndexCard(card *model.Card, fileMtime time.Time, projectContext string) error {
 	tx, err := idx.db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -118,13 +128,14 @@ func (idx *Index) IndexCard(card *model.Card, fileMtime time.Time) error {
 
 	// Upsert card metadata
 	_, err = tx.Exec(`
-		INSERT OR REPLACE INTO cards (id, type, title, context_level, due_date, created_at, updated_at, file_mtime)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT OR REPLACE INTO cards (id, type, title, context_level, due_date, created_at, updated_at, file_mtime, project_context)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		card.ID, card.Type, card.Title, string(card.ContextLevel),
 		formatNullableTime(card.DueDate),
 		card.CreatedAt.Format(time.RFC3339),
 		card.UpdatedAt.Format(time.RFC3339),
 		fileMtime.Format(time.RFC3339),
+		projectContext,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert card: %w", err)
@@ -145,8 +156,11 @@ func (idx *Index) IndexCard(card *model.Card, fileMtime time.Time) error {
 		return fmt.Errorf("delete old fts: %w", err)
 	}
 
-	// Build searchable content from fields
+	// Build searchable content from fields, prepend project context
 	content := buildSearchContent(card)
+	if projectContext != "" {
+		content = projectContext + " " + content
+	}
 	tagsStr := joinTags(card.Tags)
 
 	if _, err := tx.Exec("INSERT INTO cards_fts (id, title, content, tags) VALUES (?, ?, ?, ?)",
@@ -155,6 +169,16 @@ func (idx *Index) IndexCard(card *model.Card, fileMtime time.Time) error {
 	}
 
 	return tx.Commit()
+}
+
+// GetCardProjectContext returns the stored project context for a card, or "" if not found.
+func (idx *Index) GetCardProjectContext(cardID string) string {
+	var ctx string
+	err := idx.db.QueryRow("SELECT project_context FROM cards WHERE id = ?", cardID).Scan(&ctx)
+	if err != nil {
+		return ""
+	}
+	return ctx
 }
 
 // RemoveCard removes a card from the index entirely.
@@ -206,10 +230,11 @@ func (idx *Index) IndexPins(cardID string, pins []model.Pin) error {
 
 // SearchResult represents a single search hit.
 type SearchResult struct {
-	CardID string
-	Title  string
-	Type   string
-	Rank   float64
+	CardID         string
+	Title          string
+	Type           string
+	Rank           float64
+	ProjectContext string
 }
 
 // Search performs a full-text search across the index.
@@ -231,7 +256,7 @@ func (idx *Index) Search(query string, limit int) ([]SearchResult, error) {
 	ftsQuery := strings.Join(words, " ")
 
 	rows, err := idx.db.Query(`
-		SELECT f.id, f.title, c.type, rank
+		SELECT f.id, f.title, c.type, rank, c.project_context
 		FROM cards_fts f
 		JOIN cards c ON c.id = f.id
 		WHERE cards_fts MATCH ?
@@ -247,7 +272,7 @@ func (idx *Index) Search(query string, limit int) ([]SearchResult, error) {
 	var results []SearchResult
 	for rows.Next() {
 		var r SearchResult
-		if err := rows.Scan(&r.CardID, &r.Title, &r.Type, &r.Rank); err != nil {
+		if err := rows.Scan(&r.CardID, &r.Title, &r.Type, &r.Rank, &r.ProjectContext); err != nil {
 			return nil, fmt.Errorf("scan result: %w", err)
 		}
 		results = append(results, r)
@@ -333,6 +358,29 @@ func (idx *Index) GetCardMtime(cardID string) (time.Time, error) {
 // ListIndexedCardIDs returns all card IDs currently in the index.
 func (idx *Index) ListIndexedCardIDs() ([]string, error) {
 	rows, err := idx.db.Query("SELECT id FROM cards")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// ListOrphanedCardIDs returns IDs of cards that have no pins.
+func (idx *Index) ListOrphanedCardIDs() ([]string, error) {
+	rows, err := idx.db.Query(`
+		SELECT c.id FROM cards c
+		LEFT JOIN pins p ON p.card_id = c.id
+		WHERE p.card_id IS NULL
+		ORDER BY c.updated_at DESC`)
 	if err != nil {
 		return nil, err
 	}

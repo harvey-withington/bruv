@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import { nav, board, tagColors } from '../lib/store.svelte'
-  import { CloseRepository, CreateBrand, RenameBrand, CreateStream, RenameStream, CreateProject, RenameProject, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, ListCategories, GetCard, GetCardPins, ListCardIDsInCategory, GetTagColors, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject } from '../lib/api'
-  import { LogOut, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Bot } from 'lucide-svelte'
+  import { CloseRepository, CreateBrand, RenameBrand, CreateStream, RenameStream, CreateProject, RenameProject, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, ListCategories, GetCard, GetCardPins, ListCardIDsInCategory, ListOrphanedCardIDs, GetTagColors, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject } from '../lib/api'
+  import { LogOut, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Bot, Inbox } from 'lucide-svelte'
   import ThemeToggle from './ThemeToggle.svelte'
   import BruvIcon from './BruvIcon.svelte'
   import { t } from '../lib/i18n.svelte'
+  import { renderInline } from '../lib/markdown'
 
   let { onOpenPrefs, onOpenProfile, onOpenLLMSettings }: {
     onOpenPrefs?: () => void
@@ -37,6 +39,7 @@
   let streamsByBrand = $state<Record<string, Stream[]>>({})
   let expandedStreams = $state<Set<string>>(new Set())
   let projectsByStream = $state<Record<string, Project[]>>({})
+  let inboxCount = $state(0)
 
   // Inline rename state — unified for brand/stream/project
   let renaming = $state<{
@@ -82,6 +85,51 @@
     try {
       brands = await ListBrands() || []
     } catch { brands = [] }
+    await refreshInboxCount()
+  }
+
+  async function refreshInboxCount() {
+    try {
+      const ids = await ListOrphanedCardIDs() || []
+      inboxCount = ids.length
+    } catch { inboxCount = 0 }
+  }
+
+  async function selectInbox() {
+    nav.inboxMode = true
+    nav.brandSlug = null
+    nav.streamSlug = null
+    nav.projectSlug = null
+    localStorage.removeItem('bruv-last-nav')
+    board.loading = true
+    try {
+      try { tagColors.map = await GetTagColors() || {} } catch { /* ignore */ }
+      const ids = await ListOrphanedCardIDs() || []
+      const cards = await Promise.all(ids.map(async (id: string) => {
+        try {
+          const card = await GetCard(id)
+          return {
+            id: card.id,
+            type: card.type,
+            title: card.title,
+            tags: card.tags || [],
+            due_date: card.due_date,
+            checklist_total: card.checklist?.length || 0,
+            checklist_done: card.checklist?.filter((c: any) => c.done).length || 0,
+          }
+        } catch { return null }
+      }))
+      board.categories = [{
+        id: '__inbox__',
+        name: 'Inbox',
+        slug: '__inbox__',
+        position: 0,
+        cards: cards.filter((c): c is NonNullable<typeof c> => c !== null),
+      }]
+    } catch {
+      board.categories = []
+    }
+    board.loading = false
   }
 
   async function toggleBrand(slug: string) {
@@ -116,12 +164,31 @@
   }
 
   async function selectProject(brandSlug: string, streamSlug: string, projectSlug: string) {
+    nav.inboxMode = false
     nav.brandSlug = brandSlug
     nav.streamSlug = streamSlug
     nav.projectSlug = projectSlug
     localStorage.setItem('bruv-last-nav', JSON.stringify({ brandSlug, streamSlug, projectSlug }))
+    // Expand the tree so the project is visible
+    expandedBrands.add(brandSlug)
+    expandedBrands = new Set(expandedBrands)
+    if (!streamsByBrand[brandSlug]) streamsByBrand[brandSlug] = await ListStreams(brandSlug) || []
+    const streamKey = `${brandSlug}/${streamSlug}`
+    expandedStreams.add(streamKey)
+    expandedStreams = new Set(expandedStreams)
+    if (!projectsByStream[streamKey]) projectsByStream[streamKey] = await ListProjects(brandSlug, streamSlug) || []
     await loadBoard(brandSlug, streamSlug, projectSlug)
   }
+
+  // Allow programmatic project selection from internal link navigation
+  onMount(() => {
+    function handleSelectProject(e: Event) {
+      const { brandSlug, streamSlug, projectSlug } = (e as CustomEvent).detail
+      selectProject(brandSlug, streamSlug, projectSlug)
+    }
+    document.addEventListener('bruv:select-project', handleSelectProject)
+    return () => document.removeEventListener('bruv:select-project', handleSelectProject)
+  })
 
   async function loadBoard(brandSlug: string, streamSlug: string, projectSlug: string) {
     board.loading = true
@@ -540,6 +607,18 @@
       ondragover={(e) => { if (dragging) { e.preventDefault(); isCopyMode = e.ctrlKey; if (e.dataTransfer) e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move' } }}
       ondrop={handleDrop}
     >
+      {#if inboxCount > 0}
+        <div class="tree-node">
+          <div class="tree-row" role="treeitem" tabindex="-1" aria-selected={nav.inboxMode}>
+            <button class="tree-item inbox-item" class:selected={nav.inboxMode} onclick={selectInbox}>
+              <Inbox size={14} />
+              <span class="label">Inbox</span>
+              <span class="inbox-badge">{inboxCount}</span>
+            </button>
+          </div>
+        </div>
+      {/if}
+
       {#each brands as brand, brandIdx}
         {#if isDropIndicator('brand', '', brandIdx)}
           <div class="drop-indicator" class:copy-mode={isCopyMode}></div>
@@ -563,7 +642,7 @@
             {:else}
               <button class="tree-item brand-item" onclick={() => toggleBrand(brand.slug)}>
                 <span class="chevron">{#if expandedBrands.has(brand.slug)}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</span>
-                <span class="label">{brand.name}</span>
+                <span class="label">{@html renderInline(brand.name)}</span>
               </button>
               <button class="row-action edit-action" onclick={(e) => startEdit(e, 'brand', brand.slug, brand.name, brand.slug)} title={t('tooltip.rename_brand')}><Pencil size={12} /></button>
               <button class="row-action delete-action" onclick={(e) => handleDeleteBrand(e, brand.slug)} title={t('tooltip.delete_brand')}><Trash2 size={12} /></button>
@@ -595,7 +674,7 @@
                     {:else}
                       <button class="tree-item stream-item" onclick={() => toggleStream(brand.slug, stream.slug)}>
                         <span class="chevron">{#if expandedStreams.has(`${brand.slug}/${stream.slug}`)}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</span>
-                        <span class="label">{stream.name}</span>
+                        <span class="label">{@html renderInline(stream.name)}</span>
                       </button>
                       <button class="row-action edit-action" onclick={(e) => startEdit(e, 'stream', `${brand.slug}/${stream.slug}`, stream.name, brand.slug, stream.slug)} title={t('tooltip.rename_stream')}><Pencil size={12} /></button>
                       <button class="row-action delete-action" onclick={(e) => handleDeleteStream(e, brand.slug, stream.slug)} title={t('tooltip.delete_stream')}><Trash2 size={12} /></button>
@@ -629,7 +708,7 @@
                               class:selected={isSelected(brand.slug, stream.slug, project.slug)}
                               onclick={() => selectProject(brand.slug, stream.slug, project.slug)}
                             >
-                              <span class="label">{project.name}</span>
+                              <span class="label">{@html renderInline(project.name)}</span>
                             </button>
                             <button class="row-action edit-action" onclick={(e) => startEdit(e, 'project', `${brand.slug}/${stream.slug}/${project.slug}`, project.name, brand.slug, stream.slug, project.slug)} title={t('tooltip.rename_project')}><Pencil size={12} /></button>
                             <button class="row-action delete-action" onclick={(e) => handleDeleteProject(e, brand.slug, stream.slug, project.slug)} title={t('tooltip.delete_project')}><Trash2 size={12} /></button>
@@ -800,6 +879,25 @@
     background: var(--border);
     color: var(--text-primary);
     font-weight: 500;
+  }
+
+  .inbox-item {
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+    border-bottom: 1px solid var(--border-muted);
+    border-radius: 0;
+    padding-bottom: 0.5rem;
+  }
+
+  .inbox-badge {
+    margin-left: auto;
+    font-size: 0.65rem;
+    font-weight: 600;
+    background: var(--accent);
+    color: #fff;
+    padding: 0.05rem 0.4rem;
+    border-radius: 8px;
+    flex-shrink: 0;
   }
 
   .chevron {

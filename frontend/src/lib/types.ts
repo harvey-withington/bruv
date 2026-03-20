@@ -115,6 +115,7 @@ export interface BackendAdapter {
   PinCard(cardID: string, projectID: string, categoryID: string): Promise<void>
   UnpinCard(cardID: string, projectID: string, categoryID: string): Promise<void>
   GetCardPins(cardID: string): Promise<any[]>
+  GetCardLocation(cardID: string): Promise<{ brandSlug: string; streamSlug: string; projectSlug: string }>
 
   // Move & reorder
   MoveCardInCategory(cardID: string, projectID: string, categoryID: string, newPosition: number): Promise<void>
@@ -145,6 +146,7 @@ export interface BackendAdapter {
   RebuildIndex(): Promise<any>
   RefreshIndex(): Promise<any>
   ListCardIDsInCategory(projectID: string, categoryID: string): Promise<string[]>
+  ListOrphanedCardIDs(): Promise<string[]>
   ListCardIDsByTag(tag: string): Promise<string[]>
 
   // User preferences

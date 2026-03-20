@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="frontend/src/assets/images/bruv-icon.svg" alt="BRUV logo" width="128" />
+</p>
+
 # BRUV
 
 > Your most organised best bud.

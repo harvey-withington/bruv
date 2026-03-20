@@ -42,6 +42,7 @@
 <button
   class="card-item"
   class:search-highlight={search.matchingIds.has(card.id)}
+  class:search-dimmed={search.query.trim() && search.matchingIds.size > 0 && !search.matchingIds.has(card.id)}
   class:dragging={dnd.dragging?.type === 'card' && dnd.dragging.cardId === card.id}
   draggable="true"
   ondragstart={handleDragStart}
@@ -99,6 +100,10 @@
   .card-item:hover {
     border-color: var(--border-hover);
     box-shadow: 0 2px 8px var(--shadow);
+  }
+
+  .card-item.search-dimmed {
+    opacity: 0.5;
   }
 
   .card-item.search-highlight {

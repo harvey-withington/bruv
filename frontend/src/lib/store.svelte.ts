@@ -3,7 +3,7 @@
 // Navigation state
 export const nav = $state({
   repoOpen: false,
-  repoPath: '',
+  repoId: '',
 
   // Currently selected location in the hierarchy
   brandSlug: null as string | null,

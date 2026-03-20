@@ -444,12 +444,13 @@ func (a *App) CopyCategory(brandSlug, streamSlug, projectSlug, categorySlug stri
 	if a.idx != nil {
 		cardIDs, err := a.idx.ListCardIDsInCategory(srcCat.ID, srcCat.ID)
 		if err == nil {
-			for _, cardID := range cardIDs {
+			for i, cardID := range cardIDs {
 				newCard, err := a.repo.DuplicateCard(cardID)
 				if err != nil {
 					continue
 				}
 				_ = a.repo.PinCard(newCard.ID, newCat.ID, newCat.ID)
+				_ = a.repo.MoveCardInCategory(newCard.ID, newCat.ID, newCat.ID, i)
 			}
 		}
 		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
@@ -934,6 +935,12 @@ func (a *App) SetPreferences(p config.Preferences) error {
 	return config.SavePreferences(p)
 }
 
+// --- Auth Info ---
+
+func (a *App) GetAuthInfo() config.AuthInfo {
+	return config.GetLocalAuthInfo()
+}
+
 // --- User Profile ---
 
 func (a *App) GetProfile() (config.UserProfile, error) {
@@ -942,4 +949,14 @@ func (a *App) GetProfile() (config.UserProfile, error) {
 
 func (a *App) SetProfile(p config.UserProfile) error {
 	return config.SaveProfile(p)
+}
+
+// --- LLM Config ---
+
+func (a *App) GetLLMConfig() (config.LLMConfig, error) {
+	return config.LoadLLMConfig()
+}
+
+func (a *App) SetLLMConfig(c config.LLMConfig) error {
+	return config.SaveLLMConfig(c)
 }

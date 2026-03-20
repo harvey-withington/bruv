@@ -8,21 +8,21 @@ import (
 
 // Preferences holds user-level application settings.
 type Preferences struct {
-	ReopenLastRepo     bool   `json:"reopen_last_repo"`
-	Theme              string `json:"theme"`               // "dark", "light", "system"
-	Locale             string `json:"locale"`               // e.g. "en", "es"
-	ConfirmBeforeDelete bool  `json:"confirm_before_delete"`
-	SidebarWidth       int    `json:"sidebar_width"`
+	ReopenLastRepo      bool   `json:"reopen_last_repo"`
+	Theme               string `json:"theme"`  // "dark", "light", "system"
+	Locale              string `json:"locale"` // e.g. "en", "es"
+	ConfirmBeforeDelete bool   `json:"confirm_before_delete"`
+	SidebarWidth        int    `json:"sidebar_width"`
 }
 
 // DefaultPreferences returns sensible defaults.
 func DefaultPreferences() Preferences {
 	return Preferences{
-		ReopenLastRepo:     false,
-		Theme:              "dark",
-		Locale:             "en",
+		ReopenLastRepo:      true,
+		Theme:               "dark",
+		Locale:              "en",
 		ConfirmBeforeDelete: true,
-		SidebarWidth:       260,
+		SidebarWidth:        260,
 	}
 }
 

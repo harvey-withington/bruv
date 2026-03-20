@@ -223,8 +223,8 @@
 
 <svelte:window onkeydown={handleBackdropKeydown} />
 
-<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-<div class="modal-backdrop" onclick={handleBackdropClick}>
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<div class="modal-backdrop" role="presentation" onclick={handleBackdropClick}>
   <div class="modal">
     {#if loading}
       <div class="modal-loading">{t('app.loading')}</div>
@@ -266,8 +266,7 @@
               <button class="btn-cancel-sm" onclick={() => { editingDescription = false; descriptionDraft = card.fields?.description || '' }}>Cancel</button>
             </div>
           {:else}
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="desc-display" onclick={() => { editingDescription = true }} title={t('tooltip.edit_description')}>
+            <div class="desc-display" role="button" tabindex="0" onclick={() => { editingDescription = true }} title={t('tooltip.edit_description')}>
               {#if card.fields?.description}
                 <p>{card.fields.description}</p>
               {:else}

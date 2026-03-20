@@ -1,20 +1,21 @@
 <script lang="ts">
   import { nav, board, tagColors } from '../lib/store.svelte'
   import { CloseRepository, CreateBrand, RenameBrand, CreateStream, RenameStream, CreateProject, RenameProject, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, ListCategories, GetCard, GetCardPins, ListCardIDsInCategory, GetTagColors, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject } from '../lib/api'
-  import { LogOut, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle } from 'lucide-svelte'
+  import { LogOut, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Bot } from 'lucide-svelte'
   import ThemeToggle from './ThemeToggle.svelte'
   import BruvIcon from './BruvIcon.svelte'
   import { t } from '../lib/i18n.svelte'
 
-  let { onOpenPrefs, onOpenProfile }: {
+  let { onOpenPrefs, onOpenProfile, onOpenLLMSettings }: {
     onOpenPrefs?: () => void
     onOpenProfile?: () => void
+    onOpenLLMSettings?: () => void
   } = $props()
 
   async function handleCloseRepo() {
     await CloseRepository()
     nav.repoOpen = false
-    nav.repoPath = ''
+    nav.repoId = ''
     nav.brandSlug = null
     nav.streamSlug = null
     nav.projectSlug = null
@@ -535,8 +536,7 @@
       {t('sidebar.close_repo')}
     </button>
 
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <nav class="nav-tree"
+    <div class="nav-tree" role="tree" tabindex="0"
       ondragover={(e) => { if (dragging) { e.preventDefault(); isCopyMode = e.ctrlKey; if (e.dataTransfer) e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move' } }}
       ondrop={handleDrop}
     >
@@ -545,8 +545,7 @@
           <div class="drop-indicator" class:copy-mode={isCopyMode}></div>
         {/if}
         <div class="tree-node">
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="tree-row"
+          <div class="tree-row" role="treeitem" tabindex="-1" aria-selected={isSelected(brand.slug, '', '')}
             draggable={renaming?.key !== brand.slug}
             ondragstart={(e) => handleDragStart(e, { type: 'brand', slug: brand.slug })}
             ondragend={handleDragEnd}
@@ -578,8 +577,7 @@
                   <div class="drop-indicator" class:copy-mode={isCopyMode}></div>
                 {/if}
                 <div class="tree-node">
-                  <!-- svelte-ignore a11y_no_static_element_interactions -->
-                  <div class="tree-row"
+                  <div class="tree-row" role="treeitem" tabindex="-1" aria-selected={isSelected(brand.slug, stream.slug, '')}
                     draggable={renaming?.key !== `${brand.slug}/${stream.slug}`}
                     ondragstart={(e) => handleDragStart(e, { type: 'stream', brandSlug: brand.slug, slug: stream.slug })}
                     ondragend={handleDragEnd}
@@ -610,8 +608,7 @@
                         {#if isDropIndicator('project', `${brand.slug}/${stream.slug}`, projectIdx)}
                           <div class="drop-indicator" class:copy-mode={isCopyMode}></div>
                         {/if}
-                        <!-- svelte-ignore a11y_no_static_element_interactions -->
-                        <div class="tree-row"
+                        <div class="tree-row" role="treeitem" tabindex="-1" aria-selected={isSelected(brand.slug, stream.slug, project.slug)}
                           draggable={renaming?.key !== `${brand.slug}/${stream.slug}/${project.slug}`}
                           ondragstart={(e) => handleDragStart(e, { type: 'project', brandSlug: brand.slug, streamSlug: stream.slug, slug: project.slug })}
                           ondragend={handleDragEnd}
@@ -643,7 +640,6 @@
                         <div class="drop-indicator" class:copy-mode={isCopyMode}></div>
                       {/if}
 
-                      <!-- svelte-ignore a11y_no_static_element_interactions -->
                       <button class="add-btn nested" onclick={() => handleCreateProject(brand.slug, stream.slug)} title={t('tooltip.add_project')}
                         ondragover={(e) => handleDragOverGap(e, 'project', `${brand.slug}/${stream.slug}`, projectsByStream[`${brand.slug}/${stream.slug}`]?.length ?? 0)}
                         ondrop={handleDrop}
@@ -658,7 +654,6 @@
                 <div class="drop-indicator" class:copy-mode={isCopyMode}></div>
               {/if}
 
-              <!-- svelte-ignore a11y_no_static_element_interactions -->
               <button class="add-btn" onclick={() => handleCreateStream(brand.slug)} title={t('tooltip.add_stream')}
                 ondragover={(e) => handleDragOverGap(e, 'stream', brand.slug, streamsByBrand[brand.slug]?.length ?? 0)}
                 ondrop={handleDrop}
@@ -677,17 +672,17 @@
         <p class="empty-hint">No brands yet.</p>
       {/if}
 
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
       <button class="add-btn" onclick={handleCreateBrand} title={t('tooltip.add_brand')}
         ondragover={(e) => handleDragOverGap(e, 'brand', '', brands.length)}
         ondrop={handleDrop}
       >
         + Add brand
       </button>
-    </nav>
+    </div>
 
     <div class="sidebar-footer">
       <button class="footer-btn" onclick={onOpenProfile} title={t('profile.title')}><UserCircle size={16} /></button>
+      <button class="footer-btn" onclick={onOpenLLMSettings} title={t('tooltip.llm_settings')}><Bot size={16} /></button>
       <span class="footer-spacer"></span>
       <ThemeToggle />
       <button class="footer-btn" onclick={onOpenPrefs} title={t('prefs.title')}><Settings size={16} /></button>
@@ -697,6 +692,7 @@
   {#if nav.sidebarCollapsed}
     <div class="sidebar-footer">
       <button class="footer-btn" onclick={onOpenProfile} title={t('profile.title')}><UserCircle size={16} /></button>
+      <button class="footer-btn" onclick={onOpenLLMSettings} title={t('tooltip.llm_settings')}><Bot size={16} /></button>
       <span class="footer-spacer"></span>
       <ThemeToggle />
       <button class="footer-btn" onclick={onOpenPrefs} title={t('prefs.title')}><Settings size={16} /></button>

@@ -1,19 +1,12 @@
 <script lang="ts">
   import { X } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
-  import { GetPreferences, SetPreferences } from '../lib/api'
-  import { theme, setTheme } from '../lib/theme.svelte'
-  import { setLocale, availableLocales } from '../lib/i18n.svelte'
-  import { nav } from '../lib/store.svelte'
+  import { GetLLMConfig, SetLLMConfig } from '../lib/api'
 
   let { onClose }: { onClose: () => void } = $props()
 
-  let prefs = $state({
-    reopen_last_repo: false,
-    theme: 'dark',
-    locale: 'en',
-    confirm_before_delete: true,
-    sidebar_width: 260,
+  let config = $state({
+    context: '',
   })
   let loaded = $state(false)
   let saved = $state(false)
@@ -24,13 +17,9 @@
 
   async function load() {
     try {
-      const p = await GetPreferences()
-      if (p) {
-        prefs.reopen_last_repo = p.reopen_last_repo ?? false
-        prefs.theme = p.theme || 'dark'
-        prefs.locale = p.locale || 'en'
-        prefs.confirm_before_delete = p.confirm_before_delete ?? true
-        prefs.sidebar_width = nav.sidebarWidth
+      const c = await GetLLMConfig()
+      if (c) {
+        config.context = c.context || ''
       }
     } catch { /* use defaults */ }
     loaded = true
@@ -38,20 +27,9 @@
 
   async function save() {
     try {
-      await SetPreferences(prefs)
-
-      // Apply theme immediately
-      setTheme(prefs.theme as 'dark' | 'light')
-
-      // Apply locale immediately
-      setLocale(prefs.locale)
-
-      // Apply sidebar width
-      nav.sidebarWidth = prefs.sidebar_width
-      localStorage.setItem('bruv-sidebar-width', String(prefs.sidebar_width))
-
+      await SetLLMConfig(config)
       onClose()
-    } catch (e) { console.error('SavePreferences:', e) }
+    } catch (e) { console.error('SetLLMConfig:', e) }
   }
 
   function handleOverlayClick(e: MouseEvent) {
@@ -69,50 +47,20 @@
 <div class="overlay" role="presentation" onclick={handleOverlayClick}>
   <div class="dialog">
     <div class="dialog-header">
-      <h2>{t('prefs.title')}</h2>
+      <h2>{t('llm.title')}</h2>
       <button class="close-btn" onclick={onClose} title={t('common.close')}><X size={18} /></button>
     </div>
 
     {#if loaded}
       <div class="dialog-body">
-        <label class="field toggle-field">
-          <span class="field-label">{t('prefs.reopen_last_repo')}</span>
-          <input type="checkbox" bind:checked={prefs.reopen_last_repo} />
-        </label>
-
         <label class="field">
-          <span class="field-label">{t('prefs.theme')}</span>
-          <select bind:value={prefs.theme}>
-            <option value="dark">{t('prefs.theme_dark')}</option>
-            <option value="light">{t('prefs.theme_light')}</option>
-          </select>
-        </label>
-
-        <label class="field">
-          <span class="field-label">{t('prefs.locale')}</span>
-          <select bind:value={prefs.locale}>
-            {#each availableLocales() as loc}
-              <option value={loc}>{loc.toUpperCase()}</option>
-            {/each}
-          </select>
-        </label>
-
-        <label class="field toggle-field">
-          <span class="field-label">{t('prefs.confirm_delete')}</span>
-          <input type="checkbox" bind:checked={prefs.confirm_before_delete} />
-        </label>
-
-        <label class="field">
-          <span class="field-label">{t('prefs.sidebar_width')}</span>
-          <div class="range-row">
-            <input type="range" min="160" max="500" step="10" bind:value={prefs.sidebar_width} />
-            <span class="range-value">{prefs.sidebar_width}px</span>
-          </div>
+          <span class="field-label">{t('llm.context')}</span>
+          <textarea rows="6" bind:value={config.context} placeholder={t('llm.context_placeholder')}></textarea>
         </label>
       </div>
 
       <div class="dialog-footer">
-        {#if saved}<span class="saved-msg">{t('prefs.saved')}</span>{/if}
+        {#if saved}<span class="saved-msg">{t('llm.saved')}</span>{/if}
         <button class="btn btn-ghost" onclick={onClose}>{t('common.cancel')}</button>
         <button class="btn btn-primary" onclick={save}>{t('common.save')}</button>
       </div>
@@ -135,8 +83,8 @@
     background: var(--bg-surface);
     border: 1px solid var(--border);
     border-radius: 10px;
-    width: 440px;
-    max-height: 80vh;
+    width: 480px;
+    max-height: 85vh;
     overflow-y: auto;
     box-shadow: 0 8px 32px var(--shadow-lg);
   }
@@ -181,55 +129,25 @@
     gap: 0.35rem;
   }
 
-  .toggle-field {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-  }
-
   .field-label {
     font-size: 0.85rem;
     font-weight: 500;
     color: var(--text-secondary);
   }
 
-  select, input[type="text"], input[type="number"] {
+  textarea {
     padding: 0.45rem 0.6rem;
     border-radius: 6px;
     border: 1px solid var(--border);
     background: var(--bg-elevated);
     color: var(--text-primary);
     font-size: 0.85rem;
+    font-family: inherit;
     outline: none;
+    resize: vertical;
   }
-  select:focus, input[type="text"]:focus, input[type="number"]:focus {
+  textarea:focus {
     border-color: var(--accent);
-  }
-
-  input[type="checkbox"] {
-    accent-color: var(--accent);
-    width: 16px;
-    height: 16px;
-    cursor: pointer;
-  }
-
-  input[type="range"] {
-    flex: 1;
-    accent-color: var(--accent);
-    cursor: pointer;
-  }
-
-  .range-row {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-
-  .range-value {
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    min-width: 48px;
-    text-align: right;
   }
 
   .dialog-footer {

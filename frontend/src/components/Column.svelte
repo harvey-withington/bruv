@@ -1,6 +1,6 @@
 <script lang="ts">
   import CardItem from './CardItem.svelte'
-  import { GripVertical, Trash2 } from 'lucide-svelte'
+  import { GripVertical, Pencil, Trash2 } from 'lucide-svelte'
   import { dnd } from '../lib/store.svelte'
   import { t } from '../lib/i18n.svelte'
 
@@ -22,12 +22,13 @@
     cards: CardData[]
   }
 
-  let { category, onCardClick, onAddCard, onCardDrop, onDeleteCategory, renaming, renamingName, onRenamingNameChange, onCommitRename, onCancelRename }: {
+  let { category, onCardClick, onAddCard, onCardDrop, onDeleteCategory, onStartRename, renaming, renamingName, onRenamingNameChange, onCommitRename, onCancelRename }: {
     category: CategoryData
     onCardClick?: (cardId: string) => void
     onAddCard?: (categoryId: string) => void
     onCardDrop?: (cardId: string, fromCategoryId: string, toCategoryId: string, toIndex: number, copy?: boolean) => void
     onDeleteCategory?: (categoryId: string, categorySlug: string, categoryName: string, cardCount: number) => void
+    onStartRename?: (categorySlug: string, categoryName: string) => void
     renaming?: boolean
     renamingName?: string
     onRenamingNameChange?: (value: string) => void
@@ -104,9 +105,10 @@
 </script>
 
 <div class="column">
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="column-header"
+    role="toolbar"
+    tabindex="-1"
     draggable="true"
     ondragstart={handleColDragStart}
     ondragend={handleColDragEnd}
@@ -125,16 +127,21 @@
       <h3 class="column-title">{category.name}</h3>
       <span class="card-count">{category.cards.length}</span>
       <button
-        class="col-delete-btn"
+        class="col-action-btn"
+        title={t('tooltip.rename_category')}
+        onclick={(e: MouseEvent) => { e.stopPropagation(); onStartRename?.(category.slug, category.name) }}
+      ><Pencil size={13} /></button>
+      <button
+        class="col-action-btn col-delete-btn"
         title={t('tooltip.delete_category')}
         onclick={(e: MouseEvent) => { e.stopPropagation(); onDeleteCategory?.(category.id, category.slug, category.name, category.cards.length) }}
       ><Trash2 size={13} /></button>
     {/if}
   </div>
 
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="card-list"
+    role="list"
     ondragover={handleCardDragOver}
     ondragleave={handleCardDragLeave}
     ondrop={handleCardDropOnList}
@@ -229,7 +236,7 @@
     border-radius: 10px;
   }
 
-  .col-delete-btn {
+  .col-action-btn {
     background: none;
     border: none;
     color: var(--text-faint);
@@ -238,11 +245,14 @@
     border-radius: 4px;
     display: flex;
     align-items: center;
-    margin-left: auto;
     opacity: 0;
     transition: opacity 0.15s, color 0.15s;
   }
-  .column-header:hover .col-delete-btn { opacity: 1; }
+  .col-action-btn:first-of-type {
+    margin-left: auto;
+  }
+  .column-header:hover .col-action-btn { opacity: 1; }
+  .col-action-btn:hover { color: var(--accent); }
   .col-delete-btn:hover { color: var(--danger); }
 
   .card-list {

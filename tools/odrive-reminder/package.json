@@ -1,0 +1,15 @@
+{
+  "name": "odrive-reminder",
+  "displayName": "oDrive Sync Reminder",
+  "description": "Reminds you to resume oDrive sync when closing the workspace",
+  "version": "1.0.0",
+  "publisher": "bruv",
+  "engines": {
+    "vscode": "^1.70.0"
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {}
+}

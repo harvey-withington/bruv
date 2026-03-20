@@ -10,7 +10,7 @@
     role: '',
     bio: '',
     expertise: [] as string[],
-    context: '',
+    avatar_url: '',
   })
   let loaded = $state(false)
   let saved = $state(false)
@@ -28,7 +28,7 @@
         profile.role = p.role || ''
         profile.bio = p.bio || ''
         profile.expertise = p.expertise || []
-        profile.context = p.context || ''
+        profile.avatar_url = p.avatar_url || ''
       }
     } catch { /* use defaults */ }
     loaded = true
@@ -67,8 +67,8 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-<div class="overlay" onclick={handleOverlayClick}>
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<div class="overlay" role="presentation" onclick={handleOverlayClick}>
   <div class="dialog">
     <div class="dialog-header">
       <h2>{t('profile.title')}</h2>
@@ -113,10 +113,6 @@
           </div>
         </div>
 
-        <label class="field">
-          <span class="field-label">{t('profile.context')}</span>
-          <textarea rows="4" bind:value={profile.context} placeholder={t('profile.context_placeholder')}></textarea>
-        </label>
       </div>
 
       <div class="dialog-footer">

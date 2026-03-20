@@ -9,6 +9,7 @@
   let renamingCategoryName = $state('')
   let renamingCategoryOriginal = $state('')
   let renameCatCancelled = $state(false)
+  let renameCatIsNew = $state(false)
   let selectedCardId = $state<string | null>(null)
   let autoEditTitle = $state(false)
 
@@ -257,6 +258,7 @@
       const created = await CreateCategory(nav.brandSlug, nav.streamSlug, nav.projectSlug, name, position)
       await refreshBoard()
       renameCatCancelled = false
+      renameCatIsNew = true
       renamingCategorySlug = created.slug
       renamingCategoryName = created.name
       renamingCategoryOriginal = created.name
@@ -276,16 +278,25 @@
     } catch (e) { console.error('RenameCategory:', e) }
   }
 
+  function startRenameCategory(slug: string, name: string) {
+    renameCatCancelled = false
+    renameCatIsNew = false
+    renamingCategorySlug = slug
+    renamingCategoryName = name
+    renamingCategoryOriginal = name
+  }
+
   async function cancelRenameCategory(slug: string) {
     const unchanged = renamingCategoryName.trim() === renamingCategoryOriginal
     renameCatCancelled = true
     renamingCategorySlug = null
-    if (unchanged && nav.brandSlug && nav.streamSlug && nav.projectSlug) {
+    if (renameCatIsNew && unchanged && nav.brandSlug && nav.streamSlug && nav.projectSlug) {
       try {
         await DeleteCategory(nav.brandSlug, nav.streamSlug, nav.projectSlug, slug)
         await refreshBoard()
       } catch (e) { console.error('DeleteCategory:', e) }
     }
+    renameCatIsNew = false
   }
 
   async function refreshBoard() {
@@ -352,8 +363,7 @@
     </div>
 
   {:else}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="columns" ondragover={handleColumnsDragOver} ondragleave={handleColumnsDragLeave} ondrop={handleColumnsDrop}>
+    <div class="columns" role="list" ondragover={handleColumnsDragOver} ondragleave={handleColumnsDragLeave} ondrop={handleColumnsDrop}>
       {#each board.categories as category, colIdx (category.id)}
         {#if dnd.dragging?.type === 'column' && dnd.overColumnIndex === colIdx}
           <div class="col-drop-indicator" class:copy={dnd.copyMode}></div>
@@ -365,6 +375,7 @@
             onAddCard={handleAddCard}
             onCardDrop={handleCardDrop}
             onDeleteCategory={handleDeleteCategoryRequest}
+            onStartRename={startRenameCategory}
             renaming={renamingCategorySlug === category.slug}
             renamingName={renamingCategoryName}
             onRenamingNameChange={(v) => renamingCategoryName = v}
@@ -387,10 +398,10 @@
 </div>
 
 {#if deletingCategory}
-  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-  <div class="delete-overlay" onclick={cancelDeleteCategory}>
-    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-    <div class="delete-dialog" onclick={(e: MouseEvent) => e.stopPropagation()}>
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div class="delete-overlay" role="presentation" onclick={cancelDeleteCategory}>
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div class="delete-dialog" role="dialog" tabindex="-1" onclick={(e: MouseEvent) => e.stopPropagation()}>
       <h3 class="delete-title">{t('board.delete_category_confirm', { name: deletingCategory.name })}</h3>
 
       {#if deletingCategory.cardCount === 0}

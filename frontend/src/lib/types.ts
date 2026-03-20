@@ -1,0 +1,153 @@
+// --- Identity: who the user is (editable, visible to collaborators & LLMs) ---
+export type UserProfile = {
+  display_name: string
+  role: string
+  bio: string
+  expertise: string[]
+  avatar_url: string
+}
+
+// --- Auth: session/provider state (not user-editable) ---
+export type AuthInfo = {
+  id: string
+  provider: string   // "local", "google", "github", etc.
+  email: string
+  authenticated: boolean
+  username: string
+}
+
+// --- LLM: AI-specific configuration (grows independently) ---
+export type LLMConfig = {
+  context: string
+}
+
+// --- Backend capabilities ---
+export type BackendCapabilities = {
+  hasLocalFilesystem: boolean
+  hasAuth: boolean
+  hasRealtime: boolean
+}
+
+// --- Real-time events ---
+export type BackendEvent =
+  | { type: 'card:updated'; cardId: string }
+  | { type: 'category:updated'; categoryId: string }
+  | { type: 'board:changed' }
+
+export type EventCallback = (event: BackendEvent) => void
+
+// --- Backend adapter interface ---
+export interface BackendAdapter {
+  // Capabilities
+  getCapabilities(): BackendCapabilities
+
+  // Auth / identity
+  GetAuthInfo(): Promise<AuthInfo>
+
+  // User profile
+  GetProfile(): Promise<UserProfile>
+  SetProfile(p: UserProfile): Promise<void>
+
+  // LLM config
+  GetLLMConfig(): Promise<LLMConfig>
+  SetLLMConfig(c: LLMConfig): Promise<void>
+
+  // Real-time events (no-op for local)
+  subscribe(cb: EventCallback): void
+  unsubscribe(cb: EventCallback): void
+
+  // Repository / workspace management
+  Version(): Promise<string>
+  HasRepository(): Promise<boolean>
+  InitRepository(basePath: string, name: string): Promise<string>
+  OpenRepository(id: string): Promise<void>
+  CloseRepository(): Promise<void>
+  PickFolder(title: string): Promise<string>
+  ListRecentRepos(): Promise<Array<{ path: string; name: string; last_opened: string }>>
+  RemoveRecentRepo(path: string): Promise<void>
+
+  // Brand CRUD
+  CreateBrand(name: string): Promise<any>
+  GetBrand(slug: string): Promise<any>
+  ListBrands(): Promise<any[]>
+  RenameBrand(slug: string, newName: string): Promise<any>
+  DeleteBrand(slug: string): Promise<void>
+
+  // Stream CRUD
+  CreateStream(brandSlug: string, name: string): Promise<any>
+  ListStreams(brandSlug: string): Promise<any[]>
+  RenameStream(brandSlug: string, streamSlug: string, newName: string): Promise<any>
+  DeleteStream(brandSlug: string, streamSlug: string): Promise<void>
+
+  // Project CRUD
+  CreateProject(brandSlug: string, streamSlug: string, name: string): Promise<any>
+  ListProjects(brandSlug: string, streamSlug: string): Promise<any[]>
+  RenameProject(brandSlug: string, streamSlug: string, projectSlug: string, newName: string): Promise<any>
+  DeleteProject(brandSlug: string, streamSlug: string, projectSlug: string): Promise<void>
+
+  // Category CRUD
+  CreateCategory(brandSlug: string, streamSlug: string, projectSlug: string, name: string, position: number): Promise<any>
+  ListCategories(brandSlug: string, streamSlug: string, projectSlug: string): Promise<any[]>
+  RenameCategory(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string, newName: string): Promise<any>
+  DeleteCategory(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string): Promise<void>
+  MoveCategoryCards(brandSlug: string, streamSlug: string, projectSlug: string, fromCategoryID: string, toCategoryID: string): Promise<void>
+  CopyCategory(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string): Promise<any>
+
+  // Card CRUD
+  CreateCard(cardType: string, title: string): Promise<any>
+  GetCard(id: string): Promise<any>
+  ListCards(): Promise<any[]>
+  DeleteCard(id: string): Promise<void>
+  DuplicateCard(cardID: string, categoryID: string): Promise<any>
+
+  // Card updates
+  UpdateCardTitle(id: string, title: string): Promise<any>
+  UpdateCardFields(id: string, fields: Record<string, any>): Promise<any>
+  UpdateCardTags(id: string, tags: string[]): Promise<any>
+  UpdateCardDueDate(id: string, dueDate: string): Promise<any>
+
+  // Checklist
+  AddChecklistItem(cardID: string, text: string): Promise<any>
+  ToggleChecklistItem(cardID: string, itemID: string): Promise<any>
+  RemoveChecklistItem(cardID: string, itemID: string): Promise<any>
+
+  // Pins
+  PinCard(cardID: string, projectID: string, categoryID: string): Promise<void>
+  UnpinCard(cardID: string, projectID: string, categoryID: string): Promise<void>
+  GetCardPins(cardID: string): Promise<any[]>
+
+  // Move & reorder
+  MoveCardInCategory(cardID: string, projectID: string, categoryID: string, newPosition: number): Promise<void>
+  MoveCardToCategory(cardID: string, projectID: string, fromCategoryID: string, toCategoryID: string, newPosition: number): Promise<void>
+  ReorderBrands(orderedSlugs: string[]): Promise<void>
+  ReorderStreams(brandSlug: string, orderedSlugs: string[]): Promise<void>
+  ReorderProjects(brandSlug: string, streamSlug: string, orderedSlugs: string[]): Promise<void>
+  ReorderCategories(brandSlug: string, streamSlug: string, projectSlug: string, orderedSlugs: string[]): Promise<void>
+
+  // Move & copy (cross-hierarchy)
+  MoveProject(fromBrand: string, fromStream: string, projectSlug: string, toBrand: string, toStream: string): Promise<void>
+  MoveStream(fromBrand: string, streamSlug: string, toBrand: string): Promise<void>
+  CopyBrand(brandSlug: string): Promise<any>
+  CopyStream(fromBrand: string, streamSlug: string, toBrand: string): Promise<any>
+  CopyProject(fromBrand: string, fromStream: string, projectSlug: string, toBrand: string, toStream: string): Promise<any>
+
+  // Tag colors
+  GetTagColors(): Promise<Record<string, string>>
+  SetTagColor(tag: string, color: string): Promise<Record<string, string>>
+  AssignTagColor(tag: string): Promise<Record<string, string>>
+
+  // Schema
+  ListCardTypes(): Promise<string[]>
+  ValidateCardFields(cardType: string, fields: Record<string, any>): Promise<string[]>
+
+  // Index / search
+  SearchCards(query: string, limit: number): Promise<any[]>
+  RebuildIndex(): Promise<any>
+  RefreshIndex(): Promise<any>
+  ListCardIDsInCategory(projectID: string, categoryID: string): Promise<string[]>
+  ListCardIDsByTag(tag: string): Promise<string[]>
+
+  // User preferences
+  GetPreferences(): Promise<any>
+  SetPreferences(p: any): Promise<void>
+}

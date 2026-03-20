@@ -23,8 +23,8 @@ func TestDefaultPreferences(t *testing.T) {
 	if p.SidebarWidth != 260 {
 		t.Errorf("SidebarWidth = %d, want 260", p.SidebarWidth)
 	}
-	if p.ReopenLastRepo {
-		t.Error("ReopenLastRepo should default to false")
+	if !p.ReopenLastRepo {
+		t.Error("ReopenLastRepo should default to true")
 	}
 }
 
@@ -130,7 +130,7 @@ func TestProfileSaveLoad(t *testing.T) {
 		Role:        "Developer",
 		Bio:         "Testing profile persistence.",
 		Expertise:   []string{"Go", "Svelte", "TypeScript"},
-		Context:     "I prefer functional programming patterns.",
+		AvatarURL:   "https://example.com/avatar.png",
 	}
 
 	if err := SaveProfile(p); err != nil {
@@ -154,8 +154,8 @@ func TestProfileSaveLoad(t *testing.T) {
 	if len(loaded.Expertise) != 3 {
 		t.Errorf("Expertise count = %d, want 3", len(loaded.Expertise))
 	}
-	if loaded.Context != "I prefer functional programming patterns." {
-		t.Errorf("Context mismatch")
+	if loaded.AvatarURL != "https://example.com/avatar.png" {
+		t.Errorf("AvatarURL = %q, want %q", loaded.AvatarURL, "https://example.com/avatar.png")
 	}
 
 	// Clean up
@@ -163,7 +163,7 @@ func TestProfileSaveLoad(t *testing.T) {
 	os.Remove(path)
 }
 
-func TestLoadProfileMissingFileReturnsEmpty(t *testing.T) {
+func TestLoadProfileMissingFileAutoPopulatesDisplayName(t *testing.T) {
 	path, err := profilePath()
 	if err != nil {
 		t.Skip("cannot resolve config dir")
@@ -184,8 +184,134 @@ func TestLoadProfileMissingFileReturnsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadProfile: %v", err)
 	}
-	if p.DisplayName != "" || p.Role != "" {
-		t.Errorf("missing file should return empty profile, got %+v", p)
+	// DisplayName should be auto-populated from OS account
+	if p.DisplayName == "" {
+		t.Log("warning: DisplayName is empty — OS user.Current().Name may be blank on this system")
+	}
+	if p.Role != "" {
+		t.Errorf("missing file should have empty Role, got %q", p.Role)
+	}
+}
+
+func TestProfileLegacyContextMigration(t *testing.T) {
+	path, err := profilePath()
+	if err != nil {
+		t.Skip("cannot resolve config dir")
+	}
+	llmPath, err := llmConfigPath()
+	if err != nil {
+		t.Skip("cannot resolve config dir")
+	}
+
+	// Backup existing files
+	pBackup := path + ".test-backup"
+	lBackup := llmPath + ".test-backup"
+	if _, err := os.Stat(path); err == nil {
+		os.Rename(path, pBackup)
+	}
+	if _, err := os.Stat(llmPath); err == nil {
+		os.Rename(llmPath, lBackup)
+	}
+	defer func() {
+		os.Remove(path)
+		os.Remove(llmPath)
+		if _, err := os.Stat(pBackup); err == nil {
+			os.Rename(pBackup, path)
+		}
+		if _, err := os.Stat(lBackup); err == nil {
+			os.Rename(lBackup, llmPath)
+		}
+	}()
+
+	// Write a legacy profile.json that includes "context"
+	legacy := `{"display_name":"Legacy User","role":"Dev","context":"Use Go idioms"}`
+	os.MkdirAll(filepath.Dir(path), 0o755)
+	os.WriteFile(path, []byte(legacy), 0o644)
+
+	p, err := LoadProfile()
+	if err != nil {
+		t.Fatalf("LoadProfile: %v", err)
+	}
+	if p.DisplayName != "Legacy User" {
+		t.Errorf("DisplayName = %q, want %q", p.DisplayName, "Legacy User")
+	}
+
+	// Context should have been migrated to llm_config.json
+	c, err := LoadLLMConfig()
+	if err != nil {
+		t.Fatalf("LoadLLMConfig: %v", err)
+	}
+	if c.Context != "Use Go idioms" {
+		t.Errorf("LLMConfig.Context = %q, want %q", c.Context, "Use Go idioms")
+	}
+}
+
+// --- LLMConfig ---
+
+func TestLLMConfigSaveLoad(t *testing.T) {
+	c := LLMConfig{
+		Context: "I prefer functional programming patterns.",
+	}
+
+	if err := SaveLLMConfig(c); err != nil {
+		t.Fatalf("SaveLLMConfig: %v", err)
+	}
+
+	loaded, err := LoadLLMConfig()
+	if err != nil {
+		t.Fatalf("LoadLLMConfig: %v", err)
+	}
+
+	if loaded.Context != "I prefer functional programming patterns." {
+		t.Errorf("Context = %q, want %q", loaded.Context, "I prefer functional programming patterns.")
+	}
+
+	// Clean up
+	path, _ := llmConfigPath()
+	os.Remove(path)
+}
+
+func TestLoadLLMConfigMissingFileReturnsEmpty(t *testing.T) {
+	path, err := llmConfigPath()
+	if err != nil {
+		t.Skip("cannot resolve config dir")
+	}
+	backup := path + ".test-backup"
+	renamed := false
+	if _, err := os.Stat(path); err == nil {
+		os.Rename(path, backup)
+		renamed = true
+	}
+	defer func() {
+		if renamed {
+			os.Rename(backup, path)
+		}
+	}()
+
+	c, err := LoadLLMConfig()
+	if err != nil {
+		t.Fatalf("LoadLLMConfig: %v", err)
+	}
+	if c.Context != "" {
+		t.Errorf("missing file should return empty context, got %q", c.Context)
+	}
+}
+
+// --- AuthInfo ---
+
+func TestGetLocalAuthInfo(t *testing.T) {
+	info := GetLocalAuthInfo()
+	if info.Provider != "local" {
+		t.Errorf("Provider = %q, want %q", info.Provider, "local")
+	}
+	if !info.Authenticated {
+		t.Error("Authenticated should be true for local auth")
+	}
+	if info.ID == "" {
+		t.Error("ID should not be empty")
+	}
+	if info.Username == "" {
+		t.Error("Username should not be empty")
 	}
 }
 

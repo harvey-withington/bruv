@@ -78,9 +78,12 @@
   "profile.bio_placeholder": "A short description about yourself",
   "profile.expertise": "Areas of Expertise",
   "profile.expertise_placeholder": "Add an area of expertise…",
-  "profile.context": "Additional Context for AI",
-  "profile.context_placeholder": "Any additional context you'd like AI assistants to know about you…",
   "profile.saved": "Profile saved",
+
+  "llm.title": "AI Settings",
+  "llm.context": "Additional Context for AI",
+  "llm.context_placeholder": "Any additional context you'd like AI assistants to know about you…",
+  "llm.saved": "Settings saved",
 
   "toolbar.labels": "Labels",
   "toolbar.project_settings": "Project Settings",
@@ -111,6 +114,7 @@
   "tooltip.add_category": "Add a new category",
   "tooltip.cancel_add_category": "Cancel adding category",
   "tooltip.drag_column": "Drag to reorder column",
+  "tooltip.rename_category": "Rename this category",
   "tooltip.delete_category": "Delete this category",
   "tooltip.add_card": "Add a new card",
   "tooltip.cancel_add_card": "Cancel adding card",
@@ -123,5 +127,6 @@
   "tooltip.remove_checklist_item": "Remove item",
   "tooltip.clear_search": "Clear search",
   "tooltip.delete_card": "Delete this card permanently",
-  "tooltip.cancel": "Cancel"
+  "tooltip.cancel": "Cancel",
+  "tooltip.llm_settings": "AI settings"
 }

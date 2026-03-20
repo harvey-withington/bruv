@@ -9,6 +9,7 @@
   import CardDetail from './components/CardDetail.svelte'
   import UserPreferences from './components/UserPreferences.svelte'
   import UserProfile from './components/UserProfile.svelte'
+  import LLMSettings from './components/LLMSettings.svelte'
 
   import { GetPreferences, ListRecentRepos, OpenRepository } from './lib/api'
 
@@ -32,7 +33,7 @@
       const last = recent[0]
       await OpenRepository(last.path)
       nav.repoOpen = true
-      nav.repoPath = last.path
+      nav.repoId = last.path
     } catch { /* silently fall back to welcome screen */ }
     finally { appLoading = false }
   }
@@ -42,6 +43,7 @@
   let resizing = $state(false)
   let showPrefs = $state(false)
   let showProfile = $state(false)
+  let showLLMSettings = $state(false)
 
   function handleSearchSelectCard(cardId: string) {
     searchCardId = cardId
@@ -80,10 +82,13 @@
     <Sidebar
       onOpenPrefs={() => showPrefs = true}
       onOpenProfile={() => showProfile = true}
+      onOpenLLMSettings={() => showLLMSettings = true}
     />
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div
       class="splitter"
+      role="separator"
+      tabindex="-1"
       class:collapsed={nav.sidebarCollapsed}
       onmousedown={onSplitterDown}
     ></div>
@@ -111,6 +116,10 @@
 
   {#if showProfile}
     <UserProfile onClose={() => showProfile = false} />
+  {/if}
+
+  {#if showLLMSettings}
+    <LLMSettings onClose={() => showLLMSettings = false} />
   {/if}
 {:else}
   <WelcomeScreen />

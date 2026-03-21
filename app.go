@@ -675,6 +675,31 @@ func (a *App) GetCardLocation(cardID string) (*CardLocation, error) {
 	return nil, fmt.Errorf("could not resolve location for card %q", cardID)
 }
 
+// GetProjectLocation resolves a project UUID to its brand/stream/project slugs
+// so the frontend can navigate to the correct board.
+func (a *App) GetProjectLocation(projectID string) (*CardLocation, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	brands, _ := a.repo.ListBrands()
+	for _, b := range brands {
+		streams, _ := a.repo.ListStreams(b.Slug)
+		for _, s := range streams {
+			projects, _ := a.repo.ListProjects(b.Slug, s.Slug)
+			for _, p := range projects {
+				if p.ID == projectID {
+					return &CardLocation{
+						BrandSlug:   b.Slug,
+						StreamSlug:  s.Slug,
+						ProjectSlug: p.Slug,
+					}, nil
+				}
+			}
+		}
+	}
+	return nil, fmt.Errorf("could not resolve location for project %q", projectID)
+}
+
 // MoveCardInCategory reorders a card within its current category.
 func (a *App) MoveCardInCategory(cardID, projectID, categoryID string, newPosition int) error {
 	if a.repo == nil {
@@ -956,6 +981,14 @@ func (a *App) openIndex(repoPath string) error {
 	}
 	a.idx = idx
 	return nil
+}
+
+// GetCardProjectContext returns the stored project hierarchy path for a card (e.g. "Brand > Stream > Project").
+func (a *App) GetCardProjectContext(cardID string) string {
+	if a.idx == nil {
+		return ""
+	}
+	return a.idx.GetCardProjectContext(cardID)
 }
 
 // SearchCards performs a full-text search across all indexed cards.

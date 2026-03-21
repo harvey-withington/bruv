@@ -58,7 +58,7 @@
               subtitle: '',
               badge: 'project',
               badgeColor: '#71717a',
-              link: `bruv:project:${brand.slug}/${stream.slug}/${project.slug}`,
+              link: `bruv:project:${project.id}`,
             })
           }
         }
@@ -128,8 +128,7 @@
   }
 
   function selectItem(item: PickerItem) {
-    const title = item.subtitle ? ` "${item.subtitle}"` : ''
-    const markdown = `[${item.label}](${item.link}${title})`
+    const markdown = `[${item.label}](${item.link})`
     onSelect(markdown)
   }
 </script>

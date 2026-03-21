@@ -9,6 +9,9 @@ export const nav = $state({
   brandSlug: null as string | null,
   streamSlug: null as string | null,
   projectSlug: null as string | null,
+  brandName: '' as string,
+  streamName: '' as string,
+  projectName: '' as string,
 
   // Inbox mode (showing orphaned cards)
   inboxMode: false,

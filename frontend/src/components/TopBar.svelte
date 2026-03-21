@@ -15,13 +15,13 @@
 <header class="topbar">
   <div class="breadcrumb">
     {#if nav.brandSlug}
-      <span class="crumb">{nav.brandSlug}</span>
+      <span class="crumb">{nav.brandName || nav.brandSlug}</span>
       {#if nav.streamSlug}
-        <span class="sep">/</span>
-        <span class="crumb">{nav.streamSlug}</span>
+        <span class="sep">›</span>
+        <span class="crumb">{nav.streamName || nav.streamSlug}</span>
         {#if nav.projectSlug}
-          <span class="sep">/</span>
-          <span class="crumb active">{nav.projectSlug}</span>
+          <span class="sep">›</span>
+          <span class="crumb active">{nav.projectName || nav.projectSlug}</span>
         {/if}
       {/if}
     {:else}

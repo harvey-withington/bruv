@@ -12,7 +12,7 @@
   import UserProfile from './components/UserProfile.svelte'
   import LLMSettings from './components/LLMSettings.svelte'
 
-  import { GetPreferences, ListRecentRepos, OpenRepository, GetCardLocation } from './lib/api'
+  import { GetPreferences, ListRecentRepos, OpenRepository, GetCardLocation, GetProjectLocation } from './lib/api'
 
   // Restore persisted preferences
   loadTheme()
@@ -61,17 +61,24 @@
         try {
           const loc = await GetCardLocation(detail.id)
           if (loc) {
-            // Ask sidebar to select this project (which loads the board)
-            document.dispatchEvent(new CustomEvent('bruv:select-project', { detail: loc }))
+            // Ask sidebar to select this project (which loads the board) and wait for it
+            await new Promise<void>(resolve => {
+              document.dispatchEvent(new CustomEvent('bruv:select-project', { detail: { ...loc, resolve } }))
+            })
           }
         } catch { /* card may be unpinned — just open it without switching */ }
-        requestAnimationFrame(() => { searchCardId = detail.id })
+        searchCardId = detail.id
       } else if (detail.type === 'project') {
         searchCardId = null
-        nav.brandSlug = detail.brand
-        nav.streamSlug = detail.stream
-        nav.projectSlug = detail.project
-        localStorage.setItem('bruv-last-nav', JSON.stringify({ brandSlug: detail.brand, streamSlug: detail.stream, projectSlug: detail.project }))
+        document.dispatchEvent(new CustomEvent('bruv:close-card-detail'))
+        try {
+          const loc = await GetProjectLocation(detail.id)
+          if (loc) {
+            await new Promise<void>(resolve => {
+              document.dispatchEvent(new CustomEvent('bruv:select-project', { detail: { ...loc, resolve } }))
+            })
+          }
+        } catch (e) { console.error('Failed to navigate to project', e) }
       }
     }
     document.addEventListener('bruv:navigate', handleBruvNav)

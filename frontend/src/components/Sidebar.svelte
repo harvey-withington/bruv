@@ -21,6 +21,9 @@
     nav.brandSlug = null
     nav.streamSlug = null
     nav.projectSlug = null
+    nav.brandName = ''
+    nav.streamName = ''
+    nav.projectName = ''
     localStorage.removeItem('bruv-last-nav')
     board.categories = []
     brands = []
@@ -100,6 +103,9 @@
     nav.brandSlug = null
     nav.streamSlug = null
     nav.projectSlug = null
+    nav.brandName = ''
+    nav.streamName = ''
+    nav.projectName = ''
     localStorage.removeItem('bruv-last-nav')
     board.loading = true
     try {
@@ -177,14 +183,19 @@
     expandedStreams.add(streamKey)
     expandedStreams = new Set(expandedStreams)
     if (!projectsByStream[streamKey]) projectsByStream[streamKey] = await ListProjects(brandSlug, streamSlug) || []
+    // Resolve display names from cached sidebar data
+    nav.brandName = brands.find(b => b.slug === brandSlug)?.name || brandSlug
+    nav.streamName = (streamsByBrand[brandSlug] || []).find(s => s.slug === streamSlug)?.name || streamSlug
+    nav.projectName = (projectsByStream[streamKey] || []).find(p => p.slug === projectSlug)?.name || projectSlug
     await loadBoard(brandSlug, streamSlug, projectSlug)
   }
 
   // Allow programmatic project selection from internal link navigation
   onMount(() => {
-    function handleSelectProject(e: Event) {
-      const { brandSlug, streamSlug, projectSlug } = (e as CustomEvent).detail
-      selectProject(brandSlug, streamSlug, projectSlug)
+    async function handleSelectProject(e: Event) {
+      const { brandSlug, streamSlug, projectSlug, resolve } = (e as CustomEvent).detail
+      await selectProject(brandSlug, streamSlug, projectSlug)
+      resolve?.()
     }
     document.addEventListener('bruv:select-project', handleSelectProject)
     return () => document.removeEventListener('bruv:select-project', handleSelectProject)
@@ -337,6 +348,7 @@
             localStorage.setItem('bruv-last-nav', JSON.stringify({ brandSlug: newSlug, streamSlug: nav.streamSlug, projectSlug: nav.projectSlug }))
           }
         }
+        if (nav.brandSlug === (newSlug !== brandSlug ? newSlug : brandSlug)) nav.brandName = name
         await loadBrands()
       } else if (type === 'stream') {
         const updated = await RenameStream(brandSlug, streamSlug, name)
@@ -357,6 +369,7 @@
             localStorage.setItem('bruv-last-nav', JSON.stringify({ brandSlug: nav.brandSlug, streamSlug: newSlug, projectSlug: nav.projectSlug }))
           }
         }
+        if (nav.brandSlug === brandSlug && nav.streamSlug === (newSlug !== streamSlug ? newSlug : streamSlug)) nav.streamName = name
         streamsByBrand[brandSlug] = await ListStreams(brandSlug) || []
       } else {
         const updated = await RenameProject(brandSlug, streamSlug, projectSlug, name)
@@ -365,6 +378,7 @@
           nav.projectSlug = newSlug
           localStorage.setItem('bruv-last-nav', JSON.stringify({ brandSlug: nav.brandSlug, streamSlug: nav.streamSlug, projectSlug: newSlug }))
         }
+        if (nav.brandSlug === brandSlug && nav.streamSlug === streamSlug && nav.projectSlug === (newSlug !== projectSlug ? newSlug : projectSlug)) nav.projectName = name
         const key = `${brandSlug}/${streamSlug}`
         projectsByStream[key] = await ListProjects(brandSlug, streamSlug) || []
       }

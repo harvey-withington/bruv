@@ -83,6 +83,7 @@ export const PinCard = (...args: Parameters<ReturnType<typeof getBackend>['PinCa
 export const UnpinCard = (...args: Parameters<ReturnType<typeof getBackend>['UnpinCard']>) => getBackend().UnpinCard(...args)
 export const GetCardPins = (...args: Parameters<ReturnType<typeof getBackend>['GetCardPins']>) => getBackend().GetCardPins(...args)
 export const GetCardLocation = (...args: Parameters<ReturnType<typeof getBackend>['GetCardLocation']>) => getBackend().GetCardLocation(...args)
+export const GetProjectLocation = (...args: Parameters<ReturnType<typeof getBackend>['GetProjectLocation']>) => getBackend().GetProjectLocation(...args)
 
 // Move & reorder
 export const MoveCardInCategory = (...args: Parameters<ReturnType<typeof getBackend>['MoveCardInCategory']>) => getBackend().MoveCardInCategory(...args)
@@ -110,6 +111,7 @@ export const ValidateCardFields = (...args: Parameters<ReturnType<typeof getBack
 
 // Index / search
 export const SearchCards = (...args: Parameters<ReturnType<typeof getBackend>['SearchCards']>) => getBackend().SearchCards(...args)
+export const GetCardProjectContext = (...args: Parameters<ReturnType<typeof getBackend>['GetCardProjectContext']>) => getBackend().GetCardProjectContext(...args)
 export const RebuildIndex = () => getBackend().RebuildIndex()
 export const RefreshIndex = () => getBackend().RefreshIndex()
 export const ListCardIDsInCategory = (...args: Parameters<ReturnType<typeof getBackend>['ListCardIDsInCategory']>) => getBackend().ListCardIDsInCategory(...args)

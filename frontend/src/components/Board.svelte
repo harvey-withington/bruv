@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import Column from './Column.svelte'
+  import CardItem from './CardItem.svelte'
   import CardDetail from './CardDetail.svelte'
   import { board, nav, tagColors, dnd, search } from '../lib/store.svelte'
-  import { CreateCard, PinCard, CreateCategory, RenameCategory, ListCategories, GetCard, ListCardIDsInCategory, GetTagColors, MoveCardInCategory, MoveCardToCategory, ReorderCategories, DeleteCategory, DeleteCard, MoveCategoryCards, DuplicateCard, CopyCategory, SearchCards } from '../lib/api'
+  import { CreateCard, PinCard, CreateCategory, RenameCategory, ListCategories, GetCard, ListCardIDsInCategory, GetTagColors, MoveCardInCategory, MoveCardToCategory, ReorderCategories, DeleteCategory, DeleteCard, MoveCategoryCards, DuplicateCard, CopyCategory, SearchCards, SearchOrphanedCards } from '../lib/api'
+  import { Lightbulb } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
 
   let renamingCategorySlug = $state<string | null>(null)
@@ -12,11 +14,13 @@
   let renameCatCancelled = $state(false)
   let renameCatIsNew = $state(false)
   let selectedCardId = $state<string | null>(null)
+  let selectedCategoryId = $state<string | null>(null)
+  let selectedCategoryName = $state<string | null>(null)
   let autoEditTitle = $state(false)
 
   // Close board's card dialog when navigating via internal links
   onMount(() => {
-    function handleClose() { selectedCardId = null; autoEditTitle = false }
+    function handleClose() { selectedCardId = null; selectedCategoryId = null; selectedCategoryName = null; autoEditTitle = false }
     document.addEventListener('bruv:close-card-detail', handleClose)
     return () => document.removeEventListener('bruv:close-card-detail', handleClose)
   })
@@ -46,14 +50,20 @@
     }
   }
 
-  function handleCardClick(cardId: string) {
+  function handleCardClick(cardId: string, categoryId?: string) {
     selectedCardId = cardId
+    selectedCategoryId = categoryId || null
+    selectedCategoryName = categoryId
+      ? (board.categories.find(c => c.id === categoryId)?.name || null)
+      : null
   }
 
   async function closeCardDetail(opts?: { escaped?: boolean }) {
     const cardId = selectedCardId
     const wasAutoEdit = autoEditTitle
     selectedCardId = null
+    selectedCategoryId = null
+    selectedCategoryName = null
     autoEditTitle = false
     // Only delete unnamed new card if user pressed ESC without editing the name
     if (opts?.escaped && wasAutoEdit && cardId) {
@@ -61,15 +71,43 @@
         const card = await GetCard(cardId)
         if (card.title === t('default.card_name')) {
           await DeleteCard(cardId)
-          await refreshBoard()
         }
       } catch (e) { console.error('Cleanup card:', e) }
+    }
+    // Refresh the view — inbox needs its own event since refreshBoard() is a no-op there
+    if (nav.inboxMode) {
+      document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
+    } else {
+      refreshBoard()
     }
   }
 
   function handleCardUpdated() {
     autoEditTitle = false
-    refreshBoard()
+    if (nav.inboxMode) {
+      document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
+    } else {
+      refreshBoard()
+    }
+  }
+
+  function handleCardPinned() {
+    if (nav.inboxMode) {
+      document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
+    } else {
+      refreshBoard()
+    }
+  }
+
+  async function handleNewIdea() {
+    try {
+      const card = await CreateCard('', t('default.card_name'))
+      // Open the card for editing — don't refresh inbox yet to avoid race
+      selectedCardId = card.id
+      autoEditTitle = true
+    } catch (e) {
+      console.error('Failed to create idea:', e)
+    }
   }
 
   async function handleCardDrop(cardId: string, fromCategoryId: string, toCategoryId: string, toIndex: number, copy?: boolean) {
@@ -365,7 +403,26 @@
   {#if board.loading}
     <div class="loading">{t('app.loading')}</div>
 
-  {:else if !nav.projectSlug && !nav.inboxMode}
+  {:else if nav.inboxMode}
+    {@const inboxCards = board.categories[0]?.cards || []}
+    {#if inboxCards.length === 0}
+      <div class="empty-board">
+        <p class="empty-text">Inbox is empty</p>
+      </div>
+    {:else}
+      <div class="inbox-grid" role="list">
+        {#each inboxCards as card (card.id)}
+          <div class="inbox-card-wrapper">
+            <CardItem {card} categoryId="__inbox__" onclick={() => handleCardClick(card.id)} />
+          </div>
+        {/each}
+      </div>
+    {/if}
+    <button class="fab" onclick={handleNewIdea} title="New Idea">
+      <Lightbulb size={22} />
+    </button>
+
+  {:else if !nav.projectSlug}
     <div class="empty-board">
       <p class="empty-text">{t('app.no_project')}</p>
     </div>
@@ -380,16 +437,15 @@
           <Column
             {category}
             onCardClick={handleCardClick}
-            onAddCard={nav.inboxMode ? undefined : handleAddCard}
-            onCardDrop={nav.inboxMode ? undefined : handleCardDrop}
-            onDeleteCategory={nav.inboxMode ? undefined : handleDeleteCategoryRequest}
-            onStartRename={nav.inboxMode ? undefined : startRenameCategory}
+            onAddCard={handleAddCard}
+            onCardDrop={handleCardDrop}
+            onDeleteCategory={handleDeleteCategoryRequest}
+            onStartRename={startRenameCategory}
             renaming={renamingCategorySlug === category.slug}
             renamingName={renamingCategoryName}
             onRenamingNameChange={(v) => renamingCategoryName = v}
             onCommitRename={() => commitRenameCategory(category.slug)}
             onCancelRename={() => cancelRenameCategory(category.slug)}
-            isReadonly={nav.inboxMode}
           />
         </div>
       {/each}
@@ -397,13 +453,11 @@
         <div class="col-drop-indicator" class:copy={dnd.copyMode}></div>
       {/if}
 
-      {#if !nav.inboxMode}
-        <div class="add-column">
-          <button class="add-column-btn" onclick={handleAddCategory} title={t('tooltip.add_category')}>
-            {t('board.add_category_long')}
-          </button>
-        </div>
-      {/if}
+      <div class="add-column">
+        <button class="add-column-btn" onclick={handleAddCategory} title={t('tooltip.add_category')}>
+          {t('board.add_category_long')}
+        </button>
+      </div>
     </div>
   {/if}
 </div>
@@ -451,8 +505,11 @@
 {#if selectedCardId}
   <CardDetail
     cardId={selectedCardId}
+    currentCategoryId={selectedCategoryId}
+    currentCategoryName={selectedCategoryName}
     onClose={closeCardDetail}
     onUpdated={handleCardUpdated}
+    onPin={handleCardPinned}
     {autoEditTitle}
   />
 {/if}
@@ -623,6 +680,47 @@
   }
   .add-column-btn:hover {
     background: var(--bg-subtle-hover);
+  }
+
+  .inbox-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+    overflow-y: auto;
+    height: 100%;
+    align-content: start;
+  }
+
+  .inbox-card-wrapper {
+    min-width: 0;
+  }
+
+  .fab {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 16px var(--shadow-lg);
+    transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
+    z-index: 50;
+  }
+  .fab:hover {
+    background: var(--accent-hover, var(--accent));
+    transform: scale(1.05);
+    box-shadow: 0 6px 24px var(--shadow-lg);
+  }
+  .fab:active {
+    transform: scale(0.97);
   }
 
 </style>

@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//s/oDrive/**)",
+      "Read(//s/oDrive/Google Drive - Mandela Daze/Harv''''''''s Code Team/Content/Projects/Application - BRUV/Code/bruv-1.0/frontend/**)",
+      "Bash(grep -n \"inbox\" \"s:/oDrive/Google Drive - Mandela Daze/Harv''s Code Team/Content/Projects/Application - BRUV/Code/bruv-1.0/frontend/src/components/\"*.svelte -i)",
+      "Bash(go build:*)",
+      "Bash(wails generate:*)",
+      "Bash(npm run:*)",
+      "Bash(npx svelte-check:*)"
+    ]
+  }
+}

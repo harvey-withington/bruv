@@ -51,7 +51,7 @@
   onclick={onclick}
 >
   <div class="card-header">
-    <span class="type-badge" style="background: {badgeColor(card.type)}">{card.type}</span>
+    <span class="type-badge" style="background: {card.type ? badgeColor(card.type) : 'var(--bg-elevated)'}; color: {card.type ? '#fff' : 'var(--text-muted)'}">{card.type || 'None'}</span>
     {#if card.due_date}
       <span class="due-date">📅 {card.due_date.slice(0, 10)}</span>
     {/if}

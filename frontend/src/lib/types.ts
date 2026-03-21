@@ -102,6 +102,7 @@ export interface BackendAdapter {
 
   // Card updates
   UpdateCardTitle(id: string, title: string): Promise<any>
+  UpdateCardType(id: string, cardType: string): Promise<any>
   UpdateCardFields(id: string, fields: Record<string, any>): Promise<any>
   UpdateCardBlocks(id: string, blocks: any[]): Promise<any>
   UpdateCardTags(id: string, tags: string[]): Promise<any>
@@ -118,6 +119,8 @@ export interface BackendAdapter {
   GetCardPins(cardID: string): Promise<any[]>
   GetCardLocation(cardID: string): Promise<{ brandSlug: string; streamSlug: string; projectSlug: string }>
   GetProjectLocation(projectID: string): Promise<{ brandSlug: string; streamSlug: string; projectSlug: string }>
+  ListAllCategories(): Promise<any[]>
+  GetCardPinBreadcrumbs(cardID: string): Promise<any[]>
 
   // Move & reorder
   MoveCardInCategory(cardID: string, projectID: string, categoryID: string, newPosition: number): Promise<void>
@@ -145,6 +148,7 @@ export interface BackendAdapter {
 
   // Index / search
   SearchCards(query: string, limit: number): Promise<any[]>
+  SearchOrphanedCards(query: string, limit: number): Promise<any[]>
   GetCardProjectContext(cardID: string): Promise<string>
   RebuildIndex(): Promise<any>
   RefreshIndex(): Promise<any>

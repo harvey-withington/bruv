@@ -68,6 +68,7 @@ export const DuplicateCard = (...args: Parameters<ReturnType<typeof getBackend>[
 
 // Card updates
 export const UpdateCardTitle = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardTitle']>) => getBackend().UpdateCardTitle(...args)
+export const UpdateCardType = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardType']>) => getBackend().UpdateCardType(...args)
 export const UpdateCardFields = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardFields']>) => getBackend().UpdateCardFields(...args)
 export const UpdateCardBlocks = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardBlocks']>) => getBackend().UpdateCardBlocks(...args)
 export const UpdateCardTags = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardTags']>) => getBackend().UpdateCardTags(...args)
@@ -84,6 +85,8 @@ export const UnpinCard = (...args: Parameters<ReturnType<typeof getBackend>['Unp
 export const GetCardPins = (...args: Parameters<ReturnType<typeof getBackend>['GetCardPins']>) => getBackend().GetCardPins(...args)
 export const GetCardLocation = (...args: Parameters<ReturnType<typeof getBackend>['GetCardLocation']>) => getBackend().GetCardLocation(...args)
 export const GetProjectLocation = (...args: Parameters<ReturnType<typeof getBackend>['GetProjectLocation']>) => getBackend().GetProjectLocation(...args)
+export const ListAllCategories = () => getBackend().ListAllCategories()
+export const GetCardPinBreadcrumbs = (...args: Parameters<ReturnType<typeof getBackend>['GetCardPinBreadcrumbs']>) => getBackend().GetCardPinBreadcrumbs(...args)
 
 // Move & reorder
 export const MoveCardInCategory = (...args: Parameters<ReturnType<typeof getBackend>['MoveCardInCategory']>) => getBackend().MoveCardInCategory(...args)
@@ -111,6 +114,7 @@ export const ValidateCardFields = (...args: Parameters<ReturnType<typeof getBack
 
 // Index / search
 export const SearchCards = (...args: Parameters<ReturnType<typeof getBackend>['SearchCards']>) => getBackend().SearchCards(...args)
+export const SearchOrphanedCards = (...args: Parameters<ReturnType<typeof getBackend>['SearchOrphanedCards']>) => getBackend().SearchOrphanedCards(...args)
 export const GetCardProjectContext = (...args: Parameters<ReturnType<typeof getBackend>['GetCardProjectContext']>) => getBackend().GetCardProjectContext(...args)
 export const RebuildIndex = () => getBackend().RebuildIndex()
 export const RefreshIndex = () => getBackend().RefreshIndex()

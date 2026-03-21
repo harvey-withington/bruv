@@ -497,6 +497,21 @@ func (a *App) UpdateCardTitle(id, title string) (*model.Card, error) {
 	return card, err
 }
 
+// UpdateCardType sets the type on a card (e.g. "task", "feature", or "" for none).
+func (a *App) UpdateCardType(id, cardType string) (*model.Card, error) {
+	cardType = repo.SanitizeText(cardType)
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	card, err := a.repo.UpdateCard(id, func(c *model.Card) {
+		c.Type = cardType
+	})
+	if err == nil && a.idx != nil {
+		_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
+	}
+	return card, err
+}
+
 // UpdateCardFields sets the type-specific fields on a card.
 func (a *App) UpdateCardFields(id string, fields map[string]any) (*model.Card, error) {
 	for k, v := range fields {
@@ -698,6 +713,92 @@ func (a *App) GetProjectLocation(projectID string) (*CardLocation, error) {
 		}
 	}
 	return nil, fmt.Errorf("could not resolve location for project %q", projectID)
+}
+
+// CategoryPath describes a category's full position in the Brand > Stream > Project > Category
+// hierarchy. Used by the frontend PinPicker to display breadcrumb results.
+type CategoryPath struct {
+	BrandSlug       string `json:"brandSlug"`
+	StreamSlug      string `json:"streamSlug"`
+	ProjectSlug     string `json:"projectSlug"`
+	CategorySlug    string `json:"categorySlug"`
+	BrandName       string `json:"brandName"`
+	StreamName      string `json:"streamName"`
+	ProjectName     string `json:"projectName"`
+	CategoryName    string `json:"categoryName"`
+	ProjectID       string `json:"projectId"`
+	CategoryID      string `json:"categoryId"`
+	Breadcrumb      string `json:"breadcrumb"`       // e.g. "Mandela Daze / YouTube / Narratively Speaking / Episodes"
+	PinnedProjectID string `json:"pinnedProjectId"` // actual stored pin.ProjectID — set only by GetCardPinBreadcrumbs, used for UnpinCard
+}
+
+// ListAllCategories returns every category across the entire hierarchy with full breadcrumb info.
+// Used by PinPicker to populate the flat searchable list of pin targets.
+func (a *App) ListAllCategories() ([]CategoryPath, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	var results []CategoryPath
+	brands, err := a.repo.ListBrands()
+	if err != nil {
+		return nil, err
+	}
+	for _, b := range brands {
+		streams, _ := a.repo.ListStreams(b.Slug)
+		for _, s := range streams {
+			projects, _ := a.repo.ListProjects(b.Slug, s.Slug)
+			for _, p := range projects {
+				cats, _ := a.repo.ListCategories(b.Slug, s.Slug, p.Slug)
+				for _, c := range cats {
+					results = append(results, CategoryPath{
+						BrandSlug:    b.Slug,
+						StreamSlug:   s.Slug,
+						ProjectSlug:  p.Slug,
+						CategorySlug: c.Slug,
+						BrandName:    b.Name,
+						StreamName:   s.Name,
+						ProjectName:  p.Name,
+						CategoryName: c.Name,
+						ProjectID:    p.ID,
+						CategoryID:   c.ID,
+						Breadcrumb:   b.Name + " / " + s.Name + " / " + p.Name + " / " + c.Name,
+					})
+				}
+			}
+		}
+	}
+	return results, nil
+}
+
+// GetCardPinBreadcrumbs returns a CategoryPath for every pin the card has,
+// enriched with full hierarchy names. Used by CardDetail to display the location indicator.
+func (a *App) GetCardPinBreadcrumbs(cardID string) ([]CategoryPath, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	pins, err := a.repo.GetCardPins(cardID)
+	if err != nil {
+		return nil, err
+	}
+	if len(pins) == 0 {
+		return nil, nil
+	}
+	all, err := a.ListAllCategories()
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[string]CategoryPath, len(all))
+	for _, cp := range all {
+		byID[cp.CategoryID] = cp
+	}
+	var result []CategoryPath
+	for _, pin := range pins {
+		if cp, ok := byID[pin.CategoryID]; ok {
+			cp.PinnedProjectID = pin.ProjectID // carry actual stored value so frontend can unpin correctly
+			result = append(result, cp)
+		}
+	}
+	return result, nil
 }
 
 // MoveCardInCategory reorders a card within its current category.
@@ -997,6 +1098,14 @@ func (a *App) SearchCards(query string, limit int) ([]index.SearchResult, error)
 		return nil, fmt.Errorf("no index available")
 	}
 	return a.idx.Search(query, limit)
+}
+
+// SearchOrphanedCards performs a full-text search limited to orphaned (inbox) cards.
+func (a *App) SearchOrphanedCards(query string, limit int) ([]index.SearchResult, error) {
+	if a.idx == nil {
+		return nil, fmt.Errorf("no index available")
+	}
+	return a.idx.SearchOrphanedCards(query, limit)
 }
 
 // RebuildIndex drops and rebuilds the entire SQLite index from disk.

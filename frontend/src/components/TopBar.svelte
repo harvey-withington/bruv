@@ -1,6 +1,6 @@
 <script lang="ts">
   import SearchBar from './SearchBar.svelte'
-  import { Tags, SlidersHorizontal, BotMessageSquare } from 'lucide-svelte'
+  import { Tags, SlidersHorizontal, BotMessageSquare, Inbox } from 'lucide-svelte'
   import { nav } from '../lib/store.svelte'
   import { t } from '../lib/i18n.svelte'
 
@@ -14,7 +14,9 @@
 
 <header class="topbar">
   <div class="breadcrumb">
-    {#if nav.brandSlug}
+    {#if nav.inboxMode}
+      <span class="crumb active inbox-crumb"><Inbox size={14} /> Inbox</span>
+    {:else if nav.brandSlug}
       <span class="crumb">{nav.brandName || nav.brandSlug}</span>
       {#if nav.streamSlug}
         <span class="sep">›</span>
@@ -88,6 +90,12 @@
   .crumb.empty {
     color: var(--text-faint);
     font-style: italic;
+  }
+
+  .inbox-crumb {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
   }
 
   .sep {

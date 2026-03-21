@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { search } from '../lib/store.svelte'
-  import { SearchCards } from '../lib/api'
+  import { search, nav } from '../lib/store.svelte'
+  import { SearchCards, SearchOrphanedCards } from '../lib/api'
   import { Search, X } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
 
@@ -34,7 +34,8 @@
     }
     debounceTimer = setTimeout(async () => {
       try {
-        const results = await SearchCards(search.query, 20)
+        const searchFn = nav.inboxMode ? SearchOrphanedCards : SearchCards
+        const results = await searchFn(search.query, 20)
         search.results = results || []
         search.open = search.results.length > 0
         search.matchingIds = new Set(search.results.map(r => r.CardID))

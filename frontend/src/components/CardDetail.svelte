@@ -1,12 +1,21 @@
 <script lang="ts">
-  import { GetCard, UpdateCardTitle, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
-    DeleteCard, AssignTagColor, SetTagColor } from '../lib/api'
+  import { GetCard, UpdateCardTitle, UpdateCardType, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
+    DeleteCard, AssignTagColor, SetTagColor, PinCard, UnpinCard, GetCardPinBreadcrumbs, ListCardTypes } from '../lib/api'
   import { tagColors } from '../lib/store.svelte'
-  import { X, Trash2, Square, CheckSquare, Palette, Plus, Type, ListChecks, Hash, Calendar, ToggleLeft, Link, Image, GripVertical, Pencil } from 'lucide-svelte'
+  import { X, Trash2, Square, CheckSquare, Palette, Plus, Type, ListChecks, Hash, Calendar, ToggleLeft, Link, Image, GripVertical, Pencil, MapPin, MapPinOff, MoveRight } from 'lucide-svelte'
   import { renderMarkdown, renderInline } from '../lib/markdown'
   import { t } from '../lib/i18n.svelte'
   import MentionPicker from './MentionPicker.svelte'
+  import PinPicker from './PinPicker.svelte'
   import { draggable } from '../lib/draggable'
+
+  type CategoryPath = {
+    brandSlug: string; streamSlug: string; projectSlug: string; categorySlug: string
+    brandName: string; streamName: string; projectName: string; categoryName: string
+    projectId: string; categoryId: string
+    breadcrumb: string
+    pinnedProjectId?: string // set by GetCardPinBreadcrumbs — the actual stored pin.ProjectID for UnpinCard
+  }
 
   const TAG_PALETTE = [
     '#61bd4f', '#f2d600', '#ff9f1a', '#eb5a46', '#c377e0',
@@ -16,19 +25,42 @@
 
   let colorPickerTag = $state<string | null>(null)
 
-  let { cardId, onClose, onUpdated, autoEditTitle }: {
+  let { cardId, currentCategoryId, currentCategoryName, onClose, onUpdated, onPin, autoEditTitle }: {
     cardId: string
+    currentCategoryId?: string | null
+    currentCategoryName?: string | null
     onClose: (opts?: { escaped?: boolean }) => void
     onUpdated?: () => void
+    onPin?: () => void
     autoEditTitle?: boolean
   } = $props()
 
   let card = $state<any>(null)
   let loading = $state(true)
+  let pinBreadcrumbs = $state<CategoryPath[]>([])
+  let showPinPicker = $state(false)
+  let pinPickerMode = $state<'pin' | 'move'>('pin')
+  let pinPickerSourcePin = $state<CategoryPath | null>(null)
+  let pinActionLoading = $state(false)
+  let showOtherPins = $state(false)
+
+  // Derived: pin state relative to the category the card was opened from
+  let currentPin = $derived(
+    currentCategoryId ? pinBreadcrumbs.find(p => p.categoryId === currentCategoryId) ?? null : null
+  )
+  let isPinnedHere = $derived(currentPin !== null)
+  let otherPins = $derived(
+    currentCategoryId ? pinBreadcrumbs.filter(p => p.categoryId !== currentCategoryId) : pinBreadcrumbs
+  )
   let editingTitle = $state(false)
   let titleDraft = $state('')
   let titleInputEl = $state<HTMLInputElement | null>(null)
   let newTag = $state('')
+
+  // Type picker
+  let showTypePicker = $state(false)
+  let cardTypes = $state<string[]>([])
+  let typePickerEl = $state<HTMLDivElement | null>(null)
 
   // Description (standard field, always at top)
   let descriptionDraft = $state('')
@@ -142,10 +174,13 @@
   }
 
   function handleWindowClick(e: MouseEvent) {
-    if (!showBlockPicker) return
-    const t = e.target as Node
-    if (fabBtnEl?.contains(t) || fabPickerEl?.contains(t)) return
-    showBlockPicker = false
+    const target = e.target as Node
+    if (showBlockPicker) {
+      if (!fabBtnEl?.contains(target) && !fabPickerEl?.contains(target)) showBlockPicker = false
+    }
+    if (showTypePicker) {
+      if (!typePickerEl?.contains(target)) showTypePicker = false
+    }
   }
 
   const BLOCK_OPTIONS = [
@@ -236,6 +271,7 @@
     loading = true
     try {
       card = await GetCard(cardId)
+      pinBreadcrumbs = await GetCardPinBreadcrumbs(cardId) || []
       titleDraft = card.title
       descriptionDraft = card.fields?.description || ''
       // Initialize block drafts from loaded blocks
@@ -256,6 +292,24 @@
       console.error('Failed to load card:', e)
     }
     loading = false
+  }
+
+  async function openTypePicker() {
+    if (cardTypes.length === 0) {
+      try {
+        cardTypes = await ListCardTypes() || []
+      } catch (e) { console.error('Failed to load card types:', e) }
+    }
+    showTypePicker = !showTypePicker
+  }
+
+  async function selectType(newType: string) {
+    showTypePicker = false
+    if (newType === card.type) return
+    try {
+      card = await UpdateCardType(cardId, newType)
+      onUpdated?.()
+    } catch (e) { console.error('Failed to update card type:', e) }
   }
 
   async function saveTitle() {
@@ -530,6 +584,85 @@
     } catch (e) { console.error(e) }
   }
 
+  async function toggleCurrentPin() {
+    if (!currentCategoryId) return
+    pinActionLoading = true
+    try {
+      if (isPinnedHere && currentPin) {
+        const msg = pinBreadcrumbs.length === 1
+          ? `Unpin from "${currentCategoryName || currentPin.categoryName}"? The card will move to Inbox.`
+          : `Unpin from "${currentCategoryName || currentPin.categoryName}"?`
+        if (!confirm(msg)) { pinActionLoading = false; return }
+        const unpinProject = currentPin.pinnedProjectId || currentPin.categoryId
+        await UnpinCard(cardId, unpinProject, currentPin.categoryId)
+      } else {
+        await PinCard(cardId, currentCategoryId, currentCategoryId)
+      }
+      pinBreadcrumbs = await GetCardPinBreadcrumbs(cardId) || []
+      document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
+      onPin?.()
+      onUpdated?.()
+    } catch (e) {
+      console.error('Toggle pin failed:', e)
+    }
+    pinActionLoading = false
+  }
+
+  function openPinPicker() {
+    pinPickerMode = 'pin'
+    pinPickerSourcePin = null
+    showPinPicker = true
+  }
+
+  function openMovePicker(fromPin: CategoryPath) {
+    pinPickerMode = 'move'
+    pinPickerSourcePin = fromPin
+    showPinPicker = true
+  }
+
+  async function handlePinSelect(target: CategoryPath) {
+    showPinPicker = false
+    pinActionLoading = true
+    try {
+      if (pinPickerMode === 'move' && pinPickerSourcePin) {
+        // Use pinnedProjectId (actual stored value) so UnpinCard can find the pin
+        const unpinProject = pinPickerSourcePin.pinnedProjectId || pinPickerSourcePin.categoryId
+        await UnpinCard(cardId, unpinProject, pinPickerSourcePin.categoryId)
+        await PinCard(cardId, target.categoryId, target.categoryId) // convention: projectID == categoryID
+      } else {
+        await PinCard(cardId, target.categoryId, target.categoryId) // convention: projectID == categoryID
+      }
+      pinBreadcrumbs = await GetCardPinBreadcrumbs(cardId) || []
+      document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
+      onPin?.()
+      onUpdated?.()
+    } catch (e) {
+      console.error('Pin action failed:', e)
+      alert('Could not pin card: ' + (e as any)?.message)
+    }
+    pinActionLoading = false
+    pinPickerSourcePin = null
+  }
+
+  async function handleUnpin(pin: CategoryPath) {
+    const msg = pinBreadcrumbs.length === 1
+      ? `Unpin from "${pin.categoryName}"? The card will move to Inbox.`
+      : `Unpin from "${pin.categoryName}"?`
+    if (!confirm(msg)) return
+    pinActionLoading = true
+    try {
+      const unpinProject = pin.pinnedProjectId || pin.categoryId
+      await UnpinCard(cardId, unpinProject, pin.categoryId)
+      pinBreadcrumbs = await GetCardPinBreadcrumbs(cardId) || []
+      document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
+      onPin?.()
+      onUpdated?.()
+    } catch (e) {
+      console.error('Unpin failed:', e)
+    }
+    pinActionLoading = false
+  }
+
   async function handleDelete() {
     if (!confirm(t('card.delete_confirm'))) return
     try {
@@ -546,6 +679,14 @@
   }
 
   function handleBackdropKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault()
+      if (editingTitle) saveTitle()
+      if (editingDescription) saveDescription()
+      if (editingBlockIdx !== null) saveTextBlock(editingBlockIdx)
+      onClose()
+      return
+    }
     if (e.key === 'Escape') {
       if (editingTitle || editingDescription || editingBlockIdx !== null || editingBlockLabelIdx !== null) return
       onClose({ escaped: true })
@@ -562,7 +703,34 @@
       <div class="modal-loading">{t('app.loading')}</div>
     {:else if card}
       <div class="modal-header">
-        <span class="type-badge" style="background: {typeColors[card.type] || '#71717a'}">{card.type}</span>
+        <div class="type-picker-wrap" bind:this={typePickerEl}>
+          <button
+            class="type-badge type-badge-btn"
+            style="background: {card.type ? (typeColors[card.type] || '#71717a') : 'var(--bg-elevated)'}; color: {card.type ? '#fff' : 'var(--text-muted)'}"
+            onclick={openTypePicker}
+            title="Change card type"
+          >{card.type || 'None'}</button>
+          {#if showTypePicker}
+            <div class="type-picker-dropdown">
+              <button
+                class="type-picker-option"
+                class:active={!card.type}
+                onclick={() => selectType('')}
+              >
+                <span class="type-option-badge" style="background: var(--bg-elevated); color: var(--text-muted)">None</span>
+              </button>
+              {#each cardTypes as ct}
+                <button
+                  class="type-picker-option"
+                  class:active={card.type === ct}
+                  onclick={() => selectType(ct)}
+                >
+                  <span class="type-option-badge" style="background: {typeColors[ct] || '#71717a'}">{ct}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
 
         {#if editingTitle}
           <input
@@ -580,6 +748,71 @@
         {/if}
 
         <button class="close-btn" onclick={() => onClose()} title={t('tooltip.close_card')}><X size={18} /></button>
+      </div>
+
+      <div class="modal-subheader">
+        {#if currentCategoryId}
+          <!-- Current-category toggle -->
+          <button
+            class="pin-toggle"
+            class:pinned={isPinnedHere}
+            onclick={toggleCurrentPin}
+            disabled={pinActionLoading}
+            title={isPinnedHere ? `Unpin from "${currentCategoryName}"` : `Pin to "${currentCategoryName}"`}
+          >
+            {#if isPinnedHere}
+              <MapPin size={11} />
+            {:else}
+              <MapPinOff size={11} />
+            {/if}
+            <span class="pin-toggle-name">{currentCategoryName}</span>
+          </button>
+
+          <!-- Other pins expandable -->
+          <button
+            class="btn-other-pins"
+            class:expanded={showOtherPins}
+            onclick={() => showOtherPins = !showOtherPins}
+            disabled={pinActionLoading}
+          >
+            Other pins{otherPins.length > 0 ? ` (${otherPins.length})` : ''} {showOtherPins ? '▲' : '▼'}
+          </button>
+
+        {:else}
+          <!-- No context category (inbox or search) -->
+          {#if pinBreadcrumbs.length === 0}
+            <!-- Inbox: card has no pins — show label + direct pin action -->
+            <span class="location-inbox"><MapPin size={11} /> Inbox</span>
+            <button class="btn-pin" onclick={openPinPicker} disabled={pinActionLoading}>Pin to...</button>
+          {:else}
+            <!-- Opened from search with existing pins — show summary + editor -->
+            <span class="location-inbox"><MapPin size={11} /> {pinBreadcrumbs.length} pin{pinBreadcrumbs.length !== 1 ? 's' : ''}</span>
+            <button
+              class="btn-other-pins"
+              class:expanded={showOtherPins}
+              onclick={() => showOtherPins = !showOtherPins}
+              disabled={pinActionLoading}
+            >
+              {showOtherPins ? 'Hide ▲' : 'Edit pins ▼'}
+            </button>
+          {/if}
+        {/if}
+
+        <!-- Expanded pin editor (other pins panel) -->
+        {#if showOtherPins}
+          <div class="other-pins-panel">
+            {#each otherPins as pin}
+              <div class="location-pin">
+                <span class="location-breadcrumb" title={pin.breadcrumb}><MapPin size={11} />{pin.breadcrumb}</span>
+                <button class="btn-pin-action" onclick={() => openMovePicker(pin)} disabled={pinActionLoading} title="Move to another category" aria-label="Move pin"><MoveRight size={11} /></button>
+                {#if currentCategoryId}
+                  <button class="btn-pin-action btn-unpin" onclick={() => handleUnpin(pin)} disabled={pinActionLoading} title="Unpin" aria-label="Unpin"><MapPinOff size={11} /></button>
+                {/if}
+              </div>
+            {/each}
+            <button class="btn-pin" onclick={openPinPicker} disabled={pinActionLoading}>+ Pin to another category</button>
+          </div>
+        {/if}
       </div>
 
       <div class="modal-body">
@@ -846,6 +1079,12 @@
   onClose={handleMentionClose}
 />
 
+<PinPicker
+  visible={showPinPicker}
+  onSelect={handlePinSelect}
+  onClose={() => { showPinPicker = false; pinPickerSourcePin = null }}
+/>
+
 <style>
   .modal-backdrop {
     position: fixed;
@@ -885,6 +1124,147 @@
     border-bottom: 1px solid var(--border-muted);
   }
 
+  .modal-subheader {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.5rem;
+    padding: 0.35rem 1.25rem;
+    border-bottom: 1px solid var(--border-muted);
+    background: var(--bg-elevated);
+    font-size: 0.73rem;
+    min-height: 2rem;
+    position: relative;
+  }
+
+  /* Current-category pin toggle */
+  .pin-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.2rem 0.55rem;
+    border-radius: 5px;
+    border: 1px solid var(--border-muted);
+    background: var(--bg-surface);
+    color: var(--text-muted);
+    font-size: 0.73rem;
+    cursor: pointer;
+    transition: background 0.1s, border-color 0.1s, color 0.1s;
+  }
+  .pin-toggle.pinned {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  .pin-toggle:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .pin-toggle.pinned:hover:not(:disabled) {
+    border-color: #eb5a46;
+    color: #eb5a46;
+    background: color-mix(in srgb, #eb5a46 8%, transparent);
+  }
+  .pin-toggle:disabled { opacity: 0.5; cursor: default; }
+
+  .pin-toggle-name {
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* "Other pins (N)" button */
+  .btn-other-pins {
+    font-size: 0.7rem;
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    background: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    margin-left: auto;
+  }
+  .btn-other-pins:hover { color: var(--text-body); background: var(--bg-surface); }
+  .btn-other-pins.expanded { color: var(--text-body); }
+  .btn-other-pins:disabled { opacity: 0.5; cursor: default; }
+
+  /* Inbox / summary label */
+  .location-inbox {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  /* Expanded other-pins panel — full width below the toggle row */
+  .other-pins-panel {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 0.35rem 0 0.1rem;
+    border-top: 1px solid var(--border-muted);
+    margin-top: 0.1rem;
+  }
+
+  .location-pin {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-muted);
+    border-radius: 4px;
+    padding: 0.1rem 0.2rem 0.1rem 0.45rem;
+    max-width: 100%;
+  }
+
+  .location-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: var(--text-body);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .btn-pin {
+    font-size: 0.7rem;
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    line-height: 1.4;
+    align-self: flex-start;
+  }
+  .btn-pin:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-pin:disabled { opacity: 0.5; cursor: default; }
+
+  .btn-pin-action {
+    background: none;
+    border: none;
+    padding: 0.15rem 0.2rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .btn-pin-action:hover { color: var(--text-primary); }
+  .btn-unpin:hover { color: #eb5a46; }
+
+  .type-picker-wrap {
+    position: relative;
+    flex-shrink: 0;
+  }
+
   .type-badge {
     font-size: 0.65rem;
     font-weight: 600;
@@ -894,6 +1274,53 @@
     border-radius: 3px;
     color: #fff;
     flex-shrink: 0;
+  }
+
+  .type-badge-btn {
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: opacity 0.15s, border-color 0.15s;
+  }
+  .type-badge-btn:hover {
+    opacity: 0.85;
+    border-color: var(--border);
+  }
+
+  .type-picker-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px var(--shadow-lg);
+    z-index: 10;
+    min-width: 120px;
+    overflow: hidden;
+  }
+
+  .type-picker-option {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 0.4rem 0.6rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .type-picker-option:hover, .type-picker-option.active {
+    background: var(--bg-elevated);
+  }
+
+  .type-option-badge {
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.15rem 0.5rem;
+    border-radius: 3px;
+    color: #fff;
   }
 
   .modal-title {

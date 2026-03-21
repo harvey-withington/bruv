@@ -25,7 +25,7 @@
 
   let { category, onCardClick, onAddCard, onCardDrop, onDeleteCategory, onStartRename, renaming, renamingName, onRenamingNameChange, onCommitRename, onCancelRename, isReadonly }: {
     category: CategoryData
-    onCardClick?: (cardId: string) => void
+    onCardClick?: (cardId: string, categoryId: string) => void
     onAddCard?: (categoryId: string) => void
     onCardDrop?: (cardId: string, fromCategoryId: string, toCategoryId: string, toIndex: number, copy?: boolean) => void
     onDeleteCategory?: (categoryId: string, categorySlug: string, categoryName: string, cardCount: number) => void
@@ -155,7 +155,7 @@
         <div class="drop-indicator" class:copy={dnd.copyMode}></div>
       {/if}
       <div class="card-wrapper">
-        <CardItem {card} categoryId={category.id} onclick={() => onCardClick?.(card.id)} />
+        <CardItem {card} categoryId={category.id} onclick={() => onCardClick?.(card.id, category.id)} />
       </div>
     {/each}
     {#if dnd.dragging?.type === 'card' && dnd.overCategoryId === category.id && (dnd.overCardIndex ?? 0) >= category.cards.length}

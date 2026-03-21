@@ -280,6 +280,48 @@ func (idx *Index) Search(query string, limit int) ([]SearchResult, error) {
 	return results, rows.Err()
 }
 
+// SearchOrphanedCards performs a full-text search limited to orphaned (inbox) cards.
+func (idx *Index) SearchOrphanedCards(query string, limit int) ([]SearchResult, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+
+	words := strings.Fields(query)
+	if len(words) == 0 {
+		return nil, nil
+	}
+	for i, w := range words {
+		w = strings.TrimRight(w, "*")
+		words[i] = w + "*"
+	}
+	ftsQuery := strings.Join(words, " ")
+
+	rows, err := idx.db.Query(`
+		SELECT f.id, f.title, c.type, rank, c.project_context
+		FROM cards_fts f
+		JOIN cards c ON c.id = f.id
+		LEFT JOIN pins p ON p.card_id = c.id
+		WHERE cards_fts MATCH ? AND p.card_id IS NULL
+		ORDER BY rank
+		LIMIT ?`,
+		ftsQuery, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("search orphaned query: %w", err)
+	}
+	defer rows.Close()
+
+	var results []SearchResult
+	for rows.Next() {
+		var r SearchResult
+		if err := rows.Scan(&r.CardID, &r.Title, &r.Type, &r.Rank, &r.ProjectContext); err != nil {
+			return nil, fmt.Errorf("scan result: %w", err)
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
 // ListCardIDsInCategory returns card IDs pinned to a specific project/category, ordered by position.
 func (idx *Index) ListCardIDsInCategory(projectID, categoryID string) ([]string, error) {
 	rows, err := idx.db.Query(`

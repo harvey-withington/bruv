@@ -62,6 +62,15 @@
     }
   })
 
+  onMount(() => {
+    async function handleInboxChanged() {
+      await refreshInboxCount()
+      if (nav.inboxMode) await selectInbox()
+    }
+    document.addEventListener('bruv:inbox-changed', handleInboxChanged)
+    return () => document.removeEventListener('bruv:inbox-changed', handleInboxChanged)
+  })
+
   async function loadBrandsAndRestore() {
     await loadBrands()
     // Restore last nav state if available
@@ -621,17 +630,15 @@
       ondragover={(e) => { if (dragging) { e.preventDefault(); isCopyMode = e.ctrlKey; if (e.dataTransfer) e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move' } }}
       ondrop={handleDrop}
     >
-      {#if inboxCount > 0}
-        <div class="tree-node">
-          <div class="tree-row" role="treeitem" tabindex="-1" aria-selected={nav.inboxMode}>
-            <button class="tree-item inbox-item" class:selected={nav.inboxMode} onclick={selectInbox}>
-              <Inbox size={14} />
-              <span class="label">Inbox</span>
-              <span class="inbox-badge">{inboxCount}</span>
-            </button>
-          </div>
+      <div class="tree-node">
+        <div class="tree-row" role="treeitem" tabindex="-1" aria-selected={nav.inboxMode}>
+          <button class="tree-item inbox-item" class:selected={nav.inboxMode} onclick={selectInbox}>
+            <Inbox size={14} />
+            <span class="label">Inbox</span>
+            {#if inboxCount > 0}<span class="inbox-badge">{inboxCount}</span>{/if}
+          </button>
         </div>
-      {/if}
+      </div>
 
       {#each brands as brand, brandIdx}
         {#if isDropIndicator('brand', '', brandIdx)}

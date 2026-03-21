@@ -38,6 +38,35 @@ func (r *Repository) PinCard(cardID, projectID, categoryID string) error {
 	return r.savePinFile(pinFile)
 }
 
+// PinCardAt pins a Card to a specific Project/Category with an explicit position.
+func (r *Repository) PinCardAt(cardID, projectID, categoryID string, position int) error {
+	if _, err := r.GetCard(cardID); err != nil {
+		return err
+	}
+
+	pinFile, err := r.loadPinFile(cardID)
+	if err != nil {
+		return err
+	}
+
+	for _, p := range pinFile.Pins {
+		if p.ProjectID == projectID && p.CategoryID == categoryID {
+			return fmt.Errorf("card %q is already pinned to project %q / category %q", cardID, projectID, categoryID)
+		}
+	}
+
+	pin := model.Pin{
+		CardID:     cardID,
+		ProjectID:  projectID,
+		CategoryID: categoryID,
+		Position:   position,
+		PinnedAt:   time.Now().UTC(),
+	}
+	pinFile.Pins = append(pinFile.Pins, pin)
+
+	return r.savePinFile(pinFile)
+}
+
 // UnpinCard removes a Card's pin from a specific Project/Category.
 func (r *Repository) UnpinCard(cardID, projectID, categoryID string) error {
 	pinFile, err := r.loadPinFile(cardID)

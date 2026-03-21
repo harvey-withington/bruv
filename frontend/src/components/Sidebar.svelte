@@ -559,7 +559,7 @@
         const [toBrand, toStream] = toParent.split('/')
         const toKey = toParent
         if (copy) {
-          await CopyProject(fromBrand, fromStream, d.slug, toBrand, toStream)
+          await CopyProject(fromBrand, fromStream, d.slug, toBrand, toStream, toIndex)
           projectsByStream[toKey] = await ListProjects(toBrand, toStream) || []
           if (fromKey !== toKey) projectsByStream[fromKey] = await ListProjects(fromBrand, fromStream) || []
         } else if (fromKey === toKey) {

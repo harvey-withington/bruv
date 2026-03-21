@@ -5,6 +5,7 @@
   import { theme, setTheme } from '../lib/theme.svelte'
   import { setLocale, availableLocales } from '../lib/i18n.svelte'
   import { nav } from '../lib/store.svelte'
+  import { draggable } from '../lib/draggable'
 
   let { onClose }: { onClose: () => void } = $props()
 
@@ -67,7 +68,7 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div class="overlay" role="presentation" onclick={handleOverlayClick}>
-  <div class="dialog">
+  <div class="dialog" use:draggable={{ handle: '.dialog-header' }}>
     <div class="dialog-header">
       <h2>{t('prefs.title')}</h2>
       <button class="close-btn" onclick={onClose} title={t('common.close')}><X size={18} /></button>

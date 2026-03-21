@@ -8,7 +8,7 @@ import {
   CreateProject, ListProjects, RenameProject, DeleteProject,
   CreateCategory, ListCategories, RenameCategory, DeleteCategory, MoveCategoryCards, CopyCategory,
   CreateCard, GetCard, ListCards, DeleteCard, DuplicateCard,
-  UpdateCardTitle, UpdateCardFields, UpdateCardTags, UpdateCardDueDate,
+  UpdateCardTitle, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
   AddChecklistItem, ToggleChecklistItem, RemoveChecklistItem,
   PinCard, UnpinCard, GetCardPins, GetCardLocation,
   MoveCardInCategory, MoveCardToCategory, ReorderBrands, ReorderStreams, ReorderProjects, ReorderCategories,
@@ -78,6 +78,7 @@ export const wailsAdapter: BackendAdapter = {
 
   UpdateCardTitle,
   UpdateCardFields,
+  UpdateCardBlocks,
   UpdateCardTags,
   UpdateCardDueDate,
 

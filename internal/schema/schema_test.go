@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"bruv/internal/model"
 	"testing"
 )
 
@@ -97,5 +98,129 @@ func TestValidateUnknownFieldsAllowed(t *testing.T) {
 	})
 	if len(errs) != 0 {
 		t.Errorf("unexpected errors for extensible fields: %v", errs)
+	}
+}
+
+func TestSchemaToBlocks_Episode(t *testing.T) {
+	reg, _ := NewRegistry()
+	blocks := reg.SchemaToBlocks("episode")
+	if blocks == nil {
+		t.Fatal("expected blocks for episode schema")
+	}
+
+	// Episode has 5 properties: description (required), recording_status, publish_date, show_notes, duration_minutes
+	if len(blocks) != 5 {
+		t.Fatalf("expected 5 blocks, got %d", len(blocks))
+	}
+
+	// First block should be the required field (description)
+	if blocks[0].Key != "description" {
+		t.Errorf("expected first block key = 'description' (required), got %q", blocks[0].Key)
+	}
+	if !blocks[0].Required {
+		t.Error("description block should be required")
+	}
+	if blocks[0].Type != model.BlockText {
+		t.Errorf("description should be text, got %s", blocks[0].Type)
+	}
+
+	// Check that enum fields become select blocks
+	blocksByKey := make(map[string]model.Block)
+	for _, b := range blocks {
+		blocksByKey[b.Key] = b
+	}
+
+	rsBlock, ok := blocksByKey["recording_status"]
+	if !ok {
+		t.Fatal("missing recording_status block")
+	}
+	if rsBlock.Type != model.BlockSelect {
+		t.Errorf("recording_status should be select, got %s", rsBlock.Type)
+	}
+	if rsBlock.Meta == nil {
+		t.Fatal("recording_status should have meta with options")
+	}
+
+	// Check date field
+	pdBlock, ok := blocksByKey["publish_date"]
+	if !ok {
+		t.Fatal("missing publish_date block")
+	}
+	if pdBlock.Type != model.BlockDate {
+		t.Errorf("publish_date should be date, got %s", pdBlock.Type)
+	}
+
+	// Check integer field
+	dmBlock, ok := blocksByKey["duration_minutes"]
+	if !ok {
+		t.Fatal("missing duration_minutes block")
+	}
+	if dmBlock.Type != model.BlockNumber {
+		t.Errorf("duration_minutes should be number, got %s", dmBlock.Type)
+	}
+}
+
+func TestSchemaToBlocks_UnknownType(t *testing.T) {
+	reg, _ := NewRegistry()
+	blocks := reg.SchemaToBlocks("nonexistent")
+	if blocks != nil {
+		t.Errorf("expected nil for unknown type, got %v", blocks)
+	}
+}
+
+func TestSchemaToBlocks_AllBlocksHaveIDs(t *testing.T) {
+	reg, _ := NewRegistry()
+	for _, typeName := range reg.List() {
+		blocks := reg.SchemaToBlocks(typeName)
+		for i, b := range blocks {
+			if b.ID == "" {
+				t.Errorf("type %q block %d has empty ID", typeName, i)
+			}
+			if b.Key == "" {
+				t.Errorf("type %q block %d has empty Key", typeName, i)
+			}
+			if b.Label == "" {
+				t.Errorf("type %q block %d has empty Label", typeName, i)
+			}
+		}
+	}
+}
+
+func TestSchemaToFieldHints_Episode(t *testing.T) {
+	reg, _ := NewRegistry()
+	hints := reg.SchemaToFieldHints("episode")
+	if hints == nil {
+		t.Fatal("expected hints for episode schema")
+	}
+
+	if len(hints) != 5 {
+		t.Fatalf("expected 5 hints, got %d", len(hints))
+	}
+
+	descHint, ok := hints["description"]
+	if !ok {
+		t.Fatal("missing description hint")
+	}
+	if descHint.BlockType != model.BlockText {
+		t.Errorf("description hint type = %s, want text", descHint.BlockType)
+	}
+	if !descHint.Required {
+		t.Error("description hint should be required")
+	}
+
+	rsHint, ok := hints["recording_status"]
+	if !ok {
+		t.Fatal("missing recording_status hint")
+	}
+	if rsHint.BlockType != model.BlockSelect {
+		t.Errorf("recording_status hint type = %s, want select", rsHint.BlockType)
+	}
+}
+
+func TestSchemaToFieldHints_UnknownType(t *testing.T) {
+	reg, _ := NewRegistry()
+	hints := reg.SchemaToFieldHints("nonexistent")
+	if hints != nil {
+		t.Errorf("expected nil for unknown type, got %v", hints)
 	}
 }

@@ -28,6 +28,7 @@ func (r *Repository) CreateCard(cardType, title string) (*model.Card, error) {
 		Checklist:    []model.ChecklistItem{},
 		Attachments:  []string{},
 		Tags:         []string{},
+		Blocks:       []model.Block{},
 	}
 
 	if err := writeJSON(r.cardFilePath(card.ID), card); err != nil {
@@ -38,6 +39,7 @@ func (r *Repository) CreateCard(cardType, title string) (*model.Card, error) {
 }
 
 // GetCard reads a Card by its ID.
+// Legacy cards with Fields/Checklist/Attachments are automatically migrated to Blocks on read.
 func (r *Repository) GetCard(id string) (*model.Card, error) {
 	path := r.cardFilePath(id)
 	if !fileExists(path) {
@@ -48,6 +50,10 @@ func (r *Repository) GetCard(id string) (*model.Card, error) {
 	if err := readJSON(path, &card); err != nil {
 		return nil, err
 	}
+
+	// Auto-migrate legacy cards to block model
+	model.MigrateCardToBlocks(&card, nil)
+
 	return &card, nil
 }
 
@@ -202,6 +208,63 @@ func (r *Repository) DuplicateCard(srcCardID string) (*model.Card, error) {
 		return nil, fmt.Errorf("write duplicated card: %w", err)
 	}
 	return &newCard, nil
+}
+
+// UpdateCardBlocks replaces a card's blocks and syncs legacy fields for backward
+// compatibility (Fields["description"], Checklist).
+func (r *Repository) UpdateCardBlocks(cardID string, blocks []model.Block) (*model.Card, error) {
+	return r.UpdateCard(cardID, func(card *model.Card) {
+		card.Blocks = blocks
+
+		// Sync legacy Fields from text blocks with keys
+		if card.Fields == nil {
+			card.Fields = make(map[string]any)
+		}
+		for _, b := range blocks {
+			if b.Key == "" {
+				continue
+			}
+			switch b.Type {
+			case model.BlockText:
+				if s, ok := b.Value.(string); ok {
+					card.Fields[b.Key] = s
+				}
+			case model.BlockNumber:
+				card.Fields[b.Key] = b.Value
+			case model.BlockCheckbox:
+				card.Fields[b.Key] = b.Value
+			case model.BlockSelect, model.BlockRadio:
+				card.Fields[b.Key] = b.Value
+			case model.BlockDate:
+				card.Fields[b.Key] = b.Value
+			}
+		}
+
+		// Sync legacy Checklist from checklist blocks
+		var checklist []model.ChecklistItem
+		for _, b := range blocks {
+			if b.Type != model.BlockChecklist {
+				continue
+			}
+			items, ok := b.Value.([]any)
+			if !ok {
+				continue
+			}
+			for _, raw := range items {
+				m, ok := raw.(map[string]any)
+				if !ok {
+					continue
+				}
+				id, _ := m["id"].(string)
+				text, _ := m["text"].(string)
+				done, _ := m["done"].(bool)
+				if id != "" && text != "" {
+					checklist = append(checklist, model.ChecklistItem{ID: id, Text: text, Done: done})
+				}
+			}
+		}
+		card.Checklist = checklist
+	})
 }
 
 // ListCardsByType returns all Cards of a specific type.

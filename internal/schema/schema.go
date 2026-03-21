@@ -1,13 +1,17 @@
 package schema
 
 import (
+	"bruv/internal/model"
 	"embed"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 //go:embed types/*.schema.json
@@ -157,4 +161,144 @@ func (reg *Registry) Validate(typeName string, fields map[string]any) []string {
 // readFileBytes reads a file from disk (not embedded).
 func readFileBytes(path string) ([]byte, error) {
 	return os.ReadFile(path)
+}
+
+// SchemaToBlocks converts a card type schema into an ordered slice of empty Blocks,
+// ready to be used as the initial content of a new card of that type.
+// Properties are sorted alphabetically, with required fields first.
+func (reg *Registry) SchemaToBlocks(typeName string) []model.Block {
+	schema := reg.Get(typeName)
+	if schema == nil {
+		return nil
+	}
+
+	requiredSet := make(map[string]bool, len(schema.Required))
+	for _, r := range schema.Required {
+		requiredSet[r] = true
+	}
+
+	// Collect property keys sorted: required first, then alphabetical
+	keys := make([]string, 0, len(schema.Properties))
+	for k := range schema.Properties {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		ri, rj := requiredSet[keys[i]], requiredSet[keys[j]]
+		if ri != rj {
+			return ri
+		}
+		return keys[i] < keys[j]
+	})
+
+	blocks := make([]model.Block, 0, len(keys))
+	for _, key := range keys {
+		prop := schema.Properties[key]
+		blocks = append(blocks, model.Block{
+			ID:       fmt.Sprintf("blk-%s", uuid.New().String()[:8]),
+			Type:     fieldSchemaToBlockType(prop),
+			Label:    humanizeKey(key),
+			Key:      key,
+			Value:    fieldSchemaDefaultValue(prop),
+			Required: requiredSet[key],
+			Meta:     fieldSchemaToMeta(prop),
+		})
+	}
+	return blocks
+}
+
+// SchemaToFieldHints converts a card type schema into a map of FieldHints
+// for use by MigrateCardToBlocks when migrating legacy cards.
+func (reg *Registry) SchemaToFieldHints(typeName string) map[string]model.FieldHint {
+	schema := reg.Get(typeName)
+	if schema == nil {
+		return nil
+	}
+
+	requiredSet := make(map[string]bool, len(schema.Required))
+	for _, r := range schema.Required {
+		requiredSet[r] = true
+	}
+
+	hints := make(map[string]model.FieldHint, len(schema.Properties))
+	for key, prop := range schema.Properties {
+		hints[key] = model.FieldHint{
+			BlockType: fieldSchemaToBlockType(prop),
+			Label:     humanizeKey(key),
+			Required:  requiredSet[key],
+			Meta:      fieldSchemaToMeta(prop),
+		}
+	}
+	return hints
+}
+
+// fieldSchemaToBlockType maps a JSON schema field type to a Block type.
+func fieldSchemaToBlockType(f FieldSchema) string {
+	if len(f.Enum) > 0 {
+		return model.BlockSelect
+	}
+	switch f.Type {
+	case "string":
+		if f.Format == "date" || f.Format == "date-time" {
+			return model.BlockDate
+		}
+		return model.BlockText
+	case "integer", "number":
+		return model.BlockNumber
+	case "boolean":
+		return model.BlockCheckbox
+	case "array":
+		return model.BlockChecklist
+	default:
+		return model.BlockText
+	}
+}
+
+// fieldSchemaDefaultValue returns the zero value for a block based on schema type.
+func fieldSchemaDefaultValue(f FieldSchema) any {
+	if len(f.Enum) > 0 {
+		return ""
+	}
+	switch f.Type {
+	case "string":
+		return ""
+	case "integer":
+		return 0
+	case "number":
+		return 0.0
+	case "boolean":
+		return false
+	case "array":
+		return []any{}
+	default:
+		return ""
+	}
+}
+
+// fieldSchemaToMeta builds the Meta map for a Block from a FieldSchema.
+func fieldSchemaToMeta(f FieldSchema) map[string]any {
+	meta := make(map[string]any)
+	if len(f.Enum) > 0 {
+		meta["options"] = f.Enum
+	}
+	if f.Format != "" {
+		meta["format"] = f.Format
+	}
+	if f.Description != "" {
+		meta["description"] = f.Description
+	}
+	if len(meta) == 0 {
+		return nil
+	}
+	return meta
+}
+
+// humanizeKey converts "recording_status" → "Recording Status".
+func humanizeKey(key string) string {
+	parts := strings.Split(key, "_")
+	for i, p := range parts {
+		if len(p) > 0 {
+			parts[i] = strings.ToUpper(p[:1]) + p[1:]
+		}
+	}
+	return strings.Join(parts, " ")
 }

@@ -69,6 +69,7 @@ export const DuplicateCard = (...args: Parameters<ReturnType<typeof getBackend>[
 // Card updates
 export const UpdateCardTitle = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardTitle']>) => getBackend().UpdateCardTitle(...args)
 export const UpdateCardFields = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardFields']>) => getBackend().UpdateCardFields(...args)
+export const UpdateCardBlocks = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardBlocks']>) => getBackend().UpdateCardBlocks(...args)
 export const UpdateCardTags = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardTags']>) => getBackend().UpdateCardTags(...args)
 export const UpdateCardDueDate = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardDueDate']>) => getBackend().UpdateCardDueDate(...args)
 

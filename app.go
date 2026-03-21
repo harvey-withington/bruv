@@ -516,6 +516,19 @@ func (a *App) UpdateCardFields(id string, fields map[string]any) (*model.Card, e
 	return card, err
 }
 
+// UpdateCardBlocks replaces a card's ordered content blocks.
+// Also syncs legacy Fields/Checklist for backward compatibility.
+func (a *App) UpdateCardBlocks(id string, blocks []model.Block) (*model.Card, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	card, err := a.repo.UpdateCardBlocks(id, blocks)
+	if err == nil && a.idx != nil {
+		_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
+	}
+	return card, err
+}
+
 // UpdateCardTags replaces a card's tags.
 func (a *App) UpdateCardTags(id string, tags []string) (*model.Card, error) {
 	for i, t := range tags {
@@ -733,13 +746,13 @@ func (a *App) duplicateCardsForProject(oldCatIDs, newCatIDs map[string]string) {
 		if err != nil || len(cardIDs) == 0 {
 			continue
 		}
-		for _, cardID := range cardIDs {
+		for i, cardID := range cardIDs {
 			newCard, err := a.repo.DuplicateCard(cardID)
 			if err != nil {
 				continue
 			}
-			// Pin with categoryID for both projectID and categoryID
-			_ = a.repo.PinCard(newCard.ID, newCatID, newCatID)
+			// Pin with categoryID for both projectID and categoryID, preserving position
+			_ = a.repo.PinCardAt(newCard.ID, newCatID, newCatID, i)
 		}
 	}
 }
@@ -834,7 +847,7 @@ func (a *App) CopyStream(fromBrand, streamSlug, toBrand string) (*model.Stream, 
 }
 
 // CopyProject deep-copies a project into the target stream, including cards.
-func (a *App) CopyProject(fromBrand, fromStream, projectSlug, toBrand, toStream string) (*model.Project, error) {
+func (a *App) CopyProject(fromBrand, fromStream, projectSlug, toBrand, toStream string, position int) (*model.Project, error) {
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
@@ -842,7 +855,7 @@ func (a *App) CopyProject(fromBrand, fromStream, projectSlug, toBrand, toStream 
 	// Snapshot source category IDs
 	oldCatIDs := a.snapshotCatIDs(fromBrand, fromStream, projectSlug)
 
-	result, err := a.repo.CopyProject(fromBrand, fromStream, projectSlug, toBrand, toStream)
+	result, err := a.repo.CopyProject(fromBrand, fromStream, projectSlug, toBrand, toStream, position)
 	if err != nil {
 		return nil, err
 	}

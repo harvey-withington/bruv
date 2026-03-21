@@ -64,7 +64,7 @@ func copyFile(src, dst string) error {
 
 // CopyProject deep-copies a project (with all categories and cards) into the target stream.
 // All entity IDs are regenerated. The copy gets " Copy" appended to its name.
-func (r *Repository) CopyProject(fromBrand, fromStream, projectSlug, toBrand, toStream string) (*model.Project, error) {
+func (r *Repository) CopyProject(fromBrand, fromStream, projectSlug, toBrand, toStream string, position int) (*model.Project, error) {
 	srcProject, err := r.GetProject(fromBrand, fromStream, projectSlug)
 	if err != nil {
 		return nil, fmt.Errorf("source project: %w", err)
@@ -108,9 +108,28 @@ func (r *Repository) CopyProject(fromBrand, fromStream, projectSlug, toBrand, to
 		return nil, fmt.Errorf("copy project directory: %w", err)
 	}
 
+	// Convert array index to actual position value (positions may be non-contiguous)
+	if position < 0 || position > len(existingProjects) {
+		position = len(existingProjects)
+	}
+	var insertPos int
+	if position >= len(existingProjects) {
+		if len(existingProjects) > 0 {
+			insertPos = existingProjects[len(existingProjects)-1].Position + 1
+		}
+	} else {
+		insertPos = existingProjects[position].Position
+	}
+	for _, p := range existingProjects {
+		if p.Position >= insertPos {
+			r.UpdateProject(toBrand, toStream, p.Slug, func(proj *model.Project) {
+				proj.Position = proj.Position + 1
+			})
+		}
+	}
+
 	// Update the project.json with new identity
 	now := time.Now().UTC()
-	position := len(existingProjects)
 
 	newProject := &model.Project{
 		ID:        uuid.New().String(),
@@ -118,7 +137,7 @@ func (r *Repository) CopyProject(fromBrand, fromStream, projectSlug, toBrand, to
 		BrandID:   dstBrand.ID,
 		Name:      copyName,
 		Slug:      copySlug,
-		Position:  position,
+		Position:  insertPos,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}

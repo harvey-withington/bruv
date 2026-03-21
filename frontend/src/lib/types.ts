@@ -103,6 +103,7 @@ export interface BackendAdapter {
   // Card updates
   UpdateCardTitle(id: string, title: string): Promise<any>
   UpdateCardFields(id: string, fields: Record<string, any>): Promise<any>
+  UpdateCardBlocks(id: string, blocks: any[]): Promise<any>
   UpdateCardTags(id: string, tags: string[]): Promise<any>
   UpdateCardDueDate(id: string, dueDate: string): Promise<any>
 

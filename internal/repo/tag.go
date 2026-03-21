@@ -60,20 +60,28 @@ func (r *Repository) AssignTagColor(tag string) (TagColors, error) {
 		return tc, nil
 	}
 
-	// Collect used colors
-	used := make(map[string]bool, len(tc))
+	// Count usage of each palette color
+	usage := make(map[string]int, len(TagPalette))
 	for _, c := range tc {
-		used[c] = true
+		usage[c]++
 	}
 
-	// Pick first unused palette color
-	chosen := TagPalette[0] // fallback: wrap around
+	// Pick first unused palette color, or least-used if all taken
+	chosen := TagPalette[0]
+	minCount := usage[TagPalette[0]]
+	found := false
 	for _, c := range TagPalette {
-		if !used[c] {
+		if usage[c] == 0 {
 			chosen = c
+			found = true
 			break
 		}
+		if usage[c] < minCount {
+			minCount = usage[c]
+			chosen = c
+		}
 	}
+	_ = found
 
 	tc[tag] = chosen
 	if err := writeJSON(r.tagsPath(), tc); err != nil {

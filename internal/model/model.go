@@ -68,11 +68,39 @@ const (
 )
 
 // ChecklistItem is a single item within a card's checklist.
+// Deprecated: Use Block with Type="checklist" instead. Kept for migration compatibility.
 type ChecklistItem struct {
 	ID   string `json:"id"`
 	Text string `json:"text"`
 	Done bool   `json:"done"`
 }
+
+// Block is an ordered content element within a card.
+// Template fields and user content live in the same list.
+type Block struct {
+	ID       string         `json:"id"`
+	Type     string         `json:"type"`               // "text", "checklist", "checkbox", "radio", "select", "number", "date", "image", "video", "url", "divider"
+	Label    string         `json:"label"`              // display label (e.g. "Description", "Recording Status")
+	Key      string         `json:"key,omitempty"`      // schema field key (e.g. "recording_status"); empty for user-added blocks
+	Value    any            `json:"value"`              // type-specific value
+	Required bool           `json:"required,omitempty"` // from schema — advisory only
+	Meta     map[string]any `json:"meta,omitempty"`     // type-specific config (enum options, format hints, etc.)
+}
+
+// Block type constants.
+const (
+	BlockText      = "text"
+	BlockChecklist = "checklist"
+	BlockCheckbox  = "checkbox"
+	BlockRadio     = "radio"
+	BlockSelect    = "select"
+	BlockNumber    = "number"
+	BlockDate      = "date"
+	BlockImage     = "image"
+	BlockVideo     = "video"
+	BlockURL       = "url"
+	BlockDivider   = "divider"
+)
 
 // Card is the atomic unit of work. Exists once in the repository, can be pinned
 // to multiple Projects via Pins.
@@ -83,11 +111,12 @@ type Card struct {
 	CreatedAt    time.Time       `json:"created_at"`
 	UpdatedAt    time.Time       `json:"updated_at"`
 	ContextLevel ContextLevel    `json:"context_level"`
-	Fields       map[string]any  `json:"fields"`
-	Checklist    []ChecklistItem `json:"checklist"`
-	Attachments  []string        `json:"attachments"`
+	Fields       map[string]any  `json:"fields"`      // Deprecated: migrated to Blocks on read
+	Checklist    []ChecklistItem `json:"checklist"`   // Deprecated: migrated to Blocks on read
+	Attachments  []string        `json:"attachments"` // Deprecated: migrated to Blocks on read
 	DueDate      *time.Time      `json:"due_date"`
 	Tags         []string        `json:"tags"`
+	Blocks       []Block         `json:"blocks"`
 }
 
 // Pin represents a card's membership in a specific Project/Category.

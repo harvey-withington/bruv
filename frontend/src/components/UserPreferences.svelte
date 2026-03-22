@@ -194,7 +194,7 @@
     color: var(--text-secondary);
   }
 
-  select, input[type="text"], input[type="number"] {
+  select {
     padding: 0.45rem 0.6rem;
     border-radius: 6px;
     border: 1px solid var(--border);
@@ -203,7 +203,7 @@
     font-size: 0.85rem;
     outline: none;
   }
-  select:focus, input[type="text"]:focus, input[type="number"]:focus {
+  select:focus {
     border-color: var(--accent);
   }
 

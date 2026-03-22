@@ -9,9 +9,12 @@ frontend/public/bruv-icon.png
 frontend/public/icon.ico
 
 # IDE
-.vscode/
+.vscode/*
 !.vscode/launch.json
 !.vscode/tasks.json
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/extensions/
 .idea/
 *.swp
 *.swo
@@ -26,3 +29,4 @@ Thumbs.db
 *.dll
 *.so
 *.dylib
+.claude/settings.local.json

@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "BRUV: Dev Mode",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "wails dev",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "BRUV: Run Built Binary",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "${workspaceFolder}/build/bin/bruv-1.0.exe",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "wails: build"
+    },
+    {
+      "name": "BRUV: Run All Tests",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "go test ./internal/... -v -count=1",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

@@ -7,7 +7,13 @@
       "Bash(go build:*)",
       "Bash(wails generate:*)",
       "Bash(npm run:*)",
-      "Bash(npx svelte-check:*)"
+      "Bash(npx svelte-check:*)",
+      "WebFetch(domain:code.visualstudio.com)",
+      "WebFetch(domain:hubelbauer.net)",
+      "WebFetch(domain:github.com)"
+    ],
+    "additionalDirectories": [
+      "s:\\oDrive\\Google Drive - Mandela Daze\\Harv''''s Code Team\\Content\\Projects\\Application - BRUV\\Code\\bruv-1.0\\.vscode\\extensions"
     ]
   }
 }

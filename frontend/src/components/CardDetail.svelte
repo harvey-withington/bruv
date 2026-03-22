@@ -781,9 +781,8 @@
         {:else}
           <!-- No context category (inbox or search) -->
           {#if pinBreadcrumbs.length === 0}
-            <!-- Inbox: card has no pins — show label + direct pin action -->
-            <span class="location-inbox"><MapPin size={11} /> Inbox</span>
-            <button class="btn-pin" onclick={openPinPicker} disabled={pinActionLoading}>Pin to...</button>
+            <!-- Inbox: card has no pins — show direct pin action -->
+            <button class="btn-pin" onclick={openPinPicker} disabled={pinActionLoading}><MapPin size={11} /> Pin to...</button>
           {:else}
             <!-- Opened from search with existing pins — show summary + editor -->
             <span class="location-inbox"><MapPin size={11} /> {pinBreadcrumbs.length} pin{pinBreadcrumbs.length !== 1 ? 's' : ''}</span>
@@ -805,9 +804,7 @@
               <div class="location-pin">
                 <span class="location-breadcrumb" title={pin.breadcrumb}><MapPin size={11} />{pin.breadcrumb}</span>
                 <button class="btn-pin-action" onclick={() => openMovePicker(pin)} disabled={pinActionLoading} title="Move to another category" aria-label="Move pin"><MoveRight size={11} /></button>
-                {#if currentCategoryId}
-                  <button class="btn-pin-action btn-unpin" onclick={() => handleUnpin(pin)} disabled={pinActionLoading} title="Unpin" aria-label="Unpin"><MapPinOff size={11} /></button>
-                {/if}
+                <button class="btn-pin-action btn-unpin" onclick={() => handleUnpin(pin)} disabled={pinActionLoading} title="Unpin" aria-label="Unpin"><MapPinOff size={11} /></button>
               </div>
             {/each}
             <button class="btn-pin" onclick={openPinPicker} disabled={pinActionLoading}>+ Pin to another category</button>

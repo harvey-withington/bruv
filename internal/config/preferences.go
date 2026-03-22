@@ -13,6 +13,7 @@ type Preferences struct {
 	Locale              string `json:"locale"` // e.g. "en", "es"
 	ConfirmBeforeDelete bool   `json:"confirm_before_delete"`
 	SidebarWidth        int    `json:"sidebar_width"`
+	TypeBadgeDisplay    string `json:"type_badge_display"` // "text", "color", "hidden"
 }
 
 // DefaultPreferences returns sensible defaults.
@@ -23,6 +24,7 @@ func DefaultPreferences() Preferences {
 		Locale:              "en",
 		ConfirmBeforeDelete: true,
 		SidebarWidth:        260,
+		TypeBadgeDisplay:    "text",
 	}
 }
 

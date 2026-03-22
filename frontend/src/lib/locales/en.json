@@ -85,7 +85,7 @@
   "llm.context_placeholder": "Any additional context you'd like AI assistants to know about you…",
   "llm.saved": "Settings saved",
 
-  "toolbar.labels": "Labels",
+  "toolbar.tags": "Tags",
   "toolbar.project_settings": "Project Settings",
   "toolbar.ai_chat": "AI Chat",
 

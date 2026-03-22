@@ -92,6 +92,7 @@ export interface BackendAdapter {
   DeleteCategory(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string): Promise<void>
   MoveCategoryCards(brandSlug: string, streamSlug: string, projectSlug: string, fromCategoryID: string, toCategoryID: string): Promise<void>
   CopyCategory(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string): Promise<any>
+  UpdateCategoryAcceptedTypes(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string, acceptedTypes: string[]): Promise<any>
 
   // Card CRUD
   CreateCard(cardType: string, title: string): Promise<any>
@@ -106,6 +107,7 @@ export interface BackendAdapter {
   UpdateCardFields(id: string, fields: Record<string, any>): Promise<any>
   UpdateCardBlocks(id: string, blocks: any[]): Promise<any>
   UpdateCardTags(id: string, tags: string[]): Promise<any>
+  UpdateCardLabels(id: string, labelIDs: string[]): Promise<any>
   UpdateCardDueDate(id: string, dueDate: string): Promise<any>
 
   // Checklist
@@ -141,6 +143,12 @@ export interface BackendAdapter {
   GetTagColors(): Promise<Record<string, string>>
   SetTagColor(tag: string, color: string): Promise<Record<string, string>>
   AssignTagColor(tag: string): Promise<Record<string, string>>
+
+  // Labels (per-project)
+  GetProjectLabels(brandSlug: string, streamSlug: string, projectSlug: string): Promise<any[]>
+  AddProjectLabel(brandSlug: string, streamSlug: string, projectSlug: string, name: string, color: string): Promise<any[]>
+  RemoveProjectLabel(brandSlug: string, streamSlug: string, projectSlug: string, labelID: string): Promise<any[]>
+  UpdateProjectLabel(brandSlug: string, streamSlug: string, projectSlug: string, labelID: string, name: string, color: string): Promise<any[]>
 
   // Schema
   ListCardTypes(): Promise<string[]>

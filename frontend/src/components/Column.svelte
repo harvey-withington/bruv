@@ -1,15 +1,17 @@
 <script lang="ts">
   import CardItem from './CardItem.svelte'
-  import { GripVertical, Pencil, Trash2 } from 'lucide-svelte'
-  import { dnd } from '../lib/store.svelte'
+  import { GripVertical, Trash2, Settings } from 'lucide-svelte'
+  import { dnd, prefs } from '../lib/store.svelte'
   import { t } from '../lib/i18n.svelte'
   import { renderInline } from '../lib/markdown'
+  import { ListCardTypes, UpdateCategoryAcceptedTypes } from '../lib/api'
 
   type CardData = {
     id: string
     type: string
     title: string
     tags: string[]
+    labels?: string[]
     due_date: string | null
     checklist_total: number
     checklist_done: number
@@ -20,11 +22,15 @@
     name: string
     slug: string
     position: number
+    accepted_types?: string[]
     cards: CardData[]
   }
 
-  let { category, onCardClick, onAddCard, onCardDrop, onDeleteCategory, onStartRename, renaming, renamingName, onRenamingNameChange, onCommitRename, onCancelRename, isReadonly }: {
+  let { category, brandSlug, streamSlug, projectSlug, onCardClick, onAddCard, onCardDrop, onDeleteCategory, onStartRename, renaming, renamingName, onRenamingNameChange, onCommitRename, onCancelRename, isReadonly, onCategoryUpdated, onAcceptedTypesChanged }: {
     category: CategoryData
+    brandSlug?: string
+    streamSlug?: string
+    projectSlug?: string
     onCardClick?: (cardId: string, categoryId: string) => void
     onAddCard?: (categoryId: string) => void
     onCardDrop?: (cardId: string, fromCategoryId: string, toCategoryId: string, toIndex: number, copy?: boolean) => void
@@ -36,9 +42,16 @@
     onCommitRename?: () => void
     onCancelRename?: () => void
     isReadonly?: boolean
+    onCategoryUpdated?: () => void
+    onAcceptedTypesChanged?: (categoryId: string, acceptedTypes: string[] | undefined) => void
   } = $props()
 
   let renameInputEl = $state<HTMLInputElement | null>(null)
+  let showSettings = $state(false)
+  let allCardTypes = $state<string[]>([])
+  let dropRejected = $state(false)
+  let settingsBtnEl = $state<HTMLButtonElement | null>(null)
+  let popoverStyle = $state('')
 
   $effect(() => {
     if (renaming && renameInputEl) {
@@ -47,11 +60,84 @@
     }
   })
 
+  async function openSettings() {
+    if (showSettings) {
+      closeSettings()
+      return
+    }
+    if (!allCardTypes.length) {
+      allCardTypes = await ListCardTypes() || []
+    }
+    if (settingsBtnEl) {
+      const rect = settingsBtnEl.getBoundingClientRect()
+      popoverStyle = `position:fixed;top:${rect.bottom + 4}px;left:${rect.left}px;width:220px;`
+    }
+    showSettings = true
+  }
+
+  function isTypeAccepted(type: string): boolean {
+    if (!category.accepted_types || category.accepted_types.length === 0) return false
+    return category.accepted_types.includes(type)
+  }
+
+  function allTypesAccepted(): boolean {
+    return !!category.accepted_types && category.accepted_types.length >= allCardTypes.length
+  }
+
+  let settingsDirty = $state(false)
+
+  async function toggleAllTypes() {
+    if (!brandSlug || !streamSlug || !projectSlug) return
+    const newTypes: string[] = allTypesAccepted() ? [] : [...allCardTypes]
+    const val = newTypes.length ? newTypes : undefined
+    onAcceptedTypesChanged?.(category.id, val)
+    settingsDirty = true
+    try {
+      await UpdateCategoryAcceptedTypes(brandSlug, streamSlug, projectSlug, category.slug, newTypes)
+    } catch (e) {
+      console.error('UpdateCategoryAcceptedTypes:', e)
+    }
+  }
+
+  async function toggleType(type: string) {
+    if (!brandSlug || !streamSlug || !projectSlug) return
+    let current = category.accepted_types ? [...category.accepted_types] : []
+    if (current.includes(type)) {
+      current = current.filter(t => t !== type)
+    } else {
+      current.push(type)
+    }
+    const val = current.length ? current : undefined
+    onAcceptedTypesChanged?.(category.id, val)
+    settingsDirty = true
+    try {
+      await UpdateCategoryAcceptedTypes(brandSlug, streamSlug, projectSlug, category.slug, current)
+    } catch (e) {
+      console.error('UpdateCategoryAcceptedTypes:', e)
+    }
+  }
+
+  // Check if dragged card type is allowed in this column
+  function cardTypeAllowed(): boolean {
+    if (!category.accepted_types || category.accepted_types.length === 0) return true
+    if (dnd.dragging?.type !== 'card') return true
+    const cardType = dnd.dragging.cardType
+    if (!cardType) return true // untyped cards are always allowed
+    return category.accepted_types.includes(cardType)
+  }
 
   // --- Card drop zone ---
   function handleCardDragOver(e: DragEvent) {
     if (dnd.dragging?.type !== 'card') return
     e.preventDefault()
+
+    if (!cardTypeAllowed()) {
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'
+      dropRejected = true
+      return
+    }
+
+    dropRejected = false
     if (e.dataTransfer) e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'
     dnd.copyMode = e.ctrlKey
     dnd.overCategoryId = category.id
@@ -78,11 +164,21 @@
       dnd.overCategoryId = null
       dnd.overCardIndex = null
     }
+    dropRejected = false
   }
 
   function handleCardDropOnList(e: DragEvent) {
     e.preventDefault()
+    dropRejected = false
     if (dnd.dragging?.type !== 'card') return
+
+    if (!cardTypeAllowed()) {
+      dnd.dragging = null
+      dnd.overCategoryId = null
+      dnd.overCardIndex = null
+      return
+    }
+
     const { cardId, fromCategoryId } = dnd.dragging
     const toIndex = dnd.overCardIndex ?? category.cards.length
     onCardDrop?.(cardId, fromCategoryId, category.id, toIndex, e.ctrlKey)
@@ -104,9 +200,39 @@
     dnd.overColumnIndex = null
   }
 
+  function closeSettings() {
+    showSettings = false
+    if (settingsDirty) {
+      settingsDirty = false
+      onCategoryUpdated?.()
+    }
+  }
+
+  // Close settings popover on outside click
+  function handleSettingsClickOutside(e: MouseEvent) {
+    const target = e.target as HTMLElement
+    if (!target.closest('.settings-popover') && !target.closest('.col-settings-btn')) {
+      closeSettings()
+    }
+  }
+
+  $effect(() => {
+    if (showSettings) {
+      document.addEventListener('click', handleSettingsClickOutside)
+      return () => document.removeEventListener('click', handleSettingsClickOutside)
+    }
+  })
+
+  const typeColors: Record<string, string> = {
+    feature: '#6366f1',
+    task: '#22c55e',
+    brainstorm: '#f59e0b',
+    episode: '#ec4899',
+    reference: '#06b6d4',
+  }
 </script>
 
-<div class="column">
+<div class="column" class:drop-rejected={dropRejected}>
   <div
     class="column-header"
     role="toolbar"
@@ -126,14 +252,22 @@
         onblur={() => onCommitRename?.()}
       />
     {:else}
-      <h3 class="column-title">{@html renderInline(category.name)}</h3>
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <h3
+        class="column-title"
+        class:editable={!isReadonly}
+        role={!isReadonly ? 'button' : undefined}
+        tabindex={!isReadonly ? 0 : undefined}
+        onclick={() => { if (!isReadonly) onStartRename?.(category.slug, category.name) }}
+      >{@html renderInline(category.name)}</h3>
       <span class="card-count">{category.cards.length}</span>
       {#if !isReadonly}
         <button
-          class="col-action-btn"
-          title={t('tooltip.rename_category')}
-          onclick={(e: MouseEvent) => { e.stopPropagation(); onStartRename?.(category.slug, category.name) }}
-        ><Pencil size={13} /></button>
+          class="col-action-btn col-settings-btn"
+          bind:this={settingsBtnEl}
+          title="Accepted types"
+          onclick={(e: MouseEvent) => { e.stopPropagation(); openSettings() }}
+        ><Settings size={13} /></button>
         <button
           class="col-action-btn col-delete-btn"
           title={t('tooltip.delete_category')}
@@ -142,6 +276,39 @@
       {/if}
     {/if}
   </div>
+
+  {#if category.accepted_types && category.accepted_types.length > 0 && prefs.typeBadgeDisplay !== 'hidden'}
+    {#if prefs.typeBadgeDisplay === 'color'}
+      <div class="type-color-bar">
+        {#each category.accepted_types as type}
+          <span class="type-color-segment" style:background={typeColors[type] || 'var(--text-muted)'}></span>
+        {/each}
+      </div>
+    {:else}
+      <div class="type-badges">
+        {#each category.accepted_types as type}
+          <span class="type-chip" style:background={typeColors[type] || 'var(--text-muted)'}>{type}</span>
+        {/each}
+      </div>
+    {/if}
+  {/if}
+
+  {#if showSettings}
+    <div class="settings-popover" style={popoverStyle}>
+      <div class="popover-title">Accepted Types</div>
+      <label class="type-option">
+        <input type="checkbox" checked={allTypesAccepted()} onchange={toggleAllTypes} />
+        <span class="type-option-label">All types</span>
+      </label>
+      <div class="popover-divider"></div>
+      {#each allCardTypes as type}
+        <label class="type-option">
+          <input type="checkbox" checked={isTypeAccepted(type)} onchange={() => toggleType(type)} />
+          <span class="type-chip-inline" style:background={typeColors[type] || 'var(--text-muted)'}>{type}</span>
+        </label>
+      {/each}
+    </div>
+  {/if}
 
   <div
     class="card-list"
@@ -183,6 +350,12 @@
     flex-direction: column;
     overflow: hidden;
     transition: outline 0.15s;
+    position: relative;
+  }
+
+  .column.drop-rejected {
+    outline: 2px solid var(--danger, #ef4444);
+    opacity: 0.6;
   }
 
   .column-header {
@@ -234,6 +407,16 @@
     color: var(--text-strong);
   }
 
+  .column-title.editable {
+    cursor: pointer;
+    border-radius: 3px;
+    padding: 0.05rem 0.2rem;
+  }
+
+  .column-title.editable:hover {
+    color: var(--accent);
+  }
+
   .card-count {
     font-size: 0.7rem;
     color: var(--text-muted);
@@ -254,12 +437,107 @@
     opacity: 0;
     transition: opacity 0.15s, color 0.15s;
   }
-  .col-action-btn:first-of-type {
+  .col-settings-btn {
     margin-left: auto;
   }
   .column-header:hover .col-action-btn { opacity: 1; }
   .col-action-btn:hover { color: var(--accent); }
   .col-delete-btn:hover { color: var(--danger); }
+
+  /* Type badges below column title */
+  .type-badges {
+    display: flex;
+    gap: 0.2rem;
+    padding: 0 0.75rem 0.3rem;
+    flex-wrap: wrap;
+  }
+
+  .type-chip {
+    font-size: 0.55rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.05rem 0.3rem;
+    border-radius: 3px;
+    color: #fff;
+    line-height: 1.4;
+  }
+
+  .type-color-bar {
+    display: flex;
+    height: 3px;
+    margin: 0 0.5rem 0.3rem;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .type-color-segment {
+    flex: 1;
+  }
+
+  /* Settings popover */
+  .settings-popover {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.5rem;
+    z-index: 9999;
+    box-shadow: 0 4px 16px var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .popover-title {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.15rem 0.25rem;
+  }
+
+  .popover-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 0.15rem 0;
+  }
+
+  .type-option {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.2rem 0.25rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: var(--text-body);
+  }
+
+  .type-option:hover {
+    background: var(--bg-surface);
+  }
+
+  .type-option input[type="checkbox"] {
+    margin: 0;
+    cursor: pointer;
+  }
+
+  .type-option-label {
+    font-size: 0.8rem;
+    color: var(--text-body);
+  }
+
+  .type-chip-inline {
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.05rem 0.35rem;
+    border-radius: 3px;
+    color: #fff;
+    line-height: 1.4;
+  }
 
   .card-list {
     flex: 1;

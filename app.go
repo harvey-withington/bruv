@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -342,6 +343,17 @@ func (a *App) DeleteCategory(brandSlug, streamSlug, projectSlug, categorySlug st
 	return a.repo.DeleteCategory(brandSlug, streamSlug, projectSlug, categorySlug)
 }
 
+// UpdateCategoryAcceptedTypes sets which card types a category will accept.
+// An empty or nil slice clears the restriction (all types accepted).
+func (a *App) UpdateCategoryAcceptedTypes(brandSlug, streamSlug, projectSlug, categorySlug string, acceptedTypes []string) (*model.Category, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.UpdateCategory(brandSlug, streamSlug, projectSlug, categorySlug, func(c *model.Category) {
+		c.AcceptedTypes = acceptedTypes
+	})
+}
+
 // MoveCategoryCards moves all card pins from one category to another, then deletes the source category.
 func (a *App) MoveCategoryCards(brandSlug, streamSlug, projectSlug, fromCategoryID, toCategoryID string) error {
 	if a.repo == nil {
@@ -610,9 +622,50 @@ func (a *App) RemoveChecklistItem(cardID, itemID string) (*model.Card, error) {
 
 // --- Pin ---
 
+// getCategoryByID resolves a category UUID to its model and hierarchy slugs
+// by scanning all brands > streams > projects > categories.
+func (a *App) getCategoryByID(categoryID string) (*model.Category, string, string, string, error) {
+	brands, _ := a.repo.ListBrands()
+	for _, b := range brands {
+		streams, _ := a.repo.ListStreams(b.Slug)
+		for _, s := range streams {
+			projects, _ := a.repo.ListProjects(b.Slug, s.Slug)
+			for _, p := range projects {
+				cats, _ := a.repo.ListCategories(b.Slug, s.Slug, p.Slug)
+				for _, c := range cats {
+					if c.ID == categoryID {
+						return &c, b.Slug, s.Slug, p.Slug, nil
+					}
+				}
+			}
+		}
+	}
+	return nil, "", "", "", fmt.Errorf("category %q not found", categoryID)
+}
+
+// validateCardTypeForCategory checks that a card's type is accepted by the target category.
+// Returns nil if the type is accepted or the category has no restrictions.
+func (a *App) validateCardTypeForCategory(cardID, categoryID string) error {
+	card, err := a.repo.GetCard(cardID)
+	if err != nil {
+		return err
+	}
+	cat, _, _, _, err := a.getCategoryByID(categoryID)
+	if err != nil {
+		return err
+	}
+	if !repo.CategoryAcceptsType(cat, card.Type) {
+		return fmt.Errorf("category %q does not accept card type %q", cat.Name, card.Type)
+	}
+	return nil
+}
+
 func (a *App) PinCard(cardID, projectID, categoryID string) error {
 	if a.repo == nil {
 		return fmt.Errorf("no repository open")
+	}
+	if err := a.validateCardTypeForCategory(cardID, categoryID); err != nil {
+		return err
 	}
 	if err := a.repo.PinCard(cardID, projectID, categoryID); err != nil {
 		return err
@@ -623,7 +676,31 @@ func (a *App) PinCard(cardID, projectID, categoryID string) error {
 			_ = a.idx.IndexPins(cardID, pins)
 		}
 	}
+	// Sync card tags to the target project's tag definitions
+	a.syncCardTagsToProject(cardID, categoryID)
 	return nil
+}
+
+// syncCardTagsToProject ensures all tags on a card exist in the target project's tag definitions.
+func (a *App) syncCardTagsToProject(cardID, categoryID string) {
+	card, err := a.repo.GetCard(cardID)
+	if err != nil || len(card.Tags) == 0 {
+		return
+	}
+	_, brandSlug, streamSlug, projectSlug, err := a.getCategoryByID(categoryID)
+	if err != nil {
+		return
+	}
+	labels, _ := a.repo.GetProjectLabels(brandSlug, streamSlug, projectSlug)
+	existing := make(map[string]bool, len(labels))
+	for _, l := range labels {
+		existing[strings.ToLower(l.Name)] = true
+	}
+	for _, tag := range card.Tags {
+		if !existing[strings.ToLower(tag)] {
+			a.repo.AddProjectLabel(brandSlug, streamSlug, projectSlug, tag, "")
+		}
+	}
 }
 
 func (a *App) UnpinCard(cardID, projectID, categoryID string) error {
@@ -728,8 +805,9 @@ type CategoryPath struct {
 	CategoryName    string `json:"categoryName"`
 	ProjectID       string `json:"projectId"`
 	CategoryID      string `json:"categoryId"`
-	Breadcrumb      string `json:"breadcrumb"`       // e.g. "Mandela Daze / YouTube / Narratively Speaking / Episodes"
-	PinnedProjectID string `json:"pinnedProjectId"` // actual stored pin.ProjectID — set only by GetCardPinBreadcrumbs, used for UnpinCard
+	Breadcrumb      string   `json:"breadcrumb"`                 // e.g. "Mandela Daze / YouTube / Narratively Speaking / Episodes"
+	AcceptedTypes   []string `json:"acceptedTypes,omitempty"`    // which card types this category accepts; nil/empty = all
+	PinnedProjectID string   `json:"pinnedProjectId,omitempty"` // actual stored pin.ProjectID — set only by GetCardPinBreadcrumbs, used for UnpinCard
 }
 
 // ListAllCategories returns every category across the entire hierarchy with full breadcrumb info.
@@ -751,17 +829,18 @@ func (a *App) ListAllCategories() ([]CategoryPath, error) {
 				cats, _ := a.repo.ListCategories(b.Slug, s.Slug, p.Slug)
 				for _, c := range cats {
 					results = append(results, CategoryPath{
-						BrandSlug:    b.Slug,
-						StreamSlug:   s.Slug,
-						ProjectSlug:  p.Slug,
-						CategorySlug: c.Slug,
-						BrandName:    b.Name,
-						StreamName:   s.Name,
-						ProjectName:  p.Name,
-						CategoryName: c.Name,
-						ProjectID:    p.ID,
-						CategoryID:   c.ID,
-						Breadcrumb:   b.Name + " / " + s.Name + " / " + p.Name + " / " + c.Name,
+						BrandSlug:     b.Slug,
+						StreamSlug:    s.Slug,
+						ProjectSlug:   p.Slug,
+						CategorySlug:  c.Slug,
+						BrandName:     b.Name,
+						StreamName:    s.Name,
+						ProjectName:   p.Name,
+						CategoryName:  c.Name,
+						ProjectID:     p.ID,
+						CategoryID:    c.ID,
+						Breadcrumb:    b.Name + " / " + s.Name + " / " + p.Name + " / " + c.Name,
+						AcceptedTypes: c.AcceptedTypes,
 					})
 				}
 			}
@@ -822,6 +901,9 @@ func (a *App) MoveCardInCategory(cardID, projectID, categoryID string, newPositi
 func (a *App) MoveCardToCategory(cardID, projectID, fromCategoryID, toCategoryID string, newPosition int) error {
 	if a.repo == nil {
 		return fmt.Errorf("no repository open")
+	}
+	if err := a.validateCardTypeForCategory(cardID, toCategoryID); err != nil {
+		return err
 	}
 	if err := a.repo.MoveCardToCategory(cardID, projectID, fromCategoryID, toCategoryID, newPosition); err != nil {
 		return err
@@ -1051,6 +1133,54 @@ func (a *App) AssignTagColor(tag string) (map[string]string, error) {
 		return nil, fmt.Errorf("no repository open")
 	}
 	return a.repo.AssignTagColor(tag)
+}
+
+// --- Labels (per-project) ---
+
+func (a *App) GetProjectLabels(brandSlug, streamSlug, projectSlug string) ([]model.Label, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.GetProjectLabels(brandSlug, streamSlug, projectSlug)
+}
+
+func (a *App) AddProjectLabel(brandSlug, streamSlug, projectSlug, name, color string) ([]model.Label, error) {
+	name = repo.SanitizeText(name)
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.AddProjectLabel(brandSlug, streamSlug, projectSlug, name, color)
+}
+
+func (a *App) RemoveProjectLabel(brandSlug, streamSlug, projectSlug, labelID string) ([]model.Label, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.RemoveProjectLabel(brandSlug, streamSlug, projectSlug, labelID)
+}
+
+func (a *App) UpdateProjectLabel(brandSlug, streamSlug, projectSlug, labelID, name, color string) ([]model.Label, error) {
+	if name != "" {
+		name = repo.SanitizeText(name)
+	}
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.UpdateProjectLabel(brandSlug, streamSlug, projectSlug, labelID, name, color)
+}
+
+// UpdateCardLabels replaces a card's label IDs.
+func (a *App) UpdateCardLabels(id string, labelIDs []string) (*model.Card, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	card, err := a.repo.UpdateCard(id, func(c *model.Card) {
+		c.Labels = labelIDs
+	})
+	if err == nil && a.idx != nil {
+		_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
+	}
+	return card, err
 }
 
 // --- Schema ---

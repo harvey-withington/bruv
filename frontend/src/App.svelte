@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { nav } from './lib/store.svelte'
+  import { nav, prefs as prefsStore } from './lib/store.svelte'
   import { onMount } from 'svelte'
   import { loadTheme } from './lib/theme.svelte'
   import { loadLocale, t } from './lib/i18n.svelte'
@@ -11,6 +11,7 @@
   import UserPreferences from './components/UserPreferences.svelte'
   import UserProfile from './components/UserProfile.svelte'
   import LLMSettings from './components/LLMSettings.svelte'
+  import TagEditor from './components/TagEditor.svelte'
 
   import { GetPreferences, ListRecentRepos, OpenRepository, GetCardLocation, GetProjectLocation } from './lib/api'
 
@@ -27,8 +28,9 @@
 
   async function tryReopenLastRepo() {
     try {
-      const prefs = await GetPreferences()
-      if (!prefs?.reopen_last_repo) return
+      const p = await GetPreferences()
+      if (p?.type_badge_display) prefsStore.typeBadgeDisplay = p.type_badge_display
+      if (!p?.reopen_last_repo) return
       const recent = await ListRecentRepos()
       if (!recent?.length) return
       const last = recent[0]
@@ -45,6 +47,7 @@
   let showPrefs = $state(false)
   let showProfile = $state(false)
   let showLLMSettings = $state(false)
+  let showTagEditor = $state(false)
 
   function handleSearchSelectCard(cardId: string) {
     searchCardId = cardId
@@ -131,7 +134,7 @@
     <div class="main-area">
       <TopBar
         onSelectCard={handleSearchSelectCard}
-        onOpenLabels={() => { /* TODO: open labels dialog */ }}
+        onOpenTagEditor={() => showTagEditor = true}
         onOpenProjectSettings={() => { /* TODO: open project settings */ }}
         onCreateAIChat={() => { /* TODO: create AI chat card */ }}
       />
@@ -156,6 +159,10 @@
 
   {#if showLLMSettings}
     <LLMSettings onClose={() => showLLMSettings = false} />
+  {/if}
+
+  {#if showTagEditor}
+    <TagEditor onClose={() => showTagEditor = false} />
   {/if}
 {:else}
   <WelcomeScreen />

@@ -1,8 +1,8 @@
 <script lang="ts">
   import { GetCard, UpdateCardTitle, UpdateCardType, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
-    DeleteCard, AssignTagColor, SetTagColor, PinCard, UnpinCard, GetCardPinBreadcrumbs, ListCardTypes } from '../lib/api'
-  import { tagColors } from '../lib/store.svelte'
-  import { X, Trash2, Square, CheckSquare, Palette, Plus, Type, ListChecks, Hash, Calendar, ToggleLeft, Link, Image, GripVertical, Pencil, MapPin, MapPinOff, MoveRight } from 'lucide-svelte'
+    DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, ListCardTypes, AddProjectLabel, GetProjectLabels, GetProjectLocation } from '../lib/api'
+  import { projectTags, nav, getTagColor } from '../lib/store.svelte'
+  import { X, Trash2, Square, CheckSquare, Plus, Type, ListChecks, Hash, Calendar, ToggleLeft, Link, Image, GripVertical, Pencil, MapPin, MapPinOff, MoveRight } from 'lucide-svelte'
   import { renderMarkdown, renderInline } from '../lib/markdown'
   import { t } from '../lib/i18n.svelte'
   import MentionPicker from './MentionPicker.svelte'
@@ -16,14 +16,6 @@
     breadcrumb: string
     pinnedProjectId?: string // set by GetCardPinBreadcrumbs — the actual stored pin.ProjectID for UnpinCard
   }
-
-  const TAG_PALETTE = [
-    '#61bd4f', '#f2d600', '#ff9f1a', '#eb5a46', '#c377e0',
-    '#0079bf', '#00c2e0', '#51e898', '#ff78cb', '#344563',
-    '#b3bac5', '#096dd9',
-  ]
-
-  let colorPickerTag = $state<string | null>(null)
 
   let { cardId, currentCategoryId, currentCategoryName, onClose, onUpdated, onPin, autoEditTitle }: {
     cardId: string
@@ -543,28 +535,50 @@
   }
 
   // Tag helpers
+
+  /** Ensure a tag exists in a project's tag definitions */
+  async function ensureTagInProject(tagName: string, brandSlug: string, streamSlug: string, projectSlug: string) {
+    try {
+      const existing = await GetProjectLabels(brandSlug, streamSlug, projectSlug) || []
+      if (!existing.some((t: any) => t.name.toLowerCase() === tagName.toLowerCase())) {
+        await AddProjectLabel(brandSlug, streamSlug, projectSlug, tagName, '')
+      }
+    } catch { /* best-effort */ }
+  }
+
+  /** Sync a tag to the current project and all projects this card is pinned to */
+  async function syncTagToProjects(tagName: string) {
+    // Current project
+    if (nav.brandSlug && nav.streamSlug && nav.projectSlug) {
+      await ensureTagInProject(tagName, nav.brandSlug, nav.streamSlug, nav.projectSlug)
+    }
+    // All pinned projects
+    for (const pin of pinBreadcrumbs) {
+      if (pin.brandSlug === nav.brandSlug && pin.streamSlug === nav.streamSlug && pin.projectSlug === nav.projectSlug) continue
+      await ensureTagInProject(tagName, pin.brandSlug, pin.streamSlug, pin.projectSlug)
+    }
+    // Refresh current project tags
+    if (nav.brandSlug && nav.streamSlug && nav.projectSlug) {
+      try { projectTags.list = await GetProjectLabels(nav.brandSlug, nav.streamSlug, nav.projectSlug) || [] } catch {}
+    }
+  }
+
   async function addTag() {
-    const tag = newTag.trim().toLowerCase()
-    if (!tag || card.tags?.includes(tag)) { newTag = ''; return }
+    const tag = newTag.trim()
+    if (!tag || card.tags?.some((t: string) => t.toLowerCase() === tag.toLowerCase())) { newTag = ''; return }
     const tags = [...(card.tags || []), tag]
     try {
       card = await UpdateCardTags(cardId, tags)
-      const colors = await AssignTagColor(tag)
-      tagColors.map = colors || {}
       newTag = ''
+      await syncTagToProjects(tag)
       onUpdated?.()
     } catch (e) { console.error(e) }
   }
 
-  async function changeTagColor(tag: string, color: string) {
-    try {
-      const colors = await SetTagColor(tag, color)
-      tagColors.map = colors || {}
-      colorPickerTag = null
-    } catch (e) { console.error(e) }
-  }
+  let suppressPickerUntil = 0
 
   async function removeTag(tag: string) {
+    suppressPickerUntil = Date.now() + 200
     const tags = (card.tags || []).filter((t: string) => t !== tag)
     try {
       card = await UpdateCardTags(cardId, tags)
@@ -572,8 +586,83 @@
     } catch (e) { console.error(e) }
   }
 
+  // Combined tag input + picker
+  let showTagPicker = $state(false)
+  let tagInputEl = $state<HTMLInputElement | null>(null)
+  let highlightIdx = $state(-1)
+
+  let filteredProjectTags = $derived(
+    projectTags.list.filter(t =>
+      !isProjectTagAssigned(t.name) &&
+      (!newTag.trim() || t.name.toLowerCase().includes(newTag.trim().toLowerCase()))
+    )
+  )
+
+  // Reset highlight when filter text changes
+  $effect(() => { newTag; highlightIdx = -1 })
+
+  function isProjectTagAssigned(tagName: string): boolean {
+    return (card.tags || []).some((t: string) => t.toLowerCase() === tagName.toLowerCase())
+  }
+
+  async function toggleProjectTag(tagName: string) {
+    const current = card.tags || []
+    const isAssigned = current.some((t: string) => t.toLowerCase() === tagName.toLowerCase())
+    const tags = isAssigned
+      ? current.filter((t: string) => t.toLowerCase() !== tagName.toLowerCase())
+      : [...current, tagName]
+    try {
+      card = await UpdateCardTags(cardId, tags)
+      if (!isAssigned) {
+        await syncTagToProjects(tagName)
+      }
+      onUpdated?.()
+    } catch (e) { console.error(e) }
+  }
+
   function handleTagKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter') addTag()
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      if (filteredProjectTags.length > 0) {
+        highlightIdx = Math.min(highlightIdx + 1, filteredProjectTags.length - 1)
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      highlightIdx = Math.max(highlightIdx - 1, -1)
+    } else if (e.key === 'Tab' && showTagPicker && filteredProjectTags.length > 0) {
+      e.preventDefault()
+      if (e.shiftKey) {
+        highlightIdx = Math.max(highlightIdx - 1, 0)
+      } else {
+        highlightIdx = Math.min(highlightIdx + 1, filteredProjectTags.length - 1)
+      }
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      if (highlightIdx >= 0 && highlightIdx < filteredProjectTags.length) {
+        toggleProjectTag(filteredProjectTags[highlightIdx].name)
+        newTag = ''
+        highlightIdx = -1
+      } else {
+        addTag()
+      }
+    } else if (e.key === 'Escape') {
+      showTagPicker = false
+      highlightIdx = -1
+    }
+  }
+
+  function handleTagInputFocus() {
+    if (Date.now() < suppressPickerUntil) return
+    showTagPicker = true
+    highlightIdx = -1
+  }
+
+  function handleTagInputBlur(e: FocusEvent) {
+    // Keep picker open if focus moves to picker items
+    const related = e.relatedTarget as HTMLElement | null
+    if (related?.closest('.tag-picker-dropdown')) return
+    // Small delay so click events on picker items fire first
+    setTimeout(() => { showTagPicker = false; highlightIdx = -1 }, 150)
   }
 
   async function handleDueDateChange(e: Event) {
@@ -844,28 +933,18 @@
             <span class="field-label">{t('card.tags')}</span>
             <div class="tags-list">
               {#each (card.tags || []) as tag}
-                <span class="tag-chip" style:background={tagColors.map[tag] || 'var(--border)'}>
+                <span class="tag-chip" style:background={getTagColor(tag)}>
                   <span class="tag-label">{tag}</span>
-                  <button class="tag-color-btn" onclick={() => colorPickerTag = colorPickerTag === tag ? null : tag} title={t('tooltip.change_tag_color')}><Palette size={10} /></button>
                   <button class="tag-remove" onclick={() => removeTag(tag)} title={t('tooltip.remove_tag')}><X size={12} /></button>
                 </span>
-                {#if colorPickerTag === tag}
-                  <div class="color-picker">
-                    {#each TAG_PALETTE as color}
-                      <button
-                        class="color-swatch"
-                        class:active={tagColors.map[tag] === color}
-                        style:background={color}
-                        onclick={() => changeTagColor(tag, color)}
-                      ></button>
-                    {/each}
-                  </div>
-                {/if}
               {/each}
               <input
                 type="text"
+                bind:this={tagInputEl}
                 bind:value={newTag}
                 onkeydown={handleTagKeydown}
+                onfocus={handleTagInputFocus}
+                onblur={handleTagInputBlur}
                 placeholder={t('card.tags_placeholder')}
                 class="tag-input tag-input-inline"
               />
@@ -1081,6 +1160,35 @@
   onSelect={handlePinSelect}
   onClose={() => { showPinPicker = false; pinPickerSourcePin = null }}
 />
+
+{#if showTagPicker && tagInputEl && filteredProjectTags.length > 0}
+  {@const rect = tagInputEl.getBoundingClientRect()}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div class="tag-picker-dropdown" role="listbox" style="position:fixed; top:{rect.bottom + 4}px; left:{rect.left}px; z-index:10000;">
+    {#each filteredProjectTags as ptag, i (ptag.id)}
+      <button
+        class="tag-picker-item"
+        class:highlighted={i === highlightIdx}
+        tabindex="-1"
+        onclick={() => { toggleProjectTag(ptag.name); newTag = ''; tagInputEl?.focus() }}
+      >
+        <span class="tag-picker-chip" style:background={ptag.color || 'var(--border)'}>{ptag.name}</span>
+      </button>
+    {/each}
+    {#if newTag.trim() && !projectTags.list.some(t => t.name.toLowerCase() === newTag.trim().toLowerCase())}
+      <div class="tag-picker-create">
+        Press Enter to create "{newTag.trim()}"
+      </div>
+    {/if}
+  </div>
+{:else if showTagPicker && tagInputEl && newTag.trim() && !projectTags.list.some(t => t.name.toLowerCase() === newTag.trim().toLowerCase())}
+  {@const rect = tagInputEl.getBoundingClientRect()}
+  <div class="tag-picker-dropdown" style="position:fixed; top:{rect.bottom + 4}px; left:{rect.left}px; z-index:10000;">
+    <div class="tag-picker-create">
+      Press Enter to create "{newTag.trim()}"
+    </div>
+  </div>
+{/if}
 
 <style>
   .modal-backdrop {
@@ -1460,18 +1568,6 @@
     white-space: nowrap;
   }
 
-  .tag-color-btn {
-    background: none;
-    border: none;
-    color: rgba(255, 255, 255, 0.6);
-    cursor: pointer;
-    padding: 0;
-    line-height: 1;
-    display: flex;
-    align-items: center;
-  }
-  .tag-color-btn:hover { color: #fff; }
-
   .tag-remove {
     background: none;
     border: none;
@@ -1485,32 +1581,6 @@
   }
   .tag-remove:hover { color: var(--danger-light); }
 
-  .color-picker {
-    display: flex;
-    gap: 0.25rem;
-    flex-wrap: wrap;
-    padding: 0.4rem;
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    width: 100%;
-  }
-
-  .color-swatch {
-    width: 22px;
-    height: 22px;
-    border-radius: 4px;
-    border: 2px solid transparent;
-    cursor: pointer;
-    transition: border-color 0.1s, transform 0.1s;
-  }
-  .color-swatch:hover {
-    transform: scale(1.15);
-  }
-  .color-swatch.active {
-    border-color: #fff;
-  }
-
   .tag-input {
     padding: 0.25rem 0.4rem;
     border-radius: 4px;
@@ -1522,7 +1592,7 @@
   }
   .tag-input:focus { border-color: var(--accent); }
   .tag-input-inline {
-    width: 80px;
+    width: 100px;
     flex-shrink: 1;
   }
 
@@ -1827,5 +1897,55 @@
   }
   .block-drop-indicator.copy-mode {
     background: var(--success, #22c55e);
+  }
+
+  /* Tag picker dropdown */
+  :global(.tag-picker-dropdown) {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.3rem;
+    box-shadow: 0 8px 32px var(--shadow-lg);
+    min-width: 180px;
+    max-height: 220px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+
+  :global(.tag-picker-item) {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    cursor: pointer;
+    padding: 0.25rem 0.35rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    width: 100%;
+    text-align: left;
+  }
+  :global(.tag-picker-item:hover),
+  :global(.tag-picker-item.highlighted) {
+    background: var(--bg-surface);
+  }
+
+  :global(.tag-picker-chip) {
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    color: #fff;
+    line-height: 1.4;
+  }
+
+  :global(.tag-picker-create) {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    padding: 0.3rem 0.35rem;
+    font-style: italic;
   }
 </style>

@@ -4,7 +4,7 @@
   import { GetPreferences, SetPreferences } from '../lib/api'
   import { theme, setTheme } from '../lib/theme.svelte'
   import { setLocale, availableLocales } from '../lib/i18n.svelte'
-  import { nav } from '../lib/store.svelte'
+  import { nav, prefs as prefsStore } from '../lib/store.svelte'
   import { draggable } from '../lib/draggable'
 
   let { onClose }: { onClose: () => void } = $props()
@@ -15,6 +15,7 @@
     locale: 'en',
     confirm_before_delete: true,
     sidebar_width: 260,
+    type_badge_display: 'text' as 'text' | 'color' | 'hidden',
   })
   let loaded = $state(false)
   let saved = $state(false)
@@ -32,6 +33,7 @@
         prefs.locale = p.locale || 'en'
         prefs.confirm_before_delete = p.confirm_before_delete ?? true
         prefs.sidebar_width = nav.sidebarWidth
+        prefs.type_badge_display = (p.type_badge_display || 'text') as 'text' | 'color' | 'hidden'
       }
     } catch { /* use defaults */ }
     loaded = true
@@ -50,6 +52,9 @@
       // Apply sidebar width
       nav.sidebarWidth = prefs.sidebar_width
       localStorage.setItem('bruv-sidebar-width', String(prefs.sidebar_width))
+
+      // Apply type badge display
+      prefsStore.typeBadgeDisplay = prefs.type_badge_display
 
       onClose()
     } catch (e) { console.error('SavePreferences:', e) }
@@ -109,6 +114,15 @@
             <input type="range" min="160" max="500" step="10" bind:value={prefs.sidebar_width} />
             <span class="range-value">{prefs.sidebar_width}px</span>
           </div>
+        </label>
+
+        <label class="field">
+          <span class="field-label">Category type badges</span>
+          <select bind:value={prefs.type_badge_display}>
+            <option value="text">Text</option>
+            <option value="color">Color bar</option>
+            <option value="hidden">Hidden</option>
+          </select>
         </label>
       </div>
 

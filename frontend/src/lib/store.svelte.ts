@@ -1,4 +1,5 @@
 // Reactive app state using Svelte 5 module-level $state
+import { ListCategories, GetCard, ListCardIDsInCategory, GetProjectLabels } from './api'
 
 // Navigation state
 export const nav = $state({
@@ -28,6 +29,7 @@ export const board = $state({
     name: string
     slug: string
     position: number
+    accepted_types?: string[]
     cards: Array<{
       id: string
       type: string
@@ -41,12 +43,23 @@ export const board = $state({
   loading: false,
 })
 
-// Tag colors — tag name → hex color
-export const tagColors = $state<{ map: Record<string, string> }>({ map: {} })
+// User display preferences
+export const prefs = $state({
+  typeBadgeDisplay: 'text' as 'text' | 'color' | 'hidden',
+})
+
+// Project tags — per-project tag definitions (source of truth for tag colors)
+export const projectTags = $state<{ list: Array<{ id: string; name: string; color: string }> }>({ list: [] })
+
+// Resolve a tag name to its project-level color
+export function getTagColor(tagName: string): string {
+  const pt = projectTags.list.find(t => t.name.toLowerCase() === tagName.toLowerCase())
+  return pt?.color || 'var(--border)'
+}
 
 // Drag and drop state
 export const dnd = $state<{
-  dragging: null | { type: 'card'; cardId: string; fromCategoryId: string } | { type: 'column'; categoryId: string }
+  dragging: null | { type: 'card'; cardId: string; fromCategoryId: string; cardType: string } | { type: 'column'; categoryId: string }
   overCategoryId: string | null
   overCardIndex: number | null
   overColumnIndex: number | null
@@ -74,3 +87,48 @@ export const search = $state({
   open: false,
   matchingIds: new Set<string>(),
 })
+
+// --- Board loading (single source of truth) ---
+
+export async function loadBoard(brandSlug: string, streamSlug: string, projectSlug: string) {
+  board.loading = true
+  try {
+    try { projectTags.list = await GetProjectLabels(brandSlug, streamSlug, projectSlug) || [] } catch { projectTags.list = [] }
+
+    const cats = await ListCategories(brandSlug, streamSlug, projectSlug) || []
+    const populated = await Promise.all(cats.map(async (cat: any) => {
+      let cardIds: string[] = []
+      try {
+        cardIds = await ListCardIDsInCategory(cat.id, cat.id) || []
+      } catch { /* no cards pinned yet */ }
+
+      const cards = await Promise.all(cardIds.map(async (id: string) => {
+        try {
+          const card = await GetCard(id)
+          return {
+            id: card.id,
+            type: card.type,
+            title: card.title,
+            tags: card.tags || [],
+            due_date: card.due_date,
+            checklist_total: card.checklist?.length || 0,
+            checklist_done: card.checklist?.filter((c: any) => c.done).length || 0,
+          }
+        } catch { return null }
+      }))
+
+      return {
+        id: cat.id,
+        name: cat.name,
+        slug: cat.slug,
+        position: cat.position,
+        accepted_types: cat.accepted_types?.length ? [...cat.accepted_types] : undefined,
+        cards: cards.filter((c): c is NonNullable<typeof c> => c !== null),
+      }
+    }))
+    board.categories = populated
+  } catch {
+    board.categories = []
+  }
+  board.loading = false
+}

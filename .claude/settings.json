@@ -1,0 +1,13 @@
+{
+    "permissions": {
+        "allow": [
+            "Bash(grep:*)",
+            "Bash(go build:*)",
+            "Bash(wails generate:*)",
+            "Bash(npm run:*)",
+            "Bash(find:*)",
+            "Bash(cd:*)",
+            "Bash(mkdir:*)"
+        ]
+    }
+}

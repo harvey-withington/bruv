@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { search, tagColors, dnd } from '../lib/store.svelte'
+  import { search, dnd, getTagColor } from '../lib/store.svelte'
   import { renderInline } from '../lib/markdown'
 
   type CardData = {
@@ -18,7 +18,7 @@
     if (!e.dataTransfer) return
     e.dataTransfer.effectAllowed = 'copyMove'
     e.dataTransfer.setData('text/plain', card.id)
-    dnd.dragging = { type: 'card', cardId: card.id, fromCategoryId: categoryId }
+    dnd.dragging = { type: 'card', cardId: card.id, fromCategoryId: categoryId, cardType: card.type || '' }
   }
 
   function handleDragEnd() {
@@ -69,7 +69,7 @@
     {#if card.tags.length > 0}
       <div class="tags">
         {#each card.tags.slice(0, 3) as tag}
-          <span class="tag" style:background={tagColors.map[tag] || 'var(--border)'}>{tag}</span>
+          <span class="tag" style:background={getTagColor(tag)}>{tag}</span>
         {/each}
         {#if card.tags.length > 3}
           <span class="tag tag-more">+{card.tags.length - 3}</span>

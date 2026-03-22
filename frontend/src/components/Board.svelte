@@ -3,8 +3,8 @@
   import Column from './Column.svelte'
   import CardItem from './CardItem.svelte'
   import CardDetail from './CardDetail.svelte'
-  import { board, nav, tagColors, dnd, search } from '../lib/store.svelte'
-  import { CreateCard, PinCard, CreateCategory, RenameCategory, ListCategories, GetCard, ListCardIDsInCategory, GetTagColors, MoveCardInCategory, MoveCardToCategory, ReorderCategories, DeleteCategory, DeleteCard, MoveCategoryCards, DuplicateCard, CopyCategory, SearchCards, SearchOrphanedCards } from '../lib/api'
+  import { board, nav, dnd, search, loadBoard } from '../lib/store.svelte'
+  import { CreateCard, PinCard, CreateCategory, RenameCategory, GetCard, MoveCardInCategory, MoveCardToCategory, ReorderCategories, DeleteCategory, DeleteCard, MoveCategoryCards, DuplicateCard, CopyCategory, SearchCards, SearchOrphanedCards } from '../lib/api'
   import { Lightbulb } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
 
@@ -111,6 +111,15 @@
   }
 
   async function handleCardDrop(cardId: string, fromCategoryId: string, toCategoryId: string, toIndex: number, copy?: boolean) {
+    // Check type restriction on target category
+    const targetCat = board.categories.find(c => c.id === toCategoryId)
+    if (targetCat?.accepted_types && targetCat.accepted_types.length > 0) {
+      const sourceCard = board.categories.flatMap(c => c.cards).find(c => c.id === cardId)
+      if (sourceCard?.type && !targetCat.accepted_types.includes(sourceCard.type)) {
+        console.warn(`Card type "${sourceCard.type}" not accepted by category "${targetCat.name}"`)
+        return
+      }
+    }
     try {
       if (copy) {
         // Ctrl+drop: duplicate the card into the target category
@@ -347,46 +356,7 @@
 
   async function refreshBoard() {
     if (!nav.brandSlug || !nav.streamSlug || !nav.projectSlug) return
-    board.loading = true
-    try {
-      // Refresh tag colors
-      try { tagColors.map = await GetTagColors() || {} } catch { /* ignore */ }
-
-      const cats = await ListCategories(nav.brandSlug, nav.streamSlug, nav.projectSlug) || []
-      const populated = await Promise.all(cats.map(async (cat: any) => {
-        let cardIds: string[] = []
-        try {
-          cardIds = await ListCardIDsInCategory(cat.id, cat.id) || []
-        } catch { /* no cards pinned yet */ }
-
-        const cards = await Promise.all(cardIds.map(async (id: string) => {
-          try {
-            const card = await GetCard(id)
-            return {
-              id: card.id,
-              type: card.type,
-              title: card.title,
-              tags: card.tags || [],
-              due_date: card.due_date,
-              checklist_total: card.checklist?.length || 0,
-              checklist_done: card.checklist?.filter((c: any) => c.done).length || 0,
-            }
-          } catch { return null }
-        }))
-
-        return {
-          id: cat.id,
-          name: cat.name,
-          slug: cat.slug,
-          position: cat.position,
-          cards: cards.filter((c): c is NonNullable<typeof c> => c !== null),
-        }
-      }))
-      board.categories = populated
-    } catch {
-      board.categories = []
-    }
-    board.loading = false
+    await loadBoard(nav.brandSlug, nav.streamSlug, nav.projectSlug)
 
     // Re-run search to keep highlights current
     if (search.query.trim()) {
@@ -436,6 +406,9 @@
         <div class="col-slot">
           <Column
             {category}
+            brandSlug={nav.brandSlug || undefined}
+            streamSlug={nav.streamSlug || undefined}
+            projectSlug={nav.projectSlug || undefined}
             onCardClick={handleCardClick}
             onAddCard={handleAddCard}
             onCardDrop={handleCardDrop}
@@ -446,6 +419,11 @@
             onRenamingNameChange={(v) => renamingCategoryName = v}
             onCommitRename={() => commitRenameCategory(category.slug)}
             onCancelRename={() => cancelRenameCategory(category.slug)}
+            onCategoryUpdated={refreshBoard}
+            onAcceptedTypesChanged={(categoryId, acceptedTypes) => {
+              const cat = board.categories.find(c => c.id === categoryId)
+              if (cat) cat.accepted_types = acceptedTypes
+            }}
           />
         </div>
       {/each}

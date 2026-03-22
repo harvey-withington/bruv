@@ -9,6 +9,20 @@ import (
 	"github.com/google/uuid"
 )
 
+// CategoryAcceptsType returns true if the category allows the given card type.
+// An empty or nil AcceptedTypes means all types are accepted.
+func CategoryAcceptsType(cat *model.Category, cardType string) bool {
+	if len(cat.AcceptedTypes) == 0 {
+		return true
+	}
+	for _, t := range cat.AcceptedTypes {
+		if t == cardType {
+			return true
+		}
+	}
+	return false
+}
+
 // CreateCategory creates a new Category within a Project.
 func (r *Repository) CreateCategory(brandSlug, streamSlug, projectSlug, name string, position int) (*model.Category, error) {
 	project, err := r.GetProject(brandSlug, streamSlug, projectSlug)

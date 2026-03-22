@@ -58,6 +58,7 @@ export const RenameCategory = (...args: Parameters<ReturnType<typeof getBackend>
 export const DeleteCategory = (...args: Parameters<ReturnType<typeof getBackend>['DeleteCategory']>) => getBackend().DeleteCategory(...args)
 export const MoveCategoryCards = (...args: Parameters<ReturnType<typeof getBackend>['MoveCategoryCards']>) => getBackend().MoveCategoryCards(...args)
 export const CopyCategory = (...args: Parameters<ReturnType<typeof getBackend>['CopyCategory']>) => getBackend().CopyCategory(...args)
+export const UpdateCategoryAcceptedTypes = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCategoryAcceptedTypes']>) => getBackend().UpdateCategoryAcceptedTypes(...args)
 
 // Card CRUD
 export const CreateCard = (...args: Parameters<ReturnType<typeof getBackend>['CreateCard']>) => getBackend().CreateCard(...args)
@@ -72,6 +73,7 @@ export const UpdateCardType = (...args: Parameters<ReturnType<typeof getBackend>
 export const UpdateCardFields = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardFields']>) => getBackend().UpdateCardFields(...args)
 export const UpdateCardBlocks = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardBlocks']>) => getBackend().UpdateCardBlocks(...args)
 export const UpdateCardTags = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardTags']>) => getBackend().UpdateCardTags(...args)
+export const UpdateCardLabels = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardLabels']>) => getBackend().UpdateCardLabels(...args)
 export const UpdateCardDueDate = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardDueDate']>) => getBackend().UpdateCardDueDate(...args)
 
 // Checklist
@@ -107,6 +109,12 @@ export const CopyProject = (...args: Parameters<ReturnType<typeof getBackend>['C
 export const GetTagColors = () => getBackend().GetTagColors()
 export const SetTagColor = (...args: Parameters<ReturnType<typeof getBackend>['SetTagColor']>) => getBackend().SetTagColor(...args)
 export const AssignTagColor = (...args: Parameters<ReturnType<typeof getBackend>['AssignTagColor']>) => getBackend().AssignTagColor(...args)
+
+// Labels (per-project)
+export const GetProjectLabels = (...args: Parameters<ReturnType<typeof getBackend>['GetProjectLabels']>) => getBackend().GetProjectLabels(...args)
+export const AddProjectLabel = (...args: Parameters<ReturnType<typeof getBackend>['AddProjectLabel']>) => getBackend().AddProjectLabel(...args)
+export const RemoveProjectLabel = (...args: Parameters<ReturnType<typeof getBackend>['RemoveProjectLabel']>) => getBackend().RemoveProjectLabel(...args)
+export const UpdateProjectLabel = (...args: Parameters<ReturnType<typeof getBackend>['UpdateProjectLabel']>) => getBackend().UpdateProjectLabel(...args)
 
 // Schema
 export const ListCardTypes = () => getBackend().ListCardTypes()

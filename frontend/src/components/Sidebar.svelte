@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { nav, board, tagColors } from '../lib/store.svelte'
-  import { CloseRepository, CreateBrand, RenameBrand, CreateStream, RenameStream, CreateProject, RenameProject, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, ListCategories, GetCard, GetCardPins, ListCardIDsInCategory, ListOrphanedCardIDs, GetTagColors, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject } from '../lib/api'
+  import { nav, board, loadBoard } from '../lib/store.svelte'
+  import { CloseRepository, CreateBrand, RenameBrand, CreateStream, RenameStream, CreateProject, RenameProject, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, GetCard, GetCardPins, ListOrphanedCardIDs, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject } from '../lib/api'
   import { LogOut, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Bot, Inbox } from 'lucide-svelte'
   import ThemeToggle from './ThemeToggle.svelte'
   import BruvIcon from './BruvIcon.svelte'
@@ -118,7 +118,6 @@
     localStorage.removeItem('bruv-last-nav')
     board.loading = true
     try {
-      try { tagColors.map = await GetTagColors() || {} } catch { /* ignore */ }
       const ids = await ListOrphanedCardIDs() || []
       const cards = await Promise.all(ids.map(async (id: string) => {
         try {
@@ -209,49 +208,6 @@
     document.addEventListener('bruv:select-project', handleSelectProject)
     return () => document.removeEventListener('bruv:select-project', handleSelectProject)
   })
-
-  async function loadBoard(brandSlug: string, streamSlug: string, projectSlug: string) {
-    board.loading = true
-    try {
-      // Load tag colors so labels render correctly
-      try { tagColors.map = await GetTagColors() || {} } catch { /* ignore */ }
-
-      const cats = await ListCategories(brandSlug, streamSlug, projectSlug) || []
-      const populated = await Promise.all(cats.map(async (cat: any) => {
-        let cardIds: string[] = []
-        try {
-          cardIds = await ListCardIDsInCategory(cat.id, cat.id) || []
-        } catch { /* no cards pinned yet */ }
-
-        const cards = await Promise.all(cardIds.map(async (id: string) => {
-          try {
-            const card = await GetCard(id)
-            return {
-              id: card.id,
-              type: card.type,
-              title: card.title,
-              tags: card.tags || [],
-              due_date: card.due_date,
-              checklist_total: card.checklist?.length || 0,
-              checklist_done: card.checklist?.filter((c: any) => c.done).length || 0,
-            }
-          } catch { return null }
-        }))
-
-        return {
-          id: cat.id,
-          name: cat.name,
-          slug: cat.slug,
-          position: cat.position,
-          cards: cards.filter((c): c is NonNullable<typeof c> => c !== null),
-        }
-      }))
-      board.categories = populated
-    } catch {
-      board.categories = []
-    }
-    board.loading = false
-  }
 
   export function refreshBoard() {
     if (nav.brandSlug && nav.streamSlug && nav.projectSlug) {

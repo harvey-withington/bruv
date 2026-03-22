@@ -4,9 +4,9 @@
   import { nav } from '../lib/store.svelte'
   import { t } from '../lib/i18n.svelte'
 
-  let { onSelectCard, onOpenLabels, onOpenProjectSettings, onCreateAIChat }: {
+  let { onSelectCard, onOpenTagEditor, onOpenProjectSettings, onCreateAIChat }: {
     onSelectCard?: (cardId: string) => void
-    onOpenLabels?: () => void
+    onOpenTagEditor?: () => void
     onOpenProjectSettings?: () => void
     onCreateAIChat?: () => void
   } = $props()
@@ -38,7 +38,7 @@
   {#if nav.projectSlug}
     <div class="topbar-actions">
       <button class="icon-btn" onclick={onCreateAIChat} title={t('toolbar.ai_chat')}><BotMessageSquare size={16} /></button>
-      <button class="icon-btn" onclick={onOpenLabels} title={t('toolbar.labels')}><Tags size={16} /></button>
+      <button class="icon-btn" onclick={onOpenTagEditor} title={t('toolbar.tags')}><Tags size={16} /></button>
       <button class="icon-btn" onclick={onOpenProjectSettings} title={t('toolbar.project_settings')}><SlidersHorizontal size={16} /></button>
     </div>
   {/if}

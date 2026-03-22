@@ -48,13 +48,21 @@ type Project struct {
 
 // Category is a workflow stage within a Project, analogous to a Trello list.
 type Category struct {
-	ID        string    `json:"id"`
-	ProjectID string    `json:"project_id"`
-	Name      string    `json:"name"`
-	Slug      string    `json:"slug"`
-	Position  int       `json:"position"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID            string    `json:"id"`
+	ProjectID     string    `json:"project_id"`
+	Name          string    `json:"name"`
+	Slug          string    `json:"slug"`
+	Position      int       `json:"position"`
+	AcceptedTypes []string  `json:"accepted_types,omitempty"` // nil/empty = all card types accepted
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// Label is a project-scoped label that can be assigned to cards.
+type Label struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
 }
 
 // ContextLevel controls how much repository context the LLM receives for a card.
@@ -116,6 +124,7 @@ type Card struct {
 	Attachments  []string        `json:"attachments"` // Deprecated: migrated to Blocks on read
 	DueDate      *time.Time      `json:"due_date"`
 	Tags         []string        `json:"tags"`
+	Labels       []string        `json:"labels,omitempty"` // label IDs from project's labels.json
 	Blocks       []Block         `json:"blocks"`
 }
 

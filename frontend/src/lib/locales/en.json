@@ -32,6 +32,7 @@
   "board.move_cards_to": "Move Cards To",
   "board.delete_and_move": "Move & Delete",
   "board.delete_all": "Delete All",
+  "board.move_to_inbox": "Inbox",
   "board.delete_cards_warning": "All {count} card(s) will be permanently deleted.",
   "board.delete_only": "Delete",
 

@@ -258,9 +258,8 @@
       return
     }
     deletingCategory = { id: categoryId, slug: categorySlug, name: categoryName, cardCount }
-    // Default move target: first other category
-    const other = board.categories.find(c => c.id !== categoryId)
-    moveTargetId = other?.id || ''
+    // Default move target: Inbox (orphan cards)
+    moveTargetId = '__inbox__'
   }
 
   function cancelDeleteCategory() {
@@ -273,7 +272,7 @@
     const { id, slug, cardCount } = deletingCategory
     try {
       if (cardCount > 0) {
-        if (moveCards && moveTargetId) {
+        if (moveCards && moveTargetId && moveTargetId !== '__inbox__') {
           // Move cards to the selected category
           await MoveCategoryCards(nav.brandSlug, nav.streamSlug, nav.projectSlug, id, moveTargetId)
         } else if (!moveCards) {
@@ -285,8 +284,12 @@
             }
           }
         }
+        // moveCards && __inbox__: DeleteCategory already unpins cards to inbox
       }
       await DeleteCategory(nav.brandSlug, nav.streamSlug, nav.projectSlug, slug)
+      if (moveCards && moveTargetId === '__inbox__') {
+        document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
+      }
       deletingCategory = null
       moveTargetId = ''
       moveCards = true
@@ -461,6 +464,7 @@
         </label>
         {#if moveCards}
           <select class="move-select" bind:value={moveTargetId}>
+            <option value="__inbox__">{t('board.move_to_inbox')}</option>
             {#each board.categories.filter(c => c.id !== deletingCategory?.id) as cat}
               <option value={cat.id}>{cat.name}</option>
             {/each}

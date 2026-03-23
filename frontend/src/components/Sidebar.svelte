@@ -67,8 +67,15 @@
       await refreshInboxCount()
       if (nav.inboxMode) await selectInbox()
     }
+    async function handleSidebarChanged() {
+      await loadBrands()
+    }
     document.addEventListener('bruv:inbox-changed', handleInboxChanged)
-    return () => document.removeEventListener('bruv:inbox-changed', handleInboxChanged)
+    document.addEventListener('bruv:sidebar-changed', handleSidebarChanged)
+    return () => {
+      document.removeEventListener('bruv:inbox-changed', handleInboxChanged)
+      document.removeEventListener('bruv:sidebar-changed', handleSidebarChanged)
+    }
   })
 
   async function loadBrandsAndRestore() {
@@ -393,6 +400,7 @@
         board.categories = []
       }
       await loadBrands()
+      document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
     } catch (e) { console.error('DeleteBrand:', e) }
   }
 
@@ -409,6 +417,7 @@
         board.categories = []
       }
       streamsByBrand[brandSlug] = await ListStreams(brandSlug) || []
+      document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
     } catch (e) { console.error('DeleteStream:', e) }
   }
 
@@ -423,6 +432,7 @@
       }
       const key = `${brandSlug}/${streamSlug}`
       projectsByStream[key] = await ListProjects(brandSlug, streamSlug) || []
+      document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
     } catch (e) { console.error('DeleteProject:', e) }
   }
 

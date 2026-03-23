@@ -3,6 +3,7 @@ package main
 import (
 	"bruv/internal/config"
 	"bruv/internal/index"
+	"bruv/internal/llm"
 	"bruv/internal/model"
 	"bruv/internal/repo"
 	"bruv/internal/schema"
@@ -11,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -141,6 +144,13 @@ func (a *App) OpenRepository(path string) error {
 		_ = a.registry.LoadExternalTypes(path + "/types")
 	}
 
+	// Revalidate repo data (remove stale pins, orphaned files, etc.)
+	if repairStats, err := r.Revalidate(); err != nil {
+		fmt.Printf("warning: revalidation failed: %v\n", err)
+	} else {
+		fmt.Printf("revalidate: %s\n", repairStats)
+	}
+
 	// Open the SQLite index and do an incremental refresh
 	if err := a.openIndex(path); err != nil {
 		fmt.Printf("warning: failed to open index: %v\n", err)
@@ -219,11 +229,37 @@ func (a *App) RenameBrand(slug, newName string) (*model.Brand, error) {
 	return brand, nil
 }
 
+func (a *App) UpdateBrandDescription(slug, description string) (*model.Brand, error) {
+	description = repo.SanitizeText(description)
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.UpdateBrandDescription(slug, description)
+}
+
 func (a *App) DeleteBrand(slug string) error {
 	if a.repo == nil {
 		return fmt.Errorf("no repository open")
 	}
-	return a.repo.DeleteBrand(slug)
+	// Unpin cards from all streams/projects/categories in this brand
+	streams, _ := a.repo.ListStreams(slug)
+	for _, stream := range streams {
+		projects, _ := a.repo.ListProjects(slug, stream.Slug)
+		for _, proj := range projects {
+			cats, _ := a.repo.ListCategories(slug, stream.Slug, proj.Slug)
+			for _, cat := range cats {
+				pins, _ := a.repo.ListCardsInCategory(cat.ID, cat.ID)
+				for _, p := range pins {
+					_ = a.repo.UnpinCard(p.CardID, p.ProjectID, p.CategoryID)
+				}
+			}
+		}
+	}
+	err := a.repo.DeleteBrand(slug)
+	if err == nil && a.idx != nil {
+		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
+	}
+	return err
 }
 
 // --- Stream ---
@@ -258,11 +294,34 @@ func (a *App) RenameStream(brandSlug, streamSlug, newName string) (*model.Stream
 	return stream, nil
 }
 
+func (a *App) UpdateStreamDescription(brandSlug, streamSlug, description string) (*model.Stream, error) {
+	description = repo.SanitizeText(description)
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.UpdateStreamDescription(brandSlug, streamSlug, description)
+}
+
 func (a *App) DeleteStream(brandSlug, streamSlug string) error {
 	if a.repo == nil {
 		return fmt.Errorf("no repository open")
 	}
-	return a.repo.DeleteStream(brandSlug, streamSlug)
+	// Unpin cards from all projects/categories in this stream
+	projects, _ := a.repo.ListProjects(brandSlug, streamSlug)
+	for _, proj := range projects {
+		cats, _ := a.repo.ListCategories(brandSlug, streamSlug, proj.Slug)
+		for _, cat := range cats {
+			pins, _ := a.repo.ListCardsInCategory(cat.ID, cat.ID)
+			for _, p := range pins {
+				_ = a.repo.UnpinCard(p.CardID, p.ProjectID, p.CategoryID)
+			}
+		}
+	}
+	err := a.repo.DeleteStream(brandSlug, streamSlug)
+	if err == nil && a.idx != nil {
+		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
+	}
+	return err
 }
 
 // --- Project ---
@@ -272,7 +331,18 @@ func (a *App) CreateProject(brandSlug, streamSlug, name string) (*model.Project,
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
-	return a.repo.CreateProject(brandSlug, streamSlug, name)
+	project, err := a.repo.CreateProject(brandSlug, streamSlug, name)
+	if err != nil {
+		return nil, err
+	}
+	// Auto-create a default category so the project is immediately usable for pinning
+	prefs, _ := config.LoadPreferences()
+	catName := prefs.DefaultCategoryName
+	if catName == "" {
+		catName = "Ideas"
+	}
+	a.repo.CreateCategory(brandSlug, streamSlug, project.Slug, catName, 0)
+	return project, nil
 }
 
 func (a *App) ListProjects(brandSlug, streamSlug string) ([]model.Project, error) {
@@ -297,11 +367,34 @@ func (a *App) RenameProject(brandSlug, streamSlug, projectSlug, newName string) 
 	return project, nil
 }
 
+func (a *App) UpdateProjectDescription(brandSlug, streamSlug, projectSlug, description string) (*model.Project, error) {
+	description = repo.SanitizeText(description)
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.UpdateProjectDescription(brandSlug, streamSlug, projectSlug, description)
+}
+
 func (a *App) DeleteProject(brandSlug, streamSlug, projectSlug string) error {
 	if a.repo == nil {
 		return fmt.Errorf("no repository open")
 	}
-	return a.repo.DeleteProject(brandSlug, streamSlug, projectSlug)
+
+	// Before deleting, unpin all cards from this project's categories
+	// so they become orphaned (appear in inbox) instead of silently deleted.
+	cats, _ := a.repo.ListCategories(brandSlug, streamSlug, projectSlug)
+	for _, cat := range cats {
+		pins, _ := a.repo.ListCardsInCategory(cat.ID, cat.ID)
+		for _, p := range pins {
+			_ = a.repo.UnpinCard(p.CardID, p.ProjectID, p.CategoryID)
+		}
+	}
+
+	err := a.repo.DeleteProject(brandSlug, streamSlug, projectSlug)
+	if err == nil && a.idx != nil {
+		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
+	}
+	return err
 }
 
 // --- Category ---
@@ -336,11 +429,38 @@ func (a *App) RenameCategory(brandSlug, streamSlug, projectSlug, categorySlug, n
 	return cat, nil
 }
 
+func (a *App) UpdateCategoryDescription(brandSlug, streamSlug, projectSlug, categorySlug, description string) (*model.Category, error) {
+	description = repo.SanitizeText(description)
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.UpdateCategoryDescription(brandSlug, streamSlug, projectSlug, categorySlug, description)
+}
+
 func (a *App) DeleteCategory(brandSlug, streamSlug, projectSlug, categorySlug string) error {
 	if a.repo == nil {
 		return fmt.Errorf("no repository open")
 	}
-	return a.repo.DeleteCategory(brandSlug, streamSlug, projectSlug, categorySlug)
+	// Prevent deleting the last category in a project
+	cats, _ := a.repo.ListCategories(brandSlug, streamSlug, projectSlug)
+	if len(cats) <= 1 {
+		return fmt.Errorf("cannot delete the last category in a project")
+	}
+
+	// Unpin cards from this category so they become orphaned (inbox) instead of invisible
+	cat, err := a.repo.GetCategory(brandSlug, streamSlug, projectSlug, categorySlug)
+	if err == nil {
+		pins, _ := a.repo.ListCardsInCategory(cat.ID, cat.ID)
+		for _, p := range pins {
+			_ = a.repo.UnpinCard(p.CardID, p.ProjectID, p.CategoryID)
+		}
+	}
+
+	err = a.repo.DeleteCategory(brandSlug, streamSlug, projectSlug, categorySlug)
+	if err == nil && a.idx != nil {
+		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
+	}
+	return err
 }
 
 // UpdateCategoryAcceptedTypes sets which card types a category will accept.
@@ -570,7 +690,32 @@ func (a *App) UpdateCardTags(id string, tags []string) (*model.Card, error) {
 	if err == nil && a.idx != nil {
 		_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
 	}
+	// Sync new tags to all projects the card is pinned to
+	if err == nil {
+		a.syncTagsToAllPinnedProjects(id)
+	}
 	return card, err
+}
+
+// syncTagsToAllPinnedProjects ensures all tags on a card exist in every project it's pinned to.
+func (a *App) syncTagsToAllPinnedProjects(cardID string) {
+	card, err := a.repo.GetCard(cardID)
+	if err != nil || len(card.Tags) == 0 {
+		return
+	}
+	pins, err := a.repo.GetCardPins(cardID)
+	if err != nil || len(pins) == 0 {
+		return
+	}
+	// Sync to each unique project the card is pinned to
+	seen := make(map[string]bool)
+	for _, pin := range pins {
+		if seen[pin.CategoryID] {
+			continue
+		}
+		seen[pin.CategoryID] = true
+		a.syncCardTagsToProject(cardID, pin.CategoryID)
+	}
 }
 
 // UpdateCardDueDate sets or clears a card's due date (ISO 8601 string, or empty to clear).
@@ -795,19 +940,23 @@ func (a *App) GetProjectLocation(projectID string) (*CardLocation, error) {
 // CategoryPath describes a category's full position in the Brand > Stream > Project > Category
 // hierarchy. Used by the frontend PinPicker to display breadcrumb results.
 type CategoryPath struct {
-	BrandSlug       string `json:"brandSlug"`
-	StreamSlug      string `json:"streamSlug"`
-	ProjectSlug     string `json:"projectSlug"`
-	CategorySlug    string `json:"categorySlug"`
-	BrandName       string `json:"brandName"`
-	StreamName      string `json:"streamName"`
-	ProjectName     string `json:"projectName"`
-	CategoryName    string `json:"categoryName"`
-	ProjectID       string `json:"projectId"`
-	CategoryID      string `json:"categoryId"`
-	Breadcrumb      string   `json:"breadcrumb"`                 // e.g. "Mandela Daze / YouTube / Narratively Speaking / Episodes"
-	AcceptedTypes   []string `json:"acceptedTypes,omitempty"`    // which card types this category accepts; nil/empty = all
-	PinnedProjectID string   `json:"pinnedProjectId,omitempty"` // actual stored pin.ProjectID — set only by GetCardPinBreadcrumbs, used for UnpinCard
+	BrandSlug           string `json:"brandSlug"`
+	StreamSlug          string `json:"streamSlug"`
+	ProjectSlug         string `json:"projectSlug"`
+	CategorySlug        string `json:"categorySlug"`
+	BrandName           string `json:"brandName"`
+	StreamName          string `json:"streamName"`
+	ProjectName         string `json:"projectName"`
+	CategoryName        string `json:"categoryName"`
+	BrandDescription    string `json:"brandDescription,omitempty"`
+	StreamDescription   string `json:"streamDescription,omitempty"`
+	ProjectDescription  string `json:"projectDescription,omitempty"`
+	CategoryDescription string `json:"categoryDescription,omitempty"`
+	ProjectID           string   `json:"projectId"`
+	CategoryID          string   `json:"categoryId"`
+	Breadcrumb          string   `json:"breadcrumb"`                 // e.g. "Mandela Daze / YouTube / Narratively Speaking / Episodes"
+	AcceptedTypes       []string `json:"acceptedTypes,omitempty"`    // which card types this category accepts; nil/empty = all
+	PinnedProjectID     string   `json:"pinnedProjectId,omitempty"` // actual stored pin.ProjectID — set only by GetCardPinBreadcrumbs, used for UnpinCard
 }
 
 // ListAllCategories returns every category across the entire hierarchy with full breadcrumb info.
@@ -829,18 +978,22 @@ func (a *App) ListAllCategories() ([]CategoryPath, error) {
 				cats, _ := a.repo.ListCategories(b.Slug, s.Slug, p.Slug)
 				for _, c := range cats {
 					results = append(results, CategoryPath{
-						BrandSlug:     b.Slug,
-						StreamSlug:    s.Slug,
-						ProjectSlug:   p.Slug,
-						CategorySlug:  c.Slug,
-						BrandName:     b.Name,
-						StreamName:    s.Name,
-						ProjectName:   p.Name,
-						CategoryName:  c.Name,
-						ProjectID:     p.ID,
-						CategoryID:    c.ID,
-						Breadcrumb:    b.Name + " / " + s.Name + " / " + p.Name + " / " + c.Name,
-						AcceptedTypes: c.AcceptedTypes,
+						BrandSlug:           b.Slug,
+						StreamSlug:          s.Slug,
+						ProjectSlug:         p.Slug,
+						CategorySlug:        c.Slug,
+						BrandName:           b.Name,
+						StreamName:          s.Name,
+						ProjectName:         p.Name,
+						CategoryName:        c.Name,
+						BrandDescription:    b.Description,
+						StreamDescription:   s.Description,
+						ProjectDescription:  p.Description,
+						CategoryDescription: c.Description,
+						ProjectID:           p.ID,
+						CategoryID:          c.ID,
+						Breadcrumb:          b.Name + " / " + s.Name + " / " + p.Name + " / " + c.Name,
+						AcceptedTypes:       c.AcceptedTypes,
 					})
 				}
 			}
@@ -1312,4 +1465,914 @@ func (a *App) GetLLMConfig() (config.LLMConfig, error) {
 
 func (a *App) SetLLMConfig(c config.LLMConfig) error {
 	return config.SaveLLMConfig(c)
+}
+
+// --- Chat ---
+
+func (a *App) LoadChatHistory(cardID string) (*model.ChatFile, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.LoadChat(cardID)
+}
+
+func (a *App) SendChatMessage(cardID, userMessage string) (*model.ChatFile, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+
+	// 1. Save user message immediately
+	userMsg := model.ChatMessage{
+		ID:        uuid.New().String(),
+		Role:      model.RoleUser,
+		Content:   repo.SanitizeText(userMessage),
+		Timestamp: time.Now().UTC(),
+	}
+	cf, err := a.repo.AppendMessage(cardID, userMsg)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Load LLM config — if not configured, return with just user message
+	cfg, err := config.LoadLLMConfig()
+	if err != nil || cfg.Provider == "" {
+		return cf, nil
+	}
+
+	// 3. Create provider
+	provider, err := llm.NewProvider(cfg.Provider, cfg.APIKey, cfg.BaseURL)
+	if err != nil {
+		return cf, nil
+	}
+
+	// 4. Load card for context
+	card, err := a.repo.GetCard(cardID)
+	if err != nil {
+		return cf, nil
+	}
+
+	// 5. Build system prompt
+	systemPrompt := a.buildSystemPrompt(card, cfg)
+
+	// 6. Build tool definitions
+	cardTypes := []string{}
+	if a.registry != nil {
+		cardTypes = a.registry.List()
+	}
+	allCats, _ := a.ListAllCategories()
+	var catMaps []map[string]string
+	for _, c := range allCats {
+		catMaps = append(catMaps, map[string]string{
+			"id":         c.CategoryID,
+			"breadcrumb": c.Breadcrumb,
+		})
+	}
+	// Build tools with a card-specific set_fields definition
+	buildToolDefs := func(c *model.Card) []llm.ToolDef {
+		tools := llm.CardTools(cardTypes, catMaps)
+		// Replace the generic set_fields with a card-specific version
+		// that has explicit property names matching the card's actual blocks
+		if c != nil && len(c.Blocks) > 0 {
+			fieldProps := make(map[string]any)
+			for _, b := range c.Blocks {
+				if b.Key == "" {
+					continue
+				}
+				prop := map[string]any{"type": "string"}
+				if b.Meta != nil {
+					if desc, ok := b.Meta["description"].(string); ok && desc != "" {
+						prop["description"] = desc
+					}
+					if opts, ok := b.Meta["options"].([]string); ok && len(opts) > 0 {
+						prop["enum"] = opts
+					}
+					// Handle options as []any (from JSON unmarshaling)
+					if opts, ok := b.Meta["options"].([]any); ok && len(opts) > 0 {
+						prop["enum"] = opts
+					}
+				}
+				fieldProps[b.Key] = prop
+			}
+			if len(fieldProps) > 0 {
+				// Find and replace the generic set_fields tool
+				for i, t := range tools {
+					if t.Name == "set_fields" {
+						tools[i] = llm.ToolDef{
+							Name:        "set_fields",
+							Description: "Fill in field values on the card. ALWAYS call this to write content into fields.",
+							Parameters: map[string]any{
+								"type":       "object",
+								"properties": fieldProps,
+							},
+						}
+						break
+					}
+				}
+			}
+		}
+		return tools
+	}
+	toolDefs := buildToolDefs(card)
+
+	// 7. Convert chat history to LLM messages
+	var llmMessages []llm.Message
+	for _, m := range cf.Messages {
+		if m.Role == model.RoleUser || m.Role == model.RoleAssistant {
+			llmMessages = append(llmMessages, llm.Message{Role: m.Role, Content: m.Content})
+		}
+	}
+
+	// 8. Call LLM with tool loop (max 3 iterations)
+	modelName := cfg.Model
+	if modelName == "" {
+		modelName = defaultModelForProvider(cfg.Provider)
+	}
+	ctx, cancel := context.WithTimeout(a.ctx, 120*time.Second)
+	defer cancel()
+
+	var allToolActions []model.ToolAction
+	var pinSuggestion *model.PinSuggestion
+
+	for iteration := 0; iteration < 3; iteration++ {
+		resp, err := provider.ChatCompletion(ctx, llm.ChatRequest{
+			SystemPrompt: systemPrompt,
+			Messages:     llmMessages,
+			Model:        modelName,
+			Tools:        toolDefs,
+		})
+		if err != nil {
+			errMsg := model.ChatMessage{
+				ID:        uuid.New().String(),
+				Role:      model.RoleSystem,
+				Content:   "Error: " + err.Error(),
+				Timestamp: time.Now().UTC(),
+			}
+			cf, _ = a.repo.AppendMessage(cardID, errMsg)
+			return cf, nil
+		}
+
+		// No tool calls — final text response
+		if len(resp.ToolCalls) == 0 {
+			assistantMsg := model.ChatMessage{
+				ID:            uuid.New().String(),
+				Role:          model.RoleAssistant,
+				Content:       resp.Content,
+				Timestamp:     time.Now().UTC(),
+				ToolActions:   allToolActions,
+				PinSuggestion: pinSuggestion,
+			}
+			cf, _ = a.repo.AppendMessage(cardID, assistantMsg)
+			return cf, nil
+		}
+
+		// Process tool calls
+		// Add assistant message with tool calls to conversation
+		assistantLLMMsg := llm.Message{
+			Role:      model.RoleAssistant,
+			Content:   resp.Content,
+			ToolCalls: resp.ToolCalls,
+		}
+		llmMessages = append(llmMessages, assistantLLMMsg)
+
+		// Deduplicate tool calls within same response — same tool name = skip
+		seenCalls := make(map[string]bool)
+		for _, tc := range resp.ToolCalls {
+			if seenCalls[tc.Name] {
+				// Still need to send a tool result back to the LLM
+				llmMessages = append(llmMessages, llm.Message{
+					Role:       "tool",
+					Content:    "Skipped — duplicate call",
+					ToolCallID: tc.ID,
+				})
+				continue
+			}
+			seenCalls[tc.Name] = true
+			result, action, ps := a.executeToolCall(cardID, card, tc, allCats, cfg.AutoPin)
+			if action != nil {
+				allToolActions = append(allToolActions, *action)
+			}
+			if ps != nil {
+				pinSuggestion = ps
+			}
+			// Add tool result to conversation
+			llmMessages = append(llmMessages, llm.Message{
+				Role:       "tool",
+				Content:    result,
+				ToolCallID: tc.ID,
+			})
+		}
+
+		// Reload card after tool execution (it may have changed)
+		card, _ = a.repo.GetCard(cardID)
+		// Rebuild tool definitions in case type changed and blocks are different now
+		toolDefs = buildToolDefs(card)
+
+		// Check if set_fields was missed — nudge the LLM to fill empty fields
+		calledSetFields := false
+		for _, tc := range resp.ToolCalls {
+			if tc.Name == "set_fields" || tc.Name == "update_blocks" {
+				calledSetFields = true
+				break
+			}
+		}
+		if !calledSetFields && card != nil && len(card.Blocks) > 0 {
+			var emptyKeys []string
+			for _, b := range card.Blocks {
+				if b.Key != "" {
+					if v, ok := b.Value.(string); ok && v == "" {
+						emptyKeys = append(emptyKeys, b.Key)
+					}
+				}
+			}
+			if len(emptyKeys) > 0 {
+				llmMessages = append(llmMessages, llm.Message{
+					Role:    model.RoleUser,
+					Content: fmt.Sprintf("[System: The card has empty fields that need content: %s. Use set_fields to fill them based on the conversation.]", strings.Join(emptyKeys, ", ")),
+				})
+			}
+		}
+
+		// Nudge for pin if not yet pinned and suggest_pin wasn't called
+		calledPin := false
+		for _, tc := range resp.ToolCalls {
+			if tc.Name == "suggest_pin" {
+				calledPin = true
+				break
+			}
+		}
+		if !calledPin && pinSuggestion == nil {
+			existingPins, _ := a.repo.GetCardPins(cardID)
+			if len(existingPins) == 0 {
+				llmMessages = append(llmMessages, llm.Message{
+					Role:    model.RoleUser,
+					Content: "[System: This card has no pin location yet. Use suggest_pin to pin it to the best-fit category.]",
+				})
+			}
+		}
+	}
+
+	// Max iterations reached — save what we have
+	assistantMsg := model.ChatMessage{
+		ID:            uuid.New().String(),
+		Role:          model.RoleAssistant,
+		Content:       "I've made the changes to your card.",
+		Timestamp:     time.Now().UTC(),
+		ToolActions:   allToolActions,
+		PinSuggestion: pinSuggestion,
+	}
+	cf, _ = a.repo.AppendMessage(cardID, assistantMsg)
+	return cf, nil
+}
+
+// executeToolCall runs a single tool and returns (result string, action record, pin suggestion).
+func (a *App) executeToolCall(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath, autoPinMode string) (string, *model.ToolAction, *model.PinSuggestion) {
+	switch tc.Name {
+	case "set_title":
+		title, _ := tc.Arguments["title"].(string)
+		if title == "" {
+			return "error: title is required", nil, nil
+		}
+		if card != nil && card.Title == title {
+			return "Title is already " + title + " — no change needed", nil, nil
+		}
+		_, err := a.UpdateCardTitle(cardID, title)
+		if err != nil {
+			return "error: " + err.Error(), nil, nil
+		}
+		action := &model.ToolAction{Tool: "set_title", Input: tc.Arguments, Result: "Title set to " + title}
+		return "Card title set to " + title, action, nil
+
+	case "set_due_date":
+		dueDate, _ := tc.Arguments["due_date"].(string)
+		if dueDate != "" && card != nil && card.DueDate != nil && card.DueDate.Format("2006-01-02") == dueDate {
+			return "Due date is already " + dueDate + " — no change needed", nil, nil
+		}
+		_, err := a.UpdateCardDueDate(cardID, dueDate)
+		if err != nil {
+			return "error: " + err.Error(), nil, nil
+		}
+		result := "Due date cleared"
+		if dueDate != "" {
+			result = "Due date set to " + dueDate
+		}
+		action := &model.ToolAction{Tool: "set_due_date", Input: tc.Arguments, Result: result}
+		return result, action, nil
+
+	case "set_card_type":
+		cardType, _ := tc.Arguments["card_type"].(string)
+		if cardType == "" {
+			return "error: card_type is required", nil, nil
+		}
+		if card != nil && card.Type == cardType {
+			return "Type is already " + cardType + " — no change needed. Use update_blocks to fill in block values.", nil, nil
+		}
+		_, err := a.UpdateCardType(cardID, cardType)
+		if err != nil {
+			return "error: " + err.Error(), nil, nil
+		}
+		// Apply the schema blocks to the card, preserving existing content
+		if a.registry != nil {
+			schemaBlocks := a.registry.SchemaToBlocks(cardType)
+			if len(schemaBlocks) > 0 {
+				existingCard, _ := a.repo.GetCard(cardID)
+				if existingCard != nil && len(existingCard.Blocks) > 0 {
+					// Index existing blocks by key
+					existingByKey := make(map[string]model.Block)
+					for _, b := range existingCard.Blocks {
+						if b.Key != "" {
+							existingByKey[b.Key] = b
+						}
+					}
+					// Merge existing values into schema blocks
+					schemaKeys := make(map[string]bool)
+					for i, b := range schemaBlocks {
+						schemaKeys[b.Key] = true
+						if existing, ok := existingByKey[b.Key]; ok {
+							schemaBlocks[i].Value = existing.Value
+						}
+					}
+					// Append truly user-added blocks (no Key = manually added by user)
+					// Blocks with a Key that doesn't match the new schema are from the OLD
+					// type's schema and should be dropped during type change.
+					for _, b := range existingCard.Blocks {
+						if b.Key == "" {
+							schemaBlocks = append(schemaBlocks, b)
+						}
+					}
+				}
+				a.UpdateCardBlocks(cardID, schemaBlocks)
+			}
+		}
+		// Build a helpful result listing available block keys
+		resultMsg := "Card type set to " + cardType + ". "
+		updatedCard, _ := a.repo.GetCard(cardID)
+		if updatedCard != nil && len(updatedCard.Blocks) > 0 {
+			var blockKeys []string
+			for _, b := range updatedCard.Blocks {
+				if b.Key != "" {
+					blockKeys = append(blockKeys, b.Key)
+				}
+			}
+			if len(blockKeys) > 0 {
+				resultMsg += "NOW call set_fields to fill these field keys: " + strings.Join(blockKeys, ", ")
+			}
+		}
+		action := &model.ToolAction{Tool: "set_card_type", Input: tc.Arguments, Result: "Set type to " + cardType}
+		return resultMsg, action, nil
+
+	case "set_fields", "update_blocks":
+		// Accept nested "fields"/"blocks" key OR flat top-level arguments
+		// (dynamic tool schema puts block keys at the top level)
+		fieldsMap, _ := tc.Arguments["fields"].(map[string]any)
+		if len(fieldsMap) == 0 {
+			fieldsMap, _ = tc.Arguments["blocks"].(map[string]any)
+		}
+		if len(fieldsMap) == 0 {
+			// Try flat arguments: the dynamic schema puts block keys directly in tc.Arguments
+			currentCard2, err2 := a.repo.GetCard(cardID)
+			if err2 == nil {
+				blockKeys := make(map[string]bool)
+				for _, b := range currentCard2.Blocks {
+					if b.Key != "" {
+						blockKeys[b.Key] = true
+					}
+				}
+				flat := make(map[string]any)
+				for k, v := range tc.Arguments {
+					if blockKeys[k] {
+						flat[k] = v
+					}
+				}
+				if len(flat) > 0 {
+					fieldsMap = flat
+				}
+			}
+		}
+		if len(fieldsMap) == 0 {
+			return "error: fields map is empty", nil, nil
+		}
+		currentCard, err := a.repo.GetCard(cardID)
+		if err != nil {
+			return "error: " + err.Error(), nil, nil
+		}
+		updated := false
+		var updatedKeys []string
+		for i, b := range currentCard.Blocks {
+			if val, ok := fieldsMap[b.Key]; ok {
+				currentCard.Blocks[i].Value = val
+				updated = true
+				updatedKeys = append(updatedKeys, b.Key)
+			}
+		}
+		if !updated {
+			var available []string
+			for _, b := range currentCard.Blocks {
+				if b.Key != "" {
+					available = append(available, b.Key)
+				}
+			}
+			return "error: no matching field keys found. Available keys: " + strings.Join(available, ", "), nil, nil
+		}
+		a.UpdateCardBlocks(cardID, currentCard.Blocks)
+		result := "Updated fields: " + strings.Join(updatedKeys, ", ")
+		action := &model.ToolAction{Tool: "set_fields", Input: tc.Arguments, Result: result}
+		return result, action, nil
+
+	case "add_tags":
+		tagsRaw, _ := tc.Arguments["tags"].([]any)
+		if len(tagsRaw) == 0 {
+			return "error: tags array is empty", nil, nil
+		}
+		var newTags []string
+		for _, t := range tagsRaw {
+			if s, ok := t.(string); ok && s != "" {
+				newTags = append(newTags, s)
+			}
+		}
+		currentCard, err := a.repo.GetCard(cardID)
+		if err != nil {
+			return "error: " + err.Error(), nil, nil
+		}
+		existing := make(map[string]bool)
+		for _, t := range currentCard.Tags {
+			existing[strings.ToLower(t)] = true
+		}
+		merged := currentCard.Tags
+		var added []string
+		for _, t := range newTags {
+			if !existing[strings.ToLower(t)] {
+				merged = append(merged, t)
+				existing[strings.ToLower(t)] = true
+				added = append(added, t)
+			}
+		}
+		if len(added) > 0 {
+			a.UpdateCardTags(cardID, merged)
+		}
+		result := "Added tags: " + strings.Join(added, ", ")
+		action := &model.ToolAction{Tool: "add_tags", Input: tc.Arguments, Result: result}
+		return result, action, nil
+
+	case "suggest_pin":
+		catID, _ := tc.Arguments["category_id"].(string)
+		reason, _ := tc.Arguments["reason"].(string)
+
+		var catName, breadcrumb string
+
+		if catID != "" {
+			// Existing category — look it up
+			for _, c := range allCats {
+				if c.CategoryID == catID {
+					catName = c.CategoryName
+					breadcrumb = c.Breadcrumb
+					break
+				}
+			}
+			if catName == "" {
+				return "error: category not found", nil, nil
+			}
+		} else {
+			// Create new hierarchy from brand/stream/project/category names
+			brandName, _ := tc.Arguments["brand"].(string)
+			streamName, _ := tc.Arguments["stream"].(string)
+			projectName, _ := tc.Arguments["project"].(string)
+			categoryName, _ := tc.Arguments["category"].(string)
+			if brandName == "" || streamName == "" || projectName == "" || categoryName == "" {
+				return "error: provide either category_id OR all of brand, stream, project, category names", nil, nil
+			}
+			resolvedCatID, resolvedBreadcrumb, err := a.resolveOrCreateHierarchy(brandName, streamName, projectName, categoryName)
+			if err != nil {
+				return "error creating hierarchy: " + err.Error(), nil, nil
+			}
+			catID = resolvedCatID
+			catName = categoryName
+			breadcrumb = resolvedBreadcrumb
+		}
+
+		// Check if card is already pinned to this category — skip if duplicate
+		existingPins, _ := a.repo.GetCardPins(cardID)
+		for _, p := range existingPins {
+			if p.CategoryID == catID {
+				return "Card is already pinned to " + breadcrumb, nil, nil
+			}
+		}
+
+		// Auto-pin mode: pin directly without user confirmation
+		if autoPinMode == "auto" {
+			// Pin convention: projectID == categoryID
+			if err := a.PinCard(cardID, catID, catID); err != nil {
+				return "error pinning card: " + err.Error(), nil, nil
+			}
+			ps := &model.PinSuggestion{
+				CategoryID:   catID,
+				CategoryName: catName,
+				Breadcrumb:   breadcrumb,
+				Reason:       reason,
+				Status:       "accepted",
+			}
+			action := &model.ToolAction{Tool: "suggest_pin", Input: tc.Arguments, Result: "Pinned to " + breadcrumb}
+			return "Card pinned to " + breadcrumb, action, ps
+		}
+
+		// Suggest mode: create suggestion for user to accept/reject
+		ps := &model.PinSuggestion{
+			CategoryID:   catID,
+			CategoryName: catName,
+			Breadcrumb:   breadcrumb,
+			Reason:       reason,
+			Status:       "pending",
+		}
+		action := &model.ToolAction{Tool: "suggest_pin", Input: tc.Arguments, Result: "Suggested pin to " + breadcrumb}
+		return "Pin suggestion created for " + breadcrumb, action, ps
+
+	default:
+		return "error: unknown tool " + tc.Name, nil, nil
+	}
+}
+
+// resolveOrCreateHierarchy finds or creates brand/stream/project/category by name.
+// Returns (categoryID, breadcrumb, error).
+func (a *App) resolveOrCreateHierarchy(brandName, streamName, projectName, categoryName string) (string, string, error) {
+	// Check if provided names match an existing category path.
+	// The LLM sometimes scrambles the hierarchy order (e.g. puts card title as brand),
+	// so we check if any existing path contains all provided names regardless of position.
+	allCats, _ := a.ListAllCategories()
+	inputNames := []string{brandName, streamName, projectName, categoryName}
+
+	// Exact positional match first (brand=brand, stream=stream, etc.)
+	for _, c := range allCats {
+		if strings.EqualFold(c.BrandName, brandName) &&
+			strings.EqualFold(c.StreamName, streamName) &&
+			strings.EqualFold(c.ProjectName, projectName) &&
+			strings.EqualFold(c.CategoryName, categoryName) {
+			return c.CategoryID, c.Breadcrumb, nil
+		}
+	}
+
+	// Fuzzy match: if >=3 of the 4 provided names appear somewhere in an existing path
+	// (regardless of position), use that path instead of creating new hierarchy
+	for _, c := range allCats {
+		pathNames := []string{c.BrandName, c.StreamName, c.ProjectName, c.CategoryName}
+		matches := 0
+		for _, input := range inputNames {
+			for _, pn := range pathNames {
+				if strings.EqualFold(input, pn) {
+					matches++
+					break
+				}
+			}
+		}
+		if matches >= 3 {
+			return c.CategoryID, c.Breadcrumb, nil
+		}
+	}
+
+	// 1. Find or create brand
+	brandSlug := ""
+	brands, _ := a.ListBrands()
+	for _, b := range brands {
+		if strings.EqualFold(b.Name, brandName) {
+			brandSlug = b.Slug
+			brandName = b.Name // use canonical name
+			break
+		}
+	}
+	if brandSlug == "" {
+		b, err := a.CreateBrand(brandName)
+		if err != nil {
+			return "", "", fmt.Errorf("creating brand %q: %w", brandName, err)
+		}
+		brandSlug = b.Slug
+	}
+
+	// 2. Find or create stream
+	streamSlug := ""
+	streams, _ := a.ListStreams(brandSlug)
+	for _, s := range streams {
+		if strings.EqualFold(s.Name, streamName) {
+			streamSlug = s.Slug
+			streamName = s.Name
+			break
+		}
+	}
+	if streamSlug == "" {
+		s, err := a.CreateStream(brandSlug, streamName)
+		if err != nil {
+			return "", "", fmt.Errorf("creating stream %q: %w", streamName, err)
+		}
+		streamSlug = s.Slug
+	}
+
+	// 3. Find or create project
+	projectSlug := ""
+	projects, _ := a.ListProjects(brandSlug, streamSlug)
+	for _, p := range projects {
+		if strings.EqualFold(p.Name, projectName) {
+			projectSlug = p.Slug
+			projectName = p.Name
+			break
+		}
+	}
+	if projectSlug == "" {
+		p, err := a.CreateProject(brandSlug, streamSlug, projectName)
+		if err != nil {
+			return "", "", fmt.Errorf("creating project %q: %w", projectName, err)
+		}
+		projectSlug = p.Slug
+	}
+
+	// 4. Find or create category
+	var catID string
+	cats, _ := a.ListCategories(brandSlug, streamSlug, projectSlug)
+	for _, c := range cats {
+		if strings.EqualFold(c.Name, categoryName) {
+			catID = c.ID
+			categoryName = c.Name
+			break
+		}
+	}
+	if catID == "" {
+		c, err := a.CreateCategory(brandSlug, streamSlug, projectSlug, categoryName, len(cats))
+		if err != nil {
+			return "", "", fmt.Errorf("creating category %q: %w", categoryName, err)
+		}
+		catID = c.ID
+	}
+
+	breadcrumb := brandName + " / " + streamName + " / " + projectName + " / " + categoryName
+	return catID, breadcrumb, nil
+}
+
+// AcceptPinSuggestion accepts a pending pin suggestion on a chat message and performs the pin.
+func (a *App) AcceptPinSuggestion(cardID, messageID string) error {
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
+	cf, err := a.repo.LoadChat(cardID)
+	if err != nil {
+		return err
+	}
+	for i, m := range cf.Messages {
+		if m.ID == messageID && m.PinSuggestion != nil && m.PinSuggestion.Status == "pending" {
+			// Pin convention: projectID == categoryID
+			if err := a.PinCard(cardID, m.PinSuggestion.CategoryID, m.PinSuggestion.CategoryID); err != nil {
+				return err
+			}
+			cf.Messages[i].PinSuggestion.Status = "accepted"
+			return a.repo.SaveChat(cf)
+		}
+	}
+	return fmt.Errorf("pin suggestion not found or already resolved")
+}
+
+// RejectPinSuggestion dismisses a pending pin suggestion on a chat message.
+func (a *App) RejectPinSuggestion(cardID, messageID string) error {
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
+	cf, err := a.repo.LoadChat(cardID)
+	if err != nil {
+		return err
+	}
+	for i, m := range cf.Messages {
+		if m.ID == messageID && m.PinSuggestion != nil && m.PinSuggestion.Status == "pending" {
+			cf.Messages[i].PinSuggestion.Status = "rejected"
+			return a.repo.SaveChat(cf)
+		}
+	}
+	return fmt.Errorf("pin suggestion not found or already resolved")
+}
+
+func (a *App) IsLLMConfigured() bool {
+	cfg, err := config.LoadLLMConfig()
+	if err != nil {
+		return false
+	}
+	return cfg.Provider != ""
+}
+
+func (a *App) TestLLMConnection() (string, error) {
+	cfg, err := config.LoadLLMConfig()
+	if err != nil {
+		return "", err
+	}
+	if cfg.Provider == "" {
+		return "", fmt.Errorf("no provider configured")
+	}
+	provider, err := llm.NewProvider(cfg.Provider, cfg.APIKey, cfg.BaseURL)
+	if err != nil {
+		return "", err
+	}
+	modelName := cfg.Model
+	if modelName == "" {
+		modelName = defaultModelForProvider(cfg.Provider)
+	}
+	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+	defer cancel()
+	resp, err := provider.ChatCompletion(ctx, llm.ChatRequest{
+		SystemPrompt: "You are a test. Reply with exactly: OK",
+		Messages:     []llm.Message{{Role: "user", Content: "Hello"}},
+		Model:        modelName,
+	})
+	if err != nil {
+		return "", err
+	}
+	return resp.Model, nil
+}
+
+func defaultModelForProvider(provider string) string {
+	switch provider {
+	case "openai":
+		return "gpt-4o"
+	case "anthropic":
+		return "claude-sonnet-4-20250514"
+	case "ollama":
+		return "llama3"
+	default:
+		return ""
+	}
+}
+
+func (a *App) buildSystemPrompt(card *model.Card, cfg config.LLMConfig) string {
+	var parts []string
+
+	parts = append(parts, fmt.Sprintf(`You are BRUV AI, a card organizer. Today is %s.
+
+RULES:
+- On the FIRST message, call ALL applicable tools at once: type, title, fields, tags, AND pin. Do not wait for follow-up messages.
+- NEVER call a tool if the value is already correct (check current card state below).
+- NEVER call the same tool twice in one response.
+- After using tools, briefly describe what you changed.
+
+TOOLS:
+- set_card_type — Pick the best type. Only if type is not set or wrong.
+- set_fields — Fill field values with real content from the user's message. ALWAYS call this when fields are empty.
+- set_title — Write a clear, specific title. Only if title is "New Card" or generic.
+- set_due_date — YYYY-MM-DD format. Resolve relative dates from today (%s).
+- suggest_pin — ALWAYS pin the card. STRONGLY prefer an existing category_id from the list below. The hierarchy is: Brand > Stream > Project > Category (e.g. "Big Ideas / YouTube Channels / Channel Brainstorm / Ideas"). Do NOT use the card title as a brand name. Only create new names if NOTHING existing fits.
+- add_tags — Add relevant tags. Prefer existing project tags listed below, but you may create new short, descriptive tags if none fit.`, time.Now().Format("2006-01-02 (Monday)"), time.Now().Format("2006-01-02")))
+
+	if cfg.Context != "" {
+		parts = append(parts, "User context:\n"+cfg.Context)
+	}
+
+	// Available card types with their schemas
+	if a.registry != nil {
+		typeNames := a.registry.List()
+		if len(typeNames) > 0 {
+			var typeDescs []string
+			for _, tn := range typeNames {
+				s := a.registry.Get(tn)
+				if s == nil {
+					continue
+				}
+				desc := fmt.Sprintf("- %s: %s", tn, s.Description)
+				var fields []string
+				for key, prop := range s.Properties {
+					f := key
+					if prop.Description != "" {
+						f += " (" + prop.Description + ")"
+					}
+					if len(prop.Enum) > 0 {
+						f += " [" + strings.Join(prop.Enum, "/") + "]"
+					}
+					fields = append(fields, f)
+				}
+				if len(fields) > 0 {
+					desc += "\n  Fields: " + strings.Join(fields, ", ")
+				}
+				typeDescs = append(typeDescs, desc)
+			}
+			parts = append(parts, "Available card types:\n"+strings.Join(typeDescs, "\n"))
+		}
+	}
+
+	// Card context (always included)
+	var cardParts []string
+	cardParts = append(cardParts, fmt.Sprintf("Current card: %q", card.Title))
+	if card.Type != "" {
+		cardParts = append(cardParts, fmt.Sprintf("Type: %s", card.Type))
+	} else {
+		cardParts = append(cardParts, "Type: (not set)")
+	}
+	if len(card.Tags) > 0 {
+		cardParts = append(cardParts, fmt.Sprintf("Tags: %s", strings.Join(card.Tags, ", ")))
+	}
+	if card.DueDate != nil {
+		cardParts = append(cardParts, fmt.Sprintf("Due: %s", card.DueDate.Format("2006-01-02")))
+	}
+	// Include ALL fields — show empty ones so the LLM knows to fill them
+	var emptyFields []string
+	for _, b := range card.Blocks {
+		label := b.Label
+		if label == "" {
+			label = b.Key
+		}
+		if label == "" {
+			continue
+		}
+		if v, ok := b.Value.(string); ok && v != "" {
+			cardParts = append(cardParts, fmt.Sprintf("Field [%s]: %s", b.Key, v))
+		} else if v, ok := b.Value.(string); ok && v == "" {
+			cardParts = append(cardParts, fmt.Sprintf("Field [%s]: (EMPTY — needs content)", b.Key))
+			emptyFields = append(emptyFields, b.Key)
+		} else if b.Value != nil {
+			cardParts = append(cardParts, fmt.Sprintf("Field [%s]: %v", b.Key, b.Value))
+		}
+	}
+	if len(emptyFields) > 0 {
+		cardParts = append(cardParts, fmt.Sprintf(">>> EMPTY FIELDS that need content: %s — use set_fields to fill them!", strings.Join(emptyFields, ", ")))
+	}
+	parts = append(parts, strings.Join(cardParts, "\n"))
+
+	// Hierarchy context based on ContextLevel
+	level := card.ContextLevel
+	if level == "" {
+		level = model.ContextProject
+	}
+	if level == model.ContextIsolated || a.repo == nil {
+		return strings.Join(parts, "\n\n")
+	}
+
+	// Always show categories for pin suggestions — include descriptions for context
+	allCats, _ := a.ListAllCategories()
+	if len(allCats) > 0 {
+		var catDescs []string
+		for _, c := range allCats {
+			desc := fmt.Sprintf("- %s (id: %s)", c.Breadcrumb, c.CategoryID)
+			if len(c.AcceptedTypes) > 0 {
+				desc += " [accepts: " + strings.Join(c.AcceptedTypes, ", ") + "]"
+			}
+			// Append any descriptions to help the LLM understand what this location is for
+			var descs []string
+			if c.BrandDescription != "" {
+				descs = append(descs, c.BrandName+": "+c.BrandDescription)
+			}
+			if c.StreamDescription != "" {
+				descs = append(descs, c.StreamName+": "+c.StreamDescription)
+			}
+			if c.ProjectDescription != "" {
+				descs = append(descs, c.ProjectName+": "+c.ProjectDescription)
+			}
+			if c.CategoryDescription != "" {
+				descs = append(descs, c.CategoryName+": "+c.CategoryDescription)
+			}
+			if len(descs) > 0 {
+				desc += "\n  " + strings.Join(descs, " | ")
+			}
+			catDescs = append(catDescs, desc)
+		}
+		parts = append(parts, "Available categories for pinning (PREFER these — only create new if none fit):\n"+strings.Join(catDescs, "\n"))
+	} else {
+		parts = append(parts, "No categories exist yet. Use suggest_pin with brand/stream/project/category names to create a new location.")
+	}
+
+	// Collect existing project tags so the AI prefers them over inventing new ones
+	projectTags := a.collectProjectTags(allCats)
+	if len(projectTags) > 0 {
+		parts = append(parts, "Existing tags (prefer these, or create short new ones if none fit):\n"+strings.Join(projectTags, "\n"))
+	}
+
+	// Brand context for pinned cards
+	pins, _ := a.repo.GetCardPins(card.ID)
+	if len(pins) > 0 && (level == model.ContextBrand || level == model.ContextGlobal) {
+		loc, err := a.GetCardLocation(card.ID)
+		if err == nil {
+			brand, err := a.repo.GetBrand(loc.BrandSlug)
+			if err == nil && brand.SystemPrompt != "" {
+				parts = append(parts, "Brand instructions:\n"+brand.SystemPrompt)
+			}
+		}
+	}
+
+	return strings.Join(parts, "\n\n")
+}
+
+// collectProjectTags gathers all unique tags from all projects, grouped by project.
+func (a *App) collectProjectTags(allCats []CategoryPath) []string {
+	if a.repo == nil {
+		return nil
+	}
+	// Deduplicate projects (multiple categories share the same project)
+	type projectKey struct{ brand, stream, project string }
+	seen := make(map[projectKey]bool)
+	var results []string
+
+	for _, c := range allCats {
+		pk := projectKey{c.BrandSlug, c.StreamSlug, c.ProjectSlug}
+		if seen[pk] {
+			continue
+		}
+		seen[pk] = true
+		labels, err := a.repo.GetProjectLabels(c.BrandSlug, c.StreamSlug, c.ProjectSlug)
+		if err != nil || len(labels) == 0 {
+			continue
+		}
+		var tagNames []string
+		for _, l := range labels {
+			tagNames = append(tagNames, l.Name)
+		}
+		results = append(results, fmt.Sprintf("- %s / %s / %s: %s", c.BrandName, c.StreamName, c.ProjectName, strings.Join(tagNames, ", ")))
+	}
+	return results
 }

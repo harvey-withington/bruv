@@ -160,6 +160,20 @@ func (r *Repository) RenameCategory(brandSlug, streamSlug, projectSlug, category
 	return category, nil
 }
 
+// UpdateCategoryDescription sets or clears the description on a Category.
+func (r *Repository) UpdateCategoryDescription(brandSlug, streamSlug, projectSlug, categorySlug, description string) (*model.Category, error) {
+	cat, err := r.GetCategory(brandSlug, streamSlug, projectSlug, categorySlug)
+	if err != nil {
+		return nil, err
+	}
+	cat.Description = description
+	cat.UpdatedAt = time.Now().UTC()
+	if err := writeJSON(r.categoryFilePath(brandSlug, streamSlug, projectSlug, categorySlug), cat); err != nil {
+		return nil, fmt.Errorf("write category: %w", err)
+	}
+	return cat, nil
+}
+
 // DeleteCategory removes a Category.
 func (r *Repository) DeleteCategory(brandSlug, streamSlug, projectSlug, categorySlug string) error {
 	path := r.categoryFilePath(brandSlug, streamSlug, projectSlug, categorySlug)

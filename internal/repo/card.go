@@ -111,6 +111,9 @@ func (r *Repository) DeleteCard(id string) error {
 		}
 	}
 
+	// Remove chat file if it exists
+	_ = os.Remove(r.chatFilePath(id))
+
 	return nil
 }
 

@@ -149,6 +149,10 @@ func (r *Repository) cardFilePath(id string) string {
 	return filepath.Join(r.Root, cardsDir, id+".json")
 }
 
+func (r *Repository) chatFilePath(cardID string) string {
+	return filepath.Join(r.Root, cardsDir, cardID+".messages.json")
+}
+
 func (r *Repository) pinsDirPath(cardID string) string {
 	return filepath.Join(r.Root, pinsDir, cardID)
 }

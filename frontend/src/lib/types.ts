@@ -19,6 +19,11 @@ export type AuthInfo = {
 // --- LLM: AI-specific configuration (grows independently) ---
 export type LLMConfig = {
   context: string
+  provider: string
+  model: string
+  api_key: string
+  base_url: string
+  auto_pin: string
 }
 
 // --- Backend capabilities ---
@@ -163,6 +168,18 @@ export interface BackendAdapter {
   ListCardIDsInCategory(projectID: string, categoryID: string): Promise<string[]>
   ListOrphanedCardIDs(): Promise<string[]>
   ListCardIDsByTag(tag: string): Promise<string[]>
+
+  // Chat
+  LoadChatHistory(cardID: string): Promise<any>
+  SendChatMessage(cardID: string, userMessage: string): Promise<any>
+
+  // LLM utilities
+  IsLLMConfigured(): Promise<boolean>
+  TestLLMConnection(): Promise<string>
+
+  // Pin suggestions (from AI)
+  AcceptPinSuggestion(cardID: string, messageID: string): Promise<void>
+  RejectPinSuggestion(cardID: string, messageID: string): Promise<void>
 
   // User preferences
   GetPreferences(): Promise<any>

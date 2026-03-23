@@ -17,7 +17,6 @@
   } = $props()
 
   let allCategories = $state<CategoryPath[]>([])
-  let categoriesLoaded = $state(false)
   let loading = $state(false)
   let query = $state('')
   let items = $state<CategoryPath[]>([])
@@ -30,7 +29,7 @@
       query = ''
       items = []
       selectedIndex = 0
-      if (!categoriesLoaded) loadCategories()
+      loadCategories()
       setTimeout(() => inputEl?.focus(), 0)
     }
   })
@@ -39,7 +38,6 @@
     loading = true
     try {
       allCategories = await ListAllCategories() || []
-      categoriesLoaded = true
     } catch (e) {
       console.error('PinPicker: failed to load categories', e)
     }

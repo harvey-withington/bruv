@@ -12,8 +12,9 @@ type Preferences struct {
 	Theme               string `json:"theme"`  // "dark", "light", "system"
 	Locale              string `json:"locale"` // e.g. "en", "es"
 	ConfirmBeforeDelete bool   `json:"confirm_before_delete"`
-	SidebarWidth        int    `json:"sidebar_width"`
-	TypeBadgeDisplay    string `json:"type_badge_display"` // "text", "color", "hidden"
+	SidebarWidth          int    `json:"sidebar_width"`
+	TypeBadgeDisplay      string `json:"type_badge_display"`       // "text", "color", "hidden"
+	DefaultCategoryName   string `json:"default_category_name"`    // auto-created when a project is made
 }
 
 // DefaultPreferences returns sensible defaults.
@@ -23,8 +24,9 @@ func DefaultPreferences() Preferences {
 		Theme:               "dark",
 		Locale:              "en",
 		ConfirmBeforeDelete: true,
-		SidebarWidth:        260,
-		TypeBadgeDisplay:    "text",
+		SidebarWidth:          260,
+		TypeBadgeDisplay:      "text",
+		DefaultCategoryName:   "Ideas",
 	}
 }
 

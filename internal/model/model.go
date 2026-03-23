@@ -15,6 +15,7 @@ type Brand struct {
 	ID           string    `json:"id"`
 	Name         string    `json:"name"`
 	Slug         string    `json:"slug"`
+	Description  string    `json:"description,omitempty"`
 	Logo         string    `json:"logo,omitempty"`
 	Website      string    `json:"website,omitempty"`
 	SystemPrompt string    `json:"system_prompt,omitempty"`
@@ -25,25 +26,27 @@ type Brand struct {
 
 // Stream is an ongoing series or work track within a Brand.
 type Stream struct {
-	ID        string    `json:"id"`
-	BrandID   string    `json:"brand_id"`
-	Name      string    `json:"name"`
-	Slug      string    `json:"slug"`
-	Position  int       `json:"position"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID          string    `json:"id"`
+	BrandID     string    `json:"brand_id"`
+	Name        string    `json:"name"`
+	Slug        string    `json:"slug"`
+	Description string    `json:"description,omitempty"`
+	Position    int       `json:"position"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // Project is a discrete body of work within a Stream, analogous to a Trello board.
 type Project struct {
-	ID        string    `json:"id"`
-	StreamID  string    `json:"stream_id"`
-	BrandID   string    `json:"brand_id"`
-	Name      string    `json:"name"`
-	Slug      string    `json:"slug"`
-	Position  int       `json:"position"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID          string    `json:"id"`
+	StreamID    string    `json:"stream_id"`
+	BrandID     string    `json:"brand_id"`
+	Name        string    `json:"name"`
+	Slug        string    `json:"slug"`
+	Description string    `json:"description,omitempty"`
+	Position    int       `json:"position"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // Category is a workflow stage within a Project, analogous to a Trello list.
@@ -52,6 +55,7 @@ type Category struct {
 	ProjectID     string    `json:"project_id"`
 	Name          string    `json:"name"`
 	Slug          string    `json:"slug"`
+	Description   string    `json:"description,omitempty"`
 	Position      int       `json:"position"`
 	AcceptedTypes []string  `json:"accepted_types,omitempty"` // nil/empty = all card types accepted
 	CreatedAt     time.Time `json:"created_at"`
@@ -141,4 +145,43 @@ type Pin struct {
 type PinFile struct {
 	CardID string `json:"card_id"`
 	Pins   []Pin  `json:"pins"`
+}
+
+// Chat role constants.
+const (
+	RoleUser      = "user"
+	RoleAssistant = "assistant"
+	RoleSystem    = "system"
+)
+
+// ToolAction records a tool call the AI made and what happened.
+type ToolAction struct {
+	Tool   string `json:"tool"`             // tool name (set_card_type, update_blocks, add_tags, suggest_pin)
+	Input  any    `json:"input"`            // arguments the AI passed
+	Result string `json:"result,omitempty"` // brief outcome description
+}
+
+// PinSuggestion is a pending suggestion to pin the card to a category.
+type PinSuggestion struct {
+	CategoryID   string `json:"category_id"`
+	CategoryName string `json:"category_name"`
+	Breadcrumb   string `json:"breadcrumb"`
+	Reason       string `json:"reason"`
+	Status       string `json:"status"` // "pending", "accepted", "rejected"
+}
+
+// ChatMessage is a single message in a card's chat history.
+type ChatMessage struct {
+	ID            string          `json:"id"`
+	Role          string          `json:"role"`
+	Content       string          `json:"content"`
+	Timestamp     time.Time       `json:"timestamp"`
+	ToolActions   []ToolAction    `json:"tool_actions,omitempty"`
+	PinSuggestion *PinSuggestion  `json:"pin_suggestion,omitempty"`
+}
+
+// ChatFile is the on-disk format for cards/<card-uuid>.messages.json.
+type ChatFile struct {
+	CardID   string        `json:"card_id"`
+	Messages []ChatMessage `json:"messages"`
 }

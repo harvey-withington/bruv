@@ -162,6 +162,20 @@ func (r *Repository) RenameProject(brandSlug, streamSlug, projectSlug, newName s
 	return project, nil
 }
 
+// UpdateProjectDescription sets or clears the description on a Project.
+func (r *Repository) UpdateProjectDescription(brandSlug, streamSlug, projectSlug, description string) (*model.Project, error) {
+	project, err := r.GetProject(brandSlug, streamSlug, projectSlug)
+	if err != nil {
+		return nil, err
+	}
+	project.Description = description
+	project.UpdatedAt = time.Now().UTC()
+	if err := writeJSON(r.projectFilePath(brandSlug, streamSlug, projectSlug), project); err != nil {
+		return nil, fmt.Errorf("write project: %w", err)
+	}
+	return project, nil
+}
+
 // DeleteProject removes a Project and all its contents.
 func (r *Repository) DeleteProject(brandSlug, streamSlug, projectSlug string) error {
 	projectDir := r.projectPath(brandSlug, streamSlug, projectSlug)

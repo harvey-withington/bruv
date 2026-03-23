@@ -16,6 +16,7 @@
     confirm_before_delete: true,
     sidebar_width: 260,
     type_badge_display: 'text' as 'text' | 'color' | 'hidden',
+    default_category_name: 'Ideas',
   })
   let loaded = $state(false)
   let saved = $state(false)
@@ -34,6 +35,7 @@
         prefs.confirm_before_delete = p.confirm_before_delete ?? true
         prefs.sidebar_width = nav.sidebarWidth
         prefs.type_badge_display = (p.type_badge_display || 'text') as 'text' | 'color' | 'hidden'
+        prefs.default_category_name = p.default_category_name || 'Ideas'
       }
     } catch { /* use defaults */ }
     loaded = true
@@ -124,6 +126,17 @@
             <option value="hidden">Hidden</option>
           </select>
         </label>
+
+        <label class="field">
+          <span class="field-label">Default category name</span>
+          <input
+            type="text"
+            bind:value={prefs.default_category_name}
+            placeholder="Ideas"
+            class="text-input"
+          />
+          <span class="field-hint">Auto-created when you add a new project</span>
+        </label>
       </div>
 
       <div class="dialog-footer">
@@ -208,7 +221,7 @@
     color: var(--text-secondary);
   }
 
-  select {
+  select, .text-input {
     padding: 0.45rem 0.6rem;
     border-radius: 6px;
     border: 1px solid var(--border);
@@ -216,9 +229,15 @@
     color: var(--text-primary);
     font-size: 0.85rem;
     outline: none;
+    box-sizing: border-box;
   }
-  select:focus {
+  select:focus, .text-input:focus {
     border-color: var(--accent);
+  }
+
+  .field-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
   }
 
   input[type="checkbox"] {

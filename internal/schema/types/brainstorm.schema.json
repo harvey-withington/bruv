@@ -4,6 +4,10 @@
   "title": "Brainstorm",
   "description": "A loose container for early ideas",
   "properties": {
+    "description": {
+      "type": "string",
+      "description": "Summary of the brainstorm idea"
+    },
     "notes": {
       "type": "string",
       "description": "Freeform notes and ideas"

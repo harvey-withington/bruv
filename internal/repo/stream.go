@@ -157,6 +157,20 @@ func (r *Repository) RenameStream(brandSlug, streamSlug, newName string) (*model
 	return stream, nil
 }
 
+// UpdateStreamDescription sets or clears the description on a Stream.
+func (r *Repository) UpdateStreamDescription(brandSlug, streamSlug, description string) (*model.Stream, error) {
+	stream, err := r.GetStream(brandSlug, streamSlug)
+	if err != nil {
+		return nil, err
+	}
+	stream.Description = description
+	stream.UpdatedAt = time.Now().UTC()
+	if err := writeJSON(r.streamFilePath(brandSlug, streamSlug), stream); err != nil {
+		return nil, fmt.Errorf("write stream: %w", err)
+	}
+	return stream, nil
+}
+
 // DeleteStream removes a Stream and all its contents.
 func (r *Repository) DeleteStream(brandSlug, streamSlug string) error {
 	streamDir := r.streamPath(brandSlug, streamSlug)

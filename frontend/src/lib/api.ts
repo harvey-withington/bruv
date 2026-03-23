@@ -130,6 +130,18 @@ export const ListCardIDsInCategory = (...args: Parameters<ReturnType<typeof getB
 export const ListOrphanedCardIDs = () => getBackend().ListOrphanedCardIDs()
 export const ListCardIDsByTag = (...args: Parameters<ReturnType<typeof getBackend>['ListCardIDsByTag']>) => getBackend().ListCardIDsByTag(...args)
 
+// Chat
+export const LoadChatHistory = (...args: Parameters<ReturnType<typeof getBackend>['LoadChatHistory']>) => getBackend().LoadChatHistory(...args)
+export const SendChatMessage = (...args: Parameters<ReturnType<typeof getBackend>['SendChatMessage']>) => getBackend().SendChatMessage(...args)
+
+// LLM utilities
+export const IsLLMConfigured = () => getBackend().IsLLMConfigured()
+export const TestLLMConnection = () => getBackend().TestLLMConnection()
+
+// Pin suggestions (from AI)
+export const AcceptPinSuggestion = (...args: Parameters<ReturnType<typeof getBackend>['AcceptPinSuggestion']>) => getBackend().AcceptPinSuggestion(...args)
+export const RejectPinSuggestion = (...args: Parameters<ReturnType<typeof getBackend>['RejectPinSuggestion']>) => getBackend().RejectPinSuggestion(...args)
+
 // User preferences
 export const GetPreferences = () => getBackend().GetPreferences()
 export const SetPreferences = (...args: Parameters<ReturnType<typeof getBackend>['SetPreferences']>) => getBackend().SetPreferences(...args)

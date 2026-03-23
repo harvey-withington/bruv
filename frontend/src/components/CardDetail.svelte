@@ -2,11 +2,12 @@
   import { GetCard, UpdateCardTitle, UpdateCardType, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
     DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, ListCardTypes, AddProjectLabel, GetProjectLabels, GetProjectLocation } from '../lib/api'
   import { projectTags, nav, getTagColor } from '../lib/store.svelte'
-  import { X, Trash2, Square, CheckSquare, Plus, Type, ListChecks, Hash, Calendar, ToggleLeft, Link, Image, GripVertical, Pencil, MapPin, MapPinOff, MoveRight } from 'lucide-svelte'
+  import { X, Trash2, Square, CheckSquare, Plus, Type, ListChecks, Hash, Calendar, ToggleLeft, Link, Image, GripVertical, Pencil, MapPin, MapPinOff, MoveRight, MessageSquare } from 'lucide-svelte'
   import { renderMarkdown, renderInline } from '../lib/markdown'
   import { t } from '../lib/i18n.svelte'
   import MentionPicker from './MentionPicker.svelte'
   import PinPicker from './PinPicker.svelte'
+  import ChatSection from './ChatSection.svelte'
   import { draggable } from '../lib/draggable'
 
   type CategoryPath = {
@@ -35,6 +36,7 @@
   let pinPickerSourcePin = $state<CategoryPath | null>(null)
   let pinActionLoading = $state(false)
   let showOtherPins = $state(false)
+  let showChat = $state(false)
 
   // Derived: pin state relative to the category the card was opened from
   let currentPin = $derived(
@@ -787,7 +789,8 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div class="modal-backdrop" role="presentation" onclick={handleBackdropClick}>
-  <div class="modal" use:draggable={{ handle: '.modal-header' }}>
+  <div class="modal" class:chat-open={showChat} use:draggable={{ handle: '.modal-header' }}>
+   <div class="modal-main">
     {#if loading}
       <div class="modal-loading">{t('app.loading')}</div>
     {:else if card}
@@ -836,6 +839,7 @@
           </h2>
         {/if}
 
+        <button class="chat-toggle-btn" class:active={showChat} onclick={() => showChat = !showChat} title="Toggle chat"><MessageSquare size={16} /></button>
         <button class="close-btn" onclick={() => onClose()} title={t('tooltip.close_card')}><X size={18} /></button>
       </div>
 
@@ -1145,6 +1149,11 @@
         <span class="meta">Created {card.created_at?.slice(0, 10) || '—'}</span>
       </div>
     {/if}
+   </div>
+
+    {#if !loading && card}
+      <ChatSection {cardId} bind:visible={showChat} onCardChanged={loadCard} />
+    {/if}
   </div>
 </div>
 
@@ -1210,9 +1219,21 @@
     max-width: 95vw;
     max-height: 85vh;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     overflow: hidden;
     box-shadow: 0 8px 32px var(--shadow-lg);
+    transition: width 0.2s ease;
+  }
+  .modal.chat-open {
+    width: 960px;
+  }
+
+  .modal-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 
   .modal-loading {
@@ -1452,6 +1473,18 @@
     padding: 0.3rem 0.5rem;
     outline: none;
   }
+
+  .chat-toggle-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.25rem;
+    flex-shrink: 0;
+    border-radius: 4px;
+  }
+  .chat-toggle-btn:hover { color: var(--text-primary); }
+  .chat-toggle-btn.active { color: var(--accent); }
 
   .close-btn {
     background: none;

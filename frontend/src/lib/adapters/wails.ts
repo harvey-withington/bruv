@@ -22,6 +22,9 @@ import {
   GetPreferences, SetPreferences,
   GetProfile, SetProfile,
   GetAuthInfo, GetLLMConfig, SetLLMConfig,
+  LoadChatHistory, SendChatMessage,
+  IsLLMConfigured, TestLLMConnection,
+  AcceptPinSuggestion, RejectPinSuggestion,
 } from '../../../wailsjs/go/main/App.js'
 
 export const wailsAdapter: BackendAdapter = {
@@ -132,6 +135,13 @@ export const wailsAdapter: BackendAdapter = {
   ListCardIDsInCategory,
   ListOrphanedCardIDs,
   ListCardIDsByTag,
+
+  LoadChatHistory,
+  SendChatMessage,
+  IsLLMConfigured,
+  TestLLMConnection,
+  AcceptPinSuggestion,
+  RejectPinSuggestion,
 
   GetPreferences,
   SetPreferences,

@@ -150,6 +150,20 @@ func (r *Repository) RenameBrand(slug, newName string) (*model.Brand, error) {
 	return brand, nil
 }
 
+// UpdateBrandDescription sets or clears the description on a Brand.
+func (r *Repository) UpdateBrandDescription(slug, description string) (*model.Brand, error) {
+	brand, err := r.GetBrand(slug)
+	if err != nil {
+		return nil, err
+	}
+	brand.Description = description
+	brand.UpdatedAt = time.Now().UTC()
+	if err := writeJSON(r.brandFilePath(slug), brand); err != nil {
+		return nil, fmt.Errorf("write brand: %w", err)
+	}
+	return brand, nil
+}
+
 // DeleteBrand removes a Brand and all its contents from the repository.
 func (r *Repository) DeleteBrand(slug string) error {
 	brandDir := r.brandPath(slug)

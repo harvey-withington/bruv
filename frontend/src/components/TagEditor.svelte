@@ -181,6 +181,7 @@
                 class:active={tag.color === color}
                 style:background={color}
                 onclick={() => changeColor(tag.id, color)}
+                aria-label="Set color to {color}"
               ></button>
             {/each}
           </div>

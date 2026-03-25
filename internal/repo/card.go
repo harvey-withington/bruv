@@ -54,6 +54,11 @@ func (r *Repository) GetCard(id string) (*model.Card, error) {
 	// Auto-migrate legacy cards to block model
 	model.MigrateCardToBlocks(&card, nil)
 
+	// Backfill empty block keys from labels (manual UI-added blocks)
+	if model.BackfillBlockKeys(&card) {
+		_ = writeJSON(path, &card)
+	}
+
 	return &card, nil
 }
 

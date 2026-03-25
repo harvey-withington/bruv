@@ -188,6 +188,10 @@
     { type: 'image',     label: 'Image',     icon: 'Image' },
   ] as const
 
+  function labelToKey(label: string): string {
+    return label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+  }
+
   const BLOCK_ICON_MAP: Record<string, any> = {
     Type, ListChecks, Hash, Calendar, ToggleLeft, Link, Image,
   }
@@ -204,7 +208,7 @@
     else if (type === 'select') { value = ''; meta = { options: ['Option 1', 'Option 2', 'Option 3'] } }
     else if (type === 'date') value = ''
 
-    const newBlock = { id, type, label, key: '', value, meta: meta || undefined }
+    const newBlock = { id, type, label, key: labelToKey(label), value, meta: meta || undefined }
     const blocks = [...(card.blocks || []), newBlock]
     try {
       card = await UpdateCardBlocks(cardId, blocks)
@@ -378,7 +382,7 @@
     editingBlockLabelIdx = null
     if (!label || !card?.blocks?.[blockIdx]) return
     if (label === card.blocks[blockIdx].label) return
-    card.blocks[blockIdx] = { ...card.blocks[blockIdx], label }
+    card.blocks[blockIdx] = { ...card.blocks[blockIdx], label, key: labelToKey(label) }
     try {
       card = await UpdateCardBlocks(cardId, card.blocks)
       onUpdated?.()

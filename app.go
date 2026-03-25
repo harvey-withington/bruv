@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1538,7 +1539,21 @@ func (a *App) SendChatMessage(cardID, userMessage string) (*model.ChatFile, erro
 				if b.Key == "" {
 					continue
 				}
-				prop := map[string]any{"type": "string"}
+				var prop map[string]any
+				switch b.Type {
+				case model.BlockChecklist:
+					prop = map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string"},
+						"description": "List of checklist item texts. Each string becomes an unchecked item.",
+					}
+				case model.BlockCheckbox:
+					prop = map[string]any{"type": "boolean"}
+				case model.BlockNumber:
+					prop = map[string]any{"type": "number"}
+				default:
+					prop = map[string]any{"type": "string"}
+				}
 				if b.Meta != nil {
 					if desc, ok := b.Meta["description"].(string); ok && desc != "" {
 						prop["description"] = desc
@@ -1724,6 +1739,89 @@ func (a *App) SendChatMessage(cardID, userMessage string) (*model.ChatFile, erro
 	return cf, nil
 }
 
+// coerceBlockValue converts an LLM-provided value into the format expected by
+// the given block type. LLMs may ignore the schema and send strings for
+// booleans/numbers, or flat text for checklists, so we handle all of that here.
+func coerceBlockValue(blockType string, val any) any {
+	switch blockType {
+	case model.BlockChecklist:
+		return coerceChecklist(val)
+	case model.BlockCheckbox:
+		return coerceCheckbox(val)
+	case model.BlockNumber:
+		return coerceNumber(val)
+	default:
+		// text, select, radio, date, url, image, video — all string, pass through
+		return val
+	}
+}
+
+// coerceChecklist converts []any of strings or a single string into [{id, text, done}].
+func coerceChecklist(val any) []map[string]any {
+	var texts []string
+	switch v := val.(type) {
+	case []any:
+		for _, item := range v {
+			if s, ok := item.(string); ok && s != "" {
+				texts = append(texts, s)
+			}
+		}
+	case string:
+		for _, line := range strings.Split(v, "\n") {
+			line = strings.TrimSpace(line)
+			// Strip leading numbering like "1. " or "- "
+			line = strings.TrimLeft(line, "0123456789.")
+			line = strings.TrimPrefix(line, "-")
+			line = strings.TrimSpace(line)
+			if line != "" {
+				texts = append(texts, line)
+			}
+		}
+	}
+	items := make([]map[string]any, len(texts))
+	for i, t := range texts {
+		items[i] = map[string]any{
+			"id":   fmt.Sprintf("cli-%s", uuid.New().String()[:8]),
+			"text": t,
+			"done": false,
+		}
+	}
+	return items
+}
+
+// coerceCheckbox converts string representations ("true", "yes", "1") to bool.
+func coerceCheckbox(val any) bool {
+	switch v := val.(type) {
+	case bool:
+		return v
+	case string:
+		v = strings.ToLower(strings.TrimSpace(v))
+		return v == "true" || v == "yes" || v == "1"
+	case float64:
+		return v != 0
+	default:
+		return false
+	}
+}
+
+// coerceNumber converts string representations to float64.
+func coerceNumber(val any) float64 {
+	switch v := val.(type) {
+	case float64:
+		return v
+	case int:
+		return float64(v)
+	case string:
+		f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		if err != nil {
+			return 0
+		}
+		return f
+	default:
+		return 0
+	}
+}
+
 // executeToolCall runs a single tool and returns (result string, action record, pin suggestion).
 func (a *App) executeToolCall(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath, autoPinMode string) (string, *model.ToolAction, *model.PinSuggestion) {
 	switch tc.Name {
@@ -1859,6 +1957,7 @@ func (a *App) executeToolCall(cardID string, card *model.Card, tc llm.ToolCall, 
 		var updatedKeys []string
 		for i, b := range currentCard.Blocks {
 			if val, ok := fieldsMap[b.Key]; ok {
+				val = coerceBlockValue(b.Type, val)
 				currentCard.Blocks[i].Value = val
 				updated = true
 				updatedKeys = append(updatedKeys, b.Key)

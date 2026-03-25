@@ -115,6 +115,38 @@ func blockID() string {
 	return fmt.Sprintf("blk-%s", uuid.New().String()[:8])
 }
 
+// LabelToKey converts "My Ideas" → "my_ideas". Inverse of humanizeKey.
+func LabelToKey(label string) string {
+	s := strings.TrimSpace(label)
+	s = strings.ToLower(s)
+	// Replace any run of non-alphanumeric characters with a single underscore
+	var b strings.Builder
+	prevUnderscore := false
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			prevUnderscore = false
+		} else if !prevUnderscore {
+			b.WriteByte('_')
+			prevUnderscore = true
+		}
+	}
+	return strings.Trim(b.String(), "_")
+}
+
+// BackfillBlockKeys sets Key from Label on any blocks that have an empty Key.
+// Returns true if any blocks were modified.
+func BackfillBlockKeys(card *Card) bool {
+	modified := false
+	for i := range card.Blocks {
+		if card.Blocks[i].Key == "" && card.Blocks[i].Label != "" {
+			card.Blocks[i].Key = LabelToKey(card.Blocks[i].Label)
+			modified = true
+		}
+	}
+	return modified
+}
+
 // isImagePath returns true if the path looks like an image file.
 func isImagePath(p string) bool {
 	lower := strings.ToLower(p)

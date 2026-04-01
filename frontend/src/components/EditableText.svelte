@@ -1,9 +1,10 @@
 <script lang="ts">
   import { renderMarkdown, renderInline } from '../lib/markdown'
+  import { t } from '../lib/i18n.svelte'
 
   let {
     value = '',
-    placeholder = 'Click to edit',
+    placeholder = t('tooltip.click_to_edit'),
     multiline = false,
     markdown = false,
     inlineMarkdown = false,

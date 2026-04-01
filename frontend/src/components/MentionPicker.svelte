@@ -1,6 +1,7 @@
 <script lang="ts">
   import { SearchCards, ListBrands, ListStreams, ListProjects } from '../lib/api'
   import { t } from '../lib/i18n.svelte'
+  import { getCardTypeColor } from '../lib/cardTypes'
 
   type PickerItem = {
     type: 'card' | 'project'
@@ -24,14 +25,6 @@
   let inputEl = $state<HTMLInputElement | null>(null)
   let projectCache = $state<PickerItem[]>([])
   let projectsLoaded = $state(false)
-
-  const typeColors: Record<string, string> = {
-    feature: '#6366f1',
-    task: '#22c55e',
-    brainstorm: '#f59e0b',
-    episode: '#ec4899',
-    reference: '#06b6d4',
-  }
 
   $effect(() => {
     if (visible) {
@@ -93,7 +86,7 @@
             label: r.Title,
             subtitle: ctx,
             badge: r.Type,
-            badgeColor: typeColors[r.Type] || '#71717a',
+            badgeColor: getCardTypeColor(r.Type),
             link: `bruv:card:${r.CardID}`,
           })
         }

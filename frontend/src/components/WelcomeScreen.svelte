@@ -108,7 +108,7 @@
                     <span class="recent-name">{repo.name}</span>
                     <span class="recent-path">{repo.path}</span>
                   </span>
-                  <span class="recent-remove action-reveal action-reveal--danger" role="button" tabindex="0" onclick={(e) => removeRecent(e, repo.path)} onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); removeRecent(e as unknown as MouseEvent, repo.path) } }} title="Remove from recent"><X size={12} /></span>
+                  <span class="recent-remove action-reveal action-reveal--danger" role="button" tabindex="0" onclick={(e) => removeRecent(e, repo.path)} onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); removeRecent(e as unknown as MouseEvent, repo.path) } }} title={t('tooltip.remove_from_recent')}><X size={12} /></span>
                 </button>
               {/each}
             </div>
@@ -118,42 +118,42 @@
       {:else if mode === 'init'}
         <div class="form">
           <label>
-            <span>Repository Name</span>
-            <input type="text" bind:value={repoName} placeholder="My Workspace" />
+            <span>{t('welcome.repo_name')}</span>
+            <input type="text" bind:value={repoName} placeholder={t('welcome.repo_name_placeholder')} />
           </label>
           <label>
-            <span>Base Folder</span>
+            <span>{t('welcome.base_folder')}</span>
             <div class="path-row">
-              <input type="text" bind:value={repoPath} placeholder="C:\Users\you\repos" />
-              <button class="btn btn-browse" onclick={() => browseFolder('Choose base folder')}><FolderSearch size={14} /> {t('welcome.browse')}</button>
+              <input type="text" bind:value={repoPath} placeholder={t('welcome.base_folder_placeholder')} />
+              <button class="btn btn-browse" onclick={() => browseFolder(t('welcome.choose_base_folder'))}><FolderSearch size={14} /> {t('welcome.browse')}</button>
             </div>
           </label>
           {#if error}<p class="error">{error}</p>{/if}
           <div class="form-actions">
             <button class="btn btn-primary" onclick={handleInit}>{t('welcome.init_submit')}</button>
-            <button class="btn btn-ghost" onclick={() => { mode = 'choose'; error = '' }}>Back</button>
+            <button class="btn btn-ghost" onclick={() => { mode = 'choose'; error = '' }}>{t('welcome.back')}</button>
           </div>
         </div>
 
       {:else}
         <div class="form">
           <label>
-            <span>Repository Path</span>
+            <span>{t('welcome.repo_path')}</span>
             <div class="path-row">
-              <input type="text" bind:value={repoPath} placeholder="C:\Users\you\my-workspace" />
-              <button class="btn btn-browse" onclick={() => browseFolder('Choose repository folder')}><FolderSearch size={14} /> {t('welcome.browse')}</button>
+              <input type="text" bind:value={repoPath} placeholder={t('welcome.repo_path_placeholder')} />
+              <button class="btn btn-browse" onclick={() => browseFolder(t('welcome.choose_repo_folder'))}><FolderSearch size={14} /> {t('welcome.browse')}</button>
             </div>
           </label>
           {#if error}<p class="error">{error}</p>{/if}
           <div class="form-actions">
             <button class="btn btn-primary" onclick={handleOpen}>{t('welcome.open_submit')}</button>
-            <button class="btn btn-ghost" onclick={() => { mode = 'choose'; error = '' }}>Back</button>
+            <button class="btn btn-ghost" onclick={() => { mode = 'choose'; error = '' }}>{t('welcome.back')}</button>
           </div>
         </div>
       {/if}
     {:else}
       <!-- Cloud mode: login/workspace picker would go here -->
-      <p style="color: var(--text-secondary)">Cloud workspace support coming soon.</p>
+      <p style="color: var(--text-secondary)">{t('welcome.cloud_coming_soon')}</p>
     {/if}
   </div>
 </div>

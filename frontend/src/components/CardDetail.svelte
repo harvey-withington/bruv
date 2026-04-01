@@ -2,22 +2,21 @@
   import { GetCard, UpdateCardTitle, UpdateCardType, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
     DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, ListCardTypes, AddProjectLabel, GetProjectLabels, GetProjectLocation } from '../lib/api'
   import { projectTags, nav, getTagColor } from '../lib/store.svelte'
-  import { X, Trash2, Square, CheckSquare, Plus, Type, ListChecks, Hash, Calendar, ToggleLeft, Link, Image, GripVertical, Pencil, MapPin, MapPinOff, MoveRight, MessageSquare } from 'lucide-svelte'
+  import { X, Trash2, Plus, Type, ListChecks, Hash, Calendar, ToggleLeft, Link, Image, GripVertical, Pencil, MapPin, MapPinOff, MoveRight, Bot } from 'lucide-svelte'
   import { renderMarkdown, renderInline } from '../lib/markdown'
   import { t } from '../lib/i18n.svelte'
   import MentionPicker from './MentionPicker.svelte'
   import PinPicker from './PinPicker.svelte'
   import ChatSection from './ChatSection.svelte'
   import EditableChecklist from './EditableChecklist.svelte'
+  import SaveIndicator from './SaveIndicator.svelte'
   import { draggable } from '../lib/draggable'
+  import { getCardTypeColor, getCardTypeTextColor } from '../lib/cardTypes'
+  import { focusOnMount, focusTrap, inlineEdit } from '../lib/actions'
+  import { showConfirm } from '../lib/confirm.svelte'
+  import { showToast } from '../lib/toast.svelte'
+  import type { Card, Block, BlockMeta, CardPin } from '../lib/types'
 
-  type CategoryPath = {
-    brandSlug: string; streamSlug: string; projectSlug: string; categorySlug: string
-    brandName: string; streamName: string; projectName: string; categoryName: string
-    projectId: string; categoryId: string
-    breadcrumb: string
-    pinnedProjectId?: string // set by GetCardPinBreadcrumbs — the actual stored pin.ProjectID for UnpinCard
-  }
 
   let { cardId, currentCategoryId, currentCategoryName, onClose, onUpdated, onPin, autoEditTitle }: {
     cardId: string
@@ -29,15 +28,23 @@
     autoEditTitle?: boolean
   } = $props()
 
-  let card = $state<any>(null)
+  let card = $state<Card | null>(null)
   let loading = $state(true)
-  let pinBreadcrumbs = $state<CategoryPath[]>([])
+  let pinBreadcrumbs = $state<CardPin[]>([])
   let showPinPicker = $state(false)
   let pinPickerMode = $state<'pin' | 'move'>('pin')
-  let pinPickerSourcePin = $state<CategoryPath | null>(null)
+  let pinPickerSourcePin = $state<CardPin | null>(null)
   let pinActionLoading = $state(false)
   let showOtherPins = $state(false)
   let showChat = $state(false)
+  let savingCount = $state(0)
+  let saving = $derived(savingCount > 0)
+
+  async function tracked<T>(promise: Promise<T>): Promise<T> {
+    savingCount++
+    try { return await promise }
+    finally { savingCount-- }
+  }
 
   // Derived: pin state relative to the category the card was opened from
   let currentPin = $derived(
@@ -49,7 +56,6 @@
   )
   let editingTitle = $state(false)
   let titleDraft = $state('')
-  let titleInputEl = $state<HTMLInputElement | null>(null)
   let newTag = $state('')
 
   // Type picker
@@ -63,16 +69,15 @@
   let descTextareaEl = $state<HTMLTextAreaElement | null>(null)
 
   // Block label editing
-  let editingBlockLabelIdx = $state<number | null>(null)
+  let editingBlockLabelId = $state<string | null>(null)
   let blockLabelDraft = $state('')
-  let blockLabelInputEl = $state<HTMLInputElement | null>(null)
 
-  // Block editing state: tracks which block index is being edited + drafts
-  let editingBlockIdx = $state<number | null>(null)
-  let blockDrafts = $state<Record<number, any>>({})
-  let blockTextareaEls = $state<Record<number, HTMLTextAreaElement | null>>({})
-  let checklistInputEls = $state<Record<number, HTMLInputElement | null>>({})
-  let newChecklistTexts = $state<Record<number, string>>({})
+  // Block editing state: keyed by block ID (stable across reorders)
+  let editingBlockId = $state<string | null>(null)
+  let blockDrafts = $state<Record<string, string>>({})
+  let blockTextareaEls = $state<Record<string, HTMLTextAreaElement | null>>({})
+  let checklistInputEls = $state<Record<string, HTMLInputElement | null>>({})
+  let newChecklistTexts = $state<Record<string, string>>({})
 
   // Block drag-and-drop state
   let draggingBlockIdx = $state<number | null>(null)
@@ -117,7 +122,7 @@
 
   async function handleBlockDrop(e: DragEvent) {
     e.preventDefault()
-    if (draggingBlockIdx === null || dropBlockIdx === null || !card?.blocks) {
+    if (draggingBlockIdx === null || dropBlockIdx === null || !card) {
       handleBlockDragEnd()
       return
     }
@@ -143,14 +148,13 @@
     }
 
     try {
-      card = await UpdateCardBlocks(cardId, blocks)
-      // Re-init drafts
+      card = await tracked(UpdateCardBlocks(cardId, blocks)) as Card
       blockDrafts = {}
-      for (let i = 0; i < card.blocks.length; i++) {
-        if (card.blocks[i].type === 'text') blockDrafts[i] = card.blocks[i].value || ''
+      for (const b of card.blocks) {
+        if (b.type === 'text') blockDrafts[b.id] = String(b.value ?? '')
       }
-      onUpdated?.()
-    } catch (err) { console.error(err) }
+    } catch (e) { showToast(t('error.save_failed'), 'error'); return }
+    onUpdated?.()
   }
 
   // Add-block picker state
@@ -193,102 +197,60 @@
     return label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const BLOCK_ICON_MAP: Record<string, any> = {
     Type, ListChecks, Hash, Calendar, ToggleLeft, Link, Image,
   }
 
-  async function addBlock(type: string) {
+  async function addBlock(blockType: string) {
     showBlockPicker = false
-    const label = BLOCK_OPTIONS.find(o => o.type === type)?.label || type
+    if (!card) return
+    const label = BLOCK_OPTIONS.find(o => o.type === blockType)?.label || blockType
     const id = `blk-${crypto.randomUUID().slice(0, 8)}`
-    let value: any = ''
-    let meta: Record<string, any> | undefined = undefined
-    if (type === 'checklist') value = []
-    else if (type === 'number') value = 0
-    else if (type === 'checkbox') value = false
-    else if (type === 'select') { value = ''; meta = { options: ['Option 1', 'Option 2', 'Option 3'] } }
-    else if (type === 'date') value = ''
+    let value: Block['value'] = ''
+    let meta: BlockMeta | undefined = undefined
+    if (blockType === 'checklist') value = []
+    else if (blockType === 'number') value = 0
+    else if (blockType === 'checkbox') value = false
+    else if (blockType === 'select') { value = ''; meta = { options: ['Option 1', 'Option 2', 'Option 3'] } }
 
-    const newBlock = { id, type, label, key: labelToKey(label), value, meta: meta || undefined }
-    const blocks = [...(card.blocks || []), newBlock]
+    const newBlock: Block = { id, type: blockType as Block['type'], label, key: labelToKey(label), value, meta }
+    const blocks = [...card.blocks, newBlock]
     try {
-      card = await UpdateCardBlocks(cardId, blocks)
-      // Init draft for text blocks
-      if (type === 'text') {
-        blockDrafts[blocks.length - 1] = ''
-        editingBlockIdx = blocks.length - 1
+      card = await tracked(UpdateCardBlocks(cardId, blocks)) as Card
+      if (blockType === 'text') {
+        blockDrafts[id] = ''
+        editingBlockId = id
       }
-      onUpdated?.()
-    } catch (e) { console.error(e) }
+    } catch (e) { showToast(t('error.save_failed'), 'error'); return }
+    onUpdated?.()
   }
 
   // @ mention picker state
   let mentionVisible = $state(false)
   let mentionAnchor = $state<{ top: number; left: number } | null>(null)
-  let mentionTarget = $state<{ type: 'desc' } | { type: 'text'; blockIdx: number } | { type: 'checklist'; blockIdx: number } | null>(null)
+  let mentionTarget = $state<{ type: 'desc' } | { type: 'text'; blockId: string } | { type: 'checklist'; blockId: string } | null>(null)
   let mentionTriggerPos = $state<number>(0)
-
-  const typeColors: Record<string, string> = {
-    feature: '#6366f1',
-    task: '#22c55e',
-    brainstorm: '#f59e0b',
-    episode: '#ec4899',
-    reference: '#06b6d4',
-  }
 
   $effect(() => {
     loadCard()
   })
 
-  $effect(() => {
-    if (editingTitle && titleInputEl) {
-      titleInputEl.focus()
-      titleInputEl.select()
-    }
-  })
-
-  $effect(() => {
-    if (editingDescription && descTextareaEl) {
-      descTextareaEl.focus()
-    }
-  })
-
-  $effect(() => {
-    if (editingBlockIdx !== null && blockTextareaEls[editingBlockIdx]) {
-      blockTextareaEls[editingBlockIdx]?.focus()
-    }
-  })
-
-  $effect(() => {
-    if (editingBlockLabelIdx !== null && blockLabelInputEl) {
-      blockLabelInputEl.focus()
-      blockLabelInputEl.select()
-    }
-  })
-
   async function loadCard() {
     loading = true
     try {
-      card = await GetCard(cardId)
+      card = await GetCard(cardId) as Card
       pinBreadcrumbs = await GetCardPinBreadcrumbs(cardId) || []
       titleDraft = card.title
       descriptionDraft = card.fields?.description || ''
-      // Initialize block drafts from loaded blocks
       blockDrafts = {}
       newChecklistTexts = {}
-      if (card.blocks) {
-        for (let i = 0; i < card.blocks.length; i++) {
-          const b = card.blocks[i]
-          if (b.type === 'text') {
-            blockDrafts[i] = b.value || ''
-          }
-        }
+      for (const b of card.blocks) {
+        if (b.type === 'text') blockDrafts[b.id] = String(b.value ?? '')
       }
-      if (autoEditTitle) {
-        editingTitle = true
-      }
+      if (autoEditTitle) editingTitle = true
     } catch (e) {
-      console.error('Failed to load card:', e)
+      showToast(t('error.load_failed'), 'error')
     }
     loading = false
   }
@@ -297,51 +259,56 @@
     if (cardTypes.length === 0) {
       try {
         cardTypes = await ListCardTypes() || []
-      } catch (e) { console.error('Failed to load card types:', e) }
+      } catch { /* non-critical — picker just stays empty */ }
     }
     showTypePicker = !showTypePicker
   }
 
   async function selectType(newType: string) {
     showTypePicker = false
-    if (newType === card.type) return
+    if (newType === card?.type) return
     try {
-      card = await UpdateCardType(cardId, newType)
-      onUpdated?.()
-    } catch (e) { console.error('Failed to update card type:', e) }
+      card = await tracked(UpdateCardType(cardId, newType)) as Card
+    } catch (e) { showToast(t('error.type_failed'), 'error'); return }
+    onUpdated?.()
   }
 
   async function saveTitle() {
-    if (!titleDraft.trim() || titleDraft === card.title) {
+    if (!titleDraft.trim() || titleDraft === card?.title) {
       editingTitle = false
       return
     }
     try {
-      card = await UpdateCardTitle(cardId, titleDraft.trim())
+      card = await tracked(UpdateCardTitle(cardId, titleDraft.trim())) as Card
       editingTitle = false
-      onUpdated?.()
-    } catch (e) { console.error(e) }
+    } catch (e) { showToast(t('error.save_failed'), 'error'); return }
+    onUpdated?.()
   }
 
-  function handleTitleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter' || e.key === 'Tab') {
+  async function handleTitleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()
-      saveTitle()
-      editingDescription = true
+      e.stopPropagation()  // prevent handleBackdropKeydown from also calling saveTitle
+      await saveTitle()
+      onClose()
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault()
+      editingDescription = true  // focusOnMount on the textarea blurs the title input → saveTitle() fires once via onblur
     } else if (e.key === 'Escape') {
       e.stopPropagation()
       editingTitle = false
-      titleDraft = card.title
+      titleDraft = card?.title ?? titleDraft
     }
   }
 
   async function saveDescription() {
-    const fields = { ...(card.fields || {}), description: descriptionDraft }
+    if (!editingDescription) return
+    const fields = { ...(card?.fields || {}), description: descriptionDraft }
     try {
-      card = await UpdateCardFields(cardId, fields)
+      card = await tracked(UpdateCardFields(cardId, fields)) as Card
       editingDescription = false
-      onUpdated?.()
-    } catch (e) { console.error(e) }
+    } catch (e) { showToast(t('error.save_failed'), 'error'); return }
+    onUpdated?.()
   }
 
   function handleDescKeydown(e: KeyboardEvent) {
@@ -349,7 +316,7 @@
     if (e.key === 'Escape') {
       e.stopPropagation()
       editingDescription = false
-      descriptionDraft = card.fields?.description || ''
+      descriptionDraft = card?.fields?.description || ''
     }
   }
 
@@ -363,73 +330,81 @@
     checkForMention(el, { type: 'desc' })
   }
 
-  async function deleteBlock(blockIdx: number) {
-    if (!card?.blocks?.[blockIdx]) return
-    const label = card.blocks[blockIdx].label || card.blocks[blockIdx].type
-    if (!confirm(`Delete block "${label}"?`)) return
-    const blocks = card.blocks.filter((_: any, i: number) => i !== blockIdx)
+  async function deleteBlock(blockId: string) {
+    if (!card) return
+    const block = card.blocks.find((b: Block) => b.id === blockId)
+    if (!block) return
+    if (!await showConfirm(t('card.confirm_delete_block').replace('{name}', block.label || block.type))) return
+    const blocks = card.blocks.filter((b: Block) => b.id !== blockId)
     try {
-      card = await UpdateCardBlocks(cardId, blocks)
+      const updated = await tracked(UpdateCardBlocks(cardId, blocks)) as Card
+      card = updated
       blockDrafts = {}
-      if (card.blocks) {
-        for (let i = 0; i < card.blocks.length; i++) {
-          if (card.blocks[i].type === 'text') blockDrafts[i] = card.blocks[i].value || ''
-        }
+      for (const b of updated.blocks) {
+        if (b.type === 'text') blockDrafts[b.id] = String(b.value ?? '')
       }
-      onUpdated?.()
-    } catch (e) { console.error(e) }
+    } catch (e) { showToast(t('error.delete_failed'), 'error'); return }
+    onUpdated?.()
   }
 
-  async function renameBlockLabel(blockIdx: number) {
+  async function renameBlockLabel(blockId: string) {
+    if (editingBlockLabelId !== blockId) return
     const label = blockLabelDraft.trim()
-    editingBlockLabelIdx = null
-    if (!label || !card?.blocks?.[blockIdx]) return
-    if (label === card.blocks[blockIdx].label) return
-    card.blocks[blockIdx] = { ...card.blocks[blockIdx], label, key: labelToKey(label) }
+    editingBlockLabelId = null
+    if (!label || !card) return
+    const block = card.blocks.find((b: Block) => b.id === blockId)
+    if (!block || label === block.label) return
+    const blocks = card.blocks.map((b: Block) => b.id === blockId ? { ...b, label, key: labelToKey(label) } : b)
     try {
-      card = await UpdateCardBlocks(cardId, card.blocks)
-      onUpdated?.()
-    } catch (e) { console.error(e) }
+      card = await tracked(UpdateCardBlocks(cardId, blocks)) as Card
+    } catch (e) { showToast(t('error.save_failed'), 'error'); return }
+    onUpdated?.()
   }
 
+  async function saveTextBlock(blockId: string) {
+    if (editingBlockId !== blockId || !card) return
+    const draft = blockDrafts[blockId]
+    const block = card.blocks.find((b: Block) => b.id === blockId)
+    if (draft === undefined || draft === String(block?.value ?? '')) {
+      editingBlockId = null
+      return
+    }
+    const updatedBlocks = card.blocks.map((b: Block) =>
+      b.id === blockId && b.type === 'text' ? { ...b, value: draft } : b
+    )
+    try {
+      card = await tracked(UpdateCardBlocks(cardId, updatedBlocks)) as Card
+      editingBlockId = null
+    } catch (e) { showToast(t('error.save_failed'), 'error'); return }
+    onUpdated?.()
+  }
 
-  function handleTextBlockKeydown(e: KeyboardEvent, blockIdx: number) {
+  async function handleTextBlockKeydown(e: KeyboardEvent, blockId: string) {
     if (mentionVisible) return
     if (e.key === 'Escape') {
       e.stopPropagation()
-      editingBlockIdx = null
-      blockDrafts[blockIdx] = card.blocks[blockIdx]?.value || ''
+      editingBlockId = null
+      const block = card?.blocks.find((b: Block) => b.id === blockId)
+      blockDrafts[blockId] = String(block?.value ?? '')
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault()
+      e.stopPropagation()  // prevent handleBackdropKeydown from also calling saveTextBlock
+      await saveTextBlock(blockId)
+      onClose()
     }
   }
 
-  async function saveTextBlock(blockIdx: number) {
-    if (editingBlockIdx !== blockIdx) return
-    const draft = blockDrafts[blockIdx]
-    if (draft === undefined || draft === (card.blocks[blockIdx]?.value || '')) {
-      editingBlockIdx = null
-      return
-    }
-    const updatedBlocks = card.blocks.map((b: any, i: number) =>
-      i === blockIdx && b.type === 'text' ? { ...b, value: draft } : b
-    )
-    try {
-      card = await UpdateCardBlocks(cardId, updatedBlocks)
-      editingBlockIdx = null
-      onUpdated?.()
-    } catch (e) { console.error(e) }
-  }
-
-  function handleTextBlockInput(e: Event, blockIdx: number) {
+  function handleTextBlockInput(e: Event, blockId: string) {
     const el = e.target as HTMLTextAreaElement
-    checkForMention(el, { type: 'text', blockIdx })
+    checkForMention(el, { type: 'text', blockId })
   }
 
-  function handleChecklistInputEvent(e: Event, blockIdx: number) {
+  function handleChecklistInputEvent(e: Event, blockId: string) {
     const el = e.target as HTMLInputElement
-    checkForMention(el, { type: 'checklist', blockIdx })
+    checkForMention(el, { type: 'checklist', blockId })
   }
 
-  function checkForMention(el: HTMLTextAreaElement | HTMLInputElement, target: { type: 'desc' } | { type: 'text'; blockIdx: number } | { type: 'checklist'; blockIdx: number }) {
+  function checkForMention(el: HTMLTextAreaElement | HTMLInputElement, target: { type: 'desc' } | { type: 'text'; blockId: string } | { type: 'checklist'; blockId: string }) {
     const pos = el.selectionStart ?? 0
     const text = el.value
     if (pos > 0 && text[pos - 1] === '@') {
@@ -455,23 +430,23 @@
       const newPos = before.length + markdown.length
       setTimeout(() => { descTextareaEl?.focus(); descTextareaEl?.setSelectionRange(newPos, newPos) }, 0)
     } else if (mentionTarget.type === 'text') {
-      const idx = mentionTarget.blockIdx
-      const el = blockTextareaEls[idx]
-      const draft = blockDrafts[idx] || ''
+      const blockId = mentionTarget.blockId
+      const el = blockTextareaEls[blockId]
+      const draft = blockDrafts[blockId] || ''
       const before = draft.slice(0, mentionTriggerPos)
       const after = draft.slice(el?.selectionStart ?? mentionTriggerPos + 1)
-      blockDrafts[idx] = before + markdown + after
+      blockDrafts[blockId] = before + markdown + after
       mentionVisible = false
       mentionTarget = null
       const newPos = before.length + markdown.length
       setTimeout(() => { el?.focus(); el?.setSelectionRange(newPos, newPos) }, 0)
     } else if (mentionTarget.type === 'checklist') {
-      const idx = mentionTarget.blockIdx
-      const el = checklistInputEls[idx]
-      const text = newChecklistTexts[idx] || ''
+      const blockId = mentionTarget.blockId
+      const el = checklistInputEls[blockId]
+      const text = newChecklistTexts[blockId] || ''
       const before = text.slice(0, mentionTriggerPos)
       const after = text.slice(el?.selectionStart ?? mentionTriggerPos + 1)
-      newChecklistTexts[idx] = before + markdown + after
+      newChecklistTexts[blockId] = before + markdown + after
       mentionVisible = false
       mentionTarget = null
       const newPos = before.length + markdown.length
@@ -487,19 +462,19 @@
     if (target?.type === 'desc') {
       setTimeout(() => descTextareaEl?.focus(), 0)
     } else if (target?.type === 'text') {
-      setTimeout(() => blockTextareaEls[target.blockIdx]?.focus(), 0)
+      setTimeout(() => blockTextareaEls[target.blockId]?.focus(), 0)
     } else if (target?.type === 'checklist') {
-      setTimeout(() => checklistInputEls[target.blockIdx]?.focus(), 0)
+      setTimeout(() => checklistInputEls[target.blockId]?.focus(), 0)
     }
   }
 
-  // Select block helper
-  async function handleSelectChange(blockIdx: number, value: string) {
-    card.blocks[blockIdx] = { ...card.blocks[blockIdx], value }
+  async function handleSelectChange(blockId: string, value: string) {
+    if (!card) return
+    const blocks = card.blocks.map((b: Block) => b.id === blockId ? { ...b, value } : b)
     try {
-      card = await UpdateCardBlocks(cardId, card.blocks)
-      onUpdated?.()
-    } catch (e) { console.error(e) }
+      card = await tracked(UpdateCardBlocks(cardId, blocks)) as Card
+    } catch (e) { showToast(t('error.save_failed'), 'error'); return }
+    onUpdated?.()
   }
 
   // Tag helpers
@@ -508,7 +483,7 @@
   async function ensureTagInProject(tagName: string, brandSlug: string, streamSlug: string, projectSlug: string) {
     try {
       const existing = await GetProjectLabels(brandSlug, streamSlug, projectSlug) || []
-      if (!existing.some((t: any) => t.name.toLowerCase() === tagName.toLowerCase())) {
+      if (!existing.some((t: { name: string }) => t.name.toLowerCase() === tagName.toLowerCase())) {
         await AddProjectLabel(brandSlug, streamSlug, projectSlug, tagName, '')
       }
     } catch { /* best-effort */ }
@@ -533,25 +508,25 @@
 
   async function addTag() {
     const tag = newTag.trim()
-    if (!tag || card.tags?.some((t: string) => t.toLowerCase() === tag.toLowerCase())) { newTag = ''; return }
-    const tags = [...(card.tags || []), tag]
+    if (!tag || card?.tags?.some((t: string) => t.toLowerCase() === tag.toLowerCase())) { newTag = ''; return }
+    const tags = [...(card?.tags || []), tag]
     try {
-      card = await UpdateCardTags(cardId, tags)
+      card = await tracked(UpdateCardTags(cardId, tags)) as Card
       newTag = ''
       await syncTagToProjects(tag)
-      onUpdated?.()
-    } catch (e) { console.error(e) }
+    } catch (e) { showToast(t('error.tag_failed'), 'error'); return }
+    onUpdated?.()
   }
 
   let suppressPickerUntil = 0
 
   async function removeTag(tag: string) {
     suppressPickerUntil = Date.now() + 200
-    const tags = (card.tags || []).filter((t: string) => t !== tag)
+    const tags = (card?.tags || []).filter((t: string) => t !== tag)
     try {
-      card = await UpdateCardTags(cardId, tags)
-      onUpdated?.()
-    } catch (e) { console.error(e) }
+      card = await tracked(UpdateCardTags(cardId, tags)) as Card
+    } catch (e) { showToast(t('error.tag_failed'), 'error'); return }
+    onUpdated?.()
   }
 
   // Combined tag input + picker
@@ -570,22 +545,20 @@
   $effect(() => { newTag; highlightIdx = -1 })
 
   function isProjectTagAssigned(tagName: string): boolean {
-    return (card.tags || []).some((t: string) => t.toLowerCase() === tagName.toLowerCase())
+    return (card?.tags || []).some((t: string) => t.toLowerCase() === tagName.toLowerCase())
   }
 
   async function toggleProjectTag(tagName: string) {
-    const current = card.tags || []
+    const current = card?.tags || []
     const isAssigned = current.some((t: string) => t.toLowerCase() === tagName.toLowerCase())
     const tags = isAssigned
       ? current.filter((t: string) => t.toLowerCase() !== tagName.toLowerCase())
       : [...current, tagName]
     try {
-      card = await UpdateCardTags(cardId, tags)
-      if (!isAssigned) {
-        await syncTagToProjects(tagName)
-      }
-      onUpdated?.()
-    } catch (e) { console.error(e) }
+      card = await tracked(UpdateCardTags(cardId, tags)) as Card
+      if (!isAssigned) await syncTagToProjects(tagName)
+    } catch (e) { showToast(t('error.tag_failed'), 'error'); return }
+    onUpdated?.()
   }
 
   function handleTagKeydown(e: KeyboardEvent) {
@@ -637,9 +610,9 @@
   async function handleDueDateChange(e: Event) {
     const value = (e.target as HTMLInputElement).value
     try {
-      card = await UpdateCardDueDate(cardId, value)
-      onUpdated?.()
-    } catch (e) { console.error(e) }
+      card = await tracked(UpdateCardDueDate(cardId, value)) as Card
+    } catch (e) { showToast(t('error.date_failed'), 'error'); return }
+    onUpdated?.()
   }
 
   async function toggleCurrentPin() {
@@ -647,10 +620,11 @@
     pinActionLoading = true
     try {
       if (isPinnedHere && currentPin) {
+        const name = currentCategoryName || currentPin.categoryName
         const msg = pinBreadcrumbs.length === 1
-          ? `Unpin from "${currentCategoryName || currentPin.categoryName}"? The card will move to Inbox.`
-          : `Unpin from "${currentCategoryName || currentPin.categoryName}"?`
-        if (!confirm(msg)) { pinActionLoading = false; return }
+          ? t('card.confirm_unpin_last').replace('{name}', name)
+          : t('card.confirm_unpin').replace('{name}', name)
+        if (!await showConfirm(msg)) { pinActionLoading = false; return }
         const unpinProject = currentPin.pinnedProjectId || currentPin.categoryId
         await UnpinCard(cardId, unpinProject, currentPin.categoryId)
       } else {
@@ -660,9 +634,7 @@
       document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
       onPin?.()
       onUpdated?.()
-    } catch (e) {
-      console.error('Toggle pin failed:', e)
-    }
+    } catch (e) { showToast(t('error.pin_failed'), 'error') }
     pinActionLoading = false
   }
 
@@ -672,41 +644,39 @@
     showPinPicker = true
   }
 
-  function openMovePicker(fromPin: CategoryPath) {
+  function openMovePicker(fromPin: CardPin) {
     pinPickerMode = 'move'
     pinPickerSourcePin = fromPin
     showPinPicker = true
   }
 
-  async function handlePinSelect(target: CategoryPath) {
+  async function handlePinSelect(target: CardPin) {
     showPinPicker = false
     pinActionLoading = true
     try {
       if (pinPickerMode === 'move' && pinPickerSourcePin) {
-        // Use pinnedProjectId (actual stored value) so UnpinCard can find the pin
         const unpinProject = pinPickerSourcePin.pinnedProjectId || pinPickerSourcePin.categoryId
         await UnpinCard(cardId, unpinProject, pinPickerSourcePin.categoryId)
-        await PinCard(cardId, target.categoryId, target.categoryId) // convention: projectID == categoryID
+        await PinCard(cardId, target.categoryId, target.categoryId)
       } else {
-        await PinCard(cardId, target.categoryId, target.categoryId) // convention: projectID == categoryID
+        await PinCard(cardId, target.categoryId, target.categoryId)
       }
       pinBreadcrumbs = await GetCardPinBreadcrumbs(cardId) || []
       document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
       onPin?.()
       onUpdated?.()
     } catch (e) {
-      console.error('Pin action failed:', e)
-      alert('Could not pin card: ' + (e as any)?.message)
+      showToast(t('error.pin_failed'), 'error')
     }
     pinActionLoading = false
     pinPickerSourcePin = null
   }
 
-  async function handleUnpin(pin: CategoryPath) {
+  async function handleUnpin(pin: CardPin) {
     const msg = pinBreadcrumbs.length === 1
-      ? `Unpin from "${pin.categoryName}"? The card will move to Inbox.`
-      : `Unpin from "${pin.categoryName}"?`
-    if (!confirm(msg)) return
+      ? t('card.confirm_unpin_last').replace('{name}', pin.categoryName)
+      : t('card.confirm_unpin').replace('{name}', pin.categoryName)
+    if (!await showConfirm(msg)) return
     pinActionLoading = true
     try {
       const unpinProject = pin.pinnedProjectId || pin.categoryId
@@ -715,19 +685,17 @@
       document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
       onPin?.()
       onUpdated?.()
-    } catch (e) {
-      console.error('Unpin failed:', e)
-    }
+    } catch (e) { showToast(t('error.pin_failed'), 'error') }
     pinActionLoading = false
   }
 
   async function handleDelete() {
-    if (!confirm(t('card.delete_confirm'))) return
+    if (!await showConfirm(t('card.delete_confirm'))) return
     try {
       await DeleteCard(cardId)
       onUpdated?.()
       onClose()
-    } catch (e) { console.error(e) }
+    } catch (e) { showToast(t('error.delete_failed'), 'error') }
   }
 
   function handleBackdropClick(e: MouseEvent) {
@@ -736,17 +704,18 @@
     }
   }
 
-  function handleBackdropKeydown(e: KeyboardEvent) {
+  async function handleBackdropKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()
-      if (editingTitle) saveTitle()
-      if (editingDescription) saveDescription()
-      if (editingBlockIdx !== null) saveTextBlock(editingBlockIdx)
+      if (editingTitle) await saveTitle()
+      if (editingDescription) await saveDescription()
+      if (editingBlockId !== null) await saveTextBlock(editingBlockId)
+      if (editingBlockLabelId !== null) await renameBlockLabel(editingBlockLabelId)
       onClose()
       return
     }
     if (e.key === 'Escape') {
-      if (editingTitle || editingDescription || editingBlockIdx !== null || editingBlockLabelIdx !== null) return
+      if (editingTitle || editingDescription || editingBlockId !== null || editingBlockLabelId !== null) return
       onClose({ escaped: true })
     }
   }
@@ -756,7 +725,7 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div class="modal-backdrop" role="presentation" onclick={handleBackdropClick}>
-  <div class="modal" class:chat-open={showChat} use:draggable={{ handle: '.modal-header' }}>
+  <div class="modal" class:chat-open={showChat} use:draggable={{ handle: '.modal-header' }} use:focusTrap>
    <div class="modal-main">
     {#if loading}
       <div class="modal-loading">{t('app.loading')}</div>
@@ -765,10 +734,10 @@
         <div class="type-picker-wrap" bind:this={typePickerEl}>
           <button
             class="type-badge type-badge-btn"
-            style="background: {card.type ? (typeColors[card.type] || '#71717a') : 'var(--bg-elevated)'}; color: {card.type ? '#fff' : 'var(--text-muted)'}"
+            style="background: {getCardTypeColor(card.type)}; color: {getCardTypeTextColor(card.type)}"
             onclick={openTypePicker}
-            title="Change card type"
-          >{card.type || 'None'}</button>
+            title={t('tooltip.change_card_type')}
+          >{card.type || t('card.type_none')}</button>
           {#if showTypePicker}
             <div class="type-picker-dropdown">
               <button
@@ -776,7 +745,7 @@
                 class:active={!card.type}
                 onclick={() => selectType('')}
               >
-                <span class="type-option-badge" style="background: var(--bg-elevated); color: var(--text-muted)">None</span>
+                <span class="type-option-badge" style="background: var(--bg-elevated); color: var(--text-muted)">{t('card.type_none')}</span>
               </button>
               {#each cardTypes as ct}
                 <button
@@ -784,7 +753,7 @@
                   class:active={card.type === ct}
                   onclick={() => selectType(ct)}
                 >
-                  <span class="type-option-badge" style="background: {typeColors[ct] || '#71717a'}">{ct}</span>
+                  <span class="type-option-badge" style="background: {getCardTypeColor(ct)}">{ct}</span>
                 </button>
               {/each}
             </div>
@@ -794,20 +763,18 @@
         {#if editingTitle}
           <input
             class="title-input"
-            bind:this={titleInputEl}
+            use:focusOnMount={true}
             bind:value={titleDraft}
             onkeydown={handleTitleKeydown}
             onblur={saveTitle}
           />
         {:else}
-          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-        <h2 class="modal-title" onclick={() => { editingTitle = true }} title={t('tooltip.edit_title')}>
+          <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_noninteractive_tabindex -->
+        <h2 class="modal-title" tabindex="0" onclick={() => { editingTitle = true }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editingTitle = true } }} title={t('tooltip.edit_title')}>
             {@html renderInline(card.title)}
           </h2>
         {/if}
 
-        <button class="chat-toggle-btn" class:active={showChat} onclick={() => showChat = !showChat} title="Toggle chat"><MessageSquare size={16} /></button>
-        <button class="close-btn" onclick={() => onClose()} title={t('tooltip.close_card')}><X size={18} /></button>
       </div>
 
       <div class="modal-subheader">
@@ -818,7 +785,7 @@
             class:pinned={isPinnedHere}
             onclick={toggleCurrentPin}
             disabled={pinActionLoading}
-            title={isPinnedHere ? `Unpin from "${currentCategoryName}"` : `Pin to "${currentCategoryName}"`}
+            title={isPinnedHere ? `${t('tooltip.unpin')} "${currentCategoryName}"` : `${t('card.pin_to')} "${currentCategoryName}"`}
           >
             {#if isPinnedHere}
               <MapPin size={11} />
@@ -835,24 +802,24 @@
             onclick={() => showOtherPins = !showOtherPins}
             disabled={pinActionLoading}
           >
-            Other pins{otherPins.length > 0 ? ` (${otherPins.length})` : ''} {showOtherPins ? '▲' : '▼'}
+            {t('card.other_pins')}{otherPins.length > 0 ? ` (${otherPins.length})` : ''} {showOtherPins ? '▲' : '▼'}
           </button>
 
         {:else}
           <!-- No context category (inbox or search) -->
           {#if pinBreadcrumbs.length === 0}
             <!-- Inbox: card has no pins — show direct pin action -->
-            <button class="btn-pin" onclick={openPinPicker} disabled={pinActionLoading}><MapPin size={11} /> Pin to...</button>
+            <button class="btn-pin" onclick={openPinPicker} disabled={pinActionLoading}><MapPin size={11} /> {t('card.pin_to')}</button>
           {:else}
             <!-- Opened from search with existing pins — show summary + editor -->
-            <span class="location-inbox"><MapPin size={11} /> {pinBreadcrumbs.length} pin{pinBreadcrumbs.length !== 1 ? 's' : ''}</span>
+            <span class="location-inbox"><MapPin size={11} /> {pinBreadcrumbs.length !== 1 ? t('card.pin_count_plural').replace('{count}', String(pinBreadcrumbs.length)) : t('card.pin_count').replace('{count}', String(pinBreadcrumbs.length))}</span>
             <button
               class="btn-other-pins"
               class:expanded={showOtherPins}
               onclick={() => showOtherPins = !showOtherPins}
               disabled={pinActionLoading}
             >
-              {showOtherPins ? 'Hide ▲' : 'Edit pins ▼'}
+              {showOtherPins ? `${t('card.hide_pins')} ▲` : `${t('card.edit_pins')} ▼`}
             </button>
           {/if}
         {/if}
@@ -863,18 +830,18 @@
             {#each otherPins as pin}
               <div class="location-pin">
                 <span class="location-breadcrumb" title={pin.breadcrumb}><MapPin size={11} />{pin.breadcrumb}</span>
-                <button class="btn-pin-action" onclick={() => openMovePicker(pin)} disabled={pinActionLoading} title="Move to another category" aria-label="Move pin"><MoveRight size={11} /></button>
-                <button class="btn-pin-action btn-unpin" onclick={() => handleUnpin(pin)} disabled={pinActionLoading} title="Unpin" aria-label="Unpin"><MapPinOff size={11} /></button>
+                <button class="btn-pin-action" onclick={() => openMovePicker(pin)} disabled={pinActionLoading} title={t('tooltip.move_pin')} aria-label={t('tooltip.move_pin')}><MoveRight size={11} /></button>
+                <button class="btn-pin-action btn-unpin" onclick={() => handleUnpin(pin)} disabled={pinActionLoading} title={t('tooltip.unpin')} aria-label={t('tooltip.unpin')}><MapPinOff size={11} /></button>
               </div>
             {/each}
-            <button class="btn-pin" onclick={openPinPicker} disabled={pinActionLoading}>+ Pin to another category</button>
+            <button class="btn-pin" onclick={openPinPicker} disabled={pinActionLoading}>{t('card.pin_to_category')}</button>
           </div>
         {/if}
       </div>
 
       <div class="modal-body">
         <!-- FAB: Add block (top-right, overlapping) -->
-        <button class="fab-add-block" bind:this={fabBtnEl} onclick={toggleBlockPicker} title="Add a block">
+        <button class="fab-add-block" bind:this={fabBtnEl} onclick={toggleBlockPicker} title={t('tooltip.add_block')}>
           <Plus size={18} />
         </button>
         {#if showBlockPicker}
@@ -929,6 +896,7 @@
           {#if editingDescription}
             <textarea
               class="desc-textarea"
+              use:focusOnMount
               bind:this={descTextareaEl}
               bind:value={descriptionDraft}
               onkeydown={handleDescKeydown}
@@ -937,7 +905,7 @@
               rows="4"
             ></textarea>
           {:else}
-            <div class="desc-display" role="button" tabindex="0" onclick={(e) => { if ((e.target as HTMLElement).closest('a')) return; editingDescription = true }} title={t('tooltip.edit_description')}>
+            <div class="desc-display" role="button" tabindex="0" onclick={(e) => { if ((e.target as HTMLElement).closest('a')) return; editingDescription = true }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editingDescription = true } }} title={t('tooltip.edit_description')}>
               {#if card.fields?.description}
                 <div class="markdown-content">{@html renderMarkdown(card.fields.description)}</div>
               {:else}
@@ -967,64 +935,63 @@
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <span
                   class="block-drag-handle"
-                  role="button"
-                  tabindex="0"
+                  role="presentation"
+                  tabindex="-1"
                   draggable="true"
                   ondragstart={(e) => handleBlockDragStart(e, blockIdx)}
                   ondragend={handleBlockDragEnd}
-                  title="Drag to reorder"
+                  title={t('tooltip.drag_block')}
                 ><GripVertical size={14} /></span>
 
                 <section class="section block-content">
                   <!-- Editable block label -->
-                  {#if editingBlockLabelIdx === blockIdx}
+                  {#if editingBlockLabelId === block.id}
                     <input
                       class="block-label-input"
-                      bind:this={blockLabelInputEl}
+                      use:focusOnMount={true}
                       bind:value={blockLabelDraft}
-                      onblur={() => renameBlockLabel(blockIdx)}
-                      onkeydown={(e) => { if (e.key === 'Enter') renameBlockLabel(blockIdx); if (e.key === 'Escape') { e.stopPropagation(); editingBlockLabelIdx = null } }}
+                      use:inlineEdit={{ onCommit: () => renameBlockLabel(block.id), onCancel: () => { editingBlockLabelId = null } }}
                     />
                   {:else}
                     {#if block.type === 'checklist'}
                       {@const items = Array.isArray(block.value) ? block.value : []}
-                      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-                      <h3 class="section-title block-label-row action-reveal-parent" onclick={() => { editingBlockLabelIdx = blockIdx; blockLabelDraft = block.label || '' }}>
+                      <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_noninteractive_tabindex -->
+                      <h3 class="section-title block-label-row action-reveal-parent" tabindex="0" onclick={() => { editingBlockLabelId = block.id; blockLabelDraft = block.label || '' }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editingBlockLabelId = block.id; blockLabelDraft = block.label || '' } }}>
                         <span class="block-label-text">{block.label || block.type}</span>
                         {#if items.length > 0}
                           <span class="checklist-progress">{items.filter((c: any) => c.done).length}/{items.length}</span>
                         {/if}
                         <span class="block-actions">
-                          <button class="block-action-btn action-reveal action-reveal--edit" onclick={(e) => { e.stopPropagation(); editingBlockLabelIdx = blockIdx; blockLabelDraft = block.label || '' }} title="Rename block"><Pencil size={11} /></button>
-                          <button class="block-action-btn action-reveal action-reveal--danger" onclick={(e) => { e.stopPropagation(); deleteBlock(blockIdx) }} title="Delete block"><Trash2 size={11} /></button>
+                          <button class="block-action-btn action-reveal action-reveal--edit" onclick={(e) => { e.stopPropagation(); editingBlockLabelId = block.id; blockLabelDraft = block.label || '' }} title={t('tooltip.rename_block')}><Pencil size={11} /></button>
+                          <button class="block-action-btn action-reveal action-reveal--danger" onclick={(e) => { e.stopPropagation(); deleteBlock(block.id) }} title={t('tooltip.delete_block')}><Trash2 size={11} /></button>
                         </span>
                       </h3>
                     {:else}
-                      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-                      <h3 class="section-title block-label-row action-reveal-parent" onclick={() => { editingBlockLabelIdx = blockIdx; blockLabelDraft = block.label || '' }}>
+                      <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_noninteractive_tabindex -->
+                      <h3 class="section-title block-label-row action-reveal-parent" tabindex="0" onclick={() => { editingBlockLabelId = block.id; blockLabelDraft = block.label || '' }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editingBlockLabelId = block.id; blockLabelDraft = block.label || '' } }}>
                         <span class="block-label-text">{block.label || block.key || block.type}</span>
                         <span class="block-actions">
-                          <button class="block-action-btn action-reveal action-reveal--edit" onclick={(e) => { e.stopPropagation(); editingBlockLabelIdx = blockIdx; blockLabelDraft = block.label || '' }} title="Rename block"><Pencil size={11} /></button>
-                          <button class="block-action-btn action-reveal action-reveal--danger" onclick={(e) => { e.stopPropagation(); deleteBlock(blockIdx) }} title="Delete block"><Trash2 size={11} /></button>
+                          <button class="block-action-btn action-reveal action-reveal--edit" onclick={(e) => { e.stopPropagation(); editingBlockLabelId = block.id; blockLabelDraft = block.label || '' }} title={t('tooltip.rename_block')}><Pencil size={11} /></button>
+                          <button class="block-action-btn action-reveal action-reveal--danger" onclick={(e) => { e.stopPropagation(); deleteBlock(block.id) }} title={t('tooltip.delete_block')}><Trash2 size={11} /></button>
                         </span>
                       </h3>
                     {/if}
                   {/if}
 
                   {#if block.type === 'text'}
-                    <!-- Text block -->
-                    {#if editingBlockIdx === blockIdx}
+                    {#if editingBlockId === block.id}
                       <textarea
                         class="desc-textarea"
-                        bind:this={blockTextareaEls[blockIdx]}
-                        bind:value={blockDrafts[blockIdx]}
-                        onkeydown={(e) => handleTextBlockKeydown(e, blockIdx)}
-                        oninput={(e) => handleTextBlockInput(e, blockIdx)}
-                        onblur={() => { if (!mentionVisible) saveTextBlock(blockIdx) }}
+                        use:focusOnMount
+                        bind:this={blockTextareaEls[block.id]}
+                        bind:value={blockDrafts[block.id]}
+                        onkeydown={(e) => handleTextBlockKeydown(e, block.id)}
+                        oninput={(e) => handleTextBlockInput(e, block.id)}
+                        onblur={() => { if (!mentionVisible) saveTextBlock(block.id) }}
                         rows="4"
                       ></textarea>
                     {:else}
-                      <div class="desc-display" role="button" tabindex="0" onclick={(e) => { if ((e.target as HTMLElement).closest('a')) return; editingBlockIdx = blockIdx }} title={t('tooltip.edit_description')}>
+                      <div class="desc-display" role="button" tabindex="0" onclick={(e) => { if ((e.target as HTMLElement).closest('a')) return; editingBlockId = block.id }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editingBlockId = block.id } }} title={t('tooltip.edit_description')}>
                         {#if block.value}
                           <div class="markdown-content">{@html renderMarkdown(String(block.value))}</div>
                         {:else}
@@ -1034,20 +1001,20 @@
                     {/if}
 
                   {:else if block.type === 'checklist'}
-                    <!-- Checklist block -->
                     <EditableChecklist
                       items={Array.isArray(block.value) ? block.value : []}
                       onUpdate={async (updated) => {
-                        card.blocks[blockIdx] = { ...block, value: updated }
+                        if (!card) return
+                        const blocks = card.blocks.map((b: Block) => b.id === block.id ? { ...b, value: updated } : b)
                         try {
-                          card = await UpdateCardBlocks(cardId, card.blocks)
+                          card = await tracked(UpdateCardBlocks(cardId, blocks)) as Card
                           onUpdated?.()
-                        } catch (e) { console.error(e) }
+                        } catch (e) { showToast(t('error.save_failed'), 'error') }
                       }}
                     />
 
                   {:else if block.type === 'select' || block.type === 'radio'}
-                    <select class="select-input" value={block.value || ''} onchange={(e) => handleSelectChange(blockIdx, (e.target as HTMLSelectElement).value)}>
+                    <select class="select-input" value={block.value || ''} onchange={(e) => handleSelectChange(block.id, (e.target as HTMLSelectElement).value)}>
                       <option value="">—</option>
                       {#each (block.meta?.options || []) as opt}
                         <option value={opt}>{opt}</option>
@@ -1088,7 +1055,10 @@
 
       <div class="modal-footer">
         <button class="btn-delete" onclick={handleDelete} title={t('tooltip.delete_card')}><Trash2 size={14} /> {t('card.delete')}</button>
-        <span class="meta">Created {card.created_at?.slice(0, 10) || '—'}</span>
+        <span class="modal-footer-right">
+          <SaveIndicator {saving} />
+          <span class="meta">{t('card.created')} {card.created_at?.slice(0, 10) || '—'}</span>
+        </span>
       </div>
     {/if}
    </div>
@@ -1096,6 +1066,11 @@
     {#if !loading && card}
       <ChatSection {cardId} bind:visible={showChat} onCardChanged={loadCard} />
     {/if}
+
+    <div class="modal-actions">
+      <button class="chat-toggle-btn" class:active={showChat} onclick={() => showChat = !showChat} title={t('tooltip.toggle_chat')}><Bot size={16} /></button>
+      <button class="close-btn" onclick={() => onClose()} title={t('tooltip.close_card')}><X size={18} /></button>
+    </div>
   </div>
 </div>
 
@@ -1165,6 +1140,7 @@
     overflow: hidden;
     box-shadow: 0 8px 32px var(--shadow-lg);
     transition: width 0.2s ease;
+    position: relative;
   }
   .modal.chat-open {
     width: 960px;
@@ -1397,7 +1373,7 @@
     font-weight: 600;
     color: var(--text-primary);
     flex: 1;
-    cursor: pointer;
+    cursor: text;
     line-height: 1.3;
   }
   .modal-title:hover {
@@ -1416,13 +1392,22 @@
     outline: none;
   }
 
+  .modal-actions {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    z-index: 3;
+  }
+
   .chat-toggle-btn {
     background: none;
     border: none;
     color: var(--text-muted);
     cursor: pointer;
     padding: 0.25rem;
-    flex-shrink: 0;
     border-radius: 4px;
   }
   .chat-toggle-btn:hover { color: var(--text-primary); }
@@ -1435,7 +1420,6 @@
     font-size: 1.2rem;
     cursor: pointer;
     padding: 0.25rem;
-    flex-shrink: 0;
   }
   .close-btn:hover { color: var(--text-primary); }
 
@@ -1462,7 +1446,7 @@
   }
 
   .desc-display {
-    cursor: pointer;
+    cursor: text;
     padding: 0.5rem;
     border-radius: 6px;
     transition: background 0.1s;
@@ -1585,6 +1569,12 @@
     border-top: 1px solid var(--border-muted);
   }
 
+  .modal-footer-right {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
   .meta {
     font-size: 0.75rem;
     color: var(--text-faint);
@@ -1680,7 +1670,7 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    cursor: pointer;
+    cursor: text;
   }
   .block-label-row:hover .block-label-text {
     color: var(--accent-light);

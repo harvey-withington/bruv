@@ -23,12 +23,13 @@ const AppVersion = "0.1.0-dev"
 
 // App struct
 type App struct {
-	ctx            context.Context
-	repo           *repo.Repository
-	registry       *schema.Registry
-	idx            *index.Index
-	savedBounds    *config.WindowBounds
-	boundsRestored bool
+	ctx             context.Context
+	repo            *repo.Repository
+	registry        *schema.Registry
+	idx             *index.Index
+	savedBounds     *config.WindowBounds
+	boundsRestored  bool
+	lastSavedBounds *config.WindowBounds
 }
 
 // NewApp creates a new App application struct
@@ -62,6 +63,54 @@ func (a *App) domReady(ctx context.Context) {
 		a.boundsRestored = true
 	}
 	wailsRuntime.WindowShow(ctx)
+	a.startBoundsPoller()
+}
+
+// startBoundsPoller starts a background goroutine that saves the window
+// position and size every 3 seconds if they have changed. This ensures
+// bounds are preserved even if the app is killed rather than closed normally.
+func (a *App) startBoundsPoller() {
+	go func() {
+		ticker := time.NewTicker(3 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-a.ctx.Done():
+				return
+			case <-ticker.C:
+				a.saveCurrentBounds()
+			}
+		}
+	}()
+}
+
+// saveCurrentBounds captures and persists the current window position and size.
+// It skips the write if nothing has changed since the last save.
+func (a *App) saveCurrentBounds() {
+	maximised := wailsRuntime.WindowIsMaximised(a.ctx)
+	x, y := wailsRuntime.WindowGetPosition(a.ctx)
+	w, h := wailsRuntime.WindowGetSize(a.ctx)
+
+	wb := &config.WindowBounds{
+		X:         x,
+		Y:         y,
+		Width:     w,
+		Height:    h,
+		Maximised: maximised,
+	}
+
+	if a.lastSavedBounds != nil &&
+		a.lastSavedBounds.X == wb.X &&
+		a.lastSavedBounds.Y == wb.Y &&
+		a.lastSavedBounds.Width == wb.Width &&
+		a.lastSavedBounds.Height == wb.Height &&
+		a.lastSavedBounds.Maximised == wb.Maximised {
+		return
+	}
+
+	if err := config.SaveWindowBounds(wb); err == nil {
+		a.lastSavedBounds = wb
+	}
 }
 
 // beforeClose is called when the window is about to close.

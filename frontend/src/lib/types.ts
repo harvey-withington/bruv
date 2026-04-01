@@ -1,3 +1,52 @@
+// --- Card domain types ---
+
+export type ChecklistItem = {
+  id: string
+  text: string
+  done: boolean
+}
+
+export type BlockType = 'text' | 'checklist' | 'number' | 'date' | 'checkbox' | 'select' | 'radio' | 'url' | 'image' | 'video' | 'divider'
+
+export type BlockMeta = {
+  options?: string[]
+}
+
+export type Block = {
+  id: string
+  type: BlockType
+  label: string
+  key: string
+  value: string | number | boolean | ChecklistItem[] | null
+  meta?: BlockMeta
+}
+
+export type Card = {
+  id: string
+  title: string
+  type: string
+  tags: string[]
+  due_date: string | null
+  created_at: string
+  fields: Record<string, string>
+  blocks: Block[]
+}
+
+export type CardPin = {
+  brandSlug: string
+  streamSlug: string
+  projectSlug: string
+  categorySlug: string
+  brandName: string
+  streamName: string
+  projectName: string
+  categoryName: string
+  projectId: string
+  categoryId: string
+  breadcrumb: string
+  pinnedProjectId?: string
+}
+
 // --- Identity: who the user is (editable, visible to collaborators & LLMs) ---
 export type UserProfile = {
   display_name: string

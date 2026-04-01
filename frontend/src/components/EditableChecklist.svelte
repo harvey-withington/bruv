@@ -73,7 +73,6 @@
       </button>
       <EditableText
         value={item.text}
-        placeholder="Click to edit"
         inlineMarkdown
         class="cl-text"
         onSave={(text) => saveItemText(item.id, text)}

@@ -3,6 +3,8 @@
   import { projectTags, nav, loadBoard } from '../lib/store.svelte'
   import { AddProjectLabel, RemoveProjectLabel, UpdateProjectLabel, ListCardIDsByTag, GetCard, UpdateCardTags } from '../lib/api'
   import { X, Plus, Trash2, Palette } from 'lucide-svelte'
+  import { t } from '../lib/i18n.svelte'
+  import { focusTrap, inlineEdit } from '../lib/actions'
 
   const TAG_PALETTE = [
     '#61bd4f', '#f2d600', '#ff9f1a', '#eb5a46', '#c377e0',
@@ -130,9 +132,9 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div class="modal-backdrop" role="presentation" onclick={onClose} onkeydown={handleKeydown}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="tag-editor" role="dialog" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={handleKeydown}>
+  <div class="tag-editor" role="dialog" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={handleKeydown} use:focusTrap>
     <div class="editor-header">
-      <h2 class="editor-title">Project Tags</h2>
+      <h2 class="editor-title">{t('tags.title')}</h2>
       <button class="close-btn" onclick={onClose}><X size={18} /></button>
     </div>
 
@@ -141,7 +143,7 @@
       class="search-input"
       bind:value={query}
       onkeydown={(e) => { if (e.key === 'Enter' && canCreate) createTag() }}
-      placeholder="Search or create tag..."
+      placeholder={t('tags.search_placeholder')}
     />
 
     <div class="tag-list">
@@ -153,8 +155,7 @@
               class="edit-input"
               bind:this={editInputEl}
               bind:value={editingName}
-              onkeydown={(e) => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') { editingId = null; e.stopPropagation() } }}
-              onblur={commitEdit}
+              use:inlineEdit={{ onCommit: () => commitEdit(), onCancel: () => { editingId = null } }}
             />
           {:else}
             <span
@@ -166,10 +167,10 @@
               onkeydown={(e) => { if (e.key === 'Enter') startEdit(tag) }}
             >{tag.name}</span>
             {@const count = tagUsage[tag.name.toLowerCase()] || 0}
-            <span class="tag-usage" class:unused={count === 0}>{count === 0 ? 'unused' : count}</span>
+            <span class="tag-usage" class:unused={count === 0}>{count === 0 ? t('tags.unused') : count}</span>
             <div class="tag-actions">
-              <button class="action-btn color-btn" onclick={() => { colorPickerTagId = colorPickerTagId === tag.id ? null : tag.id }} title="Change color"><Palette size={12} /></button>
-              <button class="action-btn delete-btn" onclick={() => requestRemoveTag(tag.id)} title="Remove from project"><Trash2 size={12} /></button>
+              <button class="action-btn color-btn" onclick={() => { colorPickerTagId = colorPickerTagId === tag.id ? null : tag.id }} title={t('tooltip.change_tag_color')}><Palette size={12} /></button>
+              <button class="action-btn delete-btn" onclick={() => requestRemoveTag(tag.id)} title={t('tooltip.remove_from_project')}><Trash2 size={12} /></button>
             </div>
           {/if}
         </div>
@@ -181,7 +182,7 @@
                 class:active={tag.color === color}
                 style:background={color}
                 onclick={() => changeColor(tag.id, color)}
-                aria-label="Set color to {color}"
+                aria-label={t('tags.set_color').replace('{color}', color)}
               ></button>
             {/each}
           </div>
@@ -189,12 +190,12 @@
       {/each}
 
       {#if filteredTags.length === 0 && !canCreate}
-        <p class="empty-msg">No tags yet</p>
+        <p class="empty-msg">{t('tags.empty')}</p>
       {/if}
 
       {#if canCreate}
         <button class="create-row" onclick={createTag}>
-          <Plus size={14} /> Create "{query.trim()}"
+          <Plus size={14} /> {t('tags.create')} "{query.trim()}"
         </button>
       {/if}
     </div>
@@ -205,12 +206,12 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div class="confirm-backdrop" role="presentation" onclick={() => confirmDelete = null}>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="confirm-dialog" role="dialog" tabindex="-1" onclick={(e) => e.stopPropagation()}>
-      <h3 class="confirm-title">Delete tag "{confirmDelete.name}"?</h3>
-      <p class="confirm-msg">This tag is used on {confirmDelete.count} card{confirmDelete.count === 1 ? '' : 's'}. It will be removed from all of them.</p>
+    <div class="confirm-dialog" role="dialog" tabindex="-1" onclick={(e) => e.stopPropagation()} use:focusTrap>
+      <h3 class="confirm-title">{t('tags.confirm_delete_title').replace('{name}', confirmDelete.name)}</h3>
+      <p class="confirm-msg">{t('tags.confirm_delete_msg').replace('{count}', String(confirmDelete.count))}</p>
       <div class="confirm-actions">
-        <button class="btn-ghost" onclick={() => confirmDelete = null}>Cancel</button>
-        <button class="btn-danger" onclick={() => confirmDelete && doRemoveTag(confirmDelete.id, confirmDelete.name)}>Delete</button>
+        <button class="btn-ghost" onclick={() => confirmDelete = null}>{t('common.cancel')}</button>
+        <button class="btn-danger" onclick={() => confirmDelete && doRemoveTag(confirmDelete.id, confirmDelete.name)}>{t('tags.delete')}</button>
       </div>
     </div>
   </div>

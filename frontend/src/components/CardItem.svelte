@@ -1,6 +1,8 @@
 <script lang="ts">
   import { search, dnd, getTagColor } from '../lib/store.svelte'
   import { renderInline } from '../lib/markdown'
+  import { t } from '../lib/i18n.svelte'
+  import { getCardTypeColor, getCardTypeTextColor } from '../lib/cardTypes'
 
   type CardData = {
     id: string
@@ -27,17 +29,6 @@
     dnd.overCardIndex = null
   }
 
-  const typeColors: Record<string, string> = {
-    feature: '#6366f1',
-    task: '#22c55e',
-    brainstorm: '#f59e0b',
-    episode: '#ec4899',
-    reference: '#06b6d4',
-  }
-
-  function badgeColor(type: string) {
-    return typeColors[type] || 'var(--text-muted)'
-  }
 </script>
 
 <button
@@ -51,7 +42,7 @@
   onclick={onclick}
 >
   <div class="card-header">
-    <span class="type-badge" style="background: {card.type ? badgeColor(card.type) : 'var(--bg-elevated)'}; color: {card.type ? '#fff' : 'var(--text-muted)'}">{card.type || 'None'}</span>
+    <span class="type-badge" style="background: {getCardTypeColor(card.type)}; color: {getCardTypeTextColor(card.type)}">{card.type || t('card.type_none')}</span>
     {#if card.due_date}
       <span class="due-date">📅 {card.due_date.slice(0, 10)}</span>
     {/if}

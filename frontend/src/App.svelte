@@ -8,10 +8,11 @@
   import TopBar from './components/TopBar.svelte'
   import Board from './components/Board.svelte'
   import CardDetail from './components/CardDetail.svelte'
-  import UserPreferences from './components/UserPreferences.svelte'
+  import SettingsDialog from './components/SettingsDialog.svelte'
   import UserProfile from './components/UserProfile.svelte'
-  import LLMSettings from './components/LLMSettings.svelte'
   import TagEditor from './components/TagEditor.svelte'
+  import Toast from './components/Toast.svelte'
+  import ConfirmDialog from './components/ConfirmDialog.svelte'
 
   import { GetPreferences, ListRecentRepos, OpenRepository, GetCardLocation, GetProjectLocation } from './lib/api'
 
@@ -44,9 +45,8 @@
 
   let searchCardId = $state<string | null>(null)
   let resizing = $state(false)
-  let showPrefs = $state(false)
+  let showSettings = $state(false)
   let showProfile = $state(false)
-  let showLLMSettings = $state(false)
   let showTagEditor = $state(false)
 
   function handleSearchSelectCard(cardId: string) {
@@ -119,9 +119,8 @@
 {:else if nav.repoOpen}
   <div class="app-shell" class:resizing>
     <Sidebar
-      onOpenPrefs={() => showPrefs = true}
+      onOpenPrefs={() => showSettings = true}
       onOpenProfile={() => showProfile = true}
-      onOpenLLMSettings={() => showLLMSettings = true}
     />
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div
@@ -149,16 +148,12 @@
     />
   {/if}
 
-  {#if showPrefs}
-    <UserPreferences onClose={() => showPrefs = false} />
+  {#if showSettings}
+    <SettingsDialog onClose={() => showSettings = false} />
   {/if}
 
   {#if showProfile}
     <UserProfile onClose={() => showProfile = false} />
-  {/if}
-
-  {#if showLLMSettings}
-    <LLMSettings onClose={() => showLLMSettings = false} />
   {/if}
 
   {#if showTagEditor}
@@ -167,6 +162,9 @@
 {:else}
   <WelcomeScreen />
 {/if}
+
+<Toast />
+<ConfirmDialog />
 
 <style>
   .app-shell {

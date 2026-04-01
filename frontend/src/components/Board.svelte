@@ -7,6 +7,7 @@
   import { CreateCard, PinCard, CreateCategory, RenameCategory, GetCard, MoveCardInCategory, MoveCardToCategory, ReorderCategories, DeleteCategory, DeleteCard, MoveCategoryCards, DuplicateCard, CopyCategory, SearchCards, SearchOrphanedCards } from '../lib/api'
   import { Lightbulb } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
+  import { focusTrap } from '../lib/actions'
 
   let renamingCategorySlug = $state<string | null>(null)
   let renamingCategoryName = $state('')
@@ -380,7 +381,7 @@
     {@const inboxCards = board.categories[0]?.cards || []}
     {#if inboxCards.length === 0}
       <div class="empty-board">
-        <p class="empty-text">Inbox is empty</p>
+        <p class="empty-text">{t('board.inbox_empty')}</p>
       </div>
     {:else}
       <div class="inbox-grid" role="list">
@@ -391,7 +392,7 @@
         {/each}
       </div>
     {/if}
-    <button class="fab" onclick={handleNewIdea} title="New Idea">
+    <button class="fab" onclick={handleNewIdea} title={t('tooltip.new_idea')}>
       <Lightbulb size={22} />
     </button>
 
@@ -447,7 +448,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div class="delete-overlay" role="presentation" onclick={cancelDeleteCategory}>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="delete-dialog" role="dialog" tabindex="-1" onclick={(e: MouseEvent) => e.stopPropagation()}>
+    <div class="delete-dialog" role="dialog" tabindex="-1" onclick={(e: MouseEvent) => e.stopPropagation()} use:focusTrap>
       <h3 class="delete-title">{t('board.delete_category_confirm', { name: deletingCategory.name })}</h3>
 
       {#if deletingCategory.cardCount === 0}

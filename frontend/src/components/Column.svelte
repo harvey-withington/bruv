@@ -1,10 +1,12 @@
 <script lang="ts">
   import CardItem from './CardItem.svelte'
   import { GripVertical, Trash2, Settings } from 'lucide-svelte'
-  import { dnd, prefs } from '../lib/store.svelte'
+  import { dnd, prefs, columnSettings } from '../lib/store.svelte'
   import { t } from '../lib/i18n.svelte'
   import { renderInline } from '../lib/markdown'
+  import { getCardTypeColor, CARD_TYPE_ORDER } from '../lib/cardTypes'
   import { ListCardTypes, UpdateCategoryAcceptedTypes } from '../lib/api'
+  import { inlineEdit } from '../lib/actions'
 
   type CardData = {
     id: string
@@ -47,7 +49,7 @@
   } = $props()
 
   let renameInputEl = $state<HTMLInputElement | null>(null)
-  let showSettings = $state(false)
+  let showSettings = $derived(columnSettings.openCategoryId === category.id)
   let allCardTypes = $state<string[]>([])
   let dropRejected = $state(false)
   let settingsBtnEl = $state<HTMLButtonElement | null>(null)
@@ -66,13 +68,21 @@
       return
     }
     if (!allCardTypes.length) {
-      allCardTypes = await ListCardTypes() || []
+      const fetched = await ListCardTypes() || []
+      allCardTypes = [...fetched].sort((a, b) => {
+        const ai = CARD_TYPE_ORDER.indexOf(a as typeof CARD_TYPE_ORDER[number])
+        const bi = CARD_TYPE_ORDER.indexOf(b as typeof CARD_TYPE_ORDER[number])
+        if (ai === -1 && bi === -1) return a.localeCompare(b)
+        if (ai === -1) return 1
+        if (bi === -1) return -1
+        return ai - bi
+      })
     }
     if (settingsBtnEl) {
       const rect = settingsBtnEl.getBoundingClientRect()
       popoverStyle = `position:fixed;top:${rect.bottom + 4}px;left:${rect.left}px;width:220px;`
     }
-    showSettings = true
+    columnSettings.openCategoryId = category.id
   }
 
   function isTypeAccepted(type: string): boolean {
@@ -201,7 +211,7 @@
   }
 
   function closeSettings() {
-    showSettings = false
+    columnSettings.openCategoryId = null
     if (settingsDirty) {
       settingsDirty = false
       onCategoryUpdated?.()
@@ -223,13 +233,6 @@
     }
   })
 
-  const typeColors: Record<string, string> = {
-    feature: '#6366f1',
-    task: '#22c55e',
-    brainstorm: '#f59e0b',
-    episode: '#ec4899',
-    reference: '#06b6d4',
-  }
 </script>
 
 <div class="column" class:drop-rejected={dropRejected}>
@@ -248,8 +251,7 @@
         bind:this={renameInputEl}
         value={renamingName}
         oninput={(e: Event) => onRenamingNameChange?.((e.target as HTMLInputElement).value)}
-        onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') onCommitRename?.(); if (e.key === 'Escape') onCancelRename?.() }}
-        onblur={() => onCommitRename?.()}
+        use:inlineEdit={{ onCommit: () => onCommitRename?.(), onCancel: () => onCancelRename?.() }}
       />
     {:else}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -265,7 +267,7 @@
         <button
           class="col-action-btn col-settings-btn"
           bind:this={settingsBtnEl}
-          title="Accepted types"
+          title={t('tooltip.accepted_types')}
           onclick={(e: MouseEvent) => { e.stopPropagation(); openSettings() }}
         ><Settings size={13} /></button>
         <button
@@ -281,13 +283,13 @@
     {#if prefs.typeBadgeDisplay === 'color'}
       <div class="type-color-bar">
         {#each category.accepted_types as type}
-          <span class="type-color-segment" style:background={typeColors[type] || 'var(--text-muted)'}></span>
+          <span class="type-color-segment" style:background={getCardTypeColor(type)}></span>
         {/each}
       </div>
     {:else}
       <div class="type-badges">
         {#each category.accepted_types as type}
-          <span class="type-chip" style:background={typeColors[type] || 'var(--text-muted)'}>{type}</span>
+          <span class="type-chip" style:background={getCardTypeColor(type)}>{type}</span>
         {/each}
       </div>
     {/if}
@@ -295,16 +297,16 @@
 
   {#if showSettings}
     <div class="settings-popover" style={popoverStyle}>
-      <div class="popover-title">Accepted Types</div>
+      <div class="popover-title">{t('column.accepted_types')}</div>
       <label class="type-option">
         <input type="checkbox" checked={allTypesAccepted()} onchange={toggleAllTypes} />
-        <span class="type-option-label">All types</span>
+        <span class="type-option-label">{t('column.all_types')}</span>
       </label>
       <div class="popover-divider"></div>
       {#each allCardTypes as type}
         <label class="type-option">
           <input type="checkbox" checked={isTypeAccepted(type)} onchange={() => toggleType(type)} />
-          <span class="type-chip-inline" style:background={typeColors[type] || 'var(--text-muted)'}>{type}</span>
+          <span class="type-chip-inline" style:background={getCardTypeColor(type)}>{type}</span>
         </label>
       {/each}
     </div>

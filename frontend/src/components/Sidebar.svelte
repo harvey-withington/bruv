@@ -2,16 +2,18 @@
   import { onMount } from 'svelte'
   import { nav, board, loadBoard } from '../lib/store.svelte'
   import { CloseRepository, CreateBrand, RenameBrand, CreateStream, RenameStream, CreateProject, RenameProject, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, GetCard, GetCardPins, ListOrphanedCardIDs, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject } from '../lib/api'
-  import { LogOut, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Bot, Inbox } from 'lucide-svelte'
+  import { LogOut, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox } from 'lucide-svelte'
   import ThemeToggle from './ThemeToggle.svelte'
   import BruvIcon from './BruvIcon.svelte'
   import { t } from '../lib/i18n.svelte'
   import { renderInline } from '../lib/markdown'
+  import { showConfirm } from '../lib/confirm.svelte'
+  import { showToast } from '../lib/toast.svelte'
+  import { inlineEdit } from '../lib/actions'
 
-  let { onOpenPrefs, onOpenProfile, onOpenLLMSettings }: {
+  let { onOpenPrefs, onOpenProfile }: {
     onOpenPrefs?: () => void
     onOpenProfile?: () => void
-    onOpenLLMSettings?: () => void
   } = $props()
 
   async function handleCloseRepo() {
@@ -155,7 +157,7 @@
       }))
       board.categories = [{
         id: '__inbox__',
-        name: 'Inbox',
+        name: t('sidebar.inbox'),
         slug: '__inbox__',
         position: 0,
         cards: cards.filter((c): c is NonNullable<typeof c> => c !== null),
@@ -403,7 +405,7 @@
   async function handleDeleteBrand(e: MouseEvent, slug: string) {
     e.stopPropagation()
     const streams = streamsByBrand[slug] || []
-    if (streams.length > 0 && !confirm(`Delete brand "${slug}" and all its streams/projects?`)) return
+    if (streams.length > 0 && !await showConfirm(t('sidebar.confirm_delete_brand').replace('{name}', slug))) return
     try {
       await DeleteBrand(slug)
       if (nav.brandSlug === slug) {
@@ -414,14 +416,14 @@
       }
       await loadBrands()
       document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
-    } catch (e) { console.error('DeleteBrand:', e) }
+    } catch (e) { showToast(t('error.delete_failed'), 'error') }
   }
 
   async function handleDeleteStream(e: MouseEvent, brandSlug: string, streamSlug: string) {
     e.stopPropagation()
     const key = `${brandSlug}/${streamSlug}`
     const projects = projectsByStream[key] || []
-    if (projects.length > 0 && !confirm(`Delete stream "${streamSlug}" and all its projects?`)) return
+    if (projects.length > 0 && !await showConfirm(t('sidebar.confirm_delete_stream').replace('{name}', streamSlug))) return
     try {
       await DeleteStream(brandSlug, streamSlug)
       if (nav.brandSlug === brandSlug && nav.streamSlug === streamSlug) {
@@ -431,12 +433,12 @@
       }
       streamsByBrand[brandSlug] = await ListStreams(brandSlug) || []
       document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
-    } catch (e) { console.error('DeleteStream:', e) }
+    } catch (e) { showToast(t('error.delete_failed'), 'error') }
   }
 
   async function handleDeleteProject(e: MouseEvent, brandSlug: string, streamSlug: string, projectSlug: string) {
     e.stopPropagation()
-    if (!confirm(`Delete project "${projectSlug}"?`)) return
+    if (!await showConfirm(t('sidebar.confirm_delete_project').replace('{name}', projectSlug))) return
     try {
       await DeleteProject(brandSlug, streamSlug, projectSlug)
       if (nav.brandSlug === brandSlug && nav.streamSlug === streamSlug && nav.projectSlug === projectSlug) {
@@ -446,7 +448,7 @@
       const key = `${brandSlug}/${streamSlug}`
       projectsByStream[key] = await ListProjects(brandSlug, streamSlug) || []
       document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
-    } catch (e) { console.error('DeleteProject:', e) }
+    } catch (e) { showToast(t('error.delete_failed'), 'error') }
   }
 
   // --- Drag & drop reorder / move / copy ---
@@ -593,7 +595,7 @@
 <aside class="sidebar" class:collapsed={nav.sidebarCollapsed} style:width="{nav.sidebarCollapsed ? 48 : nav.sidebarWidth}px" style:min-width="{nav.sidebarCollapsed ? 48 : nav.sidebarWidth}px">
   <div class="sidebar-header">
     {#if !nav.sidebarCollapsed}<BruvIcon size={28} />{/if}
-    {#if !nav.sidebarCollapsed}<span class="sidebar-title">BRUV</span>{/if}
+    {#if !nav.sidebarCollapsed}<span class="sidebar-title">{t('app.name')}</span>{/if}
     <button class="header-btn" onclick={() => nav.sidebarCollapsed = !nav.sidebarCollapsed} title={nav.sidebarCollapsed ? t('tooltip.expand_sidebar') : t('tooltip.collapse_sidebar')}>
       {#if nav.sidebarCollapsed}<PanelLeftOpen size={20} />{:else}<PanelLeftClose size={20} />{/if}
     </button>
@@ -613,7 +615,7 @@
         <div class="tree-row" role="treeitem" tabindex="-1" aria-selected={nav.inboxMode}>
           <button class="tree-item inbox-item" class:selected={nav.inboxMode} onclick={selectInbox}>
             <Inbox size={14} />
-            <span class="label">Inbox</span>
+            <span class="label">{t('sidebar.inbox')}</span>
             {#if inboxCount > 0}<span class="inbox-badge">{inboxCount}</span>{/if}
           </button>
         </div>
@@ -636,8 +638,7 @@
               <input
                 class="rename-input brand-level"
                 bind:value={renaming.name}
-                onkeydown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') cancelRename() }}
-                onblur={() => commitRename()}
+                use:inlineEdit={{ onCommit: () => commitRename(), onCancel: () => cancelRename() }}
               />
             {:else}
               <button class="tree-item brand-item" onclick={() => toggleBrand(brand.slug)}>
@@ -668,8 +669,7 @@
                       <input
                         class="rename-input stream-level"
                         bind:value={renaming.name}
-                        onkeydown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') cancelRename() }}
-                        onblur={() => commitRename()}
+                        use:inlineEdit={{ onCommit: () => commitRename(), onCancel: () => cancelRename() }}
                       />
                     {:else}
                       <button class="tree-item stream-item" onclick={() => toggleStream(brand.slug, stream.slug)}>
@@ -699,8 +699,7 @@
                             <input
                               class="rename-input project-level"
                               bind:value={renaming.name}
-                              onkeydown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') cancelRename() }}
-                              onblur={() => commitRename()}
+                              use:inlineEdit={{ onCommit: () => commitRename(), onCancel: () => cancelRename() }}
                             />
                           {:else}
                             <button
@@ -723,7 +722,7 @@
                         ondragover={(e) => handleDragOverGap(e, 'project', `${brand.slug}/${stream.slug}`, projectsByStream[`${brand.slug}/${stream.slug}`]?.length ?? 0)}
                         ondrop={handleDrop}
                       >
-                        + Add project
+                        {t('sidebar.add_project')}
                       </button>
                     </div>
                   {/if}
@@ -737,7 +736,7 @@
                 ondragover={(e) => handleDragOverGap(e, 'stream', brand.slug, streamsByBrand[brand.slug]?.length ?? 0)}
                 ondrop={handleDrop}
               >
-                + Add stream
+                {t('sidebar.add_stream')}
               </button>
             </div>
           {/if}
@@ -748,20 +747,19 @@
       {/if}
 
       {#if brands.length === 0}
-        <p class="empty-hint">No brands yet.</p>
+        <p class="empty-hint">{t('sidebar.no_brands')}</p>
       {/if}
 
       <button class="add-btn" onclick={handleCreateBrand} title={t('tooltip.add_brand')}
         ondragover={(e) => handleDragOverGap(e, 'brand', '', brands.length)}
         ondrop={handleDrop}
       >
-        + Add brand
+        {t('sidebar.add_brand')}
       </button>
     </div>
 
     <div class="sidebar-footer">
       <button class="footer-btn" onclick={onOpenProfile} title={t('profile.title')}><UserCircle size={16} /></button>
-      <button class="footer-btn" onclick={onOpenLLMSettings} title={t('tooltip.llm_settings')}><Bot size={16} /></button>
       <span class="footer-spacer"></span>
       <ThemeToggle />
       <button class="footer-btn" onclick={onOpenPrefs} title={t('prefs.title')}><Settings size={16} /></button>
@@ -771,7 +769,6 @@
   {#if nav.sidebarCollapsed}
     <div class="sidebar-footer">
       <button class="footer-btn" onclick={onOpenProfile} title={t('profile.title')}><UserCircle size={16} /></button>
-      <button class="footer-btn" onclick={onOpenLLMSettings} title={t('tooltip.llm_settings')}><Bot size={16} /></button>
       <span class="footer-spacer"></span>
       <ThemeToggle />
       <button class="footer-btn" onclick={onOpenPrefs} title={t('prefs.title')}><Settings size={16} /></button>

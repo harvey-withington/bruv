@@ -1,6 +1,8 @@
 <script lang="ts">
   import { ListAllCategories } from '../lib/api'
   import { X } from 'lucide-svelte'
+  import { t } from '../lib/i18n.svelte'
+  import { focusTrap } from '../lib/actions'
 
   type CategoryPath = {
     brandSlug: string; streamSlug: string; projectSlug: string; categorySlug: string
@@ -82,9 +84,9 @@
 {#if visible}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="pin-backdrop" onmousedown={handleBackdropClick}>
-    <div class="pin-modal">
+    <div class="pin-modal" use:focusTrap>
       <div class="pin-header">
-        <span class="pin-title">Pin to category</span>
+        <span class="pin-title">{t('pin.title')}</span>
         <button class="pin-close" onclick={onClose}><X size={16} /></button>
       </div>
       <div class="pin-search">
@@ -94,7 +96,7 @@
           bind:value={query}
           oninput={handleInput}
           onkeydown={handleKeydown}
-          placeholder="Search categories..."
+          placeholder={t('pin.search_placeholder')}
           class="pin-input"
         />
       </div>
@@ -114,11 +116,11 @@
           {/each}
         </div>
       {:else if loading}
-        <div class="pin-empty">Loading categories...</div>
+        <div class="pin-empty">{t('pin.loading')}</div>
       {:else if query.trim()}
-        <div class="pin-empty">No categories found</div>
+        <div class="pin-empty">{t('pin.no_results')}</div>
       {:else}
-        <div class="pin-empty">Start typing to search</div>
+        <div class="pin-empty">{t('pin.start_typing')}</div>
       {/if}
     </div>
   </div>

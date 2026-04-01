@@ -72,6 +72,9 @@ export const dnd = $state<{
   copyMode: false,
 })
 
+// Column settings — only one popover open at a time
+export const columnSettings = $state({ openCategoryId: null as string | null })
+
 // Global card-open request (set by bruv: link clicks, consumed by App.svelte)
 export const navigate = $state<{ openCardId: string | null }>({ openCardId: null })
 

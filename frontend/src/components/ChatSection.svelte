@@ -1,8 +1,9 @@
 <script lang="ts">
   import { tick } from 'svelte'
-  import { Send, MapPin, Check, X, Wrench } from 'lucide-svelte'
+  import { Send, MapPin, Check, X, Wrench, ChevronUp, ChevronDown } from 'lucide-svelte'
   import { LoadChatHistory, SendChatMessage, IsLLMConfigured, AcceptPinSuggestion, RejectPinSuggestion } from '../lib/api'
   import { renderMarkdown } from '../lib/markdown'
+  import { t } from '../lib/i18n.svelte'
 
   let { cardId, visible = $bindable(false), onCardChanged }: { cardId: string; visible: boolean; onCardChanged?: () => void } = $props()
 
@@ -12,6 +13,8 @@
   let sending = $state(false)
   let configured = $state(true)
   let messagesEndEl = $state<HTMLDivElement | null>(null)
+  let messagesContainerEl = $state<HTMLDivElement | null>(null)
+  let textareaEl = $state<HTMLTextAreaElement | null>(null)
 
   async function loadChat() {
     loading = true
@@ -33,6 +36,11 @@
     if (!text || sending) return
     sending = true
     inputText = ''
+    resetTextareaHeight()
+    // Optimistic user message so the thinking indicator appears immediately
+    messages = [...messages, { id: `temp-${Date.now()}`, role: 'user', content: text, timestamp: new Date().toISOString() }]
+    await tick()
+    scrollToBottom()
     try {
       const result = await SendChatMessage(cardId, text)
       messages = result?.messages || []
@@ -41,8 +49,6 @@
       // Refresh sidebar in case LLM created new hierarchy
       document.dispatchEvent(new CustomEvent('bruv:sidebar-changed'))
       document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
-      await tick()
-      messagesEndEl?.scrollIntoView({ behavior: 'smooth' })
     } catch (e) {
       console.error('Failed to send message:', e)
     }
@@ -114,6 +120,66 @@
     }
   }
 
+  function scrollToBottom() {
+    messagesEndEl?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  function autoGrowTextarea() {
+    if (!textareaEl) return
+    textareaEl.style.height = 'auto'
+    textareaEl.style.height = `${Math.min(textareaEl.scrollHeight, 150)}px`
+  }
+
+  function resetTextareaHeight() {
+    if (!textareaEl) return
+    textareaEl.style.height = 'auto'
+  }
+
+  function getUserMessageEls(): HTMLElement[] {
+    if (!messagesContainerEl) return []
+    return Array.from(messagesContainerEl.querySelectorAll('.chat-msg-user'))
+  }
+
+  function scrollToPrevQuestion() {
+    const container = messagesContainerEl
+    if (!container) return
+    const userMsgs = getUserMessageEls()
+    if (userMsgs.length === 0) return
+    const scrollTop = container.scrollTop
+    for (let i = userMsgs.length - 1; i >= 0; i--) {
+      const top = userMsgs[i].offsetTop - container.offsetTop
+      if (top < scrollTop - 2) {
+        userMsgs[i].scrollIntoView({ behavior: 'smooth', block: 'start' })
+        return
+      }
+    }
+    userMsgs[0].scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  function scrollToNextQuestion() {
+    const container = messagesContainerEl
+    if (!container) return
+    const userMsgs = getUserMessageEls()
+    if (userMsgs.length === 0) return
+    const scrollTop = container.scrollTop
+    for (let i = 0; i < userMsgs.length; i++) {
+      const top = userMsgs[i].offsetTop - container.offsetTop
+      if (top > scrollTop + 2) {
+        userMsgs[i].scrollIntoView({ behavior: 'smooth', block: 'start' })
+        return
+      }
+    }
+    scrollToBottom()
+  }
+
+  // Auto-scroll to bottom when messages change or sending state changes
+  $effect(() => {
+    // Track dependencies
+    void messages.length
+    void sending
+    tick().then(() => scrollToBottom())
+  })
+
   $effect(() => {
     if (visible) loadChat()
   })
@@ -122,20 +188,20 @@
 {#if visible}
   <div class="chat-panel">
     <div class="chat-header">
-      <span class="chat-title">Chat{messages.length > 0 ? ` (${messages.length})` : ''}</span>
+      <span class="chat-title">{t('chat.title')}{messages.length > 0 ? ` (${messages.length})` : ''}</span>
     </div>
 
     {#if !configured}
       <div class="chat-banner">
-        AI is not configured. Messages will be saved but won't receive AI responses. Open <strong>AI Settings</strong> to connect a provider.
+        {@html t('chat.not_configured')}
       </div>
     {/if}
 
-    <div class="chat-messages">
+    <div class="chat-messages" bind:this={messagesContainerEl}>
       {#if loading}
-        <div class="chat-empty">Loading...</div>
+        <div class="chat-empty">{t('chat.loading')}</div>
       {:else if messages.length === 0}
-        <div class="chat-empty">No messages yet. Start a conversation.</div>
+        <div class="chat-empty">{t('chat.empty')}</div>
       {:else}
         {#each messages as msg (msg.id)}
           <div class="chat-msg chat-msg-{msg.role}">
@@ -156,7 +222,7 @@
               <div class="pin-suggestion" class:accepted={msg.pin_suggestion.status === 'accepted'} class:rejected={msg.pin_suggestion.status === 'rejected'}>
                 <div class="pin-suggestion-header">
                   <MapPin size={12} />
-                  <span class="pin-suggestion-label">Pin suggestion</span>
+                  <span class="pin-suggestion-label">{t('chat.pin_suggestion')}</span>
                 </div>
                 <div class="pin-suggestion-breadcrumb">{msg.pin_suggestion.breadcrumb}</div>
                 {#if msg.pin_suggestion.reason}
@@ -164,17 +230,17 @@
                 {/if}
                 {#if msg.pin_suggestion.status === 'pending'}
                   <div class="pin-suggestion-actions">
-                    <button class="pin-btn pin-accept" onclick={() => acceptPin(msg.id)} title="Accept pin">
-                      <Check size={12} /> Accept
+                    <button class="pin-btn pin-accept" onclick={() => acceptPin(msg.id)} title={t('tooltip.accept_pin')}>
+                      <Check size={12} /> {t('chat.pin_accept')}
                     </button>
-                    <button class="pin-btn pin-reject" onclick={() => rejectPin(msg.id)} title="Dismiss">
-                      <X size={12} /> Dismiss
+                    <button class="pin-btn pin-reject" onclick={() => rejectPin(msg.id)} title={t('tooltip.dismiss_pin')}>
+                      <X size={12} /> {t('chat.pin_dismiss')}
                     </button>
                   </div>
                 {:else if msg.pin_suggestion.status === 'accepted'}
-                  <div class="pin-suggestion-resolved">Pinned</div>
+                  <div class="pin-suggestion-resolved">{t('chat.pin_accepted')}</div>
                 {:else}
-                  <div class="pin-suggestion-resolved">Dismissed</div>
+                  <div class="pin-suggestion-resolved">{t('chat.pin_dismissed')}</div>
                 {/if}
               </div>
             {/if}
@@ -191,17 +257,30 @@
       {/if}
     </div>
 
-    <div class="chat-input-row">
+    <div class="chat-input-wrapper">
+      <div class="chat-nav-row">
+        <button class="chat-nav-btn" onclick={scrollToPrevQuestion} title={t('chat.prev_question')}>
+          <ChevronUp size={14} />
+        </button>
+        <button class="chat-nav-btn" onclick={scrollToNextQuestion} title={t('chat.next_question')}>
+          <ChevronDown size={14} />
+        </button>
+      </div>
+
+      <div class="chat-input-row">
       <textarea
+        bind:this={textareaEl}
         bind:value={inputText}
         onkeydown={handleKeydown}
-        placeholder="Type a message..."
+        oninput={autoGrowTextarea}
+        placeholder={t('chat.placeholder')}
         disabled={sending}
-        rows="1"
+        rows="2"
       ></textarea>
       <button class="chat-send-btn" onclick={send} disabled={!inputText.trim() || sending}>
         <Send size={14} />
       </button>
+      </div>
     </div>
   </div>
 {/if}
@@ -409,13 +488,45 @@
     30% { transform: translateY(-4px); opacity: 1; }
   }
 
+  .chat-input-wrapper {
+    position: relative;
+    flex-shrink: 0;
+    border-top: 1px solid var(--border-muted);
+  }
+
+  .chat-nav-row {
+    position: absolute;
+    top: -12px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 4px;
+    z-index: 2;
+  }
+  .chat-nav-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 18px;
+    background: var(--bg-surface);
+    border: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+    border-radius: 4px;
+    color: color-mix(in srgb, var(--text-muted) 40%, transparent);
+    cursor: pointer;
+    padding: 0;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  .chat-nav-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--accent);
+  }
+
   .chat-input-row {
     display: flex;
     gap: 6px;
     align-items: flex-end;
-    padding: 0.5rem 0.75rem;
-    border-top: 1px solid var(--border-muted);
-    flex-shrink: 0;
+    padding: 0.65rem 0.75rem 0.5rem;
   }
 
   .chat-input-row textarea {
@@ -429,8 +540,9 @@
     font-size: 0.85rem;
     font-family: inherit;
     line-height: 1.4;
-    min-height: 32px;
-    max-height: 120px;
+    min-height: 52px;
+    max-height: 150px;
+    overflow-y: auto;
   }
   .chat-input-row textarea:focus {
     outline: none;

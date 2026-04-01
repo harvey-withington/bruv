@@ -3,6 +3,7 @@
   import { SearchCards, SearchOrphanedCards } from '../lib/api'
   import { Search, X } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
+  import { getCardTypeColor } from '../lib/cardTypes'
 
   function clearSearch() {
     search.query = ''
@@ -16,14 +17,6 @@
   let debounceTimer: ReturnType<typeof setTimeout> | undefined
 
   let { onSelectCard }: { onSelectCard?: (cardId: string) => void } = $props()
-
-  const typeColors: Record<string, string> = {
-    feature: '#6366f1',
-    task: '#22c55e',
-    brainstorm: '#f59e0b',
-    episode: '#ec4899',
-    reference: '#06b6d4',
-  }
 
   function handleInput() {
     clearTimeout(debounceTimer)
@@ -99,7 +92,7 @@
     <div class="search-results">
       {#each search.results as result}
         <button class="search-result" onclick={() => selectResult(result.CardID)}>
-          <span class="result-badge" style="background: {typeColors[result.Type] || '#71717a'}">{result.Type}</span>
+          <span class="result-badge" style="background: {getCardTypeColor(result.Type)}">{result.Type}</span>
           <span class="result-title">{result.Title}</span>
         </button>
       {/each}

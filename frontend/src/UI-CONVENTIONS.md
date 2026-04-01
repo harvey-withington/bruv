@@ -50,15 +50,19 @@ A click-to-edit text field with full keyboard accessibility.
 | `value` | `string` | `''` | Current text value |
 | `placeholder` | `string` | `'Click to edit'` | Shown when value is empty |
 | `multiline` | `boolean` | `false` | Use `<textarea>` instead of `<input>` |
-| `markdown` | `boolean` | `false` | Render value as markdown when not editing |
-| `inputClass` | `string` | `''` | Extra CSS class for the input/textarea |
-| `displayClass` | `string` | `''` | Extra CSS class for the display element |
+| `markdown` | `boolean` | `false` | Render value as full block markdown when not editing |
+| `inlineMarkdown` | `boolean` | `false` | Render value as inline markdown (no block elements) when not editing |
+| `rows` | `number` | `3` | Textarea row count (only used when `multiline` is true) |
+| `class` | `string` | `''` | Extra CSS class applied to the root element |
 | `onSave` | `(value: string) => void` | — | Called when the user commits a change |
+| `onCancel` | `() => void` | — | Called when the user cancels (Escape) |
+| `onTab` | `() => void` | — | Called on Tab keypress — useful for moving focus to the next field |
 
 **Keyboard behaviour:**
-- **Click** or **Enter** (when focused) → enters edit mode, selects all text.
-- **Enter** → saves (in single-line mode).
-- **Escape** → cancels edit, reverts to original value.
+- **Click** or **Enter** (when focused on the display) → enters edit mode, selects all text.
+- **Enter** → saves (single-line mode); **Ctrl+Enter** → saves (multiline mode).
+- **Escape** → cancels edit, reverts to original value, calls `onCancel`.
+- **Tab** → calls `onTab` if provided; otherwise default tab behaviour.
 - **Blur** → saves.
 
 **Example:**
@@ -68,6 +72,7 @@ A click-to-edit text field with full keyboard accessibility.
   value={card.title}
   placeholder="Untitled"
   onSave={(v) => updateTitle(v)}
+  onTab={() => focusDescription()}
 />
 ```
 
@@ -119,7 +124,160 @@ Use these when building custom editable fields that don't use the `EditableText`
 
 ---
 
-## 5. General Accessibility Guidelines
+## 5. ConfirmDialog — Destructive Action Confirmation
+
+**Files:** `components/ConfirmDialog.svelte`, `lib/confirm.svelte.ts`
+
+All destructive actions (delete, unpin, etc.) must use the in-app confirm dialog. **Never** use `window.confirm()`.
+
+**Usage:**
+
+```typescript
+import { showConfirm } from '../lib/confirm.svelte'
+
+async function handleDelete() {
+  if (!await showConfirm('Delete this card? This cannot be undone.')) return
+  await DeleteCard(id)
+}
+```
+
+`showConfirm(message)` returns a `Promise<boolean>` — `true` if the user confirmed, `false` if cancelled.
+
+**Mounting:** `<ConfirmDialog />` is mounted once in `App.svelte` outside all conditional blocks. Do not mount it elsewhere.
+
+**Keyboard:** Enter confirms, Escape cancels, click-outside cancels.
+
+---
+
+## 6. Toast Notifications — User-Visible Errors & Feedback
+
+**Files:** `components/Toast.svelte`, `lib/toast.svelte.ts`
+
+All errors from API calls and all user-facing feedback must use toasts. **Never** use `window.alert()` or silent `console.error`.
+
+**Usage:**
+
+```typescript
+import { showToast } from '../lib/toast.svelte'
+
+try {
+  await SaveSomething()
+  showToast(t('common.saved'), 'success')
+} catch (e) {
+  showToast(t('error.save_failed'), 'error')
+}
+```
+
+**Toast types:** `'info'` | `'success'` | `'error'` | `'warning'`
+
+**Duration:** 4 seconds by default. Pass a third argument (ms) to override.
+
+**Mounting:** `<Toast />` is mounted once in `App.svelte`. Do not mount it elsewhere.
+
+---
+
+## 7. `focusOnMount` — Svelte Action for Auto-Focus
+
+**File:** `lib/actions.ts`
+
+Focuses an input or textarea when it mounts. Use this instead of `$effect` focus blocks. Pair with conditional rendering — the element should only mount when it should receive focus.
+
+```svelte
+{#if editing}
+  <input use:focusOnMount={true} bind:value={draft} />
+{/if}
+```
+
+Pass `true` (or any truthy value) to also select all text on mount (ideal for rename inputs).  
+Omit the argument (or pass `false`) for focus-only (ideal for textareas).
+
+**Do not use `bind:this` + a `$effect` to focus** — use this action instead.
+
+---
+
+## 8. `inlineEdit` — Svelte Action for Inline Edit Inputs
+
+**File:** `lib/actions.ts`
+
+Encapsulates the commit-on-Enter/blur, cancel-on-Escape pattern for inline edit inputs. Prevents the classic **double-fire bug** where pressing Enter changes state that removes the input, causing blur to call the commit callback a second time.
+
+```svelte
+{#if editing}
+  <input
+    use:focusOnMount={true}
+    bind:value={draft}
+    use:inlineEdit={{ onCommit: () => save(), onCancel: () => revert() }}
+  />
+{/if}
+```
+
+**Behaviour:**
+- **Enter** → calls `onCommit` once, then ignores the subsequent blur.
+- **Escape** → calls `onCancel` once (with `stopPropagation`), then ignores the subsequent blur.
+- **Blur** → calls `onCommit` (unless already committed/cancelled).
+
+**Where used:** CardDetail block label rename, Sidebar hierarchy rename, Column rename, TagEditor tag rename.
+
+**Do not** write inline `onkeydown` + `onblur` handlers for simple commit/cancel inputs — use this action instead.
+
+---
+
+## 9. SaveIndicator — Persistent Save Feedback
+
+**File:** `components/SaveIndicator.svelte`
+
+A small inline indicator that shows "Saving…" (orange, with spinner) while an API call is in flight, then flashes "Saved" (green, with checkmark) for 2.5 seconds after completion. Use this in editing dialogs where auto-save happens in the background and the user needs confidence their data persisted.
+
+**Props:**
+
+| Prop | Type | Default | Description |
+|---|---|---|---|
+| `saving` | `boolean` | `false` | Whether a save operation is currently in progress |
+
+**Integration pattern — `tracked()` helper:**
+
+```typescript
+let savingCount = $state(0)
+let saving = $derived(savingCount > 0)
+
+async function tracked<T>(promise: Promise<T>): Promise<T> {
+  savingCount++
+  try { return await promise }
+  finally { savingCount-- }
+}
+
+// Usage:
+card = await tracked(UpdateCardTitle(cardId, title)) as Card
+```
+
+```svelte
+<SaveIndicator {saving} />
+```
+
+**Where used:** CardDetail modal footer.
+
+**i18n keys:** `common.saving`, `common.saved`
+
+---
+
+## 10. Card Type Design Tokens
+
+**File:** `lib/cardTypes.ts`
+
+Card type badge colours are centralised here. **Never** hardcode type colours inline in components.
+
+```typescript
+import { getCardTypeColor, getCardTypeTextColor } from '../lib/cardTypes'
+
+// In a template:
+style="background: {getCardTypeColor(card.type)}; color: {getCardTypeTextColor(card.type)}"
+```
+
+To add a new card type colour, add it to the `CARD_TYPE_COLORS` map in `lib/cardTypes.ts`.
+
+---
+
+## 11. General Accessibility Guidelines
 
 1. **All interactive elements must be keyboard-reachable.** Use `tabindex="0"` on non-button elements that act as buttons.
 2. **Focus-visible must match hover state.** If a button turns red on hover, it must also turn red on `:focus-visible`.

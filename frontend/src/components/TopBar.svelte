@@ -15,7 +15,7 @@
 <header class="topbar">
   <div class="breadcrumb">
     {#if nav.inboxMode}
-      <span class="crumb active inbox-crumb"><Inbox size={14} /> Inbox</span>
+      <span class="crumb active inbox-crumb"><Inbox size={14} /> {t('sidebar.inbox')}</span>
     {:else if nav.brandSlug}
       <span class="crumb">{nav.brandName || nav.brandSlug}</span>
       {#if nav.streamSlug}

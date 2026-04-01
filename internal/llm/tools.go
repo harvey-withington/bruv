@@ -89,6 +89,34 @@ func CardTools(cardTypes []string, categories []map[string]string) []ToolDef {
 		},
 	}
 
+	// add_field: lets the LLM append new blocks to a card beyond its schema
+	tools = append(tools, ToolDef{
+		Name:        "add_field",
+		Description: "Add a new field to the card. Use this when the user asks for a field that does not already exist (e.g. a checklist, extra notes, a checkbox). The field is appended after existing fields. After adding, use set_fields to populate it.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"key": map[string]any{
+					"type":        "string",
+					"description": "Machine-friendly key for the field, e.g. 'characters', 'todo', 'links'. Must be lowercase with underscores, no spaces.",
+				},
+				"label": map[string]any{
+					"type":        "string",
+					"description": "Human-readable label, e.g. 'Characters', 'To-Do List', 'Reference Links'.",
+				},
+				"field_type": map[string]any{
+					"type":        "string",
+					"enum":        []any{"text", "checklist", "checkbox", "number", "date", "url"},
+					"description": "The type of field to add. Use 'text' for freeform text, 'checklist' for a list of items with checkboxes, 'checkbox' for a boolean toggle, 'number' for numeric values, 'date' for dates, 'url' for links.",
+				},
+				"value": map[string]any{
+					"description": "Initial value for the field. For text: a string. For checklist: an array of strings. For checkbox: a boolean. For number: a number. May be omitted to leave empty.",
+				},
+			},
+			"required": []string{"key", "label", "field_type"},
+		},
+	})
+
 	// suggest_pin: always available — can pin to existing category or create new hierarchy
 	pinProps := map[string]any{
 		"reason": map[string]any{

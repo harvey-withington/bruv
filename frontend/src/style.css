@@ -249,6 +249,78 @@ body {
     color: var(--text-muted);
 }
 
+/* --- Shared UI utilities --- */
+
+/*
+ * .action-reveal: Hidden action button that appears on parent :hover or own :focus-visible.
+ * Use on buttons inside a container. The parent needs .action-reveal-parent.
+ * Variants: .action-reveal--danger (red on hover/focus), .action-reveal--edit (accent on hover/focus).
+ */
+.action-reveal {
+    background: none;
+    border: none;
+    color: transparent;
+    cursor: pointer;
+    padding: 0.15rem 0.3rem;
+    border-radius: 3px;
+    transition: color 0.1s, background 0.1s;
+}
+.action-reveal-parent:hover > .action-reveal,
+.action-reveal-parent:hover .action-reveal {
+    color: var(--text-muted);
+}
+.action-reveal:focus-visible {
+    color: var(--text-muted);
+}
+.action-reveal:hover {
+    color: var(--text-primary) !important;
+    background: var(--bg-elevated);
+}
+
+.action-reveal--danger:focus-visible {
+    color: var(--danger-light);
+}
+.action-reveal--danger:hover {
+    color: var(--danger-light) !important;
+    background: rgba(248, 113, 113, 0.1);
+}
+
+.action-reveal--edit:focus-visible {
+    color: var(--accent-light, var(--accent));
+}
+.action-reveal--edit:hover {
+    color: var(--accent-light, var(--accent)) !important;
+}
+
+/*
+ * .inline-edit-input: Consistent styling for inline text edit inputs.
+ * Used by EditableText, EditableChecklist, and anywhere click-to-edit appears.
+ */
+.inline-edit-input {
+    font-family: inherit;
+    font-size: inherit;
+    color: var(--text-primary);
+    background: var(--bg-elevated);
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+    padding: 1px 4px;
+    outline: none;
+    width: 100%;
+}
+
+/*
+ * .editable-display: Clickable display text that hints at editability.
+ * Used by EditableText for the non-editing state.
+ */
+.editable-display {
+    cursor: text;
+    border-radius: 3px;
+    padding: 1px 3px;
+}
+.editable-display:hover {
+    background: var(--bg-elevated);
+}
+
 /* Internal BRUV links */
 .bruv-link {
     color: var(--accent-light);

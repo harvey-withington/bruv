@@ -103,12 +103,12 @@
             <h3 class="recent-title">{t('welcome.recent')}</h3>
             <div class="recent-list">
               {#each recentRepos as repo}
-                <button class="recent-item" onclick={() => openRecent(repo.path)}>
+                <button class="recent-item action-reveal-parent" onclick={() => openRecent(repo.path)}>
                   <span class="recent-info">
                     <span class="recent-name">{repo.name}</span>
                     <span class="recent-path">{repo.path}</span>
                   </span>
-                  <span class="recent-remove" role="button" tabindex="-1" onclick={(e) => removeRecent(e, repo.path)} onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); removeRecent(e as unknown as MouseEvent, repo.path) } }} title="Remove from recent"><X size={12} /></span>
+                  <span class="recent-remove action-reveal action-reveal--danger" role="button" tabindex="0" onclick={(e) => removeRecent(e, repo.path)} onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); removeRecent(e as unknown as MouseEvent, repo.path) } }} title="Remove from recent"><X size={12} /></span>
                 </button>
               {/each}
             </div>
@@ -364,21 +364,7 @@
   }
 
   .recent-remove {
-    background: none;
-    border: none;
-    color: transparent;
-    cursor: pointer;
     font-size: 0.7rem;
-    padding: 0.2rem 0.3rem;
     flex-shrink: 0;
-    transition: color 0.1s;
-  }
-
-  .recent-item:hover .recent-remove {
-    color: var(--text-faint);
-  }
-
-  .recent-remove:hover {
-    color: var(--danger-light) !important;
   }
 </style>

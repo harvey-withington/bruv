@@ -69,6 +69,19 @@
     }
     async function handleSidebarChanged() {
       await loadBrands()
+      // Re-fetch children for all currently expanded brands and streams
+      // so newly created hierarchy items appear immediately
+      for (const brandSlug of expandedBrands) {
+        try {
+          streamsByBrand[brandSlug] = await ListStreams(brandSlug) || []
+        } catch { streamsByBrand[brandSlug] = [] }
+      }
+      for (const streamKey of expandedStreams) {
+        const [brandSlug, streamSlug] = streamKey.split('/')
+        try {
+          projectsByStream[streamKey] = await ListProjects(brandSlug, streamSlug) || []
+        } catch { projectsByStream[streamKey] = [] }
+      }
     }
     document.addEventListener('bruv:inbox-changed', handleInboxChanged)
     document.addEventListener('bruv:sidebar-changed', handleSidebarChanged)
@@ -611,7 +624,7 @@
           <div class="drop-indicator" class:copy-mode={isCopyMode}></div>
         {/if}
         <div class="tree-node">
-          <div class="tree-row" role="treeitem" tabindex="-1" aria-selected={isSelected(brand.slug, '', '')}
+          <div class="tree-row action-reveal-parent" role="treeitem" tabindex="-1" aria-selected={isSelected(brand.slug, '', '')}
             draggable={renaming?.key !== brand.slug}
             ondragstart={(e) => handleDragStart(e, { type: 'brand', slug: brand.slug })}
             ondragend={handleDragEnd}
@@ -631,8 +644,8 @@
                 <span class="chevron">{#if expandedBrands.has(brand.slug)}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</span>
                 <span class="label">{@html renderInline(brand.name)}</span>
               </button>
-              <button class="row-action edit-action" onclick={(e) => startEdit(e, 'brand', brand.slug, brand.name, brand.slug)} title={t('tooltip.rename_brand')}><Pencil size={12} /></button>
-              <button class="row-action delete-action" onclick={(e) => handleDeleteBrand(e, brand.slug)} title={t('tooltip.delete_brand')}><Trash2 size={12} /></button>
+              <button class="row-action action-reveal action-reveal--edit" onclick={(e) => startEdit(e, 'brand', brand.slug, brand.name, brand.slug)} title={t('tooltip.rename_brand')}><Pencil size={12} /></button>
+              <button class="row-action action-reveal action-reveal--danger" onclick={(e) => handleDeleteBrand(e, brand.slug)} title={t('tooltip.delete_brand')}><Trash2 size={12} /></button>
             {/if}
           </div>
 
@@ -643,7 +656,7 @@
                   <div class="drop-indicator" class:copy-mode={isCopyMode}></div>
                 {/if}
                 <div class="tree-node">
-                  <div class="tree-row" role="treeitem" tabindex="-1" aria-selected={isSelected(brand.slug, stream.slug, '')}
+                  <div class="tree-row action-reveal-parent" role="treeitem" tabindex="-1" aria-selected={isSelected(brand.slug, stream.slug, '')}
                     draggable={renaming?.key !== `${brand.slug}/${stream.slug}`}
                     ondragstart={(e) => handleDragStart(e, { type: 'stream', brandSlug: brand.slug, slug: stream.slug })}
                     ondragend={handleDragEnd}
@@ -663,8 +676,8 @@
                         <span class="chevron">{#if expandedStreams.has(`${brand.slug}/${stream.slug}`)}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</span>
                         <span class="label">{@html renderInline(stream.name)}</span>
                       </button>
-                      <button class="row-action edit-action" onclick={(e) => startEdit(e, 'stream', `${brand.slug}/${stream.slug}`, stream.name, brand.slug, stream.slug)} title={t('tooltip.rename_stream')}><Pencil size={12} /></button>
-                      <button class="row-action delete-action" onclick={(e) => handleDeleteStream(e, brand.slug, stream.slug)} title={t('tooltip.delete_stream')}><Trash2 size={12} /></button>
+                      <button class="row-action action-reveal action-reveal--edit" onclick={(e) => startEdit(e, 'stream', `${brand.slug}/${stream.slug}`, stream.name, brand.slug, stream.slug)} title={t('tooltip.rename_stream')}><Pencil size={12} /></button>
+                      <button class="row-action action-reveal action-reveal--danger" onclick={(e) => handleDeleteStream(e, brand.slug, stream.slug)} title={t('tooltip.delete_stream')}><Trash2 size={12} /></button>
                     {/if}
                   </div>
 
@@ -674,7 +687,7 @@
                         {#if isDropIndicator('project', `${brand.slug}/${stream.slug}`, projectIdx)}
                           <div class="drop-indicator" class:copy-mode={isCopyMode}></div>
                         {/if}
-                        <div class="tree-row" role="treeitem" tabindex="-1" aria-selected={isSelected(brand.slug, stream.slug, project.slug)}
+                        <div class="tree-row action-reveal-parent" role="treeitem" tabindex="-1" aria-selected={isSelected(brand.slug, stream.slug, project.slug)}
                           draggable={renaming?.key !== `${brand.slug}/${stream.slug}/${project.slug}`}
                           ondragstart={(e) => handleDragStart(e, { type: 'project', brandSlug: brand.slug, streamSlug: stream.slug, slug: project.slug })}
                           ondragend={handleDragEnd}
@@ -697,8 +710,8 @@
                             >
                               <span class="label">{@html renderInline(project.name)}</span>
                             </button>
-                            <button class="row-action edit-action" onclick={(e) => startEdit(e, 'project', `${brand.slug}/${stream.slug}/${project.slug}`, project.name, brand.slug, stream.slug, project.slug)} title={t('tooltip.rename_project')}><Pencil size={12} /></button>
-                            <button class="row-action delete-action" onclick={(e) => handleDeleteProject(e, brand.slug, stream.slug, project.slug)} title={t('tooltip.delete_project')}><Trash2 size={12} /></button>
+                            <button class="row-action action-reveal action-reveal--edit" onclick={(e) => startEdit(e, 'project', `${brand.slug}/${stream.slug}/${project.slug}`, project.name, brand.slug, stream.slug, project.slug)} title={t('tooltip.rename_project')}><Pencil size={12} /></button>
+                            <button class="row-action action-reveal action-reveal--danger" onclick={(e) => handleDeleteProject(e, brand.slug, stream.slug, project.slug)} title={t('tooltip.delete_project')}><Trash2 size={12} /></button>
                           {/if}
                         </div>
                       {/each}
@@ -928,26 +941,8 @@
   }
 
   .row-action {
-    background: none;
-    border: none;
-    color: transparent;
-    cursor: pointer;
     font-size: 0.7rem;
-    padding: 0.2rem 0.4rem;
     flex-shrink: 0;
-    transition: color 0.1s;
-  }
-
-  .tree-row:hover .row-action {
-    color: var(--text-faint);
-  }
-
-  .row-action.edit-action:hover {
-    color: var(--accent-light, var(--accent));
-  }
-
-  .row-action.delete-action:hover {
-    color: var(--danger-light);
   }
 
   .empty-hint {

@@ -39,8 +39,8 @@
       // Notify parent that card data may have changed (AI may have set type, blocks, tags)
       onCardChanged?.()
       // Refresh sidebar in case LLM created new hierarchy
-      window.dispatchEvent(new CustomEvent('bruv:sidebar-changed'))
-      window.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
+      document.dispatchEvent(new CustomEvent('bruv:sidebar-changed'))
+      document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
       await tick()
       messagesEndEl?.scrollIntoView({ behavior: 'smooth' })
     } catch (e) {
@@ -60,8 +60,8 @@
       )
       onCardChanged?.()
       // Fire events so inbox and sidebar re-fetch
-      window.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
-      window.dispatchEvent(new CustomEvent('bruv:sidebar-changed'))
+      document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
+      document.dispatchEvent(new CustomEvent('bruv:sidebar-changed'))
     } catch (e) {
       console.error('Failed to accept pin:', e)
     }
@@ -108,6 +108,7 @@
         return `Updated: ${keys.join(', ') || '?'}`
       }
       case 'add_tags': return `Added tags: ${(action.input?.tags || []).join(', ')}`
+      case 'add_field': return `Added field: ${action.input?.label || action.input?.key || '?'} (${action.input?.field_type || '?'})`
       case 'suggest_pin': return `Suggested pin: ${action.result || '?'}`
       default: return action.tool
     }

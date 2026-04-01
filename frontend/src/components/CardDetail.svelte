@@ -8,6 +8,7 @@
   import MentionPicker from './MentionPicker.svelte'
   import PinPicker from './PinPicker.svelte'
   import ChatSection from './ChatSection.svelte'
+  import EditableChecklist from './EditableChecklist.svelte'
   import { draggable } from '../lib/draggable'
 
   type CategoryPath = {
@@ -328,6 +329,7 @@
       saveTitle()
       editingDescription = true
     } else if (e.key === 'Escape') {
+      e.stopPropagation()
       editingTitle = false
       titleDraft = card.title
     }
@@ -345,6 +347,7 @@
   function handleDescKeydown(e: KeyboardEvent) {
     if (mentionVisible) return
     if (e.key === 'Escape') {
+      e.stopPropagation()
       editingDescription = false
       descriptionDraft = card.fields?.description || ''
     }
@@ -393,6 +396,7 @@
   function handleTextBlockKeydown(e: KeyboardEvent, blockIdx: number) {
     if (mentionVisible) return
     if (e.key === 'Escape') {
+      e.stopPropagation()
       editingBlockIdx = null
       blockDrafts[blockIdx] = card.blocks[blockIdx]?.value || ''
     }
@@ -487,48 +491,6 @@
     } else if (target?.type === 'checklist') {
       setTimeout(() => checklistInputEls[target.blockIdx]?.focus(), 0)
     }
-  }
-
-  // Checklist block helpers
-  async function addChecklistItem(blockIdx: number) {
-    const text = (newChecklistTexts[blockIdx] || '').trim()
-    if (!text) return
-    const block = card.blocks[blockIdx]
-    const items = Array.isArray(block.value) ? [...block.value] : []
-    items.push({ id: `ck-${crypto.randomUUID().slice(0, 8)}`, text, done: false })
-    card.blocks[blockIdx] = { ...block, value: items }
-    newChecklistTexts[blockIdx] = ''
-    try {
-      card = await UpdateCardBlocks(cardId, card.blocks)
-      onUpdated?.()
-    } catch (e) { console.error(e) }
-  }
-
-  async function toggleChecklistItem(blockIdx: number, itemId: string) {
-    const block = card.blocks[blockIdx]
-    const items = (Array.isArray(block.value) ? block.value : []).map((item: any) =>
-      item.id === itemId ? { ...item, done: !item.done } : item
-    )
-    card.blocks[blockIdx] = { ...block, value: items }
-    try {
-      card = await UpdateCardBlocks(cardId, card.blocks)
-      onUpdated?.()
-    } catch (e) { console.error(e) }
-  }
-
-  async function removeChecklistItem(blockIdx: number, itemId: string) {
-    const block = card.blocks[blockIdx]
-    const items = (Array.isArray(block.value) ? block.value : []).filter((item: any) => item.id !== itemId)
-    card.blocks[blockIdx] = { ...block, value: items }
-    try {
-      card = await UpdateCardBlocks(cardId, card.blocks)
-      onUpdated?.()
-    } catch (e) { console.error(e) }
-  }
-
-  function handleChecklistKeydown(e: KeyboardEvent, blockIdx: number) {
-    if (mentionVisible) return
-    if (e.key === 'Enter') addChecklistItem(blockIdx)
   }
 
   // Select block helper
@@ -652,6 +614,7 @@
         addTag()
       }
     } else if (e.key === 'Escape') {
+      e.stopPropagation()
       showTagPicker = false
       highlightIdx = -1
     }
@@ -1020,29 +983,29 @@
                       bind:this={blockLabelInputEl}
                       bind:value={blockLabelDraft}
                       onblur={() => renameBlockLabel(blockIdx)}
-                      onkeydown={(e) => { if (e.key === 'Enter') renameBlockLabel(blockIdx); if (e.key === 'Escape') editingBlockLabelIdx = null }}
+                      onkeydown={(e) => { if (e.key === 'Enter') renameBlockLabel(blockIdx); if (e.key === 'Escape') { e.stopPropagation(); editingBlockLabelIdx = null } }}
                     />
                   {:else}
                     {#if block.type === 'checklist'}
                       {@const items = Array.isArray(block.value) ? block.value : []}
                       <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-                      <h3 class="section-title block-label-row" onclick={() => { editingBlockLabelIdx = blockIdx; blockLabelDraft = block.label || '' }}>
+                      <h3 class="section-title block-label-row action-reveal-parent" onclick={() => { editingBlockLabelIdx = blockIdx; blockLabelDraft = block.label || '' }}>
                         <span class="block-label-text">{block.label || block.type}</span>
                         {#if items.length > 0}
                           <span class="checklist-progress">{items.filter((c: any) => c.done).length}/{items.length}</span>
                         {/if}
                         <span class="block-actions">
-                          <button class="block-action-btn" onclick={(e) => { e.stopPropagation(); editingBlockLabelIdx = blockIdx; blockLabelDraft = block.label || '' }} title="Rename block"><Pencil size={11} /></button>
-                          <button class="block-action-btn block-action-danger" onclick={(e) => { e.stopPropagation(); deleteBlock(blockIdx) }} title="Delete block"><Trash2 size={11} /></button>
+                          <button class="block-action-btn action-reveal action-reveal--edit" onclick={(e) => { e.stopPropagation(); editingBlockLabelIdx = blockIdx; blockLabelDraft = block.label || '' }} title="Rename block"><Pencil size={11} /></button>
+                          <button class="block-action-btn action-reveal action-reveal--danger" onclick={(e) => { e.stopPropagation(); deleteBlock(blockIdx) }} title="Delete block"><Trash2 size={11} /></button>
                         </span>
                       </h3>
                     {:else}
                       <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-                      <h3 class="section-title block-label-row" onclick={() => { editingBlockLabelIdx = blockIdx; blockLabelDraft = block.label || '' }}>
+                      <h3 class="section-title block-label-row action-reveal-parent" onclick={() => { editingBlockLabelIdx = blockIdx; blockLabelDraft = block.label || '' }}>
                         <span class="block-label-text">{block.label || block.key || block.type}</span>
                         <span class="block-actions">
-                          <button class="block-action-btn" onclick={(e) => { e.stopPropagation(); editingBlockLabelIdx = blockIdx; blockLabelDraft = block.label || '' }} title="Rename block"><Pencil size={11} /></button>
-                          <button class="block-action-btn block-action-danger" onclick={(e) => { e.stopPropagation(); deleteBlock(blockIdx) }} title="Delete block"><Trash2 size={11} /></button>
+                          <button class="block-action-btn action-reveal action-reveal--edit" onclick={(e) => { e.stopPropagation(); editingBlockLabelIdx = blockIdx; blockLabelDraft = block.label || '' }} title="Rename block"><Pencil size={11} /></button>
+                          <button class="block-action-btn action-reveal action-reveal--danger" onclick={(e) => { e.stopPropagation(); deleteBlock(blockIdx) }} title="Delete block"><Trash2 size={11} /></button>
                         </span>
                       </h3>
                     {/if}
@@ -1072,41 +1035,16 @@
 
                   {:else if block.type === 'checklist'}
                     <!-- Checklist block -->
-                    {@const items = Array.isArray(block.value) ? block.value : []}
-
-                    {#if items.length > 0}
-                      <div class="checklist-bar">
-                        <div
-                          class="checklist-bar-fill"
-                          style="width: {(items.filter((c: any) => c.done).length / items.length) * 100}%"
-                        ></div>
-                      </div>
-                    {/if}
-
-                    <div class="checklist-items">
-                      {#each items as item}
-                        <div class="checklist-item" class:done={item.done}>
-                          <button class="checkbox" onclick={() => toggleChecklistItem(blockIdx, item.id)} title={t('tooltip.toggle_checklist')}>
-                            {#if item.done}<CheckSquare size={16} />{:else}<Square size={16} />{/if}
-                          </button>
-                          <span class="checklist-text">{@html renderInline(item.text)}</span>
-                          <button class="checklist-remove" onclick={() => removeChecklistItem(blockIdx, item.id)} title={t('tooltip.remove_checklist_item')}><Trash2 size={12} /></button>
-                        </div>
-                      {/each}
-                    </div>
-
-                    <div class="checklist-add">
-                      <input
-                        type="text"
-                        bind:this={checklistInputEls[blockIdx]}
-                        bind:value={newChecklistTexts[blockIdx]}
-                        onkeydown={(e) => handleChecklistKeydown(e, blockIdx)}
-                        oninput={(e) => handleChecklistInputEvent(e, blockIdx)}
-                        placeholder={t('card.checklist_placeholder')}
-                        class="checklist-input"
-                      />
-                      <button class="btn-add-sm" onclick={() => addChecklistItem(blockIdx)}>{t('card.checklist_add')}</button>
-                    </div>
+                    <EditableChecklist
+                      items={Array.isArray(block.value) ? block.value : []}
+                      onUpdate={async (updated) => {
+                        card.blocks[blockIdx] = { ...block, value: updated }
+                        try {
+                          card = await UpdateCardBlocks(cardId, card.blocks)
+                          onUpdated?.()
+                        } catch (e) { console.error(e) }
+                      }}
+                    />
 
                   {:else if block.type === 'select' || block.type === 'radio'}
                     <select class="select-input" value={block.value || ''} onchange={(e) => handleSelectChange(blockIdx, (e.target as HTMLSelectElement).value)}>
@@ -1639,90 +1577,6 @@
     font-weight: 400;
   }
 
-  .checklist-bar {
-    height: 4px;
-    background: var(--border);
-    border-radius: 2px;
-    overflow: hidden;
-    margin-bottom: 0.5rem;
-  }
-  .checklist-bar-fill {
-    height: 100%;
-    background: var(--success);
-    border-radius: 2px;
-    transition: width 0.2s;
-  }
-
-  .checklist-items {
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-  }
-
-  .checklist-item {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.25rem 0;
-  }
-
-  .checkbox {
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    font-size: 1rem;
-    padding: 0;
-  }
-  .checklist-item.done .checkbox { color: var(--success); }
-  .checklist-item.done .checklist-text { text-decoration: line-through; color: var(--text-faint); }
-
-  .checklist-text {
-    flex: 1;
-    font-size: 0.85rem;
-    color: var(--text-body);
-  }
-
-  .checklist-remove {
-    background: none;
-    border: none;
-    color: transparent;
-    cursor: pointer;
-    font-size: 0.75rem;
-    padding: 0.15rem 0.3rem;
-  }
-  .checklist-item:hover .checklist-remove { color: var(--text-muted); }
-  .checklist-remove:hover { color: var(--danger-light) !important; }
-
-  .checklist-add {
-    display: flex;
-    gap: 0.4rem;
-    margin-top: 0.4rem;
-  }
-
-  .checklist-input {
-    flex: 1;
-    padding: 0.35rem 0.5rem;
-    border-radius: 4px;
-    border: 1px solid var(--border);
-    background: var(--bg-elevated);
-    color: var(--text-primary);
-    font-size: 0.8rem;
-    outline: none;
-  }
-  .checklist-input:focus { border-color: var(--accent); }
-
-  .btn-add-sm {
-    padding: 0.3rem 0.6rem;
-    border: none;
-    border-radius: 4px;
-    background: var(--border);
-    color: var(--text-body);
-    font-size: 0.8rem;
-    cursor: pointer;
-  }
-  .btn-add-sm:hover { background: var(--border-hover); }
-
   .modal-footer {
     display: flex;
     align-items: center;
@@ -1844,24 +1698,10 @@
   }
 
   .block-action-btn {
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
     padding: 0.15rem;
     line-height: 1;
     display: flex;
     align-items: center;
-    border-radius: 3px;
-    transition: color 0.1s, background 0.1s;
-  }
-  .block-action-btn:hover {
-    color: var(--text-primary);
-    background: var(--bg-elevated);
-  }
-  .block-action-btn.block-action-danger:hover {
-    color: var(--danger-light);
-    background: rgba(248, 113, 113, 0.1);
   }
 
   .block-label-input {

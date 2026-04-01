@@ -2012,6 +2012,57 @@ func (a *App) executeToolCall(cardID string, card *model.Card, tc llm.ToolCall, 
 		action := &model.ToolAction{Tool: "add_tags", Input: tc.Arguments, Result: result}
 		return result, action, nil
 
+	case "add_field":
+		key, _ := tc.Arguments["key"].(string)
+		label, _ := tc.Arguments["label"].(string)
+		fieldType, _ := tc.Arguments["field_type"].(string)
+		if key == "" || label == "" || fieldType == "" {
+			return "error: key, label, and field_type are required", nil, nil
+		}
+		// Validate field_type
+		validTypes := map[string]bool{"text": true, "checklist": true, "checkbox": true, "number": true, "date": true, "url": true}
+		if !validTypes[fieldType] {
+			return "error: invalid field_type " + fieldType + ". Must be one of: text, checklist, checkbox, number, date, url", nil, nil
+		}
+		currentCard, err := a.repo.GetCard(cardID)
+		if err != nil {
+			return "error: " + err.Error(), nil, nil
+		}
+		// Check for duplicate key
+		for _, b := range currentCard.Blocks {
+			if b.Key == key {
+				return "Field with key " + key + " already exists — use set_fields to update it.", nil, nil
+			}
+		}
+		// Build default value for the type
+		var defaultVal any
+		switch fieldType {
+		case "checklist":
+			defaultVal = []any{}
+		case "checkbox":
+			defaultVal = false
+		case "number":
+			defaultVal = 0.0
+		default:
+			defaultVal = ""
+		}
+		// If the LLM provided an initial value, coerce and use it
+		if rawVal, hasVal := tc.Arguments["value"]; hasVal && rawVal != nil {
+			defaultVal = coerceBlockValue(fieldType, rawVal)
+		}
+		newBlock := model.Block{
+			ID:    fmt.Sprintf("blk-%s", uuid.New().String()[:8]),
+			Type:  fieldType,
+			Label: label,
+			Key:   key,
+			Value: defaultVal,
+		}
+		currentCard.Blocks = append(currentCard.Blocks, newBlock)
+		a.UpdateCardBlocks(cardID, currentCard.Blocks)
+		resultMsg := fmt.Sprintf("Added %s field '%s' (key: %s). Use set_fields with key '%s' to update its value.", fieldType, label, key, key)
+		action := &model.ToolAction{Tool: "add_field", Input: tc.Arguments, Result: fmt.Sprintf("Added field: %s (%s)", label, fieldType)}
+		return resultMsg, action, nil
+
 	case "suggest_pin":
 		catID, _ := tc.Arguments["category_id"].(string)
 		reason, _ := tc.Arguments["reason"].(string)
@@ -2309,7 +2360,8 @@ TOOLS:
 - set_title — Write a clear, specific title. Only if title is "New Card" or generic.
 - set_due_date — YYYY-MM-DD format. Resolve relative dates from today (%s).
 - suggest_pin — ALWAYS pin the card. STRONGLY prefer an existing category_id from the list below. The hierarchy is: Brand > Stream > Project > Category (e.g. "Big Ideas / YouTube Channels / Channel Brainstorm / Ideas"). Do NOT use the card title as a brand name. Only create new names if NOTHING existing fits.
-- add_tags — Add relevant tags. Prefer existing project tags listed below, but you may create new short, descriptive tags if none fit.`, time.Now().Format("2006-01-02 (Monday)"), time.Now().Format("2006-01-02")))
+- add_tags — Add relevant tags. Prefer existing project tags listed below, but you may create new short, descriptive tags if none fit.
+- add_field — Add a NEW field to the card (e.g. a checklist, extra notes, a checkbox). Use when the user asks for a field that does not already exist. You can provide an initial value, or use set_fields afterward to populate it.`, time.Now().Format("2006-01-02 (Monday)"), time.Now().Format("2006-01-02")))
 
 	if cfg.Context != "" {
 		parts = append(parts, "User context:\n"+cfg.Context)

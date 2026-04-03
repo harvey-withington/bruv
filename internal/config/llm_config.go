@@ -14,6 +14,7 @@ type LLMConfig struct {
 	APIKey   string `json:"api_key,omitempty"`  // plain text for now
 	BaseURL  string `json:"base_url,omitempty"` // custom endpoint override
 	AutoPin  string `json:"auto_pin,omitempty"` // "auto", "suggest", "off"
+	AIMode   string `json:"ai_mode,omitempty"`  // "edit" (default), "suggest", or "chat"
 }
 
 func llmConfigPath() (string, error) {

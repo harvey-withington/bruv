@@ -1636,7 +1636,12 @@ func (a *App) SendChatMessage(cardID, userMessage string) (*model.ChatFile, erro
 		}
 		return tools
 	}
-	toolDefs := buildToolDefs(card)
+	// In chat-only mode skip all tools so the LLM responds conversationally.
+	// Both "edit" and "suggest" modes use tools; suggest mode stages instead of applies.
+	var toolDefs []llm.ToolDef
+	if cfg.AIMode != "chat" {
+		toolDefs = buildToolDefs(card)
+	}
 
 	// 7. Convert chat history to LLM messages
 	var llmMessages []llm.Message
@@ -1656,6 +1661,7 @@ func (a *App) SendChatMessage(cardID, userMessage string) (*model.ChatFile, erro
 
 	var allToolActions []model.ToolAction
 	var pinSuggestion *model.PinSuggestion
+	var allPendingEdits []model.PendingEdit
 
 	for iteration := 0; iteration < 3; iteration++ {
 		resp, err := provider.ChatCompletion(ctx, llm.ChatRequest{
@@ -1684,6 +1690,7 @@ func (a *App) SendChatMessage(cardID, userMessage string) (*model.ChatFile, erro
 				Timestamp:     time.Now().UTC(),
 				ToolActions:   allToolActions,
 				PinSuggestion: pinSuggestion,
+				PendingEdits:  allPendingEdits,
 			}
 			cf, _ = a.repo.AppendMessage(cardID, assistantMsg)
 			return cf, nil
@@ -1711,12 +1718,24 @@ func (a *App) SendChatMessage(cardID, userMessage string) (*model.ChatFile, erro
 				continue
 			}
 			seenCalls[tc.Name] = true
-			result, action, ps := a.executeToolCall(cardID, card, tc, allCats, cfg.AutoPin)
-			if action != nil {
-				allToolActions = append(allToolActions, *action)
-			}
-			if ps != nil {
-				pinSuggestion = ps
+			var result string
+			if cfg.AIMode == "suggest" {
+				// Stage the edit without applying it; return a fake success to the LLM
+				var edit *model.PendingEdit
+				result, edit = a.stageToolCall(tc, allCats)
+				if edit != nil {
+					allPendingEdits = append(allPendingEdits, *edit)
+				}
+			} else {
+				var action *model.ToolAction
+				var ps *model.PinSuggestion
+				result, action, ps = a.executeToolCall(cardID, card, tc, allCats, cfg.AutoPin)
+				if action != nil {
+					allToolActions = append(allToolActions, *action)
+				}
+				if ps != nil {
+					pinSuggestion = ps
+				}
 			}
 			// Add tool result to conversation
 			llmMessages = append(llmMessages, llm.Message{
@@ -1726,10 +1745,13 @@ func (a *App) SendChatMessage(cardID, userMessage string) (*model.ChatFile, erro
 			})
 		}
 
-		// Reload card after tool execution (it may have changed)
-		card, _ = a.repo.GetCard(cardID)
-		// Rebuild tool definitions in case type changed and blocks are different now
-		toolDefs = buildToolDefs(card)
+		// Reload card after tool execution (it may have changed).
+		// In suggest mode nothing was written, so skip the reload.
+		if cfg.AIMode != "suggest" {
+			card, _ = a.repo.GetCard(cardID)
+			// Rebuild tool definitions in case type changed and blocks are different now
+			toolDefs = buildToolDefs(card)
+		}
 
 		// Check if set_fields was missed — nudge the LLM to fill empty fields
 		calledSetFields := false
@@ -1764,7 +1786,14 @@ func (a *App) SendChatMessage(cardID, userMessage string) (*model.ChatFile, erro
 				break
 			}
 		}
-		if !calledPin && pinSuggestion == nil {
+		suggestPinStaged := false
+		for _, e := range allPendingEdits {
+			if e.Tool == "suggest_pin" {
+				suggestPinStaged = true
+				break
+			}
+		}
+		if !calledPin && pinSuggestion == nil && !suggestPinStaged {
 			existingPins, _ := a.repo.GetCardPins(cardID)
 			if len(existingPins) == 0 {
 				llmMessages = append(llmMessages, llm.Message{
@@ -1783,6 +1812,7 @@ func (a *App) SendChatMessage(cardID, userMessage string) (*model.ChatFile, erro
 		Timestamp:     time.Now().UTC(),
 		ToolActions:   allToolActions,
 		PinSuggestion: pinSuggestion,
+		PendingEdits:  allPendingEdits,
 	}
 	cf, _ = a.repo.AppendMessage(cardID, assistantMsg)
 	return cf, nil
@@ -2300,6 +2330,313 @@ func (a *App) resolveOrCreateHierarchy(brandName, streamName, projectName, categ
 
 	breadcrumb := brandName + " / " + streamName + " / " + projectName + " / " + categoryName
 	return catID, breadcrumb, nil
+}
+
+// stageToolCall builds a PendingEdit record for Suggest mode without applying any changes.
+// It returns a fake result string (fed back to the LLM so the conversation continues naturally)
+// and the PendingEdit to be stored on the message.
+func (a *App) stageToolCall(tc llm.ToolCall, allCats []CategoryPath) (string, *model.PendingEdit) {
+	id := uuid.New().String()
+	switch tc.Name {
+	case "set_title":
+		title, _ := tc.Arguments["title"].(string)
+		return "Title will be set to " + title, &model.PendingEdit{
+			ID: id, Tool: tc.Name, Input: tc.Arguments,
+			Label: "Set title", Detail: `"` + title + `"`,
+			Status: "pending",
+		}
+
+	case "set_due_date":
+		dueDate, _ := tc.Arguments["due_date"].(string)
+		label, detail := "Set due date", dueDate
+		if dueDate == "" {
+			label, detail = "Clear due date", "Remove existing due date"
+		}
+		return "Due date staged", &model.PendingEdit{
+			ID: id, Tool: tc.Name, Input: tc.Arguments,
+			Label: label, Detail: detail, Status: "pending",
+		}
+
+	case "set_card_type":
+		cardType, _ := tc.Arguments["card_type"].(string)
+		// Include block keys in the result so the LLM calls set_fields with the correct keys
+		fakeResult := "Card type will be set to " + cardType + "."
+		if a.registry != nil {
+			blocks := a.registry.SchemaToBlocks(cardType)
+			var keys []string
+			for _, b := range blocks {
+				if b.Key != "" {
+					keys = append(keys, b.Key)
+				}
+			}
+			if len(keys) > 0 {
+				fakeResult += " NOW call set_fields to fill these field keys: " + strings.Join(keys, ", ")
+			}
+		}
+		return fakeResult, &model.PendingEdit{
+			ID: id, Tool: tc.Name, Input: tc.Arguments,
+			Label: "Set type", Detail: cardType, Status: "pending",
+		}
+
+	case "set_fields", "update_blocks":
+		fieldsMap, _ := tc.Arguments["fields"].(map[string]any)
+		if len(fieldsMap) == 0 {
+			fieldsMap, _ = tc.Arguments["blocks"].(map[string]any)
+		}
+		if len(fieldsMap) == 0 {
+			fieldsMap = make(map[string]any)
+			for k, v := range tc.Arguments {
+				fieldsMap[k] = v
+			}
+		}
+		var keys, details []string
+		for k, v := range fieldsMap {
+			keys = append(keys, k)
+			details = append(details, fmt.Sprintf("%s: %v", k, v))
+		}
+		return "Fields staged: " + strings.Join(keys, ", "), &model.PendingEdit{
+			ID: id, Tool: tc.Name, Input: tc.Arguments,
+			Label:  "Update fields: " + strings.Join(keys, ", "),
+			Detail: strings.Join(details, "\n"),
+			Status: "pending",
+		}
+
+	case "add_tags":
+		tagsRaw, _ := tc.Arguments["tags"].([]any)
+		var tags []string
+		for _, t := range tagsRaw {
+			if s, ok := t.(string); ok {
+				tags = append(tags, "+"+s)
+			}
+		}
+		return "Tags staged", &model.PendingEdit{
+			ID: id, Tool: tc.Name, Input: tc.Arguments,
+			Label: "Add tags", Detail: strings.Join(tags, ", "),
+			Status: "pending",
+		}
+
+	case "add_field":
+		label, _ := tc.Arguments["label"].(string)
+		fieldType, _ := tc.Arguments["field_type"].(string)
+		return "Field staged: " + label, &model.PendingEdit{
+			ID: id, Tool: tc.Name, Input: tc.Arguments,
+			Label:  "Add field: " + label,
+			Detail: "Type: " + fieldType,
+			Status: "pending",
+		}
+
+	case "suggest_pin":
+		reason, _ := tc.Arguments["reason"].(string)
+		catID, _ := tc.Arguments["category_id"].(string)
+		var breadcrumb string
+		if catID != "" {
+			for _, c := range allCats {
+				if c.CategoryID == catID {
+					breadcrumb = c.Breadcrumb
+					break
+				}
+			}
+		} else {
+			brand, _ := tc.Arguments["brand"].(string)
+			stream, _ := tc.Arguments["stream"].(string)
+			project, _ := tc.Arguments["project"].(string)
+			category, _ := tc.Arguments["category"].(string)
+			var parts []string
+			for _, p := range []string{brand, stream, project, category} {
+				if p != "" {
+					parts = append(parts, p)
+				}
+			}
+			breadcrumb = strings.Join(parts, " / ")
+		}
+		detail := breadcrumb
+		if reason != "" {
+			detail += "\n" + reason
+		}
+		return "Pin suggestion staged for " + breadcrumb, &model.PendingEdit{
+			ID: id, Tool: tc.Name, Input: tc.Arguments,
+			Label: "Pin to " + breadcrumb, Detail: detail,
+			Status: "pending",
+		}
+
+	default:
+		return "Staged unknown tool " + tc.Name, nil
+	}
+}
+
+// AcceptPendingEdit applies a single pending edit from Suggest mode and marks it accepted.
+func (a *App) AcceptPendingEdit(cardID, msgID, editID string) (*model.ChatFile, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	cf, err := a.repo.LoadChat(cardID)
+	if err != nil {
+		return nil, err
+	}
+	card, _ := a.repo.GetCard(cardID)
+	allCats, _ := a.ListAllCategories()
+	for i, m := range cf.Messages {
+		if m.ID != msgID {
+			continue
+		}
+		for j, edit := range m.PendingEdits {
+			if edit.ID != editID {
+				continue
+			}
+			if edit.Status != "pending" {
+				return cf, nil
+			}
+			tc := llm.ToolCall{ID: editID, Name: edit.Tool, Arguments: edit.Input}
+			// For suggest_pin, force "auto" so the card is actually pinned
+			autoPinMode := ""
+			if edit.Tool == "suggest_pin" {
+				autoPinMode = "auto"
+			}
+			result, _, _ := a.executeToolCall(cardID, card, tc, allCats, autoPinMode)
+			if strings.HasPrefix(result, "error:") {
+				return nil, fmt.Errorf("could not apply edit: %s", result)
+			}
+			card, _ = a.repo.GetCard(cardID) // refresh for subsequent edits in same batch
+			cf.Messages[i].PendingEdits[j].Status = "accepted"
+			if err := a.repo.SaveChat(cf); err != nil {
+				return nil, err
+			}
+			return cf, nil
+		}
+	}
+	return nil, fmt.Errorf("pending edit not found")
+}
+
+// RejectPendingEdit dismisses a single pending edit without applying it.
+func (a *App) RejectPendingEdit(cardID, msgID, editID string) (*model.ChatFile, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	cf, err := a.repo.LoadChat(cardID)
+	if err != nil {
+		return nil, err
+	}
+	for i, m := range cf.Messages {
+		if m.ID != msgID {
+			continue
+		}
+		for j, edit := range m.PendingEdits {
+			if edit.ID != editID {
+				continue
+			}
+			if edit.Status != "pending" {
+				return cf, nil
+			}
+			cf.Messages[i].PendingEdits[j].Status = "rejected"
+			if err := a.repo.SaveChat(cf); err != nil {
+				return nil, err
+			}
+			return cf, nil
+		}
+	}
+	return nil, fmt.Errorf("pending edit not found")
+}
+
+// ApplyPendingEdits accepts the specified edits (in order) and rejects the rest.
+// This is the primary batch action for the Suggest mode UI.
+func (a *App) ApplyPendingEdits(cardID, msgID string, acceptIDs []string) (*model.ChatFile, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	acceptSet := make(map[string]bool, len(acceptIDs))
+	for _, id := range acceptIDs {
+		acceptSet[id] = true
+	}
+
+	cf, err := a.repo.LoadChat(cardID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Collect pending IDs in message order, split into accept/reject
+	var toAccept, toReject []string
+	for _, m := range cf.Messages {
+		if m.ID != msgID {
+			continue
+		}
+		for _, e := range m.PendingEdits {
+			if e.Status != "pending" {
+				continue
+			}
+			if acceptSet[e.ID] {
+				toAccept = append(toAccept, e.ID)
+			} else {
+				toReject = append(toReject, e.ID)
+			}
+		}
+		break
+	}
+
+	var firstErr error
+	for _, eid := range toAccept {
+		if updated, err2 := a.AcceptPendingEdit(cardID, msgID, eid); err2 == nil {
+			cf = updated
+		} else if firstErr == nil {
+			firstErr = err2
+		}
+	}
+	for _, eid := range toReject {
+		if updated, err2 := a.RejectPendingEdit(cardID, msgID, eid); err2 == nil {
+			cf = updated
+		}
+	}
+	return cf, firstErr
+}
+
+// AcceptAllPendingEdits applies all pending edits on a message in order.
+func (a *App) AcceptAllPendingEdits(cardID, msgID string) (*model.ChatFile, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	// Collect IDs first so we iterate a stable snapshot
+	cf, err := a.repo.LoadChat(cardID)
+	if err != nil {
+		return nil, err
+	}
+	var pendingIDs []string
+	for _, m := range cf.Messages {
+		if m.ID == msgID {
+			for _, e := range m.PendingEdits {
+				if e.Status == "pending" {
+					pendingIDs = append(pendingIDs, e.ID)
+				}
+			}
+			break
+		}
+	}
+	for _, eid := range pendingIDs {
+		if updated, err := a.AcceptPendingEdit(cardID, msgID, eid); err == nil {
+			cf = updated
+		}
+	}
+	return cf, nil
+}
+
+// RejectAllPendingEdits dismisses all pending edits on a message.
+func (a *App) RejectAllPendingEdits(cardID, msgID string) (*model.ChatFile, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	cf, err := a.repo.LoadChat(cardID)
+	if err != nil {
+		return nil, err
+	}
+	for i, m := range cf.Messages {
+		if m.ID == msgID {
+			for j, e := range m.PendingEdits {
+				if e.Status == "pending" {
+					cf.Messages[i].PendingEdits[j].Status = "rejected"
+				}
+			}
+			return cf, a.repo.SaveChat(cf)
+		}
+	}
+	return cf, nil
 }
 
 // AcceptPinSuggestion accepts a pending pin suggestion on a chat message and performs the pin.

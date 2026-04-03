@@ -170,6 +170,16 @@ type PinSuggestion struct {
 	Status       string `json:"status"` // "pending", "accepted", "rejected"
 }
 
+// PendingEdit is a staged LLM-proposed change awaiting user approval in Suggest mode.
+type PendingEdit struct {
+	ID     string         `json:"id"`
+	Tool   string         `json:"tool"`
+	Input  map[string]any `json:"input"`
+	Label  string         `json:"label"`  // short human-readable summary
+	Detail string         `json:"detail"` // longer description for hover tooltip
+	Status string         `json:"status"` // "pending", "accepted", "rejected"
+}
+
 // ChatMessage is a single message in a card's chat history.
 type ChatMessage struct {
 	ID            string          `json:"id"`
@@ -178,6 +188,7 @@ type ChatMessage struct {
 	Timestamp     time.Time       `json:"timestamp"`
 	ToolActions   []ToolAction    `json:"tool_actions,omitempty"`
 	PinSuggestion *PinSuggestion  `json:"pin_suggestion,omitempty"`
+	PendingEdits  []PendingEdit   `json:"pending_edits,omitempty"`
 }
 
 // ChatFile is the on-disk format for cards/<card-uuid>.messages.json.

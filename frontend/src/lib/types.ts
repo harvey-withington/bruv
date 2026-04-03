@@ -73,6 +73,7 @@ export type LLMConfig = {
   api_key: string
   base_url: string
   auto_pin: string
+  ai_mode: string
 }
 
 // --- Backend capabilities ---
@@ -229,6 +230,13 @@ export interface BackendAdapter {
   // Pin suggestions (from AI)
   AcceptPinSuggestion(cardID: string, messageID: string): Promise<void>
   RejectPinSuggestion(cardID: string, messageID: string): Promise<void>
+
+  // Pending edits (Suggest mode)
+  AcceptPendingEdit(cardID: string, msgID: string, editID: string): Promise<any>
+  RejectPendingEdit(cardID: string, msgID: string, editID: string): Promise<any>
+  AcceptAllPendingEdits(cardID: string, msgID: string): Promise<any>
+  RejectAllPendingEdits(cardID: string, msgID: string): Promise<any>
+  ApplyPendingEdits(cardID: string, msgID: string, acceptIDs: string[]): Promise<any>
 
   // User preferences
   GetPreferences(): Promise<any>

@@ -36,7 +36,9 @@
   let pinPickerSourcePin = $state<CardPin | null>(null)
   let pinActionLoading = $state(false)
   let showOtherPins = $state(false)
-  let showChat = $state(false)
+  const CHAT_VISIBLE_KEY = 'bruv:chatPanelVisible'
+  let showChat = $state(localStorage.getItem(CHAT_VISIBLE_KEY) === 'true')
+  $effect(() => { localStorage.setItem(CHAT_VISIBLE_KEY, String(showChat)) })
   let savingCount = $state(0)
   let saving = $derived(savingCount > 0)
 
@@ -46,13 +48,19 @@
     finally { savingCount-- }
   }
 
+  // Allow pinning from Inbox to upgrade the card's display context to the newly pinned category
+  let inboxPinCategoryId = $state<string | null>(null)
+  let inboxPinCategoryName = $state<string | null>(null)
+  let effectiveCategoryId = $derived(inboxPinCategoryId ?? currentCategoryId ?? null)
+  let effectiveCategoryName = $derived(inboxPinCategoryName ?? currentCategoryName ?? null)
+
   // Derived: pin state relative to the category the card was opened from
   let currentPin = $derived(
-    currentCategoryId ? pinBreadcrumbs.find(p => p.categoryId === currentCategoryId) ?? null : null
+    effectiveCategoryId ? pinBreadcrumbs.find(p => p.categoryId === effectiveCategoryId) ?? null : null
   )
   let isPinnedHere = $derived(currentPin !== null)
   let otherPins = $derived(
-    currentCategoryId ? pinBreadcrumbs.filter(p => p.categoryId !== currentCategoryId) : pinBreadcrumbs
+    effectiveCategoryId ? pinBreadcrumbs.filter(p => p.categoryId !== effectiveCategoryId) : pinBreadcrumbs
   )
   let editingTitle = $state(false)
   let titleDraft = $state('')
@@ -628,7 +636,7 @@
         const unpinProject = currentPin.pinnedProjectId || currentPin.categoryId
         await UnpinCard(cardId, unpinProject, currentPin.categoryId)
       } else {
-        await PinCard(cardId, currentCategoryId, currentCategoryId)
+        await PinCard(cardId, effectiveCategoryId!, effectiveCategoryId!)
       }
       pinBreadcrumbs = await GetCardPinBreadcrumbs(cardId) || []
       document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
@@ -653,6 +661,7 @@
   async function handlePinSelect(target: CardPin) {
     showPinPicker = false
     pinActionLoading = true
+    const wasPinningFromInbox = pinPickerMode === 'pin' && !currentCategoryId && !inboxPinCategoryId
     try {
       if (pinPickerMode === 'move' && pinPickerSourcePin) {
         const unpinProject = pinPickerSourcePin.pinnedProjectId || pinPickerSourcePin.categoryId
@@ -665,11 +674,25 @@
       document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
       onPin?.()
       onUpdated?.()
+      // When pinning from Inbox: update card context and switch to the new project in the background
+      if (wasPinningFromInbox) {
+        inboxPinCategoryId = target.categoryId
+        inboxPinCategoryName = target.categoryName
+        document.dispatchEvent(new CustomEvent('bruv:select-project', {
+          detail: { brandSlug: target.brandSlug, streamSlug: target.streamSlug, projectSlug: target.projectSlug }
+        }))
+      }
     } catch (e) {
       showToast(t('error.pin_failed'), 'error')
     }
     pinActionLoading = false
     pinPickerSourcePin = null
+  }
+
+  function navigateToPinnedProject(pin: CardPin) {
+    document.dispatchEvent(new CustomEvent('bruv:select-project', {
+      detail: { brandSlug: pin.brandSlug, streamSlug: pin.streamSlug, projectSlug: pin.projectSlug }
+    }))
   }
 
   async function handleUnpin(pin: CardPin) {
@@ -778,21 +801,21 @@
       </div>
 
       <div class="modal-subheader">
-        {#if currentCategoryId}
+        {#if effectiveCategoryId}
           <!-- Current-category toggle -->
           <button
             class="pin-toggle"
             class:pinned={isPinnedHere}
             onclick={toggleCurrentPin}
             disabled={pinActionLoading}
-            title={isPinnedHere ? `${t('tooltip.unpin')} "${currentCategoryName}"` : `${t('card.pin_to')} "${currentCategoryName}"`}
+            title={isPinnedHere ? `${t('tooltip.unpin')} "${effectiveCategoryName}"` : `${t('card.pin_to')} "${effectiveCategoryName}"`}
           >
             {#if isPinnedHere}
               <MapPin size={11} />
             {:else}
               <MapPinOff size={11} />
             {/if}
-            <span class="pin-toggle-name">{currentCategoryName}</span>
+            <span class="pin-toggle-name">{effectiveCategoryName}</span>
           </button>
 
           <!-- Other pins expandable -->
@@ -829,7 +852,7 @@
           <div class="other-pins-panel">
             {#each otherPins as pin}
               <div class="location-pin">
-                <span class="location-breadcrumb" title={pin.breadcrumb}><MapPin size={11} />{pin.breadcrumb}</span>
+                <button class="location-breadcrumb" onclick={() => navigateToPinnedProject(pin)} title={t('tooltip.go_to_project')}><MapPin size={11} />{pin.breadcrumb}</button>
                 <button class="btn-pin-action" onclick={() => openMovePicker(pin)} disabled={pinActionLoading} title={t('tooltip.move_pin')} aria-label={t('tooltip.move_pin')}><MoveRight size={11} /></button>
                 <button class="btn-pin-action btn-unpin" onclick={() => handleUnpin(pin)} disabled={pinActionLoading} title={t('tooltip.unpin')} aria-label={t('tooltip.unpin')}><MapPinOff size={11} /></button>
               </div>
@@ -1274,6 +1297,17 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    font-family: inherit;
+    cursor: pointer;
+    text-align: left;
+  }
+  .location-breadcrumb:hover {
+    color: var(--accent);
+    text-decoration: underline;
   }
 
   .btn-pin {

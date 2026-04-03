@@ -36,6 +36,7 @@
     api_key: '',
     base_url: '',
     auto_pin: 'off',
+    ai_mode: 'edit',
   })
   let showKey = $state(false)
   let testing = $state(false)
@@ -67,6 +68,7 @@
         llm.api_key = c.api_key || ''
         llm.base_url = c.base_url || ''
         llm.auto_pin = c.auto_pin || 'off'
+        llm.ai_mode = c.ai_mode || 'edit'
       }
     } catch { /* use defaults */ }
     loaded = true
@@ -140,6 +142,7 @@
     { tab: 'ai', key: 'model', label: 'ai model' },
     { tab: 'ai', key: 'api_key', label: 'api key' },
     { tab: 'ai', key: 'base_url', label: 'base url endpoint' },
+    { tab: 'ai', key: 'ai_mode', label: 'ai mode chat edit card fields' },
     { tab: 'ai', key: 'auto_pin', label: 'auto pin behavior' },
     { tab: 'ai', key: 'context', label: 'ai context additional' },
   ]
@@ -337,6 +340,17 @@
             </label>
           {/if}
 
+          {#if fieldVisible('ai_mode')}
+            <label class="field">
+              <span class="field-label">{t('llm.ai_mode')}</span>
+              <select bind:value={llm.ai_mode} disabled={llmDisabled}>
+                <option value="edit">{t('llm.ai_mode_edit')}</option>
+                <option value="suggest">{t('llm.ai_mode_suggest')}</option>
+                <option value="chat">{t('llm.ai_mode_chat')}</option>
+              </select>
+            </label>
+          {/if}
+
           {#if fieldVisible('auto_pin')}
             <label class="field">
               <span class="field-label">{t('llm.auto_pin')}</span>
@@ -423,7 +437,7 @@
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    padding: 0.3rem 0.6rem;
+    padding: 0rem 0.6rem;
     border-radius: 6px;
     border: 1px solid var(--border);
     background: var(--bg-elevated);
@@ -435,7 +449,7 @@
 
   .search-input {
     flex: 1;
-    border: none;
+    border: none !important;
     background: transparent;
     color: var(--text-primary);
     font-size: 0.8rem;

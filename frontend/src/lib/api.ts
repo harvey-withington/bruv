@@ -142,6 +142,13 @@ export const TestLLMConnection = () => getBackend().TestLLMConnection()
 export const AcceptPinSuggestion = (...args: Parameters<ReturnType<typeof getBackend>['AcceptPinSuggestion']>) => getBackend().AcceptPinSuggestion(...args)
 export const RejectPinSuggestion = (...args: Parameters<ReturnType<typeof getBackend>['RejectPinSuggestion']>) => getBackend().RejectPinSuggestion(...args)
 
+// Pending edits (Suggest mode)
+export const AcceptPendingEdit = (...args: Parameters<ReturnType<typeof getBackend>['AcceptPendingEdit']>) => getBackend().AcceptPendingEdit(...args)
+export const RejectPendingEdit = (...args: Parameters<ReturnType<typeof getBackend>['RejectPendingEdit']>) => getBackend().RejectPendingEdit(...args)
+export const AcceptAllPendingEdits = (...args: Parameters<ReturnType<typeof getBackend>['AcceptAllPendingEdits']>) => getBackend().AcceptAllPendingEdits(...args)
+export const RejectAllPendingEdits = (...args: Parameters<ReturnType<typeof getBackend>['RejectAllPendingEdits']>) => getBackend().RejectAllPendingEdits(...args)
+export const ApplyPendingEdits = (...args: Parameters<ReturnType<typeof getBackend>['ApplyPendingEdits']>) => getBackend().ApplyPendingEdits(...args)
+
 // User preferences
 export const GetPreferences = () => getBackend().GetPreferences()
 export const SetPreferences = (...args: Parameters<ReturnType<typeof getBackend>['SetPreferences']>) => getBackend().SetPreferences(...args)

@@ -1,17 +1,120 @@
 <script lang="ts">
   import { tick } from 'svelte'
-  import { Send, MapPin, Check, X, Wrench, ChevronUp, ChevronDown } from 'lucide-svelte'
-  import { LoadChatHistory, SendChatMessage, IsLLMConfigured, AcceptPinSuggestion, RejectPinSuggestion } from '../lib/api'
+  import { Send, MapPin, Check, X, Wrench, ChevronUp, ChevronDown, MessageCircle, PencilLine, ListChecks } from 'lucide-svelte'
+  import { LoadChatHistory, SendChatMessage, IsLLMConfigured, AcceptPinSuggestion, RejectPinSuggestion, GetLLMConfig, SetLLMConfig, ApplyPendingEdits } from '../lib/api'
   import { renderMarkdown } from '../lib/markdown'
   import { t } from '../lib/i18n.svelte'
+  import { showToast } from '../lib/toast.svelte'
+
+  interface PendingEdit {
+    id: string
+    tool: string
+    input: Record<string, unknown>
+    label: string
+    detail: string
+    status: 'pending' | 'accepted' | 'rejected'
+  }
+
+  interface ChatMessage {
+    id: string
+    role: string
+    content: string
+    timestamp: string
+    tool_actions?: { tool: string; input: unknown; result: string }[]
+    pin_suggestion?: { category_id: string; breadcrumb: string; reason?: string; status: string }
+    pending_edits?: PendingEdit[]
+  }
 
   let { cardId, visible = $bindable(false), onCardChanged }: { cardId: string; visible: boolean; onCardChanged?: () => void } = $props()
 
-  let messages = $state<Array<{id: string, role: string, content: string, timestamp: string, tool_actions?: any[], pin_suggestion?: any}>>([])
+  // Fixed-position tooltip for edit details (avoids scroll-container clipping)
+  let tooltipText = $state('')
+  let tooltipX = $state(0)
+  let tooltipY = $state(0)
+  let tooltipVisible = $state(false)
+
+  function showEditTooltip(e: MouseEvent, detail: string) {
+    if (!detail) return
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    tooltipText = detail
+    tooltipX = rect.left
+    tooltipY = rect.bottom + 4
+    tooltipVisible = true
+  }
+
+  function hideEditTooltip() {
+    tooltipVisible = false
+  }
+
+  // Local checkbox state per message — not persisted, purely UI
+  // Initialised to all-checked when a message with pending edits first renders
+  let checkedEdits = $state<Record<string, Record<string, boolean>>>({})
+
+  $effect(() => {
+    for (const msg of messages) {
+      if (!msg.pending_edits?.length) continue
+      if (checkedEdits[msg.id]) continue
+      const initial: Record<string, boolean> = {}
+      for (const e of msg.pending_edits) {
+        if (e.status === 'pending') initial[e.id] = true
+      }
+      checkedEdits[msg.id] = initial
+    }
+  })
+
+  function pendingEditsOf(msg: ChatMessage) {
+    return msg.pending_edits?.filter(e => e.status === 'pending') ?? []
+  }
+
+  function allChecked(msg: ChatMessage): boolean {
+    const pending = pendingEditsOf(msg)
+    return pending.length > 0 && pending.every(e => checkedEdits[msg.id]?.[e.id])
+  }
+
+  function someChecked(msg: ChatMessage): boolean {
+    return pendingEditsOf(msg).some(e => checkedEdits[msg.id]?.[e.id])
+  }
+
+  function toggleAll(msg: ChatMessage) {
+    const shouldCheck = !allChecked(msg)
+    const updated = { ...checkedEdits[msg.id] }
+    for (const e of pendingEditsOf(msg)) updated[e.id] = shouldCheck
+    checkedEdits[msg.id] = updated
+  }
+
+  function toggleEdit(msgId: string, editId: string) {
+    checkedEdits[msgId] = { ...checkedEdits[msgId], [editId]: !checkedEdits[msgId]?.[editId] }
+  }
+
+  async function applyEdits(msgId: string) {
+    const msg = messages.find(m => m.id === msgId)
+    const checked = checkedEdits[msgId] ?? {}
+    const acceptIDs = pendingEditsOf(msg!).filter(e => checked[e.id]).map(e => e.id)
+    const hasPinEdit = msg?.pending_edits?.some(e => e.tool === 'suggest_pin' && checked[e.id] && e.status === 'pending')
+    try {
+      const result = await ApplyPendingEdits(cardId, msgId, acceptIDs)
+      messages = result?.messages || []
+      onCardChanged?.()
+      if (hasPinEdit) {
+        document.dispatchEvent(new CustomEvent('bruv:sidebar-changed'))
+        document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
+      }
+    } catch (e) {
+      showToast(t('error.edit_apply_failed'), 'error')
+      console.error('Failed to apply edits:', e)
+    }
+  }
+
+  function hasPendingEdits(msg: ChatMessage): boolean {
+    return pendingEditsOf(msg).length > 0
+  }
+
+  let messages = $state<ChatMessage[]>([])
   let inputText = $state('')
   let loading = $state(true)
   let sending = $state(false)
   let configured = $state(true)
+  let aiMode = $state<'edit' | 'suggest' | 'chat'>('edit')
   let messagesEndEl = $state<HTMLDivElement | null>(null)
   let messagesContainerEl = $state<HTMLDivElement | null>(null)
   let textareaEl = $state<HTMLTextAreaElement | null>(null)
@@ -19,16 +122,33 @@
   async function loadChat() {
     loading = true
     try {
-      const [result, isConfigured] = await Promise.all([
+      const [result, isConfigured, llmCfg] = await Promise.all([
         LoadChatHistory(cardId),
         IsLLMConfigured(),
+        GetLLMConfig(),
       ])
       messages = result?.messages || []
       configured = isConfigured
+      const mode = llmCfg?.ai_mode
+      aiMode = (mode === 'chat' || mode === 'suggest') ? mode : 'edit'
     } catch (e) {
       console.error('Failed to load chat:', e)
     }
     loading = false
+  }
+
+  async function toggleMode() {
+    const cycle: Record<'edit' | 'suggest' | 'chat', 'edit' | 'suggest' | 'chat'> = {
+      edit: 'suggest', suggest: 'chat', chat: 'edit',
+    }
+    const next = cycle[aiMode]
+    aiMode = next
+    try {
+      const llmCfg = await GetLLMConfig()
+      await SetLLMConfig({ ...llmCfg, ai_mode: next })
+    } catch (e) {
+      console.error('Failed to save AI mode:', e)
+    }
   }
 
   async function send() {
@@ -85,6 +205,7 @@
       console.error('Failed to reject pin:', e)
     }
   }
+
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -185,10 +306,36 @@
   })
 </script>
 
+{#if tooltipVisible && tooltipText}
+  <div
+    class="edit-tooltip-fixed"
+    style="left: {tooltipX}px; top: {tooltipY}px;"
+  >{tooltipText}</div>
+{/if}
+
 {#if visible}
   <div class="chat-panel">
     <div class="chat-header">
       <span class="chat-title">{t('chat.title')}{messages.length > 0 ? ` (${messages.length})` : ''}</span>
+      <div class="mode-toggle">
+        <button
+          class="mode-btn"
+          class:active={aiMode !== 'chat'}
+          onclick={toggleMode}
+          title={aiMode === 'edit' ? t('chat.mode_edit_hint') : aiMode === 'suggest' ? t('chat.mode_suggest_hint') : t('chat.mode_chat_hint')}
+        >
+          {#if aiMode === 'edit'}
+            <PencilLine size={11} />
+            {t('chat.mode_edit')}
+          {:else if aiMode === 'suggest'}
+            <ListChecks size={11} />
+            {t('chat.mode_suggest')}
+          {:else}
+            <MessageCircle size={11} />
+            {t('chat.mode_chat')}
+          {/if}
+        </button>
+      </div>
     </div>
 
     {#if !configured}
@@ -213,6 +360,61 @@
                   <div class="tool-action">
                     <Wrench size={10} />
                     <span>{toolActionLabel(action)}</span>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+
+            {#if msg.pending_edits?.length}
+              <div class="pending-edits">
+                <div class="pending-edits-header">
+                  {#if hasPendingEdits(msg)}
+                    <input
+                      type="checkbox"
+                      class="select-all-cb"
+                      checked={allChecked(msg)}
+                      indeterminate={someChecked(msg) && !allChecked(msg)}
+                      onchange={() => toggleAll(msg)}
+                      aria-label="Select all"
+                    />
+                  {:else}
+                    <ListChecks size={12} class="resolved-icon" />
+                  {/if}
+                  <span class="pending-edits-title">{t('chat.suggest_edits_review')}</span>
+                  {#if hasPendingEdits(msg)}
+                    <button class="apply-btn" onclick={() => applyEdits(msg.id)} disabled={!someChecked(msg)}>
+                      {t('chat.apply')}
+                    </button>
+                  {/if}
+                </div>
+
+                {#each msg.pending_edits as edit (edit.id)}
+                  <div
+                    class="pending-edit-row"
+                    class:edit-accepted={edit.status === 'accepted'}
+                    class:edit-rejected={edit.status === 'rejected'}
+                  >
+                    {#if edit.status === 'pending'}
+                      <input
+                        type="checkbox"
+                        class="edit-cb"
+                        checked={checkedEdits[msg.id]?.[edit.id] ?? false}
+                        onchange={() => toggleEdit(msg.id, edit.id)}
+                      />
+                    {:else if edit.status === 'accepted'}
+                      <Check size={11} class="edit-resolved-icon accepted" />
+                    {:else}
+                      <X size={11} class="edit-resolved-icon rejected" />
+                    {/if}
+                    <span class="edit-label">{edit.label}</span>
+                    {#if edit.detail}
+                      <span
+                        class="edit-preview"
+                        role="tooltip"
+                        onmouseenter={(e) => showEditTooltip(e, edit.detail)}
+                        onmouseleave={hideEditTooltip}
+                      >{edit.detail}</span>
+                    {/if}
                   </div>
                 {/each}
               </div>
@@ -296,9 +498,12 @@
   }
 
   .chat-header {
-    padding: 0.75rem 1rem;
+    padding: 0.65rem 0.75rem 0.65rem 1rem;
     border-bottom: 1px solid var(--border-muted);
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
 
   .chat-title {
@@ -307,6 +512,34 @@
     color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.05em;
+  }
+
+  .mode-toggle {
+    flex-shrink: 0;
+  }
+
+  .mode-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-muted);
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .mode-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--accent);
+  }
+  .mode-btn.active {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-elevated));
   }
 
   .chat-banner {
@@ -465,6 +698,132 @@
     color: var(--text-muted);
     margin-top: 4px;
     font-style: italic;
+  }
+
+  /* Pending edits (Suggest mode) */
+  .pending-edits {
+    margin-top: 6px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-surface);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .pending-edits-header {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 2px;
+  }
+
+  .pending-edits-title {
+    flex: 1;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  :global(.resolved-icon) {
+    flex-shrink: 0;
+    color: var(--text-muted);
+  }
+
+  .select-all-cb,
+  .edit-cb {
+    flex-shrink: 0;
+    width: 13px;
+    height: 13px;
+    cursor: pointer;
+    accent-color: var(--accent);
+  }
+
+  .apply-btn {
+    flex-shrink: 0;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-elevated));
+    color: var(--accent);
+    transition: background 0.15s;
+  }
+  .apply-btn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 22%, var(--bg-elevated));
+  }
+  .apply-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+
+  .pending-edit-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 0;
+  }
+
+  .pending-edit-row.edit-rejected .edit-label,
+  .pending-edit-row.edit-rejected .edit-preview {
+    text-decoration: line-through;
+    opacity: 0.45;
+  }
+
+  .pending-edit-row.edit-accepted .edit-label,
+  .pending-edit-row.edit-accepted .edit-preview {
+    opacity: 0.6;
+  }
+
+  :global(.edit-resolved-icon) {
+    flex-shrink: 0;
+  }
+  :global(.edit-resolved-icon.accepted) {
+    color: var(--success, #22c55e);
+  }
+  :global(.edit-resolved-icon.rejected) {
+    color: var(--text-muted);
+    opacity: 0.45;
+  }
+
+  .edit-label {
+    flex-shrink: 0;
+    font-size: 0.78rem;
+    color: var(--text-primary);
+    white-space: nowrap;
+  }
+
+  .edit-preview {
+    flex: 1;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: default;
+  }
+
+  :global(.edit-tooltip-fixed) {
+    position: fixed;
+    min-width: 160px;
+    max-width: 260px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 5px 8px;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    line-height: 1.4;
+    z-index: 9999;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    pointer-events: none;
   }
 
   /* Thinking indicator */

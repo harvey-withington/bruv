@@ -25,6 +25,7 @@ import {
   LoadChatHistory, SendChatMessage,
   IsLLMConfigured, TestLLMConnection,
   AcceptPinSuggestion, RejectPinSuggestion,
+  AcceptPendingEdit, RejectPendingEdit, AcceptAllPendingEdits, RejectAllPendingEdits, ApplyPendingEdits,
 } from '../../../wailsjs/go/main/App.js'
 
 export const wailsAdapter: BackendAdapter = {
@@ -142,6 +143,11 @@ export const wailsAdapter: BackendAdapter = {
   TestLLMConnection,
   AcceptPinSuggestion,
   RejectPinSuggestion,
+  AcceptPendingEdit,
+  RejectPendingEdit,
+  AcceptAllPendingEdits,
+  RejectAllPendingEdits,
+  ApplyPendingEdits,
 
   GetPreferences,
   SetPreferences,

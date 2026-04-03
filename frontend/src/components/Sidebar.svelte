@@ -95,10 +95,13 @@
 
   async function loadBrandsAndRestore() {
     await loadBrands()
-    // Restore last nav state if available
+    // Restore last nav state if available, otherwise default to Inbox
     try {
       const raw = localStorage.getItem('bruv-last-nav')
-      if (!raw) return
+      if (!raw) {
+        await selectInbox()
+        return
+      }
       const last = JSON.parse(raw) as { brandSlug: string; streamSlug: string; projectSlug: string }
       if (!last.brandSlug || !last.streamSlug || !last.projectSlug) return
       // Expand brand

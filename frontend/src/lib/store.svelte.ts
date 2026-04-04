@@ -1,5 +1,6 @@
 // Reactive app state using Svelte 5 module-level $state
-import { ListCategories, GetCard, ListCardIDsInCategory, GetProjectLabels } from './api'
+import { ListCategories, GetCard, ListCardIDsInCategory, GetProjectLabels, ListCardTypes } from './api'
+import type { CardTypeInfo } from './types'
 
 // Navigation state
 export const nav = $state({
@@ -42,6 +43,17 @@ export const board = $state({
   }>,
   loading: false,
 })
+
+// Global card types (built-in + user-defined), loaded once at startup
+export const cardTypes = $state<{ list: CardTypeInfo[] }>({ list: [] })
+
+export async function loadCardTypes() {
+  try {
+    cardTypes.list = await ListCardTypes() || []
+  } catch {
+    cardTypes.list = []
+  }
+}
 
 // User display preferences
 export const prefs = $state({

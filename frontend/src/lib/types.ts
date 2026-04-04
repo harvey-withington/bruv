@@ -65,6 +65,33 @@ export type AuthInfo = {
   username: string
 }
 
+// --- Card types ---
+
+export type CardTypeInfo = {
+  id: string
+  label: string
+  color: string
+  description: string
+  ai_hint?: string
+  template_id?: string
+  builtin: boolean
+}
+
+export type UserCardType = {
+  id: string
+  label: string
+  color: string
+  description: string
+  ai_hint?: string
+  template_id?: string
+}
+
+export type CardTemplate = {
+  id: string
+  name: string
+  blocks: Block[]
+}
+
 // --- LLM: AI-specific configuration (grows independently) ---
 export type LLMConfig = {
   context: string
@@ -206,8 +233,19 @@ export interface BackendAdapter {
   UpdateProjectLabel(brandSlug: string, streamSlug: string, projectSlug: string, labelID: string, name: string, color: string): Promise<any[]>
 
   // Schema
-  ListCardTypes(): Promise<string[]>
+  ListCardTypes(): Promise<CardTypeInfo[]>
   ValidateCardFields(cardType: string, fields: Record<string, any>): Promise<string[]>
+
+  // User card types
+  CreateUserCardType(label: string, color: string, description: string, aiHint: string, templateId: string): Promise<UserCardType>
+  UpdateUserCardType(id: string, label: string, color: string, description: string, aiHint: string, templateId: string): Promise<UserCardType>
+  DeleteUserCardType(id: string): Promise<void>
+
+  // Card templates
+  ListCardTemplates(): Promise<CardTemplate[]>
+  CreateCardTemplate(name: string, blocks: Block[]): Promise<CardTemplate>
+  UpdateCardTemplate(id: string, name: string, blocks: Block[]): Promise<CardTemplate>
+  DeleteCardTemplate(id: string): Promise<void>
 
   // Index / search
   SearchCards(query: string, limit: number): Promise<any[]>

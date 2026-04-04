@@ -115,7 +115,6 @@
   let sending = $state(false)
   let configured = $state(true)
   let aiMode = $state<'edit' | 'suggest' | 'chat'>('edit')
-  let messagesEndEl = $state<HTMLDivElement | null>(null)
   let messagesContainerEl = $state<HTMLDivElement | null>(null)
   let textareaEl = $state<HTMLTextAreaElement | null>(null)
 
@@ -242,7 +241,7 @@
   }
 
   function scrollToBottom() {
-    messagesEndEl?.scrollIntoView({ behavior: 'smooth' })
+    if (messagesContainerEl) messagesContainerEl.scrollTop = messagesContainerEl.scrollHeight
   }
 
   function autoGrowTextarea() {
@@ -293,12 +292,11 @@
     scrollToBottom()
   }
 
-  // Auto-scroll to bottom when messages change or sending state changes
+  // Auto-scroll to bottom when messages change or sending state changes.
   $effect(() => {
-    // Track dependencies
     void messages.length
     void sending
-    tick().then(() => scrollToBottom())
+    tick().then(scrollToBottom)
   })
 
   $effect(() => {
@@ -317,25 +315,6 @@
   <div class="chat-panel">
     <div class="chat-header">
       <span class="chat-title">{t('chat.title')}{messages.length > 0 ? ` (${messages.length})` : ''}</span>
-      <div class="mode-toggle">
-        <button
-          class="mode-btn"
-          class:active={aiMode !== 'chat'}
-          onclick={toggleMode}
-          title={aiMode === 'edit' ? t('chat.mode_edit_hint') : aiMode === 'suggest' ? t('chat.mode_suggest_hint') : t('chat.mode_chat_hint')}
-        >
-          {#if aiMode === 'edit'}
-            <PencilLine size={11} />
-            {t('chat.mode_edit')}
-          {:else if aiMode === 'suggest'}
-            <ListChecks size={11} />
-            {t('chat.mode_suggest')}
-          {:else}
-            <MessageCircle size={11} />
-            {t('chat.mode_chat')}
-          {/if}
-        </button>
-      </div>
     </div>
 
     {#if !configured}
@@ -455,7 +434,6 @@
             <span class="dot"></span><span class="dot"></span><span class="dot"></span>
           </div>
         {/if}
-        <div bind:this={messagesEndEl}></div>
       {/if}
     </div>
 
@@ -470,19 +448,41 @@
       </div>
 
       <div class="chat-input-row">
-      <textarea
-        bind:this={textareaEl}
-        bind:value={inputText}
-        onkeydown={handleKeydown}
-        oninput={autoGrowTextarea}
-        placeholder={t('chat.placeholder')}
-        disabled={sending}
-        rows="2"
-      ></textarea>
-      <button class="chat-send-btn" onclick={send} disabled={!inputText.trim() || sending}>
-        <Send size={14} />
-      </button>
+        <textarea
+          bind:this={textareaEl}
+          bind:value={inputText}
+          onkeydown={handleKeydown}
+          oninput={autoGrowTextarea}
+          placeholder={t('chat.placeholder')}
+          disabled={sending}
+          rows="2"
+        ></textarea>
+        <div class="chat-actions-col">
+        <button
+          class="mode-btn"
+          class:mode-chat={aiMode === 'chat'}
+          class:mode-suggest={aiMode === 'suggest'}
+          class:mode-edit={aiMode === 'edit'}
+          onclick={toggleMode}
+          title={aiMode === 'edit' ? t('chat.mode_edit_hint') : aiMode === 'suggest' ? t('chat.mode_suggest_hint') : t('chat.mode_chat_hint')}
+        >
+          {#if aiMode === 'edit'}
+            <PencilLine size={11} />
+            {t('chat.mode_edit')}
+          {:else if aiMode === 'suggest'}
+            <ListChecks size={11} />
+            {t('chat.mode_suggest')}
+          {:else}
+            <MessageCircle size={11} />
+            {t('chat.mode_chat')}
+          {/if}
+        </button>
+        <button class="chat-send-btn" onclick={send} disabled={!inputText.trim() || sending}>
+          <Send size={14} />
+          {t('chat.send')}
+        </button>
       </div>
+    </div>
     </div>
   </div>
 {/if}
@@ -514,16 +514,21 @@
     letter-spacing: 0.05em;
   }
 
-  .mode-toggle {
+  .chat-actions-col {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
     flex-shrink: 0;
+    width: 72px;
   }
 
   .mode-btn {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 4px;
-    padding: 3px 8px;
-    border-radius: 4px;
+    padding: 4px 0;
+    border-radius: 6px;
     font-size: 0.7rem;
     font-weight: 500;
     cursor: pointer;
@@ -531,15 +536,22 @@
     background: var(--bg-elevated);
     color: var(--text-muted);
     transition: color 0.15s, border-color 0.15s, background 0.15s;
+    width: 100%;
   }
   .mode-btn:hover {
     color: var(--text-primary);
-    border-color: var(--accent);
   }
-  .mode-btn.active {
-    color: var(--accent);
-    border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 10%, var(--bg-elevated));
+  .mode-btn.mode-chat {
+    color: #22c55e;
+    border-color: rgba(34, 197, 94, 0.5);
+  }
+  .mode-btn.mode-suggest {
+    color: #f59e0b;
+    border-color: rgba(245, 158, 11, 0.5);
+  }
+  .mode-btn.mode-edit {
+    color: #ef4444;
+    border-color: rgba(239, 68, 68, 0.5);
   }
 
   .chat-banner {
@@ -884,7 +896,7 @@
   .chat-input-row {
     display: flex;
     gap: 6px;
-    align-items: flex-end;
+    align-items: stretch;
     padding: 0.65rem 0.75rem 0.5rem;
   }
 
@@ -912,14 +924,16 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
+    gap: 4px;
+    width: 100%;
+    flex: 1;
     background: var(--accent);
     border: none;
     border-radius: 6px;
     color: #fff;
+    font-size: 0.7rem;
+    font-weight: 500;
     cursor: pointer;
-    flex-shrink: 0;
   }
   .chat-send-btn:hover:not(:disabled) {
     background: var(--accent-hover);

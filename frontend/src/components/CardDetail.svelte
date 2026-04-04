@@ -1,7 +1,7 @@
 <script lang="ts">
   import { GetCard, UpdateCardTitle, UpdateCardType, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
-    DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, ListCardTypes, AddProjectLabel, GetProjectLabels, GetProjectLocation } from '../lib/api'
-  import { projectTags, nav, getTagColor } from '../lib/store.svelte'
+    DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, AddProjectLabel, GetProjectLabels, GetProjectLocation } from '../lib/api'
+  import { projectTags, nav, getTagColor, cardTypes } from '../lib/store.svelte'
   import { X, Trash2, Plus, Type, ListChecks, Hash, Calendar, ToggleLeft, Link, Image, GripVertical, Pencil, MapPin, MapPinOff, MoveRight, Bot } from 'lucide-svelte'
   import { renderMarkdown, renderInline } from '../lib/markdown'
   import { t } from '../lib/i18n.svelte'
@@ -12,7 +12,7 @@
   import SaveIndicator from './SaveIndicator.svelte'
   import { draggable } from '../lib/draggable'
   import { getCardTypeColor, getCardTypeTextColor } from '../lib/cardTypes'
-  import { focusOnMount, focusTrap, inlineEdit } from '../lib/actions'
+  import { focusOnMount, focusTrap, inlineEdit, floatingDropdown } from '../lib/actions'
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
   import type { Card, Block, BlockMeta, CardPin } from '../lib/types'
@@ -68,8 +68,8 @@
 
   // Type picker
   let showTypePicker = $state(false)
-  let cardTypes = $state<string[]>([])
   let typePickerEl = $state<HTMLDivElement | null>(null)
+  let typeBadgeBtnEl = $state<HTMLButtonElement | null>(null)
 
   // Description (standard field, always at top)
   let descriptionDraft = $state('')
@@ -186,7 +186,7 @@
       if (!fabBtnEl?.contains(target) && !fabPickerEl?.contains(target)) showBlockPicker = false
     }
     if (showTypePicker) {
-      if (!typePickerEl?.contains(target)) showTypePicker = false
+      if (!typePickerEl?.contains(target) && !(target as HTMLElement).closest?.('.type-picker-dropdown')) showTypePicker = false
     }
   }
 
@@ -257,18 +257,17 @@
         if (b.type === 'text') blockDrafts[b.id] = String(b.value ?? '')
       }
       if (autoEditTitle) editingTitle = true
+      // Refresh project tags so new tags (e.g. added by AI) get their colors
+      if (nav.brandSlug && nav.streamSlug && nav.projectSlug) {
+        try { projectTags.list = await GetProjectLabels(nav.brandSlug, nav.streamSlug, nav.projectSlug) || [] } catch {}
+      }
     } catch (e) {
       showToast(t('error.load_failed'), 'error')
     }
     loading = false
   }
 
-  async function openTypePicker() {
-    if (cardTypes.length === 0) {
-      try {
-        cardTypes = await ListCardTypes() || []
-      } catch { /* non-critical — picker just stays empty */ }
-    }
+  function openTypePicker() {
     showTypePicker = !showTypePicker
   }
 
@@ -661,6 +660,7 @@
   async function handlePinSelect(target: CardPin) {
     showPinPicker = false
     pinActionLoading = true
+    const wasMovingCurrentPin = pinPickerMode === 'move' && pinPickerSourcePin?.categoryId === effectiveCategoryId
     const wasPinningFromInbox = pinPickerMode === 'pin' && !currentCategoryId && !inboxPinCategoryId
     try {
       if (pinPickerMode === 'move' && pinPickerSourcePin) {
@@ -674,10 +674,11 @@
       document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
       onPin?.()
       onUpdated?.()
-      // When pinning from Inbox: update card context and switch to the new project in the background
-      if (wasPinningFromInbox) {
+      // When moving the current pin or pinning from Inbox: switch context to the new location
+      if (wasMovingCurrentPin || wasPinningFromInbox) {
         inboxPinCategoryId = target.categoryId
         inboxPinCategoryName = target.categoryName
+        showOtherPins = false
         document.dispatchEvent(new CustomEvent('bruv:select-project', {
           detail: { brandSlug: target.brandSlug, streamSlug: target.streamSlug, projectSlug: target.projectSlug }
         }))
@@ -693,6 +694,10 @@
     document.dispatchEvent(new CustomEvent('bruv:select-project', {
       detail: { brandSlug: pin.brandSlug, streamSlug: pin.streamSlug, projectSlug: pin.projectSlug }
     }))
+    // Update the card dialog's context to reflect the navigated project
+    inboxPinCategoryId = pin.categoryId
+    inboxPinCategoryName = pin.categoryName
+    showOtherPins = false
   }
 
   async function handleUnpin(pin: CardPin) {
@@ -757,12 +762,13 @@
         <div class="type-picker-wrap" bind:this={typePickerEl}>
           <button
             class="type-badge type-badge-btn"
-            style="background: {getCardTypeColor(card.type)}; color: {getCardTypeTextColor(card.type)}"
+            bind:this={typeBadgeBtnEl}
+            style="background: {getCardTypeColor(card.type, cardTypes.list)}; color: {getCardTypeTextColor(card.type)}"
             onclick={openTypePicker}
             title={t('tooltip.change_card_type')}
-          >{card.type || t('card.type_none')}</button>
-          {#if showTypePicker}
-            <div class="type-picker-dropdown">
+          >{cardTypes.list.find(t => t.id === card.type)?.label || card.type || t('card.type_none')}</button>
+          {#if showTypePicker && typeBadgeBtnEl}
+            <div class="type-picker-dropdown" use:floatingDropdown={{ trigger: typeBadgeBtnEl }}>
               <button
                 class="type-picker-option"
                 class:active={!card.type}
@@ -770,13 +776,13 @@
               >
                 <span class="type-option-badge" style="background: var(--bg-elevated); color: var(--text-muted)">{t('card.type_none')}</span>
               </button>
-              {#each cardTypes as ct}
+              {#each cardTypes.list as ct}
                 <button
                   class="type-picker-option"
-                  class:active={card.type === ct}
-                  onclick={() => selectType(ct)}
+                  class:active={card.type === ct.id}
+                  onclick={() => selectType(ct.id)}
                 >
-                  <span class="type-option-badge" style="background: {getCardTypeColor(ct)}">{ct}</span>
+                  <span class="type-option-badge" style="background: {ct.color}">{ct.label}</span>
                 </button>
               {/each}
             </div>
@@ -817,6 +823,9 @@
             {/if}
             <span class="pin-toggle-name">{effectiveCategoryName}</span>
           </button>
+          {#if currentPin}
+            <button class="btn-pin-action" onclick={() => openMovePicker(currentPin)} disabled={pinActionLoading} title={t('tooltip.move_pin')} aria-label={t('tooltip.move_pin')}><MoveRight size={11} /></button>
+          {/if}
 
           <!-- Other pins expandable -->
           <button
@@ -853,7 +862,6 @@
             {#each otherPins as pin}
               <div class="location-pin">
                 <button class="location-breadcrumb" onclick={() => navigateToPinnedProject(pin)} title={t('tooltip.go_to_project')}><MapPin size={11} />{pin.breadcrumb}</button>
-                <button class="btn-pin-action" onclick={() => openMovePicker(pin)} disabled={pinActionLoading} title={t('tooltip.move_pin')} aria-label={t('tooltip.move_pin')}><MoveRight size={11} /></button>
                 <button class="btn-pin-action btn-unpin" onclick={() => handleUnpin(pin)} disabled={pinActionLoading} title={t('tooltip.unpin')} aria-label={t('tooltip.unpin')}><MapPinOff size={11} /></button>
               </div>
             {/each}
@@ -1111,9 +1119,8 @@
 />
 
 {#if showTagPicker && tagInputEl && filteredProjectTags.length > 0}
-  {@const rect = tagInputEl.getBoundingClientRect()}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="tag-picker-dropdown" role="listbox" style="position:fixed; top:{rect.bottom + 4}px; left:{rect.left}px; z-index:10000;">
+  <div class="tag-picker-dropdown" role="listbox" use:floatingDropdown={{ trigger: tagInputEl }}>
     {#each filteredProjectTags as ptag, i (ptag.id)}
       <button
         class="tag-picker-item"
@@ -1131,8 +1138,7 @@
     {/if}
   </div>
 {:else if showTagPicker && tagInputEl && newTag.trim() && !projectTags.list.some(t => t.name.toLowerCase() === newTag.trim().toLowerCase())}
-  {@const rect = tagInputEl.getBoundingClientRect()}
-  <div class="tag-picker-dropdown" style="position:fixed; top:{rect.bottom + 4}px; left:{rect.left}px; z-index:10000;">
+  <div class="tag-picker-dropdown" use:floatingDropdown={{ trigger: tagInputEl }}>
     <div class="tag-picker-create">
       Press Enter to create "{newTag.trim()}"
     </div>
@@ -1365,14 +1371,10 @@
   }
 
   .type-picker-dropdown {
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
     background: var(--bg-surface);
     border: 1px solid var(--border);
     border-radius: 6px;
     box-shadow: 0 4px 16px var(--shadow-lg);
-    z-index: 10;
     min-width: 120px;
     overflow: hidden;
   }
@@ -1399,10 +1401,12 @@
     padding: 0.15rem 0.5rem;
     border-radius: 3px;
     color: #fff;
+    white-space: nowrap;
   }
 
   .modal-title {
     margin: 0;
+    margin-right: 56px;
     font-size: 1.1rem;
     font-weight: 600;
     color: var(--text-primary);
@@ -1424,6 +1428,7 @@
     color: var(--text-primary);
     padding: 0.3rem 0.5rem;
     outline: none;
+    margin-right: 56px;
   }
 
   .modal-actions {

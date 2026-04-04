@@ -2,6 +2,7 @@
   import { SearchCards, ListBrands, ListStreams, ListProjects } from '../lib/api'
   import { t } from '../lib/i18n.svelte'
   import { getCardTypeColor } from '../lib/cardTypes'
+  import { cardTypes } from '../lib/store.svelte'
 
   type PickerItem = {
     type: 'card' | 'project'
@@ -86,7 +87,7 @@
             label: r.Title,
             subtitle: ctx,
             badge: r.Type,
-            badgeColor: getCardTypeColor(r.Type),
+            badgeColor: getCardTypeColor(r.Type, cardTypes.list),
             link: `bruv:card:${r.CardID}`,
           })
         }

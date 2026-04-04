@@ -1,12 +1,12 @@
 <script lang="ts">
   import CardItem from './CardItem.svelte'
   import { GripVertical, Trash2, Settings } from 'lucide-svelte'
-  import { dnd, prefs, columnSettings } from '../lib/store.svelte'
+  import { dnd, prefs, columnSettings, cardTypes } from '../lib/store.svelte'
   import { t } from '../lib/i18n.svelte'
   import { renderInline } from '../lib/markdown'
   import { getCardTypeColor, CARD_TYPE_ORDER } from '../lib/cardTypes'
-  import { ListCardTypes, UpdateCategoryAcceptedTypes } from '../lib/api'
-  import { inlineEdit } from '../lib/actions'
+  import { UpdateCategoryAcceptedTypes } from '../lib/api'
+  import { inlineEdit, floatingDropdown } from '../lib/actions'
 
   type CardData = {
     id: string
@@ -50,10 +50,20 @@
 
   let renameInputEl = $state<HTMLInputElement | null>(null)
   let showSettings = $derived(columnSettings.openCategoryId === category.id)
-  let allCardTypes = $state<string[]>([])
   let dropRejected = $state(false)
+
+  // Sorted list of all card types (built-ins first in order, then user types)
+  let allCardTypes = $derived(
+    [...cardTypes.list].sort((a, b) => {
+      const ai = CARD_TYPE_ORDER.indexOf(a.id as typeof CARD_TYPE_ORDER[number])
+      const bi = CARD_TYPE_ORDER.indexOf(b.id as typeof CARD_TYPE_ORDER[number])
+      if (ai === -1 && bi === -1) return a.label.localeCompare(b.label)
+      if (ai === -1) return 1
+      if (bi === -1) return -1
+      return ai - bi
+    })
+  )
   let settingsBtnEl = $state<HTMLButtonElement | null>(null)
-  let popoverStyle = $state('')
 
   $effect(() => {
     if (renaming && renameInputEl) {
@@ -67,27 +77,12 @@
       closeSettings()
       return
     }
-    if (!allCardTypes.length) {
-      const fetched = await ListCardTypes() || []
-      allCardTypes = [...fetched].sort((a, b) => {
-        const ai = CARD_TYPE_ORDER.indexOf(a as typeof CARD_TYPE_ORDER[number])
-        const bi = CARD_TYPE_ORDER.indexOf(b as typeof CARD_TYPE_ORDER[number])
-        if (ai === -1 && bi === -1) return a.localeCompare(b)
-        if (ai === -1) return 1
-        if (bi === -1) return -1
-        return ai - bi
-      })
-    }
-    if (settingsBtnEl) {
-      const rect = settingsBtnEl.getBoundingClientRect()
-      popoverStyle = `position:fixed;top:${rect.bottom + 4}px;left:${rect.left}px;width:220px;`
-    }
     columnSettings.openCategoryId = category.id
   }
 
-  function isTypeAccepted(type: string): boolean {
+  function isTypeAccepted(typeId: string): boolean {
     if (!category.accepted_types || category.accepted_types.length === 0) return false
-    return category.accepted_types.includes(type)
+    return category.accepted_types.includes(typeId)
   }
 
   function allTypesAccepted(): boolean {
@@ -98,7 +93,7 @@
 
   async function toggleAllTypes() {
     if (!brandSlug || !streamSlug || !projectSlug) return
-    const newTypes: string[] = allTypesAccepted() ? [] : [...allCardTypes]
+    const newTypes: string[] = allTypesAccepted() ? [] : allCardTypes.map(t => t.id)
     const val = newTypes.length ? newTypes : undefined
     onAcceptedTypesChanged?.(category.id, val)
     settingsDirty = true
@@ -283,20 +278,20 @@
     {#if prefs.typeBadgeDisplay === 'color'}
       <div class="type-color-bar">
         {#each category.accepted_types as type}
-          <span class="type-color-segment" style:background={getCardTypeColor(type)}></span>
+          <span class="type-color-segment" style:background={getCardTypeColor(type, cardTypes.list)}></span>
         {/each}
       </div>
     {:else}
       <div class="type-badges">
         {#each category.accepted_types as type}
-          <span class="type-chip" style:background={getCardTypeColor(type)}>{type}</span>
+          <span class="type-chip" style:background={getCardTypeColor(type, cardTypes.list)}>{cardTypes.list.find(t => t.id === type)?.label || type}</span>
         {/each}
       </div>
     {/if}
   {/if}
 
-  {#if showSettings}
-    <div class="settings-popover" style={popoverStyle}>
+  {#if showSettings && settingsBtnEl}
+    <div class="settings-popover" use:floatingDropdown={{ trigger: settingsBtnEl }}>
       <div class="popover-title">{t('column.accepted_types')}</div>
       <label class="type-option">
         <input type="checkbox" checked={allTypesAccepted()} onchange={toggleAllTypes} />
@@ -305,8 +300,8 @@
       <div class="popover-divider"></div>
       {#each allCardTypes as type}
         <label class="type-option">
-          <input type="checkbox" checked={isTypeAccepted(type)} onchange={() => toggleType(type)} />
-          <span class="type-chip-inline" style:background={getCardTypeColor(type)}>{type}</span>
+          <input type="checkbox" checked={isTypeAccepted(type.id)} onchange={() => toggleType(type.id)} />
+          <span class="type-chip-inline" style:background={type.color}>{type.label}</span>
         </label>
       {/each}
     </div>
@@ -483,11 +478,11 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 0.5rem;
-    z-index: 9999;
     box-shadow: 0 4px 16px var(--shadow);
     display: flex;
     flex-direction: column;
     gap: 0.2rem;
+    width: 220px;
   }
 
   .popover-title {

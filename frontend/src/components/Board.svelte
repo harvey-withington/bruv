@@ -5,7 +5,8 @@
   import CardDetail from './CardDetail.svelte'
   import { board, nav, dnd, search, loadBoard } from '../lib/store.svelte'
   import { CreateCard, PinCard, CreateCategory, RenameCategory, GetCard, MoveCardInCategory, MoveCardToCategory, ReorderCategories, DeleteCategory, DeleteCard, MoveCategoryCards, DuplicateCard, CopyCategory, SearchCards, SearchOrphanedCards } from '../lib/api'
-  import { Lightbulb } from 'lucide-svelte'
+  import { Lightbulb, Layers } from 'lucide-svelte'
+  import CardTypesTab from './CardTypesTab.svelte'
   import { t } from '../lib/i18n.svelte'
   import { focusTrap } from '../lib/actions'
 
@@ -18,6 +19,7 @@
   let selectedCategoryId = $state<string | null>(null)
   let selectedCategoryName = $state<string | null>(null)
   let autoEditTitle = $state(false)
+  let showCardTypes = $state(false)
 
   // Close board's card dialog when navigating via internal links
   onMount(() => {
@@ -379,6 +381,11 @@
 
   {:else if nav.inboxMode}
     {@const inboxCards = board.categories[0]?.cards || []}
+    <div class="inbox-toolbar">
+      <button class="toolbar-btn" onclick={() => showCardTypes = true} title={t('toolbar.card_types')}>
+        <Layers size={16} />
+      </button>
+    </div>
     {#if inboxCards.length === 0}
       <div class="empty-board">
         <p class="empty-text">{t('board.inbox_empty')}</p>
@@ -395,6 +402,9 @@
     <button class="fab" onclick={handleNewIdea} title={t('tooltip.new_idea')}>
       <Lightbulb size={22} />
     </button>
+    {#if showCardTypes}
+      <CardTypesTab onClose={() => showCardTypes = false} />
+    {/if}
 
   {:else if !nav.projectSlug}
     <div class="empty-board">
@@ -663,6 +673,32 @@
   }
   .add-column-btn:hover {
     background: var(--bg-subtle-hover);
+  }
+
+  .inbox-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.35rem;
+    padding: 0.25rem 0;
+    flex-shrink: 0;
+  }
+
+  .toolbar-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.35rem;
+    cursor: pointer;
+    color: var(--text-muted);
+    transition: color 0.15s, background 0.15s, border-color 0.15s;
+  }
+  .toolbar-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+    border-color: var(--border-muted);
   }
 
   .inbox-grid {

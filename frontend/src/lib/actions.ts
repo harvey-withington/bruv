@@ -73,6 +73,66 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
  * Svelte action: traps Tab / Shift+Tab focus within the element.
  * Apply to the dialog container (not the backdrop).
  */
+/**
+ * Svelte action: moves the element to document.body so it escapes
+ * any parent stacking context. Essential for nested modals.
+ */
+export function portal(node: HTMLElement) {
+  document.body.appendChild(node)
+  return { destroy() { node.remove() } }
+}
+
+/**
+ * Svelte action: portals a dropdown to document.body and positions it fixed
+ * relative to a trigger element. Repositions on scroll/resize and flips
+ * above the trigger when there isn't enough space below.
+ *
+ * Usage:
+ *   <div use:floatingDropdown={{ trigger: buttonEl }}>…</div>
+ *   <div use:floatingDropdown={{ trigger: buttonEl, matchWidth: true }}>…</div>
+ */
+export function floatingDropdown(
+  node: HTMLElement,
+  options: { trigger: HTMLElement; matchWidth?: boolean },
+) {
+  let { trigger, matchWidth } = options
+  document.body.appendChild(node)
+
+  function reposition() {
+    const rect = trigger.getBoundingClientRect()
+    node.style.position = 'fixed'
+    node.style.left = `${rect.left}px`
+    node.style.top = `${rect.bottom + 4}px`
+    node.style.zIndex = '10000'
+    if (matchWidth) node.style.width = `${rect.width}px`
+
+    // Flip above if overflowing viewport bottom
+    requestAnimationFrame(() => {
+      const nodeRect = node.getBoundingClientRect()
+      if (nodeRect.bottom > window.innerHeight) {
+        node.style.top = `${rect.top - nodeRect.height - 4}px`
+      }
+    })
+  }
+
+  reposition()
+  window.addEventListener('scroll', reposition, true)
+  window.addEventListener('resize', reposition)
+
+  return {
+    update(newOptions: { trigger: HTMLElement; matchWidth?: boolean }) {
+      trigger = newOptions.trigger
+      matchWidth = newOptions.matchWidth
+      reposition()
+    },
+    destroy() {
+      window.removeEventListener('scroll', reposition, true)
+      window.removeEventListener('resize', reposition)
+      node.remove()
+    },
+  }
+}
+
 export function focusTrap(node: HTMLElement) {
   function handleKeydown(e: KeyboardEvent) {
     if (e.key !== 'Tab') return

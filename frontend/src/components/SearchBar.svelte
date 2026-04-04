@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { search, nav } from '../lib/store.svelte'
+  import { search, nav, cardTypes } from '../lib/store.svelte'
   import { SearchCards, SearchOrphanedCards } from '../lib/api'
   import { Search, X } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
@@ -92,7 +92,7 @@
     <div class="search-results">
       {#each search.results as result}
         <button class="search-result" onclick={() => selectResult(result.CardID)}>
-          <span class="result-badge" style="background: {getCardTypeColor(result.Type)}">{result.Type}</span>
+          <span class="result-badge" style="background: {getCardTypeColor(result.Type, cardTypes.list)}">{cardTypes.list.find(t => t.id === result.Type)?.label || result.Type}</span>
           <span class="result-title">{result.Title}</span>
         </button>
       {/each}

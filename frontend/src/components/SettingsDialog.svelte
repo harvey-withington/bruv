@@ -7,7 +7,6 @@
   import { nav, prefs as prefsStore } from '../lib/store.svelte'
   import { draggable } from '../lib/draggable'
   import { focusTrap } from '../lib/actions'
-
   type TabId = 'general' | 'ai'
 
   let { onClose, initialTab }: { onClose: () => void; initialTab?: TabId } = $props()
@@ -383,6 +382,7 @@
             </div>
           {/if}
         {/if}
+
       </div>
 
       <div class="dialog-footer">

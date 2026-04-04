@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { nav, prefs as prefsStore } from './lib/store.svelte'
+  import { nav, prefs as prefsStore, loadCardTypes } from './lib/store.svelte'
   import { onMount } from 'svelte'
   import { loadTheme } from './lib/theme.svelte'
   import { loadLocale, t } from './lib/i18n.svelte'
@@ -42,6 +42,7 @@
     finally { appLoading = false }
   }
   tryReopenLastRepo()
+  loadCardTypes()
 
   let searchCardId = $state<string | null>(null)
   let resizing = $state(false)

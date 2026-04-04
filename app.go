@@ -680,6 +680,8 @@ func (a *App) UpdateCardTitle(id, title string) (*model.Card, error) {
 }
 
 // UpdateCardType sets the type on a card (e.g. "task", "feature", or "" for none).
+// For types that have a schema or template, the corresponding blocks are applied
+// to the card (merging existing values by key).
 func (a *App) UpdateCardType(id, cardType string) (*model.Card, error) {
 	cardType = repo.SanitizeText(cardType)
 	if a.repo == nil {
@@ -688,10 +690,21 @@ func (a *App) UpdateCardType(id, cardType string) (*model.Card, error) {
 	card, err := a.repo.UpdateCard(id, func(c *model.Card) {
 		c.Type = cardType
 	})
-	if err == nil && a.idx != nil {
+	if err != nil {
+		return nil, err
+	}
+	if a.idx != nil {
 		_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
 	}
-	return card, err
+	if cardType != "" {
+		a.applyTypeBlocks(id, cardType)
+	}
+	// Return the updated card with blocks applied
+	updated, readErr := a.repo.GetCard(id)
+	if readErr != nil {
+		return card, nil
+	}
+	return updated, nil
 }
 
 // UpdateCardFields sets the type-specific fields on a card.
@@ -1388,11 +1401,52 @@ func (a *App) UpdateCardLabels(id string, labelIDs []string) (*model.Card, error
 
 // --- Schema ---
 
-func (a *App) ListCardTypes() []string {
-	if a.registry == nil {
-		return nil
+// CardTypeInfo is the rich card type metadata returned to the frontend.
+type CardTypeInfo struct {
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Color       string `json:"color"`
+	Description string `json:"description"`
+	AIHint      string `json:"ai_hint,omitempty"`
+	TemplateID  string `json:"template_id,omitempty"`
+	Builtin     bool   `json:"builtin"`
+}
+
+// builtinTypes defines the built-in card types in display order.
+// Colors and labels match the frontend cardTypes.ts constants.
+var builtinTypes = []CardTypeInfo{
+	{ID: "feature", Label: "Feature", Color: "#6366f1", Builtin: true},
+	{ID: "task", Label: "Task", Color: "#22c55e", Builtin: true},
+	{ID: "brainstorm", Label: "Brainstorm", Color: "#f59e0b", Builtin: true},
+	{ID: "episode", Label: "Episode", Color: "#ec4899", Builtin: true},
+	{ID: "reference", Label: "Reference", Color: "#06b6d4", Builtin: true},
+}
+
+// ListCardTypes returns all card types (built-in first, then user-defined).
+func (a *App) ListCardTypes() []CardTypeInfo {
+	result := make([]CardTypeInfo, 0, len(builtinTypes))
+	for _, b := range builtinTypes {
+		info := b
+		if a.registry != nil {
+			if s := a.registry.Get(b.ID); s != nil {
+				info.Description = s.Description
+			}
+		}
+		result = append(result, info)
 	}
-	return a.registry.List()
+	store, _ := config.LoadUserTypeStore()
+	for _, t := range store.Types {
+		result = append(result, CardTypeInfo{
+			ID:          t.ID,
+			Label:       t.Label,
+			Color:       t.Color,
+			Description: t.Description,
+			AIHint:      t.AIHint,
+			TemplateID:  t.TemplateID,
+			Builtin:     false,
+		})
+	}
+	return result
 }
 
 func (a *App) ValidateCardFields(cardType string, fields map[string]any) []string {
@@ -1400,6 +1454,216 @@ func (a *App) ValidateCardFields(cardType string, fields map[string]any) []strin
 		return []string{"schema registry not loaded"}
 	}
 	return a.registry.Validate(cardType, fields)
+}
+
+// applyTypeBlocks non-destructively merges a type's template blocks into a card.
+// Existing blocks are NEVER removed or overwritten. Template blocks are only
+// appended when no existing block shares the same key.
+// For built-in types it uses the schema registry; for user types it uses the
+// associated CardTemplate.
+func (a *App) applyTypeBlocks(cardID, cardType string) {
+	var templateBlocks []model.Block
+
+	if a.registry != nil {
+		templateBlocks = a.registry.SchemaToBlocks(cardType)
+	}
+
+	// If no built-in schema blocks, check user type templates
+	if len(templateBlocks) == 0 {
+		store, _ := config.LoadUserTypeStore()
+		for _, ut := range store.Types {
+			if ut.ID == cardType && ut.TemplateID != "" {
+				for _, tmpl := range store.Templates {
+					if tmpl.ID == ut.TemplateID {
+						templateBlocks = cloneBlocksWithFreshIDs(tmpl.Blocks)
+						break
+					}
+				}
+				break
+			}
+		}
+	}
+
+	if len(templateBlocks) == 0 {
+		return
+	}
+
+	existingCard, _ := a.repo.GetCard(cardID)
+
+	// Build a set of keys already present on the card
+	existingKeys := make(map[string]bool)
+	if existingCard != nil {
+		for _, b := range existingCard.Blocks {
+			if b.Key != "" {
+				existingKeys[b.Key] = true
+			}
+		}
+	}
+
+	// Start from the card's current blocks (preserving everything)
+	merged := make([]model.Block, 0)
+	if existingCard != nil {
+		merged = append(merged, existingCard.Blocks...)
+	}
+
+	// Append only template blocks whose key doesn't already exist
+	for _, tb := range templateBlocks {
+		if tb.Key != "" && existingKeys[tb.Key] {
+			continue
+		}
+		merged = append(merged, tb)
+	}
+
+	a.UpdateCardBlocks(cardID, merged)
+}
+
+// cloneBlocksWithFreshIDs returns a copy of blocks with new UUIDs to avoid
+// ID collisions when a template is applied to multiple cards.
+func cloneBlocksWithFreshIDs(blocks []model.Block) []model.Block {
+	cloned := make([]model.Block, len(blocks))
+	for i, b := range blocks {
+		cloned[i] = b
+		cloned[i].ID = uuid.New().String()
+	}
+	return cloned
+}
+
+// --- User Card Types & Templates ---
+
+// CreateUserCardType creates a new user-defined card type.
+func (a *App) CreateUserCardType(label, color, description, aiHint, templateID string) (config.UserCardType, error) {
+	if label == "" {
+		return config.UserCardType{}, fmt.Errorf("label is required")
+	}
+	store, err := config.LoadUserTypeStore()
+	if err != nil {
+		return config.UserCardType{}, err
+	}
+	id := repo.Slugify(label)
+	if id == "" {
+		id = uuid.New().String()
+	}
+	// Ensure ID is unique; append suffix if needed
+	base := id
+	for i := 2; isTypeIDTaken(store, id); i++ {
+		id = fmt.Sprintf("%s-%d", base, i)
+	}
+	t := config.UserCardType{
+		ID: id, Label: label, Color: color,
+		Description: description, AIHint: aiHint, TemplateID: templateID,
+	}
+	store.Types = append(store.Types, t)
+	return t, config.SaveUserTypeStore(store)
+}
+
+// UpdateUserCardType updates an existing user-defined card type by ID.
+func (a *App) UpdateUserCardType(id, label, color, description, aiHint, templateID string) (config.UserCardType, error) {
+	store, err := config.LoadUserTypeStore()
+	if err != nil {
+		return config.UserCardType{}, err
+	}
+	for i, t := range store.Types {
+		if t.ID == id {
+			store.Types[i].Label = label
+			store.Types[i].Color = color
+			store.Types[i].Description = description
+			store.Types[i].AIHint = aiHint
+			store.Types[i].TemplateID = templateID
+			return store.Types[i], config.SaveUserTypeStore(store)
+		}
+	}
+	return config.UserCardType{}, fmt.Errorf("card type %q not found", id)
+}
+
+// DeleteUserCardType removes a user-defined card type by ID.
+func (a *App) DeleteUserCardType(id string) error {
+	store, err := config.LoadUserTypeStore()
+	if err != nil {
+		return err
+	}
+	for i, t := range store.Types {
+		if t.ID == id {
+			store.Types = append(store.Types[:i], store.Types[i+1:]...)
+			return config.SaveUserTypeStore(store)
+		}
+	}
+	return fmt.Errorf("card type %q not found", id)
+}
+
+// ListCardTemplates returns all user-defined card templates.
+func (a *App) ListCardTemplates() ([]config.CardTemplate, error) {
+	store, err := config.LoadUserTypeStore()
+	if err != nil {
+		return nil, err
+	}
+	if store.Templates == nil {
+		return []config.CardTemplate{}, nil
+	}
+	return store.Templates, nil
+}
+
+// CreateCardTemplate creates a new card template.
+func (a *App) CreateCardTemplate(name string, blocks []model.Block) (config.CardTemplate, error) {
+	if name == "" {
+		return config.CardTemplate{}, fmt.Errorf("name is required")
+	}
+	store, err := config.LoadUserTypeStore()
+	if err != nil {
+		return config.CardTemplate{}, err
+	}
+	tmpl := config.CardTemplate{
+		ID:     uuid.New().String(),
+		Name:   name,
+		Blocks: blocks,
+	}
+	store.Templates = append(store.Templates, tmpl)
+	return tmpl, config.SaveUserTypeStore(store)
+}
+
+// UpdateCardTemplate updates an existing card template by ID.
+func (a *App) UpdateCardTemplate(id, name string, blocks []model.Block) (config.CardTemplate, error) {
+	store, err := config.LoadUserTypeStore()
+	if err != nil {
+		return config.CardTemplate{}, err
+	}
+	for i, tmpl := range store.Templates {
+		if tmpl.ID == id {
+			store.Templates[i].Name = name
+			store.Templates[i].Blocks = blocks
+			return store.Templates[i], config.SaveUserTypeStore(store)
+		}
+	}
+	return config.CardTemplate{}, fmt.Errorf("template %q not found", id)
+}
+
+// DeleteCardTemplate removes a card template by ID.
+func (a *App) DeleteCardTemplate(id string) error {
+	store, err := config.LoadUserTypeStore()
+	if err != nil {
+		return err
+	}
+	for i, tmpl := range store.Templates {
+		if tmpl.ID == id {
+			store.Templates = append(store.Templates[:i], store.Templates[i+1:]...)
+			return config.SaveUserTypeStore(store)
+		}
+	}
+	return fmt.Errorf("template %q not found", id)
+}
+
+func isTypeIDTaken(store config.UserTypeStore, id string) bool {
+	for _, t := range store.Types {
+		if t.ID == id {
+			return true
+		}
+	}
+	// Also check against built-in IDs
+	for _, b := range builtinTypes {
+		if b.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 // --- Index / Search ---
@@ -1947,39 +2211,7 @@ func (a *App) executeToolCall(cardID string, card *model.Card, tc llm.ToolCall, 
 		if err != nil {
 			return "error: " + err.Error(), nil, nil
 		}
-		// Apply the schema blocks to the card, preserving existing content
-		if a.registry != nil {
-			schemaBlocks := a.registry.SchemaToBlocks(cardType)
-			if len(schemaBlocks) > 0 {
-				existingCard, _ := a.repo.GetCard(cardID)
-				if existingCard != nil && len(existingCard.Blocks) > 0 {
-					// Index existing blocks by key
-					existingByKey := make(map[string]model.Block)
-					for _, b := range existingCard.Blocks {
-						if b.Key != "" {
-							existingByKey[b.Key] = b
-						}
-					}
-					// Merge existing values into schema blocks
-					schemaKeys := make(map[string]bool)
-					for i, b := range schemaBlocks {
-						schemaKeys[b.Key] = true
-						if existing, ok := existingByKey[b.Key]; ok {
-							schemaBlocks[i].Value = existing.Value
-						}
-					}
-					// Append truly user-added blocks (no Key = manually added by user)
-					// Blocks with a Key that doesn't match the new schema are from the OLD
-					// type's schema and should be dropped during type change.
-					for _, b := range existingCard.Blocks {
-						if b.Key == "" {
-							schemaBlocks = append(schemaBlocks, b)
-						}
-					}
-				}
-				a.UpdateCardBlocks(cardID, schemaBlocks)
-			}
-		}
+		// Block application is handled by UpdateCardType via applyTypeBlocks
 		// Build a helpful result listing available block keys
 		resultMsg := "Card type set to " + cardType + ". "
 		updatedCard, _ := a.repo.GetCard(cardID)
@@ -2361,10 +2593,27 @@ func (a *App) stageToolCall(tc llm.ToolCall, allCats []CategoryPath) (string, *m
 		cardType, _ := tc.Arguments["card_type"].(string)
 		// Include block keys in the result so the LLM calls set_fields with the correct keys
 		fakeResult := "Card type will be set to " + cardType + "."
+		var previewBlocks []model.Block
 		if a.registry != nil {
-			blocks := a.registry.SchemaToBlocks(cardType)
+			previewBlocks = a.registry.SchemaToBlocks(cardType)
+		}
+		if len(previewBlocks) == 0 {
+			store, _ := config.LoadUserTypeStore()
+			for _, ut := range store.Types {
+				if ut.ID == cardType && ut.TemplateID != "" {
+					for _, tmpl := range store.Templates {
+						if tmpl.ID == ut.TemplateID {
+							previewBlocks = tmpl.Blocks
+							break
+						}
+					}
+					break
+				}
+			}
+		}
+		if len(previewBlocks) > 0 {
 			var keys []string
-			for _, b := range blocks {
+			for _, b := range previewBlocks {
 				if b.Key != "" {
 					keys = append(keys, b.Key)
 				}

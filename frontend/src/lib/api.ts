@@ -2,7 +2,7 @@
 
 import { getBackend } from './adapters'
 
-export type { UserProfile, AuthInfo, LLMConfig, BackendCapabilities, BackendEvent } from './types'
+export type { UserProfile, AuthInfo, LLMConfig, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate } from './types'
 
 // Capabilities
 export const getCapabilities = () => getBackend().getCapabilities()
@@ -119,6 +119,17 @@ export const UpdateProjectLabel = (...args: Parameters<ReturnType<typeof getBack
 // Schema
 export const ListCardTypes = () => getBackend().ListCardTypes()
 export const ValidateCardFields = (...args: Parameters<ReturnType<typeof getBackend>['ValidateCardFields']>) => getBackend().ValidateCardFields(...args)
+
+// User card types
+export const CreateUserCardType = (...args: Parameters<ReturnType<typeof getBackend>['CreateUserCardType']>) => getBackend().CreateUserCardType(...args)
+export const UpdateUserCardType = (...args: Parameters<ReturnType<typeof getBackend>['UpdateUserCardType']>) => getBackend().UpdateUserCardType(...args)
+export const DeleteUserCardType = (...args: Parameters<ReturnType<typeof getBackend>['DeleteUserCardType']>) => getBackend().DeleteUserCardType(...args)
+
+// Card templates
+export const ListCardTemplates = () => getBackend().ListCardTemplates()
+export const CreateCardTemplate = (...args: Parameters<ReturnType<typeof getBackend>['CreateCardTemplate']>) => getBackend().CreateCardTemplate(...args)
+export const UpdateCardTemplate = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardTemplate']>) => getBackend().UpdateCardTemplate(...args)
+export const DeleteCardTemplate = (...args: Parameters<ReturnType<typeof getBackend>['DeleteCardTemplate']>) => getBackend().DeleteCardTemplate(...args)
 
 // Index / search
 export const SearchCards = (...args: Parameters<ReturnType<typeof getBackend>['SearchCards']>) => getBackend().SearchCards(...args)

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { search, dnd, getTagColor } from '../lib/store.svelte'
+  import { search, dnd, getTagColor, cardTypes } from '../lib/store.svelte'
   import { renderInline } from '../lib/markdown'
   import { t } from '../lib/i18n.svelte'
   import { getCardTypeColor, getCardTypeTextColor } from '../lib/cardTypes'
@@ -42,7 +42,7 @@
   onclick={onclick}
 >
   <div class="card-header">
-    <span class="type-badge" style="background: {getCardTypeColor(card.type)}; color: {getCardTypeTextColor(card.type)}">{card.type || t('card.type_none')}</span>
+    <span class="type-badge" style="background: {getCardTypeColor(card.type, cardTypes.list)}; color: {getCardTypeTextColor(card.type)}">{cardTypes.list.find(t => t.id === card.type)?.label || card.type || t('card.type_none')}</span>
     {#if card.due_date}
       <span class="due-date">📅 {card.due_date.slice(0, 10)}</span>
     {/if}

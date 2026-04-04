@@ -4,9 +4,10 @@
   import { showConfirm } from '../lib/confirm.svelte'
   import { focusTrap, portal } from '../lib/actions'
   import { draggable } from '../lib/draggable'
-  import { GripVertical, Plus, Trash2, Type, ListChecks, Hash, Calendar, ToggleLeft, Link, Image, X } from 'lucide-svelte'
+  import { GripVertical, Plus, Trash2, Type, ListChecks, List, Film, Link, Minus, X } from 'lucide-svelte'
   import EditableChecklist from './EditableChecklist.svelte'
-  import type { CardTemplate, Block, BlockMeta, ChecklistItem } from '../lib/types'
+  import EditableList from './EditableList.svelte'
+  import type { CardTemplate, Block, BlockMeta, ChecklistItem, ListItem } from '../lib/types'
   import type { CardTypeInfo } from '../lib/types'
 
   let { template, allTypes, onSave, onClose }: {
@@ -23,17 +24,15 @@
   const BLOCK_OPTIONS = [
     { type: 'text',      label: 'Text',      icon: 'Type' },
     { type: 'checklist', label: 'Checklist', icon: 'ListChecks' },
-    { type: 'number',    label: 'Number',    icon: 'Hash' },
-    { type: 'date',      label: 'Date',      icon: 'Calendar' },
-    { type: 'checkbox',  label: 'Checkbox',  icon: 'ToggleLeft' },
-    { type: 'select',    label: 'Select',    icon: 'ListChecks' },
+    { type: 'list',      label: 'List',      icon: 'List' },
+    { type: 'media',     label: 'Media',     icon: 'Film' },
     { type: 'url',       label: 'Link',      icon: 'Link' },
-    { type: 'image',     label: 'Image',     icon: 'Image' },
+    { type: 'divider',   label: 'Divider',   icon: 'Minus' },
   ] as const
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const BLOCK_ICON_MAP: Record<string, any> = {
-    Type, ListChecks, Hash, Calendar, ToggleLeft, Link, Image,
+    Type, ListChecks, List, Film, Link, Minus,
   }
 
   function labelToKey(label: string): string {
@@ -41,7 +40,7 @@
   }
 
   // Pre-populate: track which blocks have their value editor open
-  const PREPOPULABLE_TYPES = ['text', 'checklist'] as const
+  const PREPOPULABLE_TYPES = ['text', 'checklist', 'list'] as const
   function canPrepopulate(type: string): boolean {
     return (PREPOPULABLE_TYPES as readonly string[]).includes(type)
   }
@@ -53,6 +52,7 @@
         .filter(b => {
           if (b.type === 'text') return typeof b.value === 'string' && b.value.length > 0
           if (b.type === 'checklist') return Array.isArray(b.value) && b.value.length > 0
+          if (b.type === 'list') return Array.isArray(b.value) && b.value.length > 0
           return false
         })
         .map(b => [b.id, true])
@@ -67,6 +67,7 @@
         if (b.id !== blockId) return b
         if (blockType === 'text') return { ...b, value: '' }
         if (blockType === 'checklist') return { ...b, value: [] }
+        if (blockType === 'list') return { ...b, value: [] }
         return b
       })
     }
@@ -104,9 +105,9 @@
     let value: Block['value'] = ''
     let meta: BlockMeta | undefined = undefined
     if (blockType === 'checklist') value = []
-    else if (blockType === 'number') value = 0
-    else if (blockType === 'checkbox') value = false
-    else if (blockType === 'select') { value = ''; meta = { options: ['Option 1', 'Option 2', 'Option 3'] } }
+    else if (blockType === 'list') value = []
+    else if (blockType === 'media') value = []
+    else if (blockType === 'divider') value = null
     blocks = [...blocks, { id, type: blockType as Block['type'], label, key: labelToKey(label), value, meta }]
   }
 
@@ -310,6 +311,12 @@
                       <EditableChecklist
                         items={Array.isArray(block.value) ? block.value as ChecklistItem[] : []}
                         placeholder={t('template_editor.prepopulate_checklist_placeholder')}
+                        onUpdate={(updated) => updateBlockValue(block.id, updated)}
+                      />
+                    {:else if block.type === 'list'}
+                      <EditableList
+                        items={Array.isArray(block.value) ? block.value as ListItem[] : []}
+                        placeholder={t('template_editor.prepopulate_list_placeholder')}
                         onUpdate={(updated) => updateBlockValue(block.id, updated)}
                       />
                     {/if}

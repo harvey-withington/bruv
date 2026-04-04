@@ -134,6 +134,44 @@ func LabelToKey(label string) string {
 	return strings.Trim(b.String(), "_")
 }
 
+// MigrateLegacyBlockTypes converts removed block types to their new equivalents.
+// - number, date, checkbox → text (value converted to string)
+// - select, radio → text (value kept as string)
+// - image, video → url (same string value)
+// Returns true if any blocks were modified.
+func MigrateLegacyBlockTypes(card *Card) bool {
+	modified := false
+	for i := range card.Blocks {
+		b := &card.Blocks[i]
+		switch b.Type {
+		case BlockNumber, BlockDate:
+			b.Type = BlockText
+			if b.Value != nil {
+				b.Value = fmt.Sprintf("%v", b.Value)
+			}
+			modified = true
+		case BlockCheckbox:
+			b.Type = BlockText
+			if v, ok := b.Value.(bool); ok {
+				if v {
+					b.Value = "Yes"
+				} else {
+					b.Value = "No"
+				}
+			}
+			modified = true
+		case BlockSelect, BlockRadio:
+			b.Type = BlockText
+			// Value is already a string, meta.options no longer needed
+			modified = true
+		case BlockImage, BlockVideo:
+			b.Type = BlockURL
+			modified = true
+		}
+	}
+	return modified
+}
+
 // BackfillBlockKeys sets Key from Label on any blocks that have an empty Key.
 // Returns true if any blocks were modified.
 func BackfillBlockKeys(card *Card) bool {

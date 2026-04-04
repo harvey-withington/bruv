@@ -2,9 +2,11 @@ package repo
 
 import (
 	"bruv/internal/model"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -54,8 +56,13 @@ func (r *Repository) GetCard(id string) (*model.Card, error) {
 	// Auto-migrate legacy cards to block model
 	model.MigrateCardToBlocks(&card, nil)
 
+	// Migrate removed block types (number, date, checkbox, select, radio, image, video) → text/url
+	legacyMigrated := model.MigrateLegacyBlockTypes(&card)
+
 	// Backfill empty block keys from labels (manual UI-added blocks)
-	if model.BackfillBlockKeys(&card) {
+	keysBackfilled := model.BackfillBlockKeys(&card)
+
+	if legacyMigrated || keysBackfilled {
 		_ = writeJSON(path, &card)
 	}
 
@@ -289,6 +296,87 @@ func (r *Repository) ListCardsByType(cardType string) ([]model.Card, error) {
 		}
 	}
 	return filtered, nil
+}
+
+// AddCardAttachment stores a file and adds it to the card's FileAttachments list.
+// data is the base64-encoded file content.
+func (r *Repository) AddCardAttachment(cardID, name, data string) (*model.Card, error) {
+	// Create attachments directory if needed
+	dir := filepath.Join(r.Root, "attachments", cardID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("create attachments dir: %w", err)
+	}
+
+	// Decode base64 data
+	decoded, err := base64Decode(data)
+	if err != nil {
+		return nil, fmt.Errorf("decode attachment: %w", err)
+	}
+
+	id := fmt.Sprintf("att-%s", uuid.New().String()[:8])
+	filePath := filepath.Join(dir, id+"_"+name)
+	if err := os.WriteFile(filePath, decoded, 0o644); err != nil {
+		return nil, fmt.Errorf("write attachment file: %w", err)
+	}
+
+	return r.UpdateCard(cardID, func(card *model.Card) {
+		card.FileAttachments = append(card.FileAttachments, model.FileAttachment{
+			ID:      id,
+			Name:    name,
+			Path:    filePath,
+			Mime:    detectMime(name),
+			Size:    int64(len(decoded)),
+			AddedAt: time.Now().UTC().Format(time.RFC3339),
+		})
+	})
+}
+
+// RemoveCardAttachment removes a file attachment from a card.
+func (r *Repository) RemoveCardAttachment(cardID, attachmentID string) (*model.Card, error) {
+	return r.UpdateCard(cardID, func(card *model.Card) {
+		for i, att := range card.FileAttachments {
+			if att.ID == attachmentID {
+				// Remove the file from disk (best-effort)
+				_ = os.Remove(att.Path)
+				card.FileAttachments = append(card.FileAttachments[:i], card.FileAttachments[i+1:]...)
+				return
+			}
+		}
+	})
+}
+
+// base64Decode decodes a base64 string.
+func base64Decode(data string) ([]byte, error) {
+	return base64.StdEncoding.DecodeString(data)
+}
+
+// detectMime returns a MIME type guess from the file extension.
+func detectMime(name string) string {
+	lower := strings.ToLower(name)
+	switch {
+	case strings.HasSuffix(lower, ".jpg"), strings.HasSuffix(lower, ".jpeg"):
+		return "image/jpeg"
+	case strings.HasSuffix(lower, ".png"):
+		return "image/png"
+	case strings.HasSuffix(lower, ".gif"):
+		return "image/gif"
+	case strings.HasSuffix(lower, ".webp"):
+		return "image/webp"
+	case strings.HasSuffix(lower, ".svg"):
+		return "image/svg+xml"
+	case strings.HasSuffix(lower, ".mp4"):
+		return "video/mp4"
+	case strings.HasSuffix(lower, ".webm"):
+		return "video/webm"
+	case strings.HasSuffix(lower, ".pdf"):
+		return "application/pdf"
+	case strings.HasSuffix(lower, ".txt"):
+		return "text/plain"
+	case strings.HasSuffix(lower, ".json"):
+		return "application/json"
+	default:
+		return "application/octet-stream"
+	}
 }
 
 // ListCardFiles returns the raw file paths of all card JSON files.

@@ -311,9 +311,39 @@
   "template_editor.prepopulate": "Pre-populate",
   "template_editor.prepopulate_text_placeholder": "Default text content…",
   "template_editor.prepopulate_checklist_placeholder": "Add a default item…",
+  "template_editor.prepopulate_list_placeholder": "Add a default item…",
+
+  "block.text": "Text",
+  "block.checklist": "Checklist",
+  "block.list": "List",
+  "block.media": "Media",
+  "block.url": "Link",
+  "block.divider": "Divider",
+  "block.collapse": "Collapse",
+  "block.expand": "Expand",
+  "block.collapse_all": "Collapse all",
+  "block.expand_all": "Expand all",
+  "block.scroll_expand": "Show full content",
+  "block.add_media": "Add media URL…",
+  "block.add_media_btn": "Add",
+  "block.media_caption_placeholder": "Caption (optional)",
+  "block.media_empty": "No media yet. Add a URL below.",
+  "block.list_placeholder": "Add an item…",
+  "block.list_add": "Add",
+
+  "attachment.title": "Attachments",
+  "attachment.drop_hint": "Drop files here or click to attach",
+  "attachment.empty": "No attachments",
+  "attachment.remove_confirm": "Remove attachment \"{name}\"?",
+  "attachment.upload_failed": "Failed to upload attachment",
+  "attachment.remove_failed": "Failed to remove attachment",
+
+  "tooltip.collapse_block": "Collapse block",
+  "tooltip.expand_block": "Expand block",
 
   "error.card_type_save_failed": "Failed to save card type",
   "error.template_save_failed": "Failed to save template",
   "error.card_type_delete_failed": "Failed to delete card type",
-  "error.template_delete_failed": "Failed to delete template"
+  "error.template_delete_failed": "Failed to delete template",
+  "error.attachment_failed": "Failed to update attachment"
 }

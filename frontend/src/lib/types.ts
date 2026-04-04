@@ -6,10 +6,23 @@ export type ChecklistItem = {
   done: boolean
 }
 
-export type BlockType = 'text' | 'checklist' | 'number' | 'date' | 'checkbox' | 'select' | 'radio' | 'url' | 'image' | 'video' | 'divider'
+export type ListItem = {
+  id: string
+  text: string
+}
+
+export type BlockType = 'text' | 'checklist' | 'list' | 'media' | 'url' | 'divider'
+
+export type MediaItem = {
+  id: string
+  url: string
+  caption?: string
+  mime?: string
+}
 
 export type BlockMeta = {
   options?: string[]
+  collapsed?: boolean
 }
 
 export type Block = {
@@ -17,8 +30,17 @@ export type Block = {
   type: BlockType
   label: string
   key: string
-  value: string | number | boolean | ChecklistItem[] | null
+  value: string | number | boolean | ChecklistItem[] | ListItem[] | MediaItem[] | null
   meta?: BlockMeta
+}
+
+export type Attachment = {
+  id: string
+  name: string
+  path: string
+  mime: string
+  size: number
+  added_at: string
 }
 
 export type Card = {
@@ -30,6 +52,7 @@ export type Card = {
   created_at: string
   fields: Record<string, string>
   blocks: Block[]
+  file_attachments: Attachment[]
 }
 
 export type CardPin = {
@@ -276,6 +299,10 @@ export interface BackendAdapter {
   AcceptAllPendingEdits(cardID: string, msgID: string): Promise<any>
   RejectAllPendingEdits(cardID: string, msgID: string): Promise<any>
   ApplyPendingEdits(cardID: string, msgID: string, acceptIDs: string[]): Promise<any>
+
+  // Attachments
+  AddCardAttachment(cardID: string, name: string, data: string): Promise<Card>
+  RemoveCardAttachment(cardID: string, attachmentID: string): Promise<Card>
 
   // User preferences
   GetPreferences(): Promise<any>

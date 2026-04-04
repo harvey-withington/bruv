@@ -25,7 +25,7 @@ func DefaultPreferences() Preferences {
 		Locale:              "en",
 		ConfirmBeforeDelete: true,
 		SidebarWidth:          260,
-		TypeBadgeDisplay:      "text",
+		TypeBadgeDisplay:      "color",
 		DefaultCategoryName:   "Ideas",
 	}
 }

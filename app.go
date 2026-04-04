@@ -739,6 +739,30 @@ func (a *App) UpdateCardBlocks(id string, blocks []model.Block) (*model.Card, er
 	return card, err
 }
 
+// AddCardAttachment adds a file attachment to a card. data is base64-encoded.
+func (a *App) AddCardAttachment(cardID, name, data string) (*model.Card, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	card, err := a.repo.AddCardAttachment(cardID, name, data)
+	if err == nil && a.idx != nil {
+		_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
+	}
+	return card, err
+}
+
+// RemoveCardAttachment removes a file attachment from a card.
+func (a *App) RemoveCardAttachment(cardID, attachmentID string) (*model.Card, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	card, err := a.repo.RemoveCardAttachment(cardID, attachmentID)
+	if err == nil && a.idx != nil {
+		_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
+	}
+	return card, err
+}
+
 // UpdateCardTags replaces a card's tags.
 func (a *App) UpdateCardTags(id string, tags []string) (*model.Card, error) {
 	for i, t := range tags {

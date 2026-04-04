@@ -28,6 +28,10 @@ import {
   IsLLMConfigured, TestLLMConnection,
   AcceptPinSuggestion, RejectPinSuggestion,
   AcceptPendingEdit, RejectPendingEdit, AcceptAllPendingEdits, RejectAllPendingEdits, ApplyPendingEdits,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  AddCardAttachment,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  RemoveCardAttachment,
 } from '../../../wailsjs/go/main/App.js'
 
 export const wailsAdapter: BackendAdapter = {
@@ -158,6 +162,9 @@ export const wailsAdapter: BackendAdapter = {
   AcceptAllPendingEdits,
   RejectAllPendingEdits,
   ApplyPendingEdits,
+
+  AddCardAttachment: AddCardAttachment as unknown as BackendAdapter['AddCardAttachment'],
+  RemoveCardAttachment: RemoveCardAttachment as unknown as BackendAdapter['RemoveCardAttachment'],
 
   GetPreferences,
   SetPreferences,

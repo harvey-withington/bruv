@@ -2,7 +2,7 @@
 
 import { getBackend } from './adapters'
 
-export type { UserProfile, AuthInfo, LLMConfig, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate } from './types'
+export type { UserProfile, AuthInfo, LLMConfig, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment } from './types'
 
 // Capabilities
 export const getCapabilities = () => getBackend().getCapabilities()
@@ -160,6 +160,10 @@ export const RejectPendingEdit = (...args: Parameters<ReturnType<typeof getBacke
 export const AcceptAllPendingEdits = (...args: Parameters<ReturnType<typeof getBackend>['AcceptAllPendingEdits']>) => getBackend().AcceptAllPendingEdits(...args)
 export const RejectAllPendingEdits = (...args: Parameters<ReturnType<typeof getBackend>['RejectAllPendingEdits']>) => getBackend().RejectAllPendingEdits(...args)
 export const ApplyPendingEdits = (...args: Parameters<ReturnType<typeof getBackend>['ApplyPendingEdits']>) => getBackend().ApplyPendingEdits(...args)
+
+// Attachments
+export const AddCardAttachment = (...args: Parameters<ReturnType<typeof getBackend>['AddCardAttachment']>) => getBackend().AddCardAttachment(...args)
+export const RemoveCardAttachment = (...args: Parameters<ReturnType<typeof getBackend>['RemoveCardAttachment']>) => getBackend().RemoveCardAttachment(...args)
 
 // User preferences
 export const GetPreferences = () => getBackend().GetPreferences()

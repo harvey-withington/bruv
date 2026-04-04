@@ -2,20 +2,23 @@
   import { GetCard, UpdateCardTitle, UpdateCardType, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
     DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, AddProjectLabel, GetProjectLabels, GetProjectLocation } from '../lib/api'
   import { projectTags, nav, getTagColor, cardTypes } from '../lib/store.svelte'
-  import { X, Trash2, Plus, Type, ListChecks, Hash, Calendar, ToggleLeft, Link, Image, GripVertical, Pencil, MapPin, MapPinOff, MoveRight, Bot } from 'lucide-svelte'
+  import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, GripVertical, Pencil, MapPin, MapPinOff, MoveRight, Bot, ChevronDown, ChevronRight, Maximize2 } from 'lucide-svelte'
   import { renderMarkdown, renderInline } from '../lib/markdown'
   import { t } from '../lib/i18n.svelte'
   import MentionPicker from './MentionPicker.svelte'
   import PinPicker from './PinPicker.svelte'
   import ChatSection from './ChatSection.svelte'
   import EditableChecklist from './EditableChecklist.svelte'
+  import EditableList from './EditableList.svelte'
+  import MediaBlock from './MediaBlock.svelte'
+  import CardAttachments from './CardAttachments.svelte'
   import SaveIndicator from './SaveIndicator.svelte'
   import { draggable } from '../lib/draggable'
   import { getCardTypeColor, getCardTypeTextColor } from '../lib/cardTypes'
   import { focusOnMount, focusTrap, inlineEdit, floatingDropdown } from '../lib/actions'
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
-  import type { Card, Block, BlockMeta, CardPin } from '../lib/types'
+  import type { Card, Block, BlockMeta, CardPin, ChecklistItem, ListItem, MediaItem } from '../lib/types'
 
 
   let { cardId, currentCategoryId, currentCategoryName, onClose, onUpdated, onPin, autoEditTitle }: {
@@ -176,6 +179,8 @@
   let draggingBlockIdx = $state<number | null>(null)
   let dropBlockIdx = $state<number | null>(null)
   let blockCopyMode = $state(false)
+  // CSS-only visual collapse during drag (avoids DOM restructure that kills drag state)
+  let dragVisualCollapse = $state(false)
 
   function handleBlockDragStart(e: DragEvent, idx: number) {
     draggingBlockIdx = idx
@@ -184,12 +189,19 @@
       e.dataTransfer.effectAllowed = 'copyMove'
       e.dataTransfer.setData('text/plain', String(idx))
     }
+    // Use CSS-only collapse — no DOM changes, preserves drag state
+    requestAnimationFrame(() => { dragVisualCollapse = true })
   }
 
   function handleBlockDragEnd() {
     draggingBlockIdx = null
     dropBlockIdx = null
     blockCopyMode = false
+    dragVisualCollapse = false
+    if (autoScrollRaf) {
+      cancelAnimationFrame(autoScrollRaf)
+      autoScrollRaf = null
+    }
   }
 
   function handleBlockDragOver(e: DragEvent, idx: number) {
@@ -202,6 +214,9 @@
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const midY = rect.top + rect.height / 2
     dropBlockIdx = e.clientY < midY ? idx : idx + 1
+
+    // Auto-scroll when near edges
+    startAutoScroll(e)
   }
 
   function handleBlockDragOverGap(e: DragEvent, gapIdx: number) {
@@ -211,6 +226,9 @@
     blockCopyMode = e.ctrlKey
     if (e.dataTransfer) e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'
     dropBlockIdx = gapIdx
+
+    // Auto-scroll when near edges
+    startAutoScroll(e)
   }
 
   async function handleBlockDrop(e: DragEvent) {
@@ -225,7 +243,11 @@
     let toIdx = dropBlockIdx
     const blocks = [...card.blocks]
 
-    handleBlockDragEnd()
+    draggingBlockIdx = null
+    dropBlockIdx = null
+    blockCopyMode = false
+    dragVisualCollapse = false
+    if (autoScrollRaf) { cancelAnimationFrame(autoScrollRaf); autoScrollRaf = null }
 
     if (copy) {
       // Duplicate block at drop position
@@ -278,12 +300,10 @@
   const BLOCK_OPTIONS = [
     { type: 'text',      label: 'Text',      icon: 'Type' },
     { type: 'checklist', label: 'Checklist', icon: 'ListChecks' },
-    { type: 'number',    label: 'Number',    icon: 'Hash' },
-    { type: 'date',      label: 'Date',      icon: 'Calendar' },
-    { type: 'checkbox',  label: 'Checkbox',  icon: 'ToggleLeft' },
-    { type: 'select',    label: 'Select',    icon: 'ListChecks' },
+    { type: 'list',      label: 'List',      icon: 'List' },
+    { type: 'media',     label: 'Media',     icon: 'Film' },
     { type: 'url',       label: 'Link',      icon: 'Link' },
-    { type: 'image',     label: 'Image',     icon: 'Image' },
+    { type: 'divider',   label: 'Divider',   icon: 'Minus' },
   ] as const
 
   function labelToKey(label: string): string {
@@ -292,7 +312,103 @@
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const BLOCK_ICON_MAP: Record<string, any> = {
-    Type, ListChecks, Hash, Calendar, ToggleLeft, Link, Image,
+    Type, ListChecks, List, Film, Link, Minus,
+  }
+
+  // --- Block collapse/expand ---
+  let collapsedBlocks = $state<Set<string>>(new Set())
+  // Expanded text blocks (override max-height scroll)
+  let expandedTextBlocks = $state<Set<string>>(new Set())
+
+  function toggleBlockCollapse(blockId: string) {
+    const next = new Set(collapsedBlocks)
+    if (next.has(blockId)) next.delete(blockId)
+    else next.add(blockId)
+    collapsedBlocks = next
+  }
+
+  function collapseAllBlocks() {
+    if (!card) return
+    collapsedBlocks = new Set(card.blocks.filter(b => b.key !== 'description').map(b => b.id))
+  }
+
+  function expandAllBlocks() {
+    collapsedBlocks = new Set()
+  }
+
+  function toggleTextExpand(blockId: string) {
+    const next = new Set(expandedTextBlocks)
+    if (next.has(blockId)) next.delete(blockId)
+    else next.add(blockId)
+    expandedTextBlocks = next
+  }
+
+  // Persist collapsed state in block meta
+  function syncCollapsedToMeta() {
+    if (!card) return
+    for (const block of card.blocks) {
+      const isCollapsed = collapsedBlocks.has(block.id)
+      if (!block.meta) block.meta = {}
+      block.meta.collapsed = isCollapsed || undefined
+    }
+  }
+
+  // Restore collapsed state from block meta on load
+  function restoreCollapsedFromMeta() {
+    if (!card) return
+    const set = new Set<string>()
+    for (const b of card.blocks) {
+      if (b.meta?.collapsed) set.add(b.id)
+    }
+    collapsedBlocks = set
+  }
+
+  // --- Text block overflow detection ---
+  let textBlockOverflows = $state<Set<string>>(new Set())
+  let textBlockEls = $state<Record<string, HTMLDivElement | null>>({})
+
+  function checkTextOverflow(blockId: string) {
+    const el = textBlockEls[blockId]
+    if (!el) return
+    const next = new Set(textBlockOverflows)
+    if (el.scrollHeight > el.clientHeight + 2) {
+      next.add(blockId)
+    } else {
+      next.delete(blockId)
+    }
+    textBlockOverflows = next
+  }
+
+  // Re-check overflow when card loads or blocks change
+  $effect(() => {
+    if (!card) return
+    const blocks = card.blocks
+    // Small delay to let DOM render
+    setTimeout(() => {
+      for (const b of blocks) {
+        if (b.type === 'text' && b.value) checkTextOverflow(b.id)
+      }
+    }, 50)
+  })
+
+  // --- Auto-scroll during drag ---
+  let blocksListEl = $state<HTMLDivElement | null>(null)
+  let autoScrollRaf = $state<number | null>(null)
+
+  function startAutoScroll(e: DragEvent) {
+    if (!blocksListEl) return
+    const scrollContainer = blocksListEl.closest('.modal-body') as HTMLElement | null
+    if (!scrollContainer) return
+
+    const rect = scrollContainer.getBoundingClientRect()
+    const edgeZone = 50
+    const speed = 8
+
+    if (e.clientY < rect.top + edgeZone) {
+      scrollContainer.scrollTop -= speed
+    } else if (e.clientY > rect.bottom - edgeZone) {
+      scrollContainer.scrollTop += speed
+    }
   }
 
   async function addBlock(blockType: string) {
@@ -303,9 +419,9 @@
     let value: Block['value'] = ''
     let meta: BlockMeta | undefined = undefined
     if (blockType === 'checklist') value = []
-    else if (blockType === 'number') value = 0
-    else if (blockType === 'checkbox') value = false
-    else if (blockType === 'select') { value = ''; meta = { options: ['Option 1', 'Option 2', 'Option 3'] } }
+    else if (blockType === 'list') value = []
+    else if (blockType === 'media') value = []
+    else if (blockType === 'divider') value = null
 
     const newBlock: Block = { id, type: blockType as Block['type'], label, key: labelToKey(label), value, meta }
     const blocks = [...card.blocks, newBlock]
@@ -341,6 +457,7 @@
       for (const b of card.blocks) {
         if (b.type === 'text') blockDrafts[b.id] = String(b.value ?? '')
       }
+      restoreCollapsedFromMeta()
       if (autoEditTitle) editingTitle = true
       // Refresh project tags so new tags (e.g. added by AI) get their colors
       if (nav.brandSlug && nav.streamSlug && nav.projectSlug) {
@@ -560,12 +677,40 @@
     }
   }
 
-  async function handleSelectChange(blockId: string, value: string) {
-    if (!card) return
-    const blocks = card.blocks.map((b: Block) => b.id === blockId ? { ...b, value } : b)
-    try {
-      card = await tracked(UpdateCardBlocks(cardId, blocks)) as Card
-    } catch (e) { showToast(t('error.save_failed'), 'error'); return }
+  // --- Keyboard navigation ---
+  function handleBlockKeydown(e: KeyboardEvent, blockIdx: number) {
+    if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const blocks = card?.blocks.filter(b => b.key !== 'description') || []
+      if (e.shiftKey) {
+        if (blockIdx > 0) {
+          e.preventDefault()
+          const prevBlock = blocks[blockIdx - 1]
+          focusBlock(prevBlock.id)
+        }
+      } else {
+        if (blockIdx < blocks.length - 1) {
+          e.preventDefault()
+          const nextBlock = blocks[blockIdx + 1]
+          focusBlock(nextBlock.id)
+        }
+      }
+    }
+  }
+
+  function focusBlock(blockId: string) {
+    setTimeout(() => {
+      const el = document.querySelector(`[data-block-id="${blockId}"]`) as HTMLElement
+      if (el) {
+        const focusable = el.querySelector('textarea, input, [tabindex="0"]') as HTMLElement
+        if (focusable) focusable.focus()
+        else el.focus()
+      }
+    }, 0)
+  }
+
+  // --- Attachment handler ---
+  function handleAttachmentUpdate(updatedCard: Card) {
+    card = updatedCard
     onUpdated?.()
   }
 
@@ -957,22 +1102,6 @@
       </div>
 
       <div class="modal-body">
-        <!-- FAB: Add block (top-right, overlapping) -->
-        <button class="fab-add-block" bind:this={fabBtnEl} onclick={toggleBlockPicker} title={t('tooltip.add_block')}>
-          <Plus size={18} />
-        </button>
-        {#if showBlockPicker}
-          <div class="fab-picker" bind:this={fabPickerEl} style="position:fixed; top:{fabPickerPos.top}px; left:{fabPickerPos.left}px;">
-            {#each BLOCK_OPTIONS as opt}
-              {@const Icon = BLOCK_ICON_MAP[opt.icon]}
-              <button class="block-picker-item" onclick={() => addBlock(opt.type)} title={opt.label}>
-                <Icon size={14} />
-                <span>{opt.label}</span>
-              </button>
-            {/each}
-          </div>
-        {/if}
-
         <!-- Standard fields: compact 2-column grid -->
         <div class="fields-grid">
           <div class="field-cell">
@@ -1032,9 +1161,35 @@
           {/if}
         </section>
 
+        <!-- Block toolbar: expand/collapse all + add block -->
+        <div class="block-toolbar">
+          {#if (card.blocks || []).filter(b => b.key !== 'description' && b.type !== 'divider').length > 1}
+            <button class="block-toolbar-btn" onclick={expandAllBlocks} title={t('block.expand_all')}>
+              <ChevronDown size={13} />
+            </button>
+            <button class="block-toolbar-btn" onclick={collapseAllBlocks} title={t('block.collapse_all')}>
+              <ChevronRight size={13} />
+            </button>
+          {/if}
+          <button class="fab-add-block" bind:this={fabBtnEl} onclick={toggleBlockPicker} title={t('tooltip.add_block')}>
+            <Plus size={16} />
+          </button>
+        </div>
+        {#if showBlockPicker}
+          <div class="fab-picker" bind:this={fabPickerEl} style="position:fixed; top:{fabPickerPos.top}px; left:{fabPickerPos.left}px;">
+            {#each BLOCK_OPTIONS as opt}
+              {@const Icon = BLOCK_ICON_MAP[opt.icon]}
+              <button class="block-picker-item" onclick={() => addBlock(opt.type)} title={opt.label}>
+                <Icon size={14} />
+                <span>{opt.label}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+
         <!-- Blocks (excluding description block) -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="blocks-list" role="list" ondrop={handleBlockDrop}>
+        <div class="blocks-list" class:drag-visual-collapse={dragVisualCollapse} role="list" ondrop={handleBlockDrop} ondragover={(e) => { if (draggingBlockIdx !== null) e.preventDefault() }} bind:this={blocksListEl}>
           {#each (card.blocks || []) as block, blockIdx}
             {#if block.key !== 'description'}
               <!-- Drop indicator before this block -->
@@ -1045,23 +1200,26 @@
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
                 class="block-wrapper"
+                class:block-collapsed={collapsedBlocks.has(block.id)}
                 role="listitem"
                 class:block-dragging={draggingBlockIdx === blockIdx}
                 ondragover={(e) => handleBlockDragOver(e, blockIdx)}
+                onkeydown={(e) => handleBlockKeydown(e, blockIdx)}
+                data-block-id={block.id}
               >
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <span
+                <div
                   class="block-drag-handle"
                   role="presentation"
-                  tabindex="-1"
-                  draggable="true"
+                  tabindex={-1}
+                  draggable={true}
                   ondragstart={(e) => handleBlockDragStart(e, blockIdx)}
                   ondragend={handleBlockDragEnd}
                   title={t('tooltip.drag_block')}
-                ><GripVertical size={14} /></span>
+                ><GripVertical size={14} /></div>
 
                 <section class="section block-content">
-                  <!-- Editable block label -->
+                  <!-- Editable block label with collapse toggle -->
                   {#if editingBlockLabelId === block.id}
                     <input
                       class="block-label-input"
@@ -1070,92 +1228,140 @@
                       use:inlineEdit={{ onCommit: () => renameBlockLabel(block.id), onCancel: () => { editingBlockLabelId = null } }}
                     />
                   {:else}
-                    {#if block.type === 'checklist'}
-                      {@const items = Array.isArray(block.value) ? block.value : []}
-                      <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_noninteractive_tabindex -->
-                      <h3 class="section-title block-label-row action-reveal-parent" tabindex="0" onclick={() => { editingBlockLabelId = block.id; blockLabelDraft = block.label || '' }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editingBlockLabelId = block.id; blockLabelDraft = block.label || '' } }}>
-                        <span class="block-label-text">{block.label || block.type}</span>
+                    <div class="section-title block-label-row action-reveal-parent">
+                      {#if block.type !== 'divider'}
+                        <button class="block-collapse-btn" onclick={() => toggleBlockCollapse(block.id)} title={collapsedBlocks.has(block.id) ? t('tooltip.expand_block') : t('tooltip.collapse_block')}>
+                          {#if collapsedBlocks.has(block.id)}<ChevronRight size={14} />{:else}<ChevronDown size={14} />{/if}
+                        </button>
+                      {/if}
+                      <!-- svelte-ignore a11y_no_static_element_interactions -->
+                      <span class="block-label-text" tabindex={0} role="button" onclick={() => { editingBlockLabelId = block.id; blockLabelDraft = block.label || '' }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editingBlockLabelId = block.id; blockLabelDraft = block.label || '' } }}>{block.label || block.key || block.type}</span>
+                      {#if block.type === 'checklist'}
+                        {@const items = (Array.isArray(block.value) ? block.value : []) as ChecklistItem[]}
                         {#if items.length > 0}
-                          <span class="checklist-progress">{items.filter((c: any) => c.done).length}/{items.length}</span>
+                          <span class="checklist-progress">{items.filter(c => c.done).length}/{items.length}</span>
                         {/if}
-                        <span class="block-actions">
-                          <button class="block-action-btn action-reveal action-reveal--edit" onclick={(e) => { e.stopPropagation(); editingBlockLabelId = block.id; blockLabelDraft = block.label || '' }} title={t('tooltip.rename_block')}><Pencil size={11} /></button>
-                          <button class="block-action-btn action-reveal action-reveal--danger" onclick={(e) => { e.stopPropagation(); deleteBlock(block.id) }} title={t('tooltip.delete_block')}><Trash2 size={11} /></button>
-                        </span>
-                      </h3>
-                    {:else}
-                      <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_noninteractive_tabindex -->
-                      <h3 class="section-title block-label-row action-reveal-parent" tabindex="0" onclick={() => { editingBlockLabelId = block.id; blockLabelDraft = block.label || '' }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editingBlockLabelId = block.id; blockLabelDraft = block.label || '' } }}>
-                        <span class="block-label-text">{block.label || block.key || block.type}</span>
-                        <span class="block-actions">
-                          <button class="block-action-btn action-reveal action-reveal--edit" onclick={(e) => { e.stopPropagation(); editingBlockLabelId = block.id; blockLabelDraft = block.label || '' }} title={t('tooltip.rename_block')}><Pencil size={11} /></button>
-                          <button class="block-action-btn action-reveal action-reveal--danger" onclick={(e) => { e.stopPropagation(); deleteBlock(block.id) }} title={t('tooltip.delete_block')}><Trash2 size={11} /></button>
-                        </span>
-                      </h3>
-                    {/if}
+                      {:else if block.type === 'list'}
+                        {@const items = Array.isArray(block.value) ? block.value : []}
+                        {#if items.length > 0}
+                          <span class="checklist-progress">{items.length}</span>
+                        {/if}
+                      {:else if block.type === 'media'}
+                        {@const items = Array.isArray(block.value) ? block.value : []}
+                        {#if items.length > 0}
+                          <span class="checklist-progress">{items.length}</span>
+                        {/if}
+                      {/if}
+                      <span class="block-actions">
+                        <button class="block-action-btn action-reveal action-reveal--edit" onclick={(e) => { e.stopPropagation(); editingBlockLabelId = block.id; blockLabelDraft = block.label || '' }} title={t('tooltip.rename_block')}><Pencil size={11} /></button>
+                        <button class="block-action-btn action-reveal action-reveal--danger" onclick={(e) => { e.stopPropagation(); deleteBlock(block.id) }} title={t('tooltip.delete_block')}><Trash2 size={11} /></button>
+                      </span>
+                    </div>
                   {/if}
 
-                  {#if block.type === 'text'}
-                    {#if editingBlockId === block.id}
-                      <textarea
-                        class="desc-textarea"
-                        use:focusOnMount
-                        bind:this={blockTextareaEls[block.id]}
-                        bind:value={blockDrafts[block.id]}
-                        onkeydown={(e) => handleTextBlockKeydown(e, block.id)}
-                        oninput={(e) => handleTextBlockInput(e, block.id)}
-                        onblur={() => { if (!mentionVisible) saveTextBlock(block.id) }}
-                        rows="4"
-                      ></textarea>
-                    {:else}
-                      <div class="desc-display" role="button" tabindex="0" onclick={(e) => { if ((e.target as HTMLElement).closest('a')) return; editingBlockId = block.id }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editingBlockId = block.id } }} title={t('tooltip.edit_description')}>
-                        {#if block.value}
-                          <div class="markdown-content">{@html renderMarkdown(String(block.value))}</div>
+                  <!-- Block body (hidden when collapsed, except divider) -->
+                  {#if !collapsedBlocks.has(block.id) || block.type === 'divider'}
+                    <div class="block-body">
+                      {#if block.type === 'text'}
+                        {#if editingBlockId === block.id}
+                          <textarea
+                            class="desc-textarea"
+                            use:focusOnMount
+                            bind:this={blockTextareaEls[block.id]}
+                            bind:value={blockDrafts[block.id]}
+                            onkeydown={(e) => handleTextBlockKeydown(e, block.id)}
+                            oninput={(e) => handleTextBlockInput(e, block.id)}
+                            onblur={() => { if (!mentionVisible) saveTextBlock(block.id) }}
+                            rows="4"
+                          ></textarea>
                         {:else}
-                          <p class="placeholder">{t('card.description_placeholder')}</p>
+                          <div class="text-scroll-wrap">
+                            <div
+                              class="desc-display"
+                              class:text-scroll={!expandedTextBlocks.has(block.id)}
+                              bind:this={textBlockEls[block.id]}
+                              role="button"
+                              tabindex={0}
+                              onclick={(e) => { if ((e.target as HTMLElement).closest('a') || (e.target as HTMLElement).closest('.text-expand-btn')) return; editingBlockId = block.id }}
+                              onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editingBlockId = block.id } }}
+                              title={t('tooltip.edit_description')}
+                            >
+                              {#if block.value}
+                                <div class="markdown-content">{@html renderMarkdown(String(block.value))}</div>
+                              {:else}
+                                <p class="placeholder">{t('card.description_placeholder')}</p>
+                              {/if}
+                            </div>
+                            {#if textBlockOverflows.has(block.id) && !expandedTextBlocks.has(block.id)}
+                              <div class="text-scroll-gradient"></div>
+                            {/if}
+                          </div>
+                          {#if textBlockOverflows.has(block.id) && !expandedTextBlocks.has(block.id)}
+                            <button class="text-expand-btn" onclick={() => toggleTextExpand(block.id)}>
+                              <Maximize2 size={11} /> {t('block.scroll_expand')}
+                            </button>
+                          {/if}
+                          {#if expandedTextBlocks.has(block.id)}
+                            <button class="text-expand-btn" onclick={() => toggleTextExpand(block.id)}>
+                              {t('block.collapse')}
+                            </button>
+                          {/if}
                         {/if}
-                      </div>
-                    {/if}
 
-                  {:else if block.type === 'checklist'}
-                    <EditableChecklist
-                      items={Array.isArray(block.value) ? block.value : []}
-                      onUpdate={async (updated) => {
-                        if (!card) return
-                        const blocks = card.blocks.map((b: Block) => b.id === block.id ? { ...b, value: updated } : b)
-                        try {
-                          card = await tracked(UpdateCardBlocks(cardId, blocks)) as Card
-                          onUpdated?.()
-                        } catch (e) { showToast(t('error.save_failed'), 'error') }
-                      }}
-                    />
+                      {:else if block.type === 'checklist'}
+                        <EditableChecklist
+                          items={Array.isArray(block.value) ? block.value as ChecklistItem[] : []}
+                          onUpdate={async (updated) => {
+                            if (!card) return
+                            const blocks = card.blocks.map((b: Block) => b.id === block.id ? { ...b, value: updated } : b)
+                            try {
+                              card = await tracked(UpdateCardBlocks(cardId, blocks)) as Card
+                              onUpdated?.()
+                            } catch (e) { showToast(t('error.save_failed'), 'error') }
+                          }}
+                        />
 
-                  {:else if block.type === 'select' || block.type === 'radio'}
-                    <select class="select-input" value={block.value || ''} onchange={(e) => handleSelectChange(block.id, (e.target as HTMLSelectElement).value)}>
-                      <option value="">—</option>
-                      {#each (block.meta?.options || []) as opt}
-                        <option value={opt}>{opt}</option>
-                      {/each}
-                    </select>
+                      {:else if block.type === 'list'}
+                        <EditableList
+                          items={Array.isArray(block.value) ? block.value as ListItem[] : []}
+                          onUpdate={async (updated) => {
+                            if (!card) return
+                            const blocks = card.blocks.map((b: Block) => b.id === block.id ? { ...b, value: updated } : b)
+                            try {
+                              card = await tracked(UpdateCardBlocks(cardId, blocks)) as Card
+                              onUpdated?.()
+                            } catch (e) { showToast(t('error.save_failed'), 'error') }
+                          }}
+                        />
 
-                  {:else if block.type === 'number'}
-                    <span class="block-value">{block.value ?? '—'}</span>
+                      {:else if block.type === 'media'}
+                        <MediaBlock
+                          items={Array.isArray(block.value) ? block.value as MediaItem[] : []}
+                          onUpdate={async (updated) => {
+                            if (!card) return
+                            const blocks = card.blocks.map((b: Block) => b.id === block.id ? { ...b, value: updated } : b)
+                            try {
+                              card = await tracked(UpdateCardBlocks(cardId, blocks)) as Card
+                              onUpdated?.()
+                            } catch (e) { showToast(t('error.save_failed'), 'error') }
+                          }}
+                        />
 
-                  {:else if block.type === 'date'}
-                    <span class="block-value">{block.value || '—'}</span>
+                      {:else if block.type === 'url'}
+                        {#if block.value}
+                          <a href={String(block.value)} target="_blank" rel="noopener" class="block-link">{String(block.value)}</a>
+                        {:else}
+                          <span class="block-value">—</span>
+                        {/if}
 
-                  {:else if block.type === 'checkbox'}
-                    <span class="block-value">{block.value ? '✓' : '✗'}</span>
+                      {:else if block.type === 'divider'}
+                        <hr class="block-divider" />
 
-                  {:else if block.type === 'url' || block.type === 'image' || block.type === 'video'}
-                    {#if block.value}
-                      <a href={String(block.value)} target="_blank" rel="noopener" class="block-link">{String(block.value)}</a>
-                    {:else}
-                      <span class="block-value">—</span>
-                    {/if}
-
-                  {:else if block.type !== 'divider'}
-                    <span class="block-value">{block.value ?? ''}</span>
+                      {:else}
+                        <!-- Legacy/unknown block type: show value as read-only text -->
+                        <span class="block-value">{block.value ?? ''}</span>
+                      {/if}
+                    </div>
                   {/if}
                 </section>
               </div>
@@ -1168,6 +1374,15 @@
           {/if}
         </div>
 
+      </div>
+
+      <!-- Card-level attachments (pinned between scrollable body and footer) -->
+      <div class="card-attachments-pinned">
+        <CardAttachments
+          {cardId}
+          attachments={card.file_attachments || []}
+          onCardUpdated={handleAttachmentUpdate}
+        />
       </div>
 
       <div class="modal-footer">
@@ -1725,6 +1940,12 @@
     font-weight: 400;
   }
 
+  .card-attachments-pinned {
+    flex-shrink: 0;
+    padding: 0 1.25rem;
+    border-top: 1px solid var(--border-muted);
+  }
+
   .modal-footer {
     display: flex;
     align-items: center;
@@ -1755,18 +1976,6 @@
   }
   .btn-delete:hover { color: var(--danger-light); background: rgba(248, 113, 113, 0.1); }
 
-  .select-input {
-    padding: 0.4rem 0.6rem;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    background: var(--bg-elevated);
-    color: var(--text-primary);
-    font-size: 0.85rem;
-    outline: none;
-    min-width: 180px;
-  }
-  .select-input:focus { border-color: var(--accent); }
-
   .block-value {
     font-size: 0.85rem;
     color: var(--text-body);
@@ -1782,15 +1991,39 @@
   }
   .block-link:hover { text-decoration: underline; }
 
-  .fab-add-block {
-    position: absolute;
-    top: 0.75rem;
-    right: 0.75rem;
+  .block-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.25rem;
+    padding: 0.25rem 0;
+  }
+
+  .block-toolbar-btn {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--bg-surface);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  }
+  .block-toolbar-btn:hover {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+  }
+
+  .fab-add-block {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
     border-radius: 50%;
     border: none;
     background: #22c55e;
@@ -1798,7 +2031,6 @@
     cursor: pointer;
     box-shadow: 0 2px 8px rgba(0,0,0,0.25);
     transition: background 0.15s, transform 0.1s;
-    z-index: 5;
   }
   .fab-add-block:hover { background: #16a34a; transform: scale(1.1); }
 
@@ -1833,11 +2065,22 @@
   .block-label-row {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    cursor: text;
+    gap: 0.25rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 0 0 0.5rem;
   }
-  .block-label-row:hover .block-label-text {
+  .block-label-text {
+    cursor: text;
+    padding: 0.1rem 0.2rem;
+    border-radius: 3px;
+  }
+  .block-label-text:hover {
     color: var(--accent-light);
+    background: var(--bg-elevated);
   }
 
   .block-actions {
@@ -1875,7 +2118,7 @@
   .blocks-list {
     display: flex;
     flex-direction: column;
-    gap: 0;
+    gap: var(--block-gap, 0.75rem);
   }
 
   .block-wrapper {
@@ -1884,10 +2127,29 @@
     gap: 0;
     position: relative;
     transition: opacity 0.15s;
+    border-radius: 6px;
+  }
+  .block-wrapper:focus-within {
+    outline: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    outline-offset: 2px;
+  }
+
+  .block-wrapper.block-collapsed .block-content {
+    /* Collapsed: only show the header */
   }
 
   .block-wrapper.block-dragging {
     opacity: 0.35;
+  }
+
+  /* CSS-only visual collapse during drag — hides block bodies without removing DOM nodes */
+  .blocks-list.drag-visual-collapse .block-wrapper:not(.block-dragging) .block-body {
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    margin: 0;
+    padding: 0;
+    transition: max-height 0.15s ease, opacity 0.1s ease;
   }
 
   .block-drag-handle {
@@ -1917,6 +2179,69 @@
   .block-content {
     flex: 1;
     min-width: 0;
+  }
+
+  .block-collapse-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    padding: 0.25rem;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-radius: 4px;
+    margin: -0.25rem 0;
+    transition: background 0.1s, color 0.1s;
+  }
+  .block-collapse-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-elevated);
+  }
+
+  .block-body {
+    /* Container for block content below the header */
+  }
+
+  .text-scroll-wrap {
+    position: relative;
+  }
+
+  .desc-display.text-scroll {
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  .text-scroll-gradient {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 32px;
+    background: linear-gradient(transparent, var(--bg-surface));
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .text-expand-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    padding: 0.2rem 0;
+  }
+  .text-expand-btn:hover { color: var(--accent); }
+
+  .block-divider {
+    border: none;
+    border-top: 1px solid var(--border-muted);
+    margin: 0.25rem 0;
   }
 
   .block-drop-indicator {

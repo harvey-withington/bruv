@@ -57,7 +57,7 @@ export async function loadCardTypes() {
 
 // User display preferences
 export const prefs = $state({
-  typeBadgeDisplay: 'text' as 'text' | 'color' | 'hidden',
+  typeBadgeDisplay: 'color' as 'text' | 'color' | 'hidden',
 })
 
 // Project tags — per-project tag definitions (source of truth for tag colors)

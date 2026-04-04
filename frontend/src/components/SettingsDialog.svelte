@@ -23,7 +23,7 @@
     locale: 'en',
     confirm_before_delete: true,
     sidebar_width: 260,
-    type_badge_display: 'text' as 'text' | 'color' | 'hidden',
+    type_badge_display: 'color' as 'text' | 'color' | 'hidden',
     default_category_name: 'Ideas',
   })
 
@@ -57,7 +57,7 @@
         prefs.locale = p.locale || 'en'
         prefs.confirm_before_delete = p.confirm_before_delete ?? true
         prefs.sidebar_width = nav.sidebarWidth
-        prefs.type_badge_display = (p.type_badge_display || 'text') as 'text' | 'color' | 'hidden'
+        prefs.type_badge_display = (p.type_badge_display || 'color') as 'text' | 'color' | 'hidden'
         prefs.default_category_name = p.default_category_name || 'Ideas'
       }
       if (c) {

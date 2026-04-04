@@ -91,45 +91,60 @@ type ChecklistItem struct {
 // Template fields and user content live in the same list.
 type Block struct {
 	ID       string         `json:"id"`
-	Type     string         `json:"type"`               // "text", "checklist", "checkbox", "radio", "select", "number", "date", "image", "video", "url", "divider"
+	Type     string         `json:"type"`               // "text", "checklist", "list", "media", "url", "divider"
 	Label    string         `json:"label"`              // display label (e.g. "Description", "Recording Status")
 	Key      string         `json:"key,omitempty"`      // schema field key (e.g. "recording_status"); empty for user-added blocks
 	Value    any            `json:"value"`              // type-specific value
 	Required bool           `json:"required,omitempty"` // from schema — advisory only
-	Meta     map[string]any `json:"meta,omitempty"`     // type-specific config (enum options, format hints, etc.)
+	Meta     map[string]any `json:"meta,omitempty"`     // type-specific config (enum options, collapsed state, etc.)
 }
 
 // Block type constants.
 const (
 	BlockText      = "text"
 	BlockChecklist = "checklist"
-	BlockCheckbox  = "checkbox"
-	BlockRadio     = "radio"
-	BlockSelect    = "select"
-	BlockNumber    = "number"
-	BlockDate      = "date"
-	BlockImage     = "image"
-	BlockVideo     = "video"
+	BlockList      = "list"
+	BlockMedia     = "media"
 	BlockURL       = "url"
 	BlockDivider   = "divider"
+
+	// Legacy block types — kept for migration compatibility.
+	BlockCheckbox = "checkbox"
+	BlockRadio    = "radio"
+	BlockSelect   = "select"
+	BlockNumber   = "number"
+	BlockDate     = "date"
+	BlockImage    = "image"
+	BlockVideo    = "video"
 )
+
+// FileAttachment is a file attached to a card (card-level, not per-block).
+type FileAttachment struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	Mime    string `json:"mime"`
+	Size    int64  `json:"size"`
+	AddedAt string `json:"added_at"`
+}
 
 // Card is the atomic unit of work. Exists once in the repository, can be pinned
 // to multiple Projects via Pins.
 type Card struct {
-	ID           string          `json:"id"`
-	Type         string          `json:"type"`
-	Title        string          `json:"title"`
-	CreatedAt    time.Time       `json:"created_at"`
-	UpdatedAt    time.Time       `json:"updated_at"`
-	ContextLevel ContextLevel    `json:"context_level"`
-	Fields       map[string]any  `json:"fields"`      // Deprecated: migrated to Blocks on read
-	Checklist    []ChecklistItem `json:"checklist"`   // Deprecated: migrated to Blocks on read
-	Attachments  []string        `json:"attachments"` // Deprecated: migrated to Blocks on read
-	DueDate      *time.Time      `json:"due_date"`
-	Tags         []string        `json:"tags"`
-	Labels       []string        `json:"labels,omitempty"` // label IDs from project's labels.json
-	Blocks       []Block         `json:"blocks"`
+	ID              string           `json:"id"`
+	Type            string           `json:"type"`
+	Title           string           `json:"title"`
+	CreatedAt       time.Time        `json:"created_at"`
+	UpdatedAt       time.Time        `json:"updated_at"`
+	ContextLevel    ContextLevel     `json:"context_level"`
+	Fields          map[string]any   `json:"fields"`            // Deprecated: migrated to Blocks on read
+	Checklist       []ChecklistItem  `json:"checklist"`         // Deprecated: migrated to Blocks on read
+	Attachments     []string         `json:"attachments"`       // Deprecated: migrated to Blocks on read
+	DueDate         *time.Time       `json:"due_date"`
+	Tags            []string         `json:"tags"`
+	Labels          []string         `json:"labels,omitempty"`  // label IDs from project's labels.json
+	Blocks          []Block          `json:"blocks"`
+	FileAttachments []FileAttachment `json:"file_attachments,omitempty"`
 }
 
 // Pin represents a card's membership in a specific Project/Category.

@@ -27,6 +27,7 @@
   let aiHint = $state(type?.ai_hint ?? '')
   let selectedTemplateId = $state(type?.template_id ?? '')
   let saving = $state(false)
+  const isBuiltin = type?.builtin ?? false
 
   let slugPreview = $derived(
     label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
@@ -133,17 +134,19 @@
     </div>
 
     <div class="dialog-body">
-      <div class="field-row">
-        <label class="field-label">{t('card_type_editor.label')}</label>
-        <input
-          class="field-input"
-          bind:value={label}
-          placeholder={t('card_type_editor.label_placeholder')}
-        />
-        {#if !type && slugPreview}
-          <span class="slug-preview">{t('card_type_editor.id_preview')}: <code>{slugPreview}</code></span>
-        {/if}
-      </div>
+      {#if !isBuiltin}
+        <div class="field-row">
+          <label class="field-label">{t('card_type_editor.label')}</label>
+          <input
+            class="field-input"
+            bind:value={label}
+            placeholder={t('card_type_editor.label_placeholder')}
+          />
+          {#if !type && slugPreview}
+            <span class="slug-preview">{t('card_type_editor.id_preview')}: <code>{slugPreview}</code></span>
+          {/if}
+        </div>
+      {/if}
 
       <div class="field-row">
         <label class="field-label">{t('card_type_editor.color')}</label>
@@ -163,25 +166,27 @@
         </div>
       </div>
 
-      <div class="field-row">
-        <label class="field-label">{t('card_type_editor.description')}</label>
-        <textarea
-          class="field-input textarea"
-          bind:value={description}
-          placeholder={t('card_type_editor.description_placeholder')}
-          rows={2}
-        ></textarea>
-      </div>
+      {#if !isBuiltin}
+        <div class="field-row">
+          <label class="field-label">{t('card_type_editor.description')}</label>
+          <textarea
+            class="field-input textarea"
+            bind:value={description}
+            placeholder={t('card_type_editor.description_placeholder')}
+            rows={2}
+          ></textarea>
+        </div>
 
-      <div class="field-row">
-        <label class="field-label">{t('card_type_editor.ai_hint')}</label>
-        <textarea
-          class="field-input textarea"
-          bind:value={aiHint}
-          placeholder={t('card_type_editor.ai_hint_placeholder')}
-          rows={2}
-        ></textarea>
-      </div>
+        <div class="field-row">
+          <label class="field-label">{t('card_type_editor.ai_hint')}</label>
+          <textarea
+            class="field-input textarea"
+            bind:value={aiHint}
+            placeholder={t('card_type_editor.ai_hint_placeholder')}
+            rows={2}
+          ></textarea>
+        </div>
+      {/if}
 
       <div class="field-row">
         <label class="field-label">{t('card_type_editor.template')}</label>

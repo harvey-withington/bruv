@@ -25,7 +25,86 @@
     pending_edits?: PendingEdit[]
   }
 
-  let { cardId, visible = $bindable(false), onCardChanged }: { cardId: string; visible: boolean; onCardChanged?: () => void } = $props()
+  let {
+    cardId,
+    visible = $bindable(false),
+    mainWidth = $bindable(600),
+    onCardChanged,
+  }: {
+    cardId: string
+    visible: boolean
+    mainWidth: number
+    onCardChanged?: () => void
+  } = $props()
+
+  // Resizable chat width
+  const CHAT_WIDTH_KEY = 'bruv:chatPanelWidth'
+  const EDGE_PAD = 32  // generous padding from screen edges
+  const COLLAPSE_GUARD = 350  // minimum panel size so splitter can't collapse either side
+  let chatWidth = $state(Number(localStorage.getItem(CHAT_WIDTH_KEY)) || 340)
+  let resizingHandle = $state<'left' | 'right' | null>(null)
+  let resizing = $derived(resizingHandle !== null)
+
+  function suppressClick(ev: MouseEvent) {
+    ev.stopPropagation()
+    ev.preventDefault()
+    window.removeEventListener('click', suppressClick, true)
+  }
+
+  /** Right handle: drag right → chat wider, only right edge moves */
+  function onRightResizeDown(e: MouseEvent) {
+    e.preventDefault()
+    resizingHandle = 'right'
+    const startX = e.clientX
+    const startW = chatWidth
+    const chatPanel = (e.target as HTMLElement).closest('.chat-panel') as HTMLElement
+    const modalLeft = chatPanel.closest('.modal')?.getBoundingClientRect().left ?? 0
+
+    function onMove(ev: MouseEvent) {
+      const raw = startW + (ev.clientX - startX)
+      // Don't let the right edge past the screen edge (minus padding)
+      const maxW = (window.innerWidth - EDGE_PAD) - modalLeft - mainWidth
+      chatWidth = Math.max(COLLAPSE_GUARD, Math.min(raw, maxW))
+    }
+    function onUp() {
+      resizingHandle = null
+      localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth))
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      window.addEventListener('click', suppressClick, true)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
+  /** Splitter (left handle): redistributes space, outer edges stay fixed */
+  function onSplitterDown(e: MouseEvent) {
+    e.preventDefault()
+    resizingHandle = 'left'
+    const startX = e.clientX
+    const startChat = chatWidth
+    const startMain = mainWidth
+
+    function onMove(ev: MouseEvent) {
+      const delta = ev.clientX - startX
+      const newMain = startMain + delta
+      const newChat = startChat - delta
+      if (newMain >= COLLAPSE_GUARD && newChat >= COLLAPSE_GUARD) {
+        mainWidth = newMain
+        chatWidth = newChat
+      }
+    }
+    function onUp() {
+      resizingHandle = null
+      localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth))
+      localStorage.setItem('bruv:mainPanelWidth', String(mainWidth))
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      window.addEventListener('click', suppressClick, true)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
 
   // Fixed-position tooltip for edit details (avoids scroll-container clipping)
   let tooltipText = $state('')
@@ -312,7 +391,9 @@
 {/if}
 
 {#if visible}
-  <div class="chat-panel">
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <div class="chat-panel" class:resizing style="width: {chatWidth}px;">
+    <div class="chat-resize-handle left" class:active={resizingHandle === 'left'} role="separator" tabindex="-1" onmousedown={onSplitterDown}></div>
     <div class="chat-header">
       <span class="chat-title">{t('chat.title')}{messages.length > 0 ? ` (${messages.length})` : ''}</span>
     </div>
@@ -484,17 +565,46 @@
       </div>
     </div>
     </div>
+    <div class="chat-resize-handle right" class:active={resizingHandle === 'right'} role="separator" tabindex="-1" onmousedown={onRightResizeDown}></div>
   </div>
 {/if}
 
 <style>
   .chat-panel {
-    width: 340px;
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
     border-left: 1px solid var(--border-muted);
     background: var(--bg-surface);
+    position: relative;
+  }
+
+  .chat-panel.resizing {
+    user-select: none;
+  }
+
+  .chat-resize-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 5px;
+    z-index: 5;
+    transition: background 0.15s;
+  }
+  .chat-resize-handle.left {
+    left: 0;
+    cursor: w-resize;
+    border-radius: 0;
+  }
+  .chat-resize-handle.right {
+    right: 0;
+    cursor: e-resize;
+    border-radius: 0 10px 10px 0;
+  }
+  .chat-resize-handle:hover,
+  .chat-resize-handle.active {
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent-glow-1);
   }
 
   .chat-header {
@@ -779,6 +889,7 @@
     align-items: center;
     gap: 5px;
     padding: 2px 0;
+    min-width: 0;
   }
 
   .pending-edit-row.edit-rejected .edit-label,
@@ -806,6 +917,7 @@
   .edit-label {
     flex-shrink: 0;
     font-size: 0.78rem;
+    font-weight: 500;
     color: var(--text-primary);
     white-space: nowrap;
   }

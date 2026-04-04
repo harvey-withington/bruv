@@ -1,6 +1,7 @@
 <script lang="ts">
   import SearchBar from './SearchBar.svelte'
-  import { Tags, SlidersHorizontal, BotMessageSquare, Inbox } from 'lucide-svelte'
+  import CardTypesTab from './CardTypesTab.svelte'
+  import { Tags, SlidersHorizontal, BotMessageSquare, Inbox, Layers } from 'lucide-svelte'
   import { nav } from '../lib/store.svelte'
   import { t } from '../lib/i18n.svelte'
 
@@ -10,6 +11,8 @@
     onOpenProjectSettings?: () => void
     onCreateAIChat?: () => void
   } = $props()
+
+  let showCardTypes = $state(false)
 </script>
 
 <header class="topbar">
@@ -35,14 +38,19 @@
     <SearchBar {onSelectCard} />
   </div>
 
-  {#if nav.projectSlug}
-    <div class="topbar-actions">
+  <div class="topbar-actions">
+    <button class="icon-btn" onclick={() => showCardTypes = true} title={t('toolbar.card_types')}><Layers size={16} /></button>
+    {#if nav.projectSlug}
       <button class="icon-btn" onclick={onCreateAIChat} title={t('toolbar.ai_chat')}><BotMessageSquare size={16} /></button>
       <button class="icon-btn" onclick={onOpenTagEditor} title={t('toolbar.tags')}><Tags size={16} /></button>
       <button class="icon-btn" onclick={onOpenProjectSettings} title={t('toolbar.project_settings')}><SlidersHorizontal size={16} /></button>
-    </div>
-  {/if}
+    {/if}
+  </div>
 </header>
+
+{#if showCardTypes}
+  <CardTypesTab onClose={() => showCardTypes = false} />
+{/if}
 
 <style>
   .topbar {

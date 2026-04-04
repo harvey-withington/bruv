@@ -25,10 +25,18 @@ type CardTemplate struct {
 	Blocks []model.Block `json:"blocks"`
 }
 
+// BuiltinOverride stores user customisations for a built-in card type.
+type BuiltinOverride struct {
+	Color      string `json:"color,omitempty"`
+	TemplateID string `json:"template_id,omitempty"`
+}
+
 // UserTypeStore is the on-disk root for card_types.json.
 type UserTypeStore struct {
-	Types     []UserCardType `json:"types"`
-	Templates []CardTemplate `json:"templates"`
+	Seeded           bool                        `json:"seeded"`
+	Types            []UserCardType              `json:"types"`
+	Templates        []CardTemplate              `json:"templates"`
+	BuiltinOverrides map[string]BuiltinOverride  `json:"builtin_overrides,omitempty"`
 }
 
 func userTypesPath() (string, error) {

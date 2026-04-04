@@ -39,6 +39,59 @@
   const CHAT_VISIBLE_KEY = 'bruv:chatPanelVisible'
   let showChat = $state(localStorage.getItem(CHAT_VISIBLE_KEY) === 'true')
   $effect(() => { localStorage.setItem(CHAT_VISIBLE_KEY, String(showChat)) })
+
+  // Resizable main panel width
+  const MAIN_WIDTH_KEY = 'bruv:mainPanelWidth'
+  const EDGE_PAD = 32
+  const COLLAPSE_GUARD = 350
+  let mainWidth = $state(Number(localStorage.getItem(MAIN_WIDTH_KEY)) || 600)
+  let mainResizing = $state(false)
+  let modalEl: HTMLDivElement | undefined = $state()
+
+  function onMainResizeDown(e: MouseEvent) {
+    e.preventDefault()
+    if (!modalEl) return
+    mainResizing = true
+    const startX = e.clientX
+    const startW = mainWidth
+    const startLeft = parseFloat(modalEl.style.left) || modalEl.getBoundingClientRect().left
+
+    function onMove(ev: MouseEvent) {
+      const delta = ev.clientX - startX  // negative when dragging left
+      const raw = startW - delta
+      // Don't let the left edge past the screen edge (plus padding)
+      const maxW = startLeft + startW - EDGE_PAD
+      const newW = Math.max(COLLAPSE_GUARD, Math.min(raw, maxW))
+      const actualDelta = newW - startW
+      mainWidth = newW
+      if (modalEl) modalEl.style.left = (startLeft - actualDelta) + 'px'
+    }
+
+    function suppressClick(ev: MouseEvent) {
+      ev.stopPropagation()
+      ev.preventDefault()
+      window.removeEventListener('click', suppressClick, true)
+    }
+
+    function onUp() {
+      mainResizing = false
+      localStorage.setItem(MAIN_WIDTH_KEY, String(mainWidth))
+      // Persist the new modal position after left-edge resize shifted it
+      if (modalEl) {
+        localStorage.setItem('bruv:cardDialogPos', JSON.stringify({
+          left: parseFloat(modalEl.style.left),
+          top: parseFloat(modalEl.style.top),
+        }))
+      }
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      window.addEventListener('click', suppressClick, true)
+    }
+
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
   let savingCount = $state(0)
   let saving = $derived(savingCount > 0)
 
@@ -753,8 +806,9 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div class="modal-backdrop" role="presentation" onclick={handleBackdropClick}>
-  <div class="modal" class:chat-open={showChat} use:draggable={{ handle: '.modal-header' }} use:focusTrap>
-   <div class="modal-main">
+  <div class="modal" bind:this={modalEl} class:chat-open={showChat} class:main-resizing={mainResizing} style={showChat ? '' : `width: ${mainWidth}px;`} use:draggable={{ handle: '.modal-header', persistKey: 'bruv:cardDialogPos' }} use:focusTrap>
+   <div class="modal-left-resize" role="separator" tabindex="-1" onmousedown={onMainResizeDown}></div>
+   <div class="modal-main" style="width: {mainWidth}px;">
     {#if loading}
       <div class="modal-loading">{t('app.loading')}</div>
     {:else if card}
@@ -1095,7 +1149,7 @@
    </div>
 
     {#if !loading && card}
-      <ChatSection {cardId} bind:visible={showChat} onCardChanged={loadCard} />
+      <ChatSection {cardId} bind:visible={showChat} bind:mainWidth onCardChanged={loadCard} />
     {/if}
 
     <div class="modal-actions">
@@ -1168,16 +1222,34 @@
     flex-direction: row;
     overflow: hidden;
     box-shadow: 0 8px 32px var(--shadow-lg);
-    transition: width 0.2s ease;
     position: relative;
   }
   .modal.chat-open {
-    width: 960px;
+    width: auto;
+  }
+  .modal.main-resizing {
+    user-select: none;
+  }
+
+  .modal-left-resize {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 5px;
+    cursor: w-resize;
+    z-index: 5;
+    transition: background 0.15s;
+    border-radius: 10px 0 0 10px;
+  }
+  .modal-left-resize:hover,
+  .modal.main-resizing .modal-left-resize {
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent-glow-1);
   }
 
   .modal-main {
-    flex: 1;
-    min-width: 0;
+    flex-shrink: 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;

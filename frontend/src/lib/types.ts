@@ -240,6 +240,7 @@ export interface BackendAdapter {
   CreateUserCardType(label: string, color: string, description: string, aiHint: string, templateId: string): Promise<UserCardType>
   UpdateUserCardType(id: string, label: string, color: string, description: string, aiHint: string, templateId: string): Promise<UserCardType>
   DeleteUserCardType(id: string): Promise<void>
+  UpdateBuiltinCardType(id: string, color: string, templateId: string): Promise<void>
 
   // Card templates
   ListCardTemplates(): Promise<CardTemplate[]>

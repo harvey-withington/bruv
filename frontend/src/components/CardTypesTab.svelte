@@ -5,7 +5,7 @@
   import { Plus, Pencil, Trash2, X } from 'lucide-svelte'
   import CardTypeEditor from './CardTypeEditor.svelte'
   import {
-    CreateUserCardType, UpdateUserCardType, DeleteUserCardType,
+    CreateUserCardType, UpdateUserCardType, DeleteUserCardType, UpdateBuiltinCardType,
     ListCardTemplates, CreateCardTemplate, UpdateCardTemplate, DeleteCardTemplate,
   } from '../lib/api'
   import { cardTypes, loadCardTypes } from '../lib/store.svelte'
@@ -67,7 +67,13 @@
         ? (templateIdMap[saved.template_id] ?? saved.template_id)
         : ''
 
-      if (editingType) {
+      if (editingType?.builtin) {
+        await UpdateBuiltinCardType(
+          editingType.id,
+          saved.color,
+          resolvedTemplateId,
+        )
+      } else if (editingType) {
         await UpdateUserCardType(
           editingType.id,
           saved.label,
@@ -176,6 +182,11 @@
                 {#if type.description}
                   <span class="type-desc">{type.description}</span>
                 {/if}
+              </div>
+              <div class="type-actions">
+                <button class="icon-btn" onclick={() => openEdit(type)} title={t('card_types.edit')}>
+                  <Pencil size={13} />
+                </button>
               </div>
               <span class="builtin-badge">{t('card_types.builtin_badge')}</span>
             </li>

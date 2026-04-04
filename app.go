@@ -1413,18 +1413,39 @@ type CardTypeInfo struct {
 }
 
 // builtinTypes defines the built-in card types in display order.
-// Colors and labels match the frontend cardTypes.ts constants.
 var builtinTypes = []CardTypeInfo{
-	{ID: "feature", Label: "Feature", Color: "#6366f1", Builtin: true},
-	{ID: "task", Label: "Task", Color: "#22c55e", Builtin: true},
 	{ID: "brainstorm", Label: "Brainstorm", Color: "#f59e0b", Builtin: true},
-	{ID: "episode", Label: "Episode", Color: "#ec4899", Builtin: true},
+	{ID: "task", Label: "Task", Color: "#22c55e", Builtin: true},
 	{ID: "reference", Label: "Reference", Color: "#06b6d4", Builtin: true},
+}
+
+// seedTypes are pre-installed as user types on first run so they can be
+// fully edited or deleted.
+var seedTypes = []config.UserCardType{
+	{ID: "feature", Label: "Feature", Color: "#6366f1"},
+	{ID: "episode", Label: "Episode", Color: "#ec4899"},
+}
+
+// ensureSeeded adds the pre-installed seed types on first run.
+func ensureSeeded(store *config.UserTypeStore) bool {
+	if store.Seeded {
+		return false
+	}
+	store.Seeded = true
+	for _, seed := range seedTypes {
+		store.Types = append(store.Types, seed)
+	}
+	return true
 }
 
 // ListCardTypes returns all card types (built-in first, then user-defined).
 func (a *App) ListCardTypes() []CardTypeInfo {
-	result := make([]CardTypeInfo, 0, len(builtinTypes))
+	store, _ := config.LoadUserTypeStore()
+	if ensureSeeded(&store) {
+		_ = config.SaveUserTypeStore(store)
+	}
+
+	result := make([]CardTypeInfo, 0, len(builtinTypes)+len(store.Types))
 	for _, b := range builtinTypes {
 		info := b
 		if a.registry != nil {
@@ -1432,9 +1453,16 @@ func (a *App) ListCardTypes() []CardTypeInfo {
 				info.Description = s.Description
 			}
 		}
+		if ov, ok := store.BuiltinOverrides[b.ID]; ok {
+			if ov.Color != "" {
+				info.Color = ov.Color
+			}
+			if ov.TemplateID != "" {
+				info.TemplateID = ov.TemplateID
+			}
+		}
 		result = append(result, info)
 	}
-	store, _ := config.LoadUserTypeStore()
 	for _, t := range store.Types {
 		result = append(result, CardTypeInfo{
 			ID:          t.ID,
@@ -1468,18 +1496,32 @@ func (a *App) applyTypeBlocks(cardID, cardType string) {
 		templateBlocks = a.registry.SchemaToBlocks(cardType)
 	}
 
-	// If no built-in schema blocks, check user type templates
+	// If no built-in schema blocks, check user type templates and builtin overrides
 	if len(templateBlocks) == 0 {
 		store, _ := config.LoadUserTypeStore()
-		for _, ut := range store.Types {
-			if ut.ID == cardType && ut.TemplateID != "" {
-				for _, tmpl := range store.Templates {
-					if tmpl.ID == ut.TemplateID {
-						templateBlocks = cloneBlocksWithFreshIDs(tmpl.Blocks)
-						break
-					}
+
+		// Check builtin override template
+		if ov, ok := store.BuiltinOverrides[cardType]; ok && ov.TemplateID != "" {
+			for _, tmpl := range store.Templates {
+				if tmpl.ID == ov.TemplateID {
+					templateBlocks = cloneBlocksWithFreshIDs(tmpl.Blocks)
+					break
 				}
-				break
+			}
+		}
+
+		// Check user type templates
+		if len(templateBlocks) == 0 {
+			for _, ut := range store.Types {
+				if ut.ID == cardType && ut.TemplateID != "" {
+					for _, tmpl := range store.Templates {
+						if tmpl.ID == ut.TemplateID {
+							templateBlocks = cloneBlocksWithFreshIDs(tmpl.Blocks)
+							break
+						}
+					}
+					break
+				}
 			}
 		}
 	}
@@ -1590,6 +1632,32 @@ func (a *App) DeleteUserCardType(id string) error {
 	return fmt.Errorf("card type %q not found", id)
 }
 
+// UpdateBuiltinCardType updates the color and/or template of a built-in card type.
+func (a *App) UpdateBuiltinCardType(id, color, templateID string) error {
+	isBuiltin := false
+	for _, b := range builtinTypes {
+		if b.ID == id {
+			isBuiltin = true
+			break
+		}
+	}
+	if !isBuiltin {
+		return fmt.Errorf("card type %q is not a built-in type", id)
+	}
+	store, err := config.LoadUserTypeStore()
+	if err != nil {
+		return err
+	}
+	if store.BuiltinOverrides == nil {
+		store.BuiltinOverrides = make(map[string]config.BuiltinOverride)
+	}
+	store.BuiltinOverrides[id] = config.BuiltinOverride{
+		Color:      color,
+		TemplateID: templateID,
+	}
+	return config.SaveUserTypeStore(store)
+}
+
 // ListCardTemplates returns all user-defined card templates.
 func (a *App) ListCardTemplates() ([]config.CardTemplate, error) {
 	store, err := config.LoadUserTypeStore()
@@ -1664,6 +1732,17 @@ func isTypeIDTaken(store config.UserTypeStore, id string) bool {
 		}
 	}
 	return false
+}
+
+// humanizeBlockKey converts "recording_status" → "Recording Status".
+func humanizeBlockKey(key string) string {
+	words := strings.Split(key, "_")
+	for i, w := range words {
+		if len(w) > 0 {
+			words[i] = strings.ToUpper(w[:1]) + w[1:]
+		}
+	}
+	return strings.Join(words, " ")
 }
 
 // --- Index / Search ---
@@ -1985,11 +2064,9 @@ func (a *App) SendChatMessage(cardID, userMessage string) (*model.ChatFile, erro
 			var result string
 			if cfg.AIMode == "suggest" {
 				// Stage the edit without applying it; return a fake success to the LLM
-				var edit *model.PendingEdit
-				result, edit = a.stageToolCall(tc, allCats)
-				if edit != nil {
-					allPendingEdits = append(allPendingEdits, *edit)
-				}
+				var edits []model.PendingEdit
+				result, edits = a.stageToolCall(tc, allCats)
+				allPendingEdits = append(allPendingEdits, edits...)
 			} else {
 				var action *model.ToolAction
 				var ps *model.PinSuggestion
@@ -2237,18 +2314,27 @@ func (a *App) executeToolCall(cardID string, card *model.Card, tc llm.ToolCall, 
 			fieldsMap, _ = tc.Arguments["blocks"].(map[string]any)
 		}
 		if len(fieldsMap) == 0 {
-			// Try flat arguments: the dynamic schema puts block keys directly in tc.Arguments
+			// Try flat arguments: the dynamic schema puts block keys directly in tc.Arguments.
+			// Match against existing blocks AND schema fields for the card's type so that
+			// the LLM can set fields that haven't been created yet.
 			currentCard2, err2 := a.repo.GetCard(cardID)
 			if err2 == nil {
-				blockKeys := make(map[string]bool)
+				knownKeys := make(map[string]bool)
 				for _, b := range currentCard2.Blocks {
 					if b.Key != "" {
-						blockKeys[b.Key] = true
+						knownKeys[b.Key] = true
+					}
+				}
+				if a.registry != nil && currentCard2.Type != "" {
+					if s := a.registry.Get(currentCard2.Type); s != nil {
+						for k := range s.Properties {
+							knownKeys[k] = true
+						}
 					}
 				}
 				flat := make(map[string]any)
 				for k, v := range tc.Arguments {
-					if blockKeys[k] {
+					if knownKeys[k] {
 						flat[k] = v
 					}
 				}
@@ -2264,6 +2350,24 @@ func (a *App) executeToolCall(cardID string, card *model.Card, tc llm.ToolCall, 
 		if err != nil {
 			return "error: " + err.Error(), nil, nil
 		}
+
+		// Auto-create blocks for schema fields that don't exist on the card yet
+		existingKeys := make(map[string]bool)
+		for _, b := range currentCard.Blocks {
+			if b.Key != "" {
+				existingKeys[b.Key] = true
+			}
+		}
+		if a.registry != nil && currentCard.Type != "" {
+			schemaBlocks := a.registry.SchemaToBlocks(currentCard.Type)
+			for _, sb := range schemaBlocks {
+				if _, wantSet := fieldsMap[sb.Key]; wantSet && !existingKeys[sb.Key] {
+					currentCard.Blocks = append(currentCard.Blocks, sb)
+					existingKeys[sb.Key] = true
+				}
+			}
+		}
+
 		updated := false
 		var updatedKeys []string
 		for i, b := range currentCard.Blocks {
@@ -2567,16 +2671,18 @@ func (a *App) resolveOrCreateHierarchy(brandName, streamName, projectName, categ
 // stageToolCall builds a PendingEdit record for Suggest mode without applying any changes.
 // It returns a fake result string (fed back to the LLM so the conversation continues naturally)
 // and the PendingEdit to be stored on the message.
-func (a *App) stageToolCall(tc llm.ToolCall, allCats []CategoryPath) (string, *model.PendingEdit) {
-	id := uuid.New().String()
+func (a *App) stageToolCall(tc llm.ToolCall, allCats []CategoryPath) (string, []model.PendingEdit) {
+	one := func(tool string, input map[string]any, label, detail string) []model.PendingEdit {
+		return []model.PendingEdit{{
+			ID: uuid.New().String(), Tool: tool, Input: input,
+			Label: label, Detail: detail, Status: "pending",
+		}}
+	}
+
 	switch tc.Name {
 	case "set_title":
 		title, _ := tc.Arguments["title"].(string)
-		return "Title will be set to " + title, &model.PendingEdit{
-			ID: id, Tool: tc.Name, Input: tc.Arguments,
-			Label: "Set title", Detail: `"` + title + `"`,
-			Status: "pending",
-		}
+		return "Title will be set to " + title, one(tc.Name, tc.Arguments, "Set title", `"`+title+`"`)
 
 	case "set_due_date":
 		dueDate, _ := tc.Arguments["due_date"].(string)
@@ -2584,14 +2690,10 @@ func (a *App) stageToolCall(tc llm.ToolCall, allCats []CategoryPath) (string, *m
 		if dueDate == "" {
 			label, detail = "Clear due date", "Remove existing due date"
 		}
-		return "Due date staged", &model.PendingEdit{
-			ID: id, Tool: tc.Name, Input: tc.Arguments,
-			Label: label, Detail: detail, Status: "pending",
-		}
+		return "Due date staged", one(tc.Name, tc.Arguments, label, detail)
 
 	case "set_card_type":
 		cardType, _ := tc.Arguments["card_type"].(string)
-		// Include block keys in the result so the LLM calls set_fields with the correct keys
 		fakeResult := "Card type will be set to " + cardType + "."
 		var previewBlocks []model.Block
 		if a.registry != nil {
@@ -2622,10 +2724,7 @@ func (a *App) stageToolCall(tc llm.ToolCall, allCats []CategoryPath) (string, *m
 				fakeResult += " NOW call set_fields to fill these field keys: " + strings.Join(keys, ", ")
 			}
 		}
-		return fakeResult, &model.PendingEdit{
-			ID: id, Tool: tc.Name, Input: tc.Arguments,
-			Label: "Set type", Detail: cardType, Status: "pending",
-		}
+		return fakeResult, one(tc.Name, tc.Arguments, "Set type", cardType)
 
 	case "set_fields", "update_blocks":
 		fieldsMap, _ := tc.Arguments["fields"].(map[string]any)
@@ -2638,17 +2737,25 @@ func (a *App) stageToolCall(tc llm.ToolCall, allCats []CategoryPath) (string, *m
 				fieldsMap[k] = v
 			}
 		}
-		var keys, details []string
+		// One PendingEdit per field so the user can review each individually
+		var edits []model.PendingEdit
+		var keys []string
 		for k, v := range fieldsMap {
 			keys = append(keys, k)
-			details = append(details, fmt.Sprintf("%s: %v", k, v))
+			detail := fmt.Sprintf("%v", v)
+			if s, ok := v.(string); ok && len(s) > 120 {
+				detail = s[:120] + "…"
+			}
+			edits = append(edits, model.PendingEdit{
+				ID:     uuid.New().String(),
+				Tool:   tc.Name,
+				Input:  map[string]any{k: v},
+				Label:  humanizeBlockKey(k),
+				Detail: detail,
+				Status: "pending",
+			})
 		}
-		return "Fields staged: " + strings.Join(keys, ", "), &model.PendingEdit{
-			ID: id, Tool: tc.Name, Input: tc.Arguments,
-			Label:  "Update fields: " + strings.Join(keys, ", "),
-			Detail: strings.Join(details, "\n"),
-			Status: "pending",
-		}
+		return "Fields staged: " + strings.Join(keys, ", "), edits
 
 	case "add_tags":
 		tagsRaw, _ := tc.Arguments["tags"].([]any)
@@ -2658,21 +2765,12 @@ func (a *App) stageToolCall(tc llm.ToolCall, allCats []CategoryPath) (string, *m
 				tags = append(tags, "+"+s)
 			}
 		}
-		return "Tags staged", &model.PendingEdit{
-			ID: id, Tool: tc.Name, Input: tc.Arguments,
-			Label: "Add tags", Detail: strings.Join(tags, ", "),
-			Status: "pending",
-		}
+		return "Tags staged", one(tc.Name, tc.Arguments, "Add tags", strings.Join(tags, ", "))
 
 	case "add_field":
 		label, _ := tc.Arguments["label"].(string)
 		fieldType, _ := tc.Arguments["field_type"].(string)
-		return "Field staged: " + label, &model.PendingEdit{
-			ID: id, Tool: tc.Name, Input: tc.Arguments,
-			Label:  "Add field: " + label,
-			Detail: "Type: " + fieldType,
-			Status: "pending",
-		}
+		return "Field staged: " + label, one(tc.Name, tc.Arguments, "Add field: "+label, "Type: "+fieldType)
 
 	case "suggest_pin":
 		reason, _ := tc.Arguments["reason"].(string)
@@ -2702,11 +2800,7 @@ func (a *App) stageToolCall(tc llm.ToolCall, allCats []CategoryPath) (string, *m
 		if reason != "" {
 			detail += "\n" + reason
 		}
-		return "Pin suggestion staged for " + breadcrumb, &model.PendingEdit{
-			ID: id, Tool: tc.Name, Input: tc.Arguments,
-			Label: "Pin to " + breadcrumb, Detail: detail,
-			Status: "pending",
-		}
+		return "Pin suggestion staged for " + breadcrumb, one(tc.Name, tc.Arguments, "Pin to "+breadcrumb, detail)
 
 	default:
 		return "Staged unknown tool " + tc.Name, nil

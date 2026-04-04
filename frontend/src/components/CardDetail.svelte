@@ -92,6 +92,38 @@
     window.addEventListener('mouseup', onUp)
   }
 
+  function onMainRightResizeDown(e: MouseEvent) {
+    e.preventDefault()
+    if (!modalEl) return
+    mainResizing = true
+    const startX = e.clientX
+    const startW = mainWidth
+    const modalLeft = parseFloat(modalEl.style.left) || modalEl.getBoundingClientRect().left
+
+    function onMove(ev: MouseEvent) {
+      const raw = startW + (ev.clientX - startX)
+      const maxW = (window.innerWidth - EDGE_PAD) - modalLeft
+      mainWidth = Math.max(COLLAPSE_GUARD, Math.min(raw, maxW))
+    }
+
+    function suppressClick(ev: MouseEvent) {
+      ev.stopPropagation()
+      ev.preventDefault()
+      window.removeEventListener('click', suppressClick, true)
+    }
+
+    function onUp() {
+      mainResizing = false
+      localStorage.setItem(MAIN_WIDTH_KEY, String(mainWidth))
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      window.addEventListener('click', suppressClick, true)
+    }
+
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
   let savingCount = $state(0)
   let saving = $derived(savingCount > 0)
 
@@ -1152,6 +1184,10 @@
       <ChatSection {cardId} bind:visible={showChat} bind:mainWidth onCardChanged={loadCard} />
     {/if}
 
+    {#if !showChat}
+      <div class="modal-right-resize" role="separator" tabindex="-1" onmousedown={onMainRightResizeDown}></div>
+    {/if}
+
     <div class="modal-actions">
       <button class="chat-toggle-btn" class:active={showChat} onclick={() => showChat = !showChat} title={t('tooltip.toggle_chat')}><Bot size={16} /></button>
       <button class="close-btn" onclick={() => onClose()} title={t('tooltip.close_card')}><X size={18} /></button>
@@ -1244,6 +1280,23 @@
   }
   .modal-left-resize:hover,
   .modal.main-resizing .modal-left-resize {
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent-glow-1);
+  }
+
+  .modal-right-resize {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 5px;
+    cursor: e-resize;
+    z-index: 5;
+    transition: background 0.15s;
+    border-radius: 0 10px 10px 0;
+  }
+  .modal-right-resize:hover,
+  .modal.main-resizing .modal-right-resize {
     background: var(--accent);
     box-shadow: 0 0 6px var(--accent-glow-1);
   }

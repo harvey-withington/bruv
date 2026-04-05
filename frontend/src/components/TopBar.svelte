@@ -1,8 +1,8 @@
 <script lang="ts">
   import SearchBar from './SearchBar.svelte'
   import CardTypesTab from './CardTypesTab.svelte'
-  import { Tags, SlidersHorizontal, BotMessageSquare, Inbox, Layers } from 'lucide-svelte'
-  import { nav } from '../lib/store.svelte'
+  import { Tags, SlidersHorizontal, BotMessageSquare, Inbox, Layers, Type, User, FolderOpen, Check } from 'lucide-svelte'
+  import { nav, inboxSearchFilters } from '../lib/store.svelte'
   import { t } from '../lib/i18n.svelte'
 
   let { onSelectCard, onOpenTagEditor, onOpenProjectSettings, onCreateAIChat }: {
@@ -35,7 +35,60 @@
   </div>
 
   <div class="topbar-center">
-    <SearchBar {onSelectCard} />
+    {#if nav.inboxMode}
+      <div class="search-filter-group">
+        <SearchBar {onSelectCard} grouped />
+        <div class="inbox-filters">
+        <button
+          class="filter-btn"
+          class:active={inboxSearchFilters.title}
+          onclick={() => inboxSearchFilters.title = !inboxSearchFilters.title}
+          title={t('inbox.filter_title')}
+        >
+          <Type size={13} />
+          {#if inboxSearchFilters.title}<span class="check"><Check size={10} strokeWidth={3} /></span>{/if}
+        </button>
+        <button
+          class="filter-btn"
+          class:active={inboxSearchFilters.type}
+          onclick={() => inboxSearchFilters.type = !inboxSearchFilters.type}
+          title={t('inbox.filter_type')}
+        >
+          <Layers size={13} />
+          {#if inboxSearchFilters.type}<span class="check"><Check size={10} strokeWidth={3} /></span>{/if}
+        </button>
+        <button
+          class="filter-btn"
+          class:active={inboxSearchFilters.tags}
+          onclick={() => inboxSearchFilters.tags = !inboxSearchFilters.tags}
+          title={t('inbox.filter_tags')}
+        >
+          <Tags size={13} />
+          {#if inboxSearchFilters.tags}<span class="check"><Check size={10} strokeWidth={3} /></span>{/if}
+        </button>
+        <button
+          class="filter-btn"
+          class:active={inboxSearchFilters.actor}
+          onclick={() => inboxSearchFilters.actor = !inboxSearchFilters.actor}
+          title={t('inbox.filter_actor')}
+        >
+          <User size={13} />
+          {#if inboxSearchFilters.actor}<span class="check"><Check size={10} strokeWidth={3} /></span>{/if}
+        </button>
+        <button
+          class="filter-btn"
+          class:active={inboxSearchFilters.project}
+          onclick={() => inboxSearchFilters.project = !inboxSearchFilters.project}
+          title={t('inbox.filter_project')}
+        >
+          <FolderOpen size={13} />
+          {#if inboxSearchFilters.project}<span class="check"><Check size={10} strokeWidth={3} /></span>{/if}
+        </button>
+        </div>
+      </div>
+    {:else}
+      <SearchBar {onSelectCard} />
+    {/if}
   </div>
 
   <div class="topbar-actions">
@@ -69,6 +122,60 @@
     justify-content: center;
     padding: 0 1rem;
     min-width: 0;
+  }
+
+  .search-filter-group {
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-elevated);
+    overflow: hidden;
+    transition: border-color 0.15s;
+  }
+  .search-filter-group:focus-within {
+    border-color: var(--accent);
+  }
+
+  .inbox-filters {
+    display: flex;
+    align-items: center;
+    border-left: 1px solid var(--border);
+  }
+
+  .filter-btn {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-right: 1px solid var(--border);
+    background: none;
+    color: var(--text-faint);
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s;
+    flex-shrink: 0;
+  }
+  .filter-btn:last-child {
+    border-right: none;
+  }
+  .filter-btn:hover {
+    color: var(--text-muted);
+    background: var(--bg-subtle-hover);
+  }
+  .filter-btn.active {
+    color: var(--text-secondary);
+  }
+
+  .check {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    display: flex;
+    color: #4caf7d;
+    line-height: 1;
   }
 
   .topbar-actions {

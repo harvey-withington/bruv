@@ -32,6 +32,10 @@ import {
   AddCardAttachment,
   // @ts-ignore — generated after `wails generate` with updated Go code
   RemoveCardAttachment,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  ListActivityLog,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  ListRecentlyUpdatedCards,
 } from '../../../wailsjs/go/main/App.js'
 
 export const wailsAdapter: BackendAdapter = {
@@ -168,4 +172,7 @@ export const wailsAdapter: BackendAdapter = {
 
   GetPreferences,
   SetPreferences,
+
+  ListActivityLog: ListActivityLog as unknown as BackendAdapter['ListActivityLog'],
+  ListRecentlyUpdatedCards: ListRecentlyUpdatedCards as unknown as BackendAdapter['ListRecentlyUpdatedCards'],
 }

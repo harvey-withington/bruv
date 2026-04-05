@@ -115,6 +115,45 @@ export type CardTemplate = {
   blocks: Block[]
 }
 
+// --- Activity log ---
+
+export type ActivityEntry = {
+  id: string
+  timestamp: string        // ISO 8601
+  actor: string            // display name of the user or LLM model
+  actor_type: 'user' | 'llm'
+  action: string           // e.g. "created", "updated_title", "updated_field", "pinned"
+  field: string            // human label of the changed field (may be empty)
+  card_id: string
+  card_title: string
+  brand_slug?: string
+  stream_slug?: string
+  project_slug?: string
+  brand_name?: string
+  stream_name?: string
+  project_name?: string
+  category_name?: string
+}
+
+// --- Recently updated card (enriched with first-pin path) ---
+
+export type RecentCard = {
+  id: string
+  title: string
+  type: string
+  updated_at: string       // ISO 8601
+  tags: string[]
+  due_date?: string
+  brand_slug?: string
+  stream_slug?: string
+  project_slug?: string
+  brand_name?: string
+  stream_name?: string
+  project_name?: string
+  category_name?: string
+  breadcrumb?: string
+}
+
 // --- LLM: AI-specific configuration (grows independently) ---
 export type LLMConfig = {
   context: string
@@ -307,4 +346,8 @@ export interface BackendAdapter {
   // User preferences
   GetPreferences(): Promise<any>
   SetPreferences(p: any): Promise<void>
+
+  // Activity & recently updated
+  ListActivityLog(limit: number): Promise<ActivityEntry[]>
+  ListRecentlyUpdatedCards(limit: number): Promise<RecentCard[]>
 }

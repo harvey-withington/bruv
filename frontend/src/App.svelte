@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { nav, prefs as prefsStore, loadCardTypes } from './lib/store.svelte'
+  import { nav, prefs as prefsStore, loadCardTypes, loadGlobalTagColors } from './lib/store.svelte'
   import { onMount } from 'svelte'
   import { loadTheme } from './lib/theme.svelte'
   import { loadLocale, t } from './lib/i18n.svelte'
@@ -43,6 +43,7 @@
   }
   tryReopenLastRepo()
   loadCardTypes()
+  loadGlobalTagColors()
 
   let searchCardId = $state<string | null>(null)
   let resizing = $state(false)

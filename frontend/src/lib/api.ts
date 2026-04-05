@@ -2,7 +2,7 @@
 
 import { getBackend } from './adapters'
 
-export type { UserProfile, AuthInfo, LLMConfig, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment } from './types'
+export type { UserProfile, AuthInfo, LLMConfig, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard } from './types'
 
 // Capabilities
 export const getCapabilities = () => getBackend().getCapabilities()
@@ -168,3 +168,7 @@ export const RemoveCardAttachment = (...args: Parameters<ReturnType<typeof getBa
 // User preferences
 export const GetPreferences = () => getBackend().GetPreferences()
 export const SetPreferences = (...args: Parameters<ReturnType<typeof getBackend>['SetPreferences']>) => getBackend().SetPreferences(...args)
+
+// Activity & recently updated
+export const ListActivityLog = (...args: Parameters<ReturnType<typeof getBackend>['ListActivityLog']>) => getBackend().ListActivityLog(...args)
+export const ListRecentlyUpdatedCards = (...args: Parameters<ReturnType<typeof getBackend>['ListRecentlyUpdatedCards']>) => getBackend().ListRecentlyUpdatedCards(...args)

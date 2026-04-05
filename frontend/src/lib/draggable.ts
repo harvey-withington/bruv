@@ -91,27 +91,24 @@ export function draggable(node: HTMLElement, opts?: { handle?: string; persistKe
     }
   }
 
-  // Pin to fixed positioning immediately so layout changes (e.g. chat panel resize)
-  // don't re-center the modal via flexbox. Restore saved position if available.
-  requestAnimationFrame(() => {
-    if (!node.style.left) {
-      if (persistKey) {
+  // Restore a saved position if persistKey is set. Otherwise leave the dialog
+  // flexbox-centred — pinToFixed is called lazily on the first mousedown so that
+  // we never read getBoundingClientRect() before the browser has finished layout.
+  if (persistKey) {
+    requestAnimationFrame(() => {
+      if (!node.style.left) {
         try {
           const saved = JSON.parse(localStorage.getItem(persistKey) || '')
           if (saved && typeof saved.left === 'number' && typeof saved.top === 'number') {
-            // Clamp to viewport so the dialog isn't off-screen after a resize
             const rect = node.getBoundingClientRect()
             const left = Math.max(0, Math.min(saved.left, window.innerWidth - rect.width))
             const top = Math.max(0, Math.min(saved.top, window.innerHeight - 100))
             pinToFixed(left, top)
-            return
           }
-        } catch { /* fall through to centre */ }
+        } catch { /* fall through — stay flexbox-centred */ }
       }
-      const rect = node.getBoundingClientRect()
-      pinToFixed(rect.left, rect.top)
-    }
-  })
+    })
+  }
 
   applyCursor()
   const observer = new MutationObserver(applyCursor)

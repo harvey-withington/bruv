@@ -1,11 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import Column from './Column.svelte'
-  import CardItem from './CardItem.svelte'
   import CardDetail from './CardDetail.svelte'
+  import InboxView from './InboxView.svelte'
   import { board, nav, dnd, search, loadBoard } from '../lib/store.svelte'
   import { CreateCard, PinCard, CreateCategory, RenameCategory, GetCard, MoveCardInCategory, MoveCardToCategory, ReorderCategories, DeleteCategory, DeleteCard, MoveCategoryCards, DuplicateCard, CopyCategory, SearchCards, SearchOrphanedCards } from '../lib/api'
-  import { Lightbulb } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import { focusTrap } from '../lib/actions'
 
@@ -378,23 +377,7 @@
     <div class="loading">{t('app.loading')}</div>
 
   {:else if nav.inboxMode}
-    {@const inboxCards = board.categories[0]?.cards || []}
-    {#if inboxCards.length === 0}
-      <div class="empty-board">
-        <p class="empty-text">{t('board.inbox_empty')}</p>
-      </div>
-    {:else}
-      <div class="inbox-grid" role="list">
-        {#each inboxCards as card (card.id)}
-          <div class="inbox-card-wrapper">
-            <CardItem {card} categoryId="__inbox__" onclick={() => handleCardClick(card.id)} />
-          </div>
-        {/each}
-      </div>
-    {/if}
-    <button class="fab" onclick={handleNewIdea} title={t('tooltip.new_idea')}>
-      <Lightbulb size={22} />
-    </button>
+    <InboxView onNewIdea={handleNewIdea} onCardClick={handleCardClick} />
 
   {:else if !nav.projectSlug}
     <div class="empty-board">
@@ -665,45 +648,5 @@
     background: var(--bg-subtle-hover);
   }
 
-  .inbox-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 0.5rem;
-    padding: 0.25rem 0;
-    overflow-y: auto;
-    height: 100%;
-    align-content: start;
-  }
-
-  .inbox-card-wrapper {
-    min-width: 0;
-  }
-
-  .fab {
-    position: fixed;
-    bottom: 1.5rem;
-    right: 1.5rem;
-    width: 56px;
-    height: 56px;
-    border-radius: 50%;
-    border: none;
-    background: var(--accent);
-    color: #fff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    box-shadow: 0 4px 16px var(--shadow-lg);
-    transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
-    z-index: 50;
-  }
-  .fab:hover {
-    background: var(--accent-hover, var(--accent));
-    transform: scale(1.05);
-    box-shadow: 0 6px 24px var(--shadow-lg);
-  }
-  .fab:active {
-    transform: scale(0.97);
-  }
 
 </style>

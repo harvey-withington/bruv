@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { nav } from '../lib/store.svelte'
+  import { nav, loadGlobalTagColors } from '../lib/store.svelte'
   import { InitRepository, OpenRepository, PickFolder, ListRecentRepos, RemoveRecentRepo, getCapabilities } from '../lib/api'
   const caps = getCapabilities()
   import { X, FolderPlus, FolderOpen, FolderSearch } from 'lucide-svelte'
@@ -37,6 +37,7 @@
       await OpenRepository(path)
       nav.repoOpen = true
       nav.repoId = path
+      loadGlobalTagColors()
     } catch (e: any) {
       error = e?.message || String(e)
     }
@@ -60,6 +61,7 @@
       const actualPath = await InitRepository(repoPath.trim(), repoName.trim())
       nav.repoOpen = true
       nav.repoId = actualPath
+      loadGlobalTagColors()
     } catch (e: any) {
       error = e?.message || String(e)
     }
@@ -75,6 +77,7 @@
       await OpenRepository(repoPath.trim())
       nav.repoOpen = true
       nav.repoId = repoPath.trim()
+      loadGlobalTagColors()
     } catch (e: any) {
       error = e?.message || String(e)
     }

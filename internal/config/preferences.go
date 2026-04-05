@@ -15,18 +15,20 @@ type Preferences struct {
 	SidebarWidth          int    `json:"sidebar_width"`
 	TypeBadgeDisplay      string `json:"type_badge_display"`       // "text", "color", "hidden"
 	DefaultCategoryName   string `json:"default_category_name"`    // auto-created when a project is made
+	InboxRecentCardsLimit int    `json:"inbox_recent_cards_limit"` // max cards shown in Recently Updated panel
 }
 
 // DefaultPreferences returns sensible defaults.
 func DefaultPreferences() Preferences {
 	return Preferences{
-		ReopenLastRepo:      true,
-		Theme:               "dark",
-		Locale:              "en",
-		ConfirmBeforeDelete: true,
+		ReopenLastRepo:        true,
+		Theme:                 "dark",
+		Locale:                "en",
+		ConfirmBeforeDelete:   true,
 		SidebarWidth:          260,
 		TypeBadgeDisplay:      "color",
 		DefaultCategoryName:   "Ideas",
+		InboxRecentCardsLimit: 15,
 	}
 }
 

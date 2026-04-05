@@ -34,11 +34,22 @@ func (r *Repository) saveProjectLabels(brandSlug, streamSlug, projectSlug string
 }
 
 // AddProjectLabel appends a new label to the project and returns the updated list.
+// If no color is provided, the global tags.json color for that name is used for
+// consistency; otherwise a palette color is auto-assigned and written back to tags.json.
 func (r *Repository) AddProjectLabel(brandSlug, streamSlug, projectSlug, name, color string) ([]model.Label, error) {
 	labels, _ := r.GetProjectLabels(brandSlug, streamSlug, projectSlug)
 
 	if color == "" {
-		color = assignLabelColor(labels)
+		// Prefer an existing global color so the same tag looks the same everywhere.
+		tc, _ := r.GetTagColors()
+		if c, ok := tc[name]; ok && c != "" {
+			color = c
+		} else {
+			color = assignLabelColor(labels)
+			// Persist back to global tag colors for future consistency.
+			tc[name] = color
+			_ = writeJSON(r.tagsPath(), tc)
+		}
 	}
 
 	labels = append(labels, model.Label{

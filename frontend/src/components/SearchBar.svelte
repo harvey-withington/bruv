@@ -16,7 +16,7 @@
   let inputEl: HTMLInputElement | undefined = $state()
   let debounceTimer: ReturnType<typeof setTimeout> | undefined
 
-  let { onSelectCard }: { onSelectCard?: (cardId: string) => void } = $props()
+  let { onSelectCard, grouped = false }: { onSelectCard?: (cardId: string) => void; grouped?: boolean } = $props()
 
   function handleInput() {
     clearTimeout(debounceTimer)
@@ -70,7 +70,7 @@
 </script>
 
 <div class="search-container">
-  <div class="search-box">
+  <div class="search-box" class:grouped>
     <span class="search-icon"><Search size={14} /></span>
     <input
       bind:this={inputEl}
@@ -133,6 +133,16 @@
 
   .search-box:focus-within {
     border-color: var(--accent);
+  }
+
+  .search-box.grouped {
+    border: none;
+    border-radius: 0;
+    background: none;
+    flex: 1;
+  }
+  .search-box.grouped:focus-within {
+    border-color: transparent;
   }
 
   .search-icon {

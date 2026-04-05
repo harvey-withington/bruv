@@ -1,5 +1,5 @@
 // Reactive app state using Svelte 5 module-level $state
-import { ListCategories, GetCard, ListCardIDsInCategory, GetProjectLabels, ListCardTypes } from './api'
+import { ListCategories, GetCard, ListCardIDsInCategory, GetProjectLabels, ListCardTypes, GetTagColors } from './api'
 import type { CardTypeInfo } from './types'
 
 // Navigation state
@@ -63,10 +63,23 @@ export const prefs = $state({
 // Project tags — per-project tag definitions (source of truth for tag colors)
 export const projectTags = $state<{ list: Array<{ id: string; name: string; color: string }> }>({ list: [] })
 
-// Resolve a tag name to its project-level color
+// Global tag colors — repo-wide map loaded on repo open, used as fallback when no project is active
+export const globalTagColors = $state<{ map: Record<string, string> }>({ map: {} })
+
+// Resolve a tag name to its color.
+// Prefers the active project's label color; falls back to the global tags.json map.
 export function getTagColor(tagName: string): string {
-  const pt = projectTags.list.find(t => t.name.toLowerCase() === tagName.toLowerCase())
-  return pt?.color || 'var(--border)'
+  const lower = tagName.toLowerCase()
+  const pt = projectTags.list.find(t => t.name.toLowerCase() === lower)
+  if (pt?.color) return pt.color
+  return globalTagColors.map[tagName] || globalTagColors.map[lower] || 'var(--border)'
+}
+
+// Load (or refresh) the global tag color map from the backend.
+export async function loadGlobalTagColors() {
+  try {
+    globalTagColors.map = await GetTagColors() || {}
+  } catch { /* ignore — map stays as-is */ }
 }
 
 // Drag and drop state
@@ -89,6 +102,15 @@ export const columnSettings = $state({ openCategoryId: null as string | null })
 
 // Global card-open request (set by bruv: link clicks, consumed by App.svelte)
 export const navigate = $state<{ openCardId: string | null }>({ openCardId: null })
+
+// Inbox search filter fields — which fields the search query is matched against
+export const inboxSearchFilters = $state({
+  title: true,
+  type: true,
+  tags: true,
+  actor: true,
+  project: true,
+})
 
 // Search state
 export const search = $state({

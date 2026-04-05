@@ -10,8 +10,10 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,6 +32,9 @@ type App struct {
 	savedBounds     *config.WindowBounds
 	boundsRestored  bool
 	lastSavedBounds *config.WindowBounds
+	// llmActors tracks active LLM chat sessions by cardID → model name.
+	// Set during SendChatMessage so logActivity can attribute edits to the correct actor.
+	llmActors sync.Map
 }
 
 // NewApp creates a new App application struct
@@ -179,6 +184,9 @@ func (a *App) InitRepository(basePath, name string) (string, error) {
 	// Add to recent repos
 	_ = config.AddRecent(r.Root, name)
 
+	// Heal tag colours in the background — no-op for a fresh repo, safe to run.
+	go a.healTagColors()
+
 	return r.Root, nil
 }
 
@@ -212,6 +220,9 @@ func (a *App) OpenRepository(path string) error {
 
 	// Add to recent repos
 	_ = config.AddRecent(path, r.Manifest.Name)
+
+	// Heal tag colours in the background — no-op if already healthy.
+	go a.healTagColors()
 
 	return nil
 }
@@ -555,6 +566,62 @@ func (a *App) MoveCategoryCards(brandSlug, streamSlug, projectSlug, fromCategory
 
 // --- Card ---
 
+// logActivity records a card action to the activity log asynchronously.
+// It is safe to call from any goroutine; errors are silently swallowed.
+// If a.llmActors has an entry for cardID the action is attributed to that LLM model;
+// otherwise it is attributed to the signed-in user's profile.
+func (a *App) logActivity(cardID, action, field string) {
+	if a.repo == nil {
+		return
+	}
+	go func() {
+		var actor, actorType string
+		if v, ok := a.llmActors.Load(cardID); ok {
+			actor = v.(string)
+			actorType = "llm"
+		} else {
+			p, _ := config.LoadProfile()
+			actor = p.DisplayName
+			if actor == "" {
+				actor = "User"
+			}
+			actorType = "user"
+		}
+
+		cardTitle := ""
+		card, err := a.repo.GetCard(cardID)
+		if err == nil {
+			cardTitle = card.Title
+		}
+
+		entry := model.ActivityEntry{
+			ID:        uuid.New().String(),
+			Timestamp: time.Now().UTC(),
+			Actor:     actor,
+			ActorType: actorType,
+			Action:    action,
+			Field:     field,
+			CardID:    cardID,
+			CardTitle: cardTitle,
+		}
+
+		// Best-effort path resolution from first pin breadcrumb
+		breadcrumbs, err := a.GetCardPinBreadcrumbs(cardID)
+		if err == nil && len(breadcrumbs) > 0 {
+			bc := breadcrumbs[0]
+			entry.BrandSlug = bc.BrandSlug
+			entry.StreamSlug = bc.StreamSlug
+			entry.ProjectSlug = bc.ProjectSlug
+			entry.BrandName = bc.BrandName
+			entry.StreamName = bc.StreamName
+			entry.ProjectName = bc.ProjectName
+			entry.CategoryName = bc.CategoryName
+		}
+
+		a.repo.AppendActivity(entry)
+	}()
+}
+
 func (a *App) CreateCard(cardType, title string) (*model.Card, error) {
 	title = repo.SanitizeText(title)
 	if a.repo == nil {
@@ -567,6 +634,7 @@ func (a *App) CreateCard(cardType, title string) (*model.Card, error) {
 	if a.idx != nil {
 		_ = a.idx.IndexCard(card, time.Now(), "")
 	}
+	a.logActivity(card.ID, model.ActivityCreated, "")
 	return card, nil
 }
 
@@ -673,8 +741,11 @@ func (a *App) UpdateCardTitle(id, title string) (*model.Card, error) {
 	card, err := a.repo.UpdateCard(id, func(c *model.Card) {
 		c.Title = title
 	})
-	if err == nil && a.idx != nil {
-		_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
+	if err == nil {
+		if a.idx != nil {
+			_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
+		}
+		a.logActivity(id, model.ActivityUpdatedTitle, "title")
 	}
 	return card, err
 }
@@ -696,6 +767,7 @@ func (a *App) UpdateCardType(id, cardType string) (*model.Card, error) {
 	if a.idx != nil {
 		_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
 	}
+	a.logActivity(id, model.ActivityUpdatedType, cardType)
 	if cardType != "" {
 		a.applyTypeBlocks(id, cardType)
 	}
@@ -733,8 +805,11 @@ func (a *App) UpdateCardBlocks(id string, blocks []model.Block) (*model.Card, er
 		return nil, fmt.Errorf("no repository open")
 	}
 	card, err := a.repo.UpdateCardBlocks(id, blocks)
-	if err == nil && a.idx != nil {
-		_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
+	if err == nil {
+		if a.idx != nil {
+			_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
+		}
+		a.logActivity(id, model.ActivityUpdatedField, "content")
 	}
 	return card, err
 }
@@ -774,12 +849,12 @@ func (a *App) UpdateCardTags(id string, tags []string) (*model.Card, error) {
 	card, err := a.repo.UpdateCard(id, func(c *model.Card) {
 		c.Tags = tags
 	})
-	if err == nil && a.idx != nil {
-		_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
-	}
-	// Sync new tags to all projects the card is pinned to
 	if err == nil {
+		if a.idx != nil {
+			_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
+		}
 		a.syncTagsToAllPinnedProjects(id)
+		a.logActivity(id, model.ActivityUpdatedTags, "tags")
 	}
 	return card, err
 }
@@ -821,8 +896,11 @@ func (a *App) UpdateCardDueDate(id, dueDate string) (*model.Card, error) {
 			c.DueDate = &t
 		}
 	})
-	if err == nil && a.idx != nil {
-		_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
+	if err == nil {
+		if a.idx != nil {
+			_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
+		}
+		a.logActivity(id, model.ActivityUpdatedDate, "due date")
 	}
 	return card, err
 }
@@ -910,6 +988,7 @@ func (a *App) PinCard(cardID, projectID, categoryID string) error {
 	}
 	// Sync card tags to the target project's tag definitions
 	a.syncCardTagsToProject(cardID, categoryID)
+	a.logActivity(cardID, model.ActivityPinned, "")
 	return nil
 }
 
@@ -930,7 +1009,76 @@ func (a *App) syncCardTagsToProject(cardID, categoryID string) {
 	}
 	for _, tag := range card.Tags {
 		if !existing[strings.ToLower(tag)] {
+			// AddProjectLabel now syncs with tags.json automatically.
 			a.repo.AddProjectLabel(brandSlug, streamSlug, projectSlug, tag, "")
+		}
+	}
+}
+
+// healTagColors runs in the background after a repository is opened.
+// It walks every card and ensures each tag appears (with a colour) in every
+// project the card is pinned to, and in the global tags.json. This lazily
+// repairs cards created before the tag colour system was finalised.
+func (a *App) healTagColors() {
+	if a.repo == nil {
+		return
+	}
+
+	cards, err := a.repo.ListCards()
+	if err != nil || len(cards) == 0 {
+		return
+	}
+
+	// Pre-build a categoryID → (brandSlug, streamSlug, projectSlug) lookup.
+	type hierKey struct{ brand, stream, project string }
+	catToHier := make(map[string]hierKey)
+	brands, _ := a.repo.ListBrands()
+	for _, b := range brands {
+		streams, _ := a.repo.ListStreams(b.Slug)
+		for _, s := range streams {
+			projects, _ := a.repo.ListProjects(b.Slug, s.Slug)
+			for _, p := range projects {
+				cats, _ := a.repo.ListCategories(b.Slug, s.Slug, p.Slug)
+				for _, c := range cats {
+					catToHier[c.ID] = hierKey{b.Slug, s.Slug, p.Slug}
+				}
+			}
+		}
+	}
+
+	// For each card, ensure every tag is present (with colour) in every pinned project.
+	for _, card := range cards {
+		if len(card.Tags) == 0 {
+			continue
+		}
+		pins, err := a.repo.GetCardPins(card.ID)
+		if err != nil {
+			continue
+		}
+		// Collect unique projects this card is pinned to.
+		seen := make(map[string]bool)
+		for _, pin := range pins {
+			h, ok := catToHier[pin.CategoryID]
+			if !ok {
+				continue
+			}
+			key := h.brand + "/" + h.stream + "/" + h.project
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+
+			labels, _ := a.repo.GetProjectLabels(h.brand, h.stream, h.project)
+			existing := make(map[string]bool, len(labels))
+			for _, l := range labels {
+				existing[strings.ToLower(l.Name)] = true
+			}
+			for _, tag := range card.Tags {
+				if !existing[strings.ToLower(tag)] {
+					// AddProjectLabel syncs colour to tags.json.
+					a.repo.AddProjectLabel(h.brand, h.stream, h.project, tag, "")
+				}
+			}
 		}
 	}
 }
@@ -939,6 +1087,8 @@ func (a *App) UnpinCard(cardID, projectID, categoryID string) error {
 	if a.repo == nil {
 		return fmt.Errorf("no repository open")
 	}
+	// Log before unpin so the path is still resolvable
+	a.logActivity(cardID, model.ActivityUnpinned, "")
 	if err := a.repo.UnpinCard(cardID, projectID, categoryID); err != nil {
 		return err
 	}
@@ -1848,6 +1998,104 @@ func (a *App) ListCardIDsByTag(tag string) ([]string, error) {
 	return a.idx.ListCardIDsByTag(tag)
 }
 
+// ListActivityLog returns the most-recent limit activity entries, newest first.
+func (a *App) ListActivityLog(limit int) ([]model.ActivityEntry, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	return a.repo.ListActivity(limit)
+}
+
+// RecentCard is a card summary enriched with its first-pin path, used by the inbox.
+type RecentCard struct {
+	ID           string    `json:"id"`
+	Title        string    `json:"title"`
+	Type         string    `json:"type"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Tags         []string  `json:"tags"`
+	DueDate      string    `json:"due_date,omitempty"`
+	BrandSlug    string    `json:"brand_slug,omitempty"`
+	StreamSlug   string    `json:"stream_slug,omitempty"`
+	ProjectSlug  string    `json:"project_slug,omitempty"`
+	BrandName    string    `json:"brand_name,omitempty"`
+	StreamName   string    `json:"stream_name,omitempty"`
+	ProjectName  string    `json:"project_name,omitempty"`
+	CategoryName string    `json:"category_name,omitempty"`
+	Breadcrumb   string    `json:"breadcrumb,omitempty"`
+}
+
+// ListRecentlyUpdatedCards returns up to limit cards sorted by UpdatedAt descending.
+// Orphaned cards (no pins) are excluded so every result has a navigable path.
+func (a *App) ListRecentlyUpdatedCards(limit int) ([]RecentCard, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	if limit <= 0 {
+		limit = 15
+	}
+
+	all, err := a.repo.ListCards()
+	if err != nil {
+		return nil, err
+	}
+
+	// Pre-build a breadcrumb lookup by categoryID for fast resolution
+	allCats, _ := a.ListAllCategories()
+	catByID := make(map[string]CategoryPath, len(allCats))
+	for _, cp := range allCats {
+		catByID[cp.CategoryID] = cp
+	}
+
+	// Sort all cards newest-first by UpdatedAt
+	sorted := make([]model.Card, len(all))
+	copy(sorted, all)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].UpdatedAt.After(sorted[j].UpdatedAt)
+	})
+
+	result := make([]RecentCard, 0, limit)
+	for _, card := range sorted {
+		if len(result) >= limit {
+			break
+		}
+
+		// Resolve pins; skip orphaned cards
+		pins, err := a.repo.GetCardPins(card.ID)
+		if err != nil || len(pins) == 0 {
+			continue
+		}
+
+		rc := RecentCard{
+			ID:        card.ID,
+			Title:     card.Title,
+			Type:      card.Type,
+			UpdatedAt: card.UpdatedAt,
+			Tags:      card.Tags,
+		}
+		if card.DueDate != nil {
+			rc.DueDate = card.DueDate.Format("2006-01-02")
+		}
+
+		// Enrich with first-pin path
+		if cp, ok := catByID[pins[0].CategoryID]; ok {
+			rc.BrandSlug = cp.BrandSlug
+			rc.StreamSlug = cp.StreamSlug
+			rc.ProjectSlug = cp.ProjectSlug
+			rc.BrandName = cp.BrandName
+			rc.StreamName = cp.StreamName
+			rc.ProjectName = cp.ProjectName
+			rc.CategoryName = cp.CategoryName
+			rc.Breadcrumb = cp.Breadcrumb
+		}
+
+		result = append(result, rc)
+	}
+	return result, nil
+}
+
 // --- User Preferences ---
 
 func (a *App) GetPreferences() (config.Preferences, error) {
@@ -1915,6 +2163,10 @@ func (a *App) SendChatMessage(cardID, userMessage string) (*model.ChatFile, erro
 	if err != nil || cfg.Provider == "" {
 		return cf, nil
 	}
+
+	// Attribute all card edits in this chat turn to the LLM model
+	a.llmActors.Store(cardID, cfg.Model)
+	defer a.llmActors.Delete(cardID)
 
 	// 3. Create provider
 	provider, err := llm.NewProvider(cfg.Provider, cfg.APIKey, cfg.BaseURL)

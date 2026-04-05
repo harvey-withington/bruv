@@ -25,6 +25,7 @@
     sidebar_width: 260,
     type_badge_display: 'color' as 'text' | 'color' | 'hidden',
     default_category_name: 'Ideas',
+    inbox_recent_cards_limit: 15,
   })
 
   // --- AI / LLM ---
@@ -59,6 +60,7 @@
         prefs.sidebar_width = nav.sidebarWidth
         prefs.type_badge_display = (p.type_badge_display || 'color') as 'text' | 'color' | 'hidden'
         prefs.default_category_name = p.default_category_name || 'Ideas'
+        prefs.inbox_recent_cards_limit = p.inbox_recent_cards_limit || 15
       }
       if (c) {
         llm.context = c.context || ''
@@ -137,6 +139,7 @@
     { tab: 'general', key: 'sidebar_width', label: 'sidebar width' },
     { tab: 'general', key: 'type_badge_display', label: 'category type badges' },
     { tab: 'general', key: 'default_category_name', label: 'default category name' },
+    { tab: 'general', key: 'inbox_recent_cards_limit', label: 'inbox recently updated card limit' },
     { tab: 'ai', key: 'provider', label: 'ai provider openai anthropic ollama' },
     { tab: 'ai', key: 'model', label: 'ai model' },
     { tab: 'ai', key: 'api_key', label: 'api key' },
@@ -295,6 +298,20 @@
                 class="text-input"
               />
               <span class="field-hint">{t('prefs.default_category_hint')}</span>
+            </label>
+          {/if}
+
+          {#if fieldVisible('inbox_recent_cards_limit')}
+            <label class="field">
+              <span class="field-label">{t('prefs.inbox_recent_limit')}</span>
+              <input
+                type="number"
+                min="1"
+                max="100"
+                bind:value={prefs.inbox_recent_cards_limit}
+                class="text-input number-input"
+              />
+              <span class="field-hint">{t('prefs.inbox_recent_limit_hint')}</span>
             </label>
           {/if}
         {/if}
@@ -540,7 +557,7 @@
     color: var(--text-secondary);
   }
 
-  select, input[type="text"], input[type="password"], .text-input, textarea {
+  select, input[type="text"], input[type="password"], input[type="number"], .text-input, textarea {
     padding: 0.45rem 0.6rem;
     border-radius: 6px;
     border: 1px solid var(--border);
@@ -551,7 +568,7 @@
     outline: none;
     box-sizing: border-box;
   }
-  select:focus, input[type="text"]:focus, input[type="password"]:focus, .text-input:focus, textarea:focus {
+  select:focus, input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:focus, .text-input:focus, textarea:focus {
     border-color: var(--accent);
   }
   select:disabled, input:disabled, textarea:disabled {
@@ -569,6 +586,10 @@
   .field-hint {
     font-size: 0.75rem;
     color: var(--text-muted);
+  }
+
+  .number-input {
+    width: 6rem;
   }
 
   input[type="checkbox"] {

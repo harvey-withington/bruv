@@ -1065,25 +1065,21 @@
             onclick={() => showOtherPins = !showOtherPins}
             disabled={pinActionLoading}
           >
-            {t('card.other_pins')}{otherPins.length > 0 ? ` (${otherPins.length})` : ''} {showOtherPins ? '▲' : '▼'}
+            {t('card.other_pins')} ({otherPins.length}) {showOtherPins ? '▲' : '▼'}
           </button>
 
         {:else}
-          <!-- No context category (inbox or search) -->
+          <!-- No context category (inbox) — show pins list directly -->
           {#if pinBreadcrumbs.length === 0}
-            <!-- Inbox: card has no pins — show direct pin action -->
             <button class="btn-pin" onclick={openPinPicker} disabled={pinActionLoading}><MapPin size={11} /> {t('card.pin_to')}</button>
           {:else}
-            <!-- Opened from search with existing pins — show summary + editor -->
-            <span class="location-inbox"><MapPin size={11} /> {pinBreadcrumbs.length !== 1 ? t('card.pin_count_plural').replace('{count}', String(pinBreadcrumbs.length)) : t('card.pin_count').replace('{count}', String(pinBreadcrumbs.length))}</span>
-            <button
-              class="btn-other-pins"
-              class:expanded={showOtherPins}
-              onclick={() => showOtherPins = !showOtherPins}
-              disabled={pinActionLoading}
-            >
-              {showOtherPins ? `${t('card.hide_pins')} ▲` : `${t('card.edit_pins')} ▼`}
-            </button>
+            {#each pinBreadcrumbs as pin}
+              <div class="location-pin">
+                <button class="location-breadcrumb" onclick={() => navigateToPinnedProject(pin)} title={t('tooltip.go_to_project')}><MapPin size={11} />{pin.breadcrumb}</button>
+                <button class="btn-pin-action btn-unpin" onclick={() => handleUnpin(pin)} disabled={pinActionLoading} title={t('tooltip.unpin')} aria-label={t('tooltip.unpin')}><MapPinOff size={11} /></button>
+              </div>
+            {/each}
+            <button class="btn-pin" onclick={openPinPicker} disabled={pinActionLoading}>{t('card.pin_to_category')}</button>
           {/if}
         {/if}
 
@@ -1102,7 +1098,7 @@
       </div>
 
       <div class="modal-body">
-        <!-- Standard fields: compact 2-column grid -->
+        <!-- Standard fields: compact 2-column grid + FAB in third column -->
         <div class="fields-grid">
           <div class="field-cell">
             <span class="field-label">{t('card.due_date')}</span>
@@ -1134,6 +1130,20 @@
               />
             </div>
           </div>
+          <button class="fab-add-block" bind:this={fabBtnEl} onclick={toggleBlockPicker} title={t('tooltip.add_block')}>
+            <Plus size={16} />
+          </button>
+          {#if showBlockPicker}
+            <div class="fab-picker" bind:this={fabPickerEl} style="position:fixed; top:{fabPickerPos.top}px; left:{fabPickerPos.left}px;">
+              {#each BLOCK_OPTIONS as opt}
+                {@const Icon = BLOCK_ICON_MAP[opt.icon]}
+                <button class="block-picker-item" onclick={() => addBlock(opt.type)} title={opt.label}>
+                  <Icon size={14} />
+                  <span>{opt.label}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
         </div>
 
         <!-- Description (standard field, always present) -->
@@ -1161,29 +1171,15 @@
           {/if}
         </section>
 
-        <!-- Block toolbar: expand/collapse all + add block -->
-        <div class="block-toolbar">
-          {#if (card.blocks || []).filter(b => b.key !== 'description' && b.type !== 'divider').length > 1}
+        <!-- Block toolbar: expand/collapse all -->
+        {#if (card.blocks || []).filter(b => b.key !== 'description' && b.type !== 'divider').length > 1}
+          <div class="block-toolbar">
             <button class="block-toolbar-btn" onclick={expandAllBlocks} title={t('block.expand_all')}>
               <ChevronDown size={13} />
             </button>
             <button class="block-toolbar-btn" onclick={collapseAllBlocks} title={t('block.collapse_all')}>
               <ChevronRight size={13} />
             </button>
-          {/if}
-          <button class="fab-add-block" bind:this={fabBtnEl} onclick={toggleBlockPicker} title={t('tooltip.add_block')}>
-            <Plus size={16} />
-          </button>
-        </div>
-        {#if showBlockPicker}
-          <div class="fab-picker" bind:this={fabPickerEl} style="position:fixed; top:{fabPickerPos.top}px; left:{fabPickerPos.left}px;">
-            {#each BLOCK_OPTIONS as opt}
-              {@const Icon = BLOCK_ICON_MAP[opt.icon]}
-              <button class="block-picker-item" onclick={() => addBlock(opt.type)} title={opt.label}>
-                <Icon size={14} />
-                <span>{opt.label}</span>
-              </button>
-            {/each}
           </div>
         {/if}
 
@@ -2019,6 +2015,8 @@
   }
 
   .fab-add-block {
+    align-self: center;
+    justify-self: center;
     display: flex;
     align-items: center;
     justify-content: center;

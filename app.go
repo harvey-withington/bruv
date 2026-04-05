@@ -1615,7 +1615,7 @@ var seedTypes = []config.UserCardType{
 }
 
 // ensureSeeded adds the pre-installed seed types on first run.
-func ensureSeeded(store *config.UserTypeStore) bool {
+func (a *App) ensureSeeded(store *config.UserTypeStore) bool {
 	if store.Seeded {
 		return false
 	}
@@ -1626,10 +1626,68 @@ func ensureSeeded(store *config.UserTypeStore) bool {
 	return true
 }
 
+// ensureStarterTemplates runs once (guarded by StarterTemplatesSeeded) to create
+// starter templates from built-in schemas and link them to their card types.
+// Runs for all users including those who were already seeded before this feature.
+func (a *App) ensureStarterTemplates(store *config.UserTypeStore) bool {
+	if store.StarterTemplatesSeeded || a.registry == nil {
+		return false
+	}
+	store.StarterTemplatesSeeded = true
+
+	if store.BuiltinOverrides == nil {
+		store.BuiltinOverrides = make(map[string]config.BuiltinOverride)
+	}
+
+	// Create one starter template per schema.
+	schemaTemplateIDs := make(map[string]string) // typeID → templateID
+	for _, typeName := range a.registry.List() {
+		blocks := a.registry.SchemaToBlocks(typeName)
+		if len(blocks) == 0 {
+			continue
+		}
+		name := typeName
+		if s := a.registry.Get(typeName); s != nil && s.Name != "" {
+			name = s.Name
+		}
+		tmpl := config.CardTemplate{
+			ID:     uuid.New().String(),
+			Name:   name,
+			Blocks: blocks,
+		}
+		store.Templates = append(store.Templates, tmpl)
+		schemaTemplateIDs[typeName] = tmpl.ID
+	}
+
+	// Link user types that have no template yet.
+	for i, ut := range store.Types {
+		if ut.TemplateID == "" {
+			if tid, ok := schemaTemplateIDs[ut.ID]; ok {
+				store.Types[i].TemplateID = tid
+			}
+		}
+	}
+
+	// Link built-in types that have no override template yet.
+	for _, bt := range builtinTypes {
+		if tid, ok := schemaTemplateIDs[bt.ID]; ok {
+			ov := store.BuiltinOverrides[bt.ID]
+			if ov.TemplateID == "" {
+				ov.TemplateID = tid
+				store.BuiltinOverrides[bt.ID] = ov
+			}
+		}
+	}
+
+	return true
+}
+
 // ListCardTypes returns all card types (built-in first, then user-defined).
 func (a *App) ListCardTypes() []CardTypeInfo {
 	store, _ := config.LoadUserTypeStore()
-	if ensureSeeded(&store) {
+	dirty := a.ensureSeeded(&store)
+	dirty = a.ensureStarterTemplates(&store) || dirty
+	if dirty {
 		_ = config.SaveUserTypeStore(store)
 	}
 
@@ -1680,34 +1738,27 @@ func (a *App) ValidateCardFields(cardType string, fields map[string]any) []strin
 func (a *App) applyTypeBlocks(cardID, cardType string) {
 	var templateBlocks []model.Block
 
-	if a.registry != nil {
-		templateBlocks = a.registry.SchemaToBlocks(cardType)
-	}
+	store, _ := config.LoadUserTypeStore()
 
-	// If no built-in schema blocks, check user type templates and builtin overrides
-	if len(templateBlocks) == 0 {
-		store, _ := config.LoadUserTypeStore()
-
-		// Check builtin override template
-		if ov, ok := store.BuiltinOverrides[cardType]; ok && ov.TemplateID != "" {
+	// Priority 1: user-defined type template (always wins over schema)
+	for _, ut := range store.Types {
+		if ut.ID == cardType && ut.TemplateID != "" {
 			for _, tmpl := range store.Templates {
-				if tmpl.ID == ov.TemplateID {
+				if tmpl.ID == ut.TemplateID {
 					templateBlocks = cloneBlocksWithFreshIDs(tmpl.Blocks)
 					break
 				}
 			}
+			break
 		}
+	}
 
-		// Check user type templates
-		if len(templateBlocks) == 0 {
-			for _, ut := range store.Types {
-				if ut.ID == cardType && ut.TemplateID != "" {
-					for _, tmpl := range store.Templates {
-						if tmpl.ID == ut.TemplateID {
-							templateBlocks = cloneBlocksWithFreshIDs(tmpl.Blocks)
-							break
-						}
-					}
+	// Priority 2: builtin override template
+	if len(templateBlocks) == 0 {
+		if ov, ok := store.BuiltinOverrides[cardType]; ok && ov.TemplateID != "" {
+			for _, tmpl := range store.Templates {
+				if tmpl.ID == ov.TemplateID {
+					templateBlocks = cloneBlocksWithFreshIDs(tmpl.Blocks)
 					break
 				}
 			}
@@ -2986,22 +3037,30 @@ func (a *App) stageToolCall(tc llm.ToolCall, allCats []CategoryPath) (string, []
 		cardType, _ := tc.Arguments["card_type"].(string)
 		fakeResult := "Card type will be set to " + cardType + "."
 		var previewBlocks []model.Block
-		if a.registry != nil {
-			previewBlocks = a.registry.SchemaToBlocks(cardType)
+		store, _ := config.LoadUserTypeStore()
+		for _, ut := range store.Types {
+			if ut.ID == cardType && ut.TemplateID != "" {
+				for _, tmpl := range store.Templates {
+					if tmpl.ID == ut.TemplateID {
+						previewBlocks = tmpl.Blocks
+						break
+					}
+				}
+				break
+			}
 		}
 		if len(previewBlocks) == 0 {
-			store, _ := config.LoadUserTypeStore()
-			for _, ut := range store.Types {
-				if ut.ID == cardType && ut.TemplateID != "" {
-					for _, tmpl := range store.Templates {
-						if tmpl.ID == ut.TemplateID {
-							previewBlocks = tmpl.Blocks
-							break
-						}
+			if ov, ok := store.BuiltinOverrides[cardType]; ok && ov.TemplateID != "" {
+				for _, tmpl := range store.Templates {
+					if tmpl.ID == ov.TemplateID {
+						previewBlocks = tmpl.Blocks
+						break
 					}
-					break
 				}
 			}
+		}
+		if len(previewBlocks) == 0 && a.registry != nil {
+			previewBlocks = a.registry.SchemaToBlocks(cardType)
 		}
 		if len(previewBlocks) > 0 {
 			var keys []string

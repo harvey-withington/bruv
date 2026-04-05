@@ -16,8 +16,10 @@
 
   let { card, categoryId, onclick }: { card: CardData; categoryId: string; onclick?: () => void } = $props()
 
+  const draggable = $derived(categoryId !== '__recent__')
+
   function handleDragStart(e: DragEvent) {
-    if (!e.dataTransfer) return
+    if (!draggable || !e.dataTransfer) return
     e.dataTransfer.effectAllowed = 'copyMove'
     e.dataTransfer.setData('text/plain', card.id)
     dnd.dragging = { type: 'card', cardId: card.id, fromCategoryId: categoryId, cardType: card.type || '' }
@@ -38,7 +40,8 @@
     ? (search.query.trim() && search.matchingIds.size > 0 && !search.matchingIds.has(card.id))
     : (boardSearch.query.trim() && boardSearch.matchingIds.size > 0 && !boardSearch.matchingIds.has(card.id))}
   class:dragging={dnd.dragging?.type === 'card' && dnd.dragging.cardId === card.id}
-  draggable="true"
+  class:no-drag={!draggable}
+  draggable={draggable}
   ondragstart={handleDragStart}
   ondragend={handleDragEnd}
   onclick={onclick}
@@ -50,7 +53,7 @@
     {/if}
   </div>
 
-  <p class="card-title">{@html renderInline(card.title)}</p>
+  <p class="card-title" title={card.title}>{@html renderInline(card.title)}</p>
 
   <div class="card-footer">
     {#if card.checklist_total > 0}
@@ -85,6 +88,10 @@
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
+  }
+
+  .card-item.no-drag {
+    cursor: default;
   }
 
   .card-item.dragging {
@@ -140,6 +147,9 @@
     color: var(--text-strong);
     line-height: 1.3;
     font-weight: 400;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .card-footer {
@@ -147,6 +157,7 @@
     align-items: center;
     gap: 0.5rem;
     flex-wrap: wrap;
+    min-height: 1.25rem;
   }
 
   .checklist-count {

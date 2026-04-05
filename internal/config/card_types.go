@@ -33,10 +33,11 @@ type BuiltinOverride struct {
 
 // UserTypeStore is the on-disk root for card_types.json.
 type UserTypeStore struct {
-	Seeded           bool                        `json:"seeded"`
-	Types            []UserCardType              `json:"types"`
-	Templates        []CardTemplate              `json:"templates"`
-	BuiltinOverrides map[string]BuiltinOverride  `json:"builtin_overrides,omitempty"`
+	Seeded                bool                       `json:"seeded"`
+	StarterTemplatesSeeded bool                      `json:"starter_templates_seeded,omitempty"`
+	Types                 []UserCardType             `json:"types"`
+	Templates             []CardTemplate             `json:"templates"`
+	BuiltinOverrides      map[string]BuiltinOverride `json:"builtin_overrides,omitempty"`
 }
 
 func userTypesPath() (string, error) {

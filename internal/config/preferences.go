@@ -16,6 +16,7 @@ type Preferences struct {
 	TypeBadgeDisplay      string `json:"type_badge_display"`       // "text", "color", "hidden"
 	DefaultCategoryName   string `json:"default_category_name"`    // auto-created when a project is made
 	InboxRecentCardsLimit int    `json:"inbox_recent_cards_limit"` // max cards shown in Recently Updated panel
+	InboxActivityLimit    int    `json:"inbox_activity_limit"`     // max entries shown in Activity feed
 }
 
 // DefaultPreferences returns sensible defaults.
@@ -28,7 +29,8 @@ func DefaultPreferences() Preferences {
 		SidebarWidth:          260,
 		TypeBadgeDisplay:      "color",
 		DefaultCategoryName:   "Ideas",
-		InboxRecentCardsLimit: 15,
+		InboxRecentCardsLimit: 21,
+		InboxActivityLimit:    25,
 	}
 }
 

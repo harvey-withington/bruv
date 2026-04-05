@@ -3,8 +3,8 @@
   import Column from './Column.svelte'
   import CardDetail from './CardDetail.svelte'
   import InboxView from './InboxView.svelte'
-  import { board, nav, dnd, search, loadBoard } from '../lib/store.svelte'
-  import { CreateCard, PinCard, CreateCategory, RenameCategory, GetCard, MoveCardInCategory, MoveCardToCategory, ReorderCategories, DeleteCategory, DeleteCard, MoveCategoryCards, DuplicateCard, CopyCategory, SearchCards, SearchOrphanedCards } from '../lib/api'
+  import { board, nav, dnd, boardSearch, boardSearchFilters, loadBoard } from '../lib/store.svelte'
+  import { CreateCard, PinCard, CreateCategory, RenameCategory, GetCard, MoveCardInCategory, MoveCardToCategory, ReorderCategories, DeleteCategory, DeleteCard, MoveCategoryCards, DuplicateCard, CopyCategory } from '../lib/api'
   import { t } from '../lib/i18n.svelte'
   import { focusTrap } from '../lib/actions'
 
@@ -360,16 +360,27 @@
   async function refreshBoard() {
     if (!nav.brandSlug || !nav.streamSlug || !nav.projectSlug) return
     await loadBoard(nav.brandSlug, nav.streamSlug, nav.projectSlug)
-
-    // Re-run search to keep highlights current
-    if (search.query.trim()) {
-      try {
-        const results = await SearchCards(search.query, 20)
-        search.results = results || []
-        search.matchingIds = new Set(search.results.map(r => r.CardID))
-      } catch { /* keep existing results */ }
-    }
+    // matchingIds are kept current by the $effect below
   }
+
+  // Client-side board search — reacts to query, filters, and board data
+  $effect(() => {
+    const q = boardSearch.query.trim().toLowerCase()
+    if (!q) {
+      boardSearch.matchingIds = new Set()
+      return
+    }
+    const ids = new Set<string>()
+    for (const cat of board.categories) {
+      for (const card of cat.cards) {
+        const matchTitle = boardSearchFilters.title && card.title.toLowerCase().includes(q)
+        const matchType = boardSearchFilters.type && card.type.toLowerCase().includes(q)
+        const matchTags = boardSearchFilters.tags && card.tags.some(tag => tag.toLowerCase().includes(q))
+        if (matchTitle || matchType || matchTags) ids.add(card.id)
+      }
+    }
+    boardSearch.matchingIds = ids
+  })
 </script>
 
 <div class="board">

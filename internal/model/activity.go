@@ -24,6 +24,7 @@ type ActivityEntry struct {
 // Activity action constants.
 const (
 	ActivityCreated      = "created"
+	ActivityDeleted      = "deleted"
 	ActivityUpdatedTitle = "updated_title"
 	ActivityUpdatedType  = "updated_type"
 	ActivityUpdatedField = "updated_field"

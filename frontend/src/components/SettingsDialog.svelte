@@ -25,7 +25,8 @@
     sidebar_width: 260,
     type_badge_display: 'color' as 'text' | 'color' | 'hidden',
     default_category_name: 'Ideas',
-    inbox_recent_cards_limit: 15,
+    inbox_recent_cards_limit: 21,
+    inbox_activity_limit: 25,
   })
 
   // --- AI / LLM ---
@@ -60,7 +61,8 @@
         prefs.sidebar_width = nav.sidebarWidth
         prefs.type_badge_display = (p.type_badge_display || 'color') as 'text' | 'color' | 'hidden'
         prefs.default_category_name = p.default_category_name || 'Ideas'
-        prefs.inbox_recent_cards_limit = p.inbox_recent_cards_limit || 15
+        prefs.inbox_recent_cards_limit = p.inbox_recent_cards_limit || 21
+        prefs.inbox_activity_limit = p.inbox_activity_limit || 25
       }
       if (c) {
         llm.context = c.context || ''
@@ -312,6 +314,20 @@
                 class="text-input number-input"
               />
               <span class="field-hint">{t('prefs.inbox_recent_limit_hint')}</span>
+            </label>
+          {/if}
+
+          {#if fieldVisible('inbox_activity_limit')}
+            <label class="field">
+              <span class="field-label">{t('prefs.inbox_activity_limit')}</span>
+              <input
+                type="number"
+                min="1"
+                max="500"
+                bind:value={prefs.inbox_activity_limit}
+                class="text-input number-input"
+              />
+              <span class="field-hint">{t('prefs.inbox_activity_limit_hint')}</span>
             </label>
           {/if}
         {/if}

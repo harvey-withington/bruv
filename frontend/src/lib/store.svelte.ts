@@ -112,7 +112,14 @@ export const inboxSearchFilters = $state({
   project: true,
 })
 
-// Search state
+// Board search filter fields — client-side filtering on loaded board cards
+export const boardSearchFilters = $state({
+  title: true,
+  type: true,
+  tags: true,
+})
+
+// Inbox search state (activity feed, orphaned cards)
 export const search = $state({
   query: '',
   results: [] as Array<{
@@ -122,6 +129,12 @@ export const search = $state({
     Rank: number
   }>,
   open: false,
+  matchingIds: new Set<string>(),
+})
+
+// Board search state — independent from inbox, client-side filtering only
+export const boardSearch = $state({
+  query: '',
   matchingIds: new Set<string>(),
 })
 

@@ -59,18 +59,20 @@
   )
 
   async function loadRecentAndActivity() {
-    let limit = 15
+    let recentLimit = 21
+    let activityLimit = 25
     try {
       const p = await GetPreferences()
-      limit = p.inbox_recent_cards_limit || 15
-    } catch { /* use default */ }
+      recentLimit = p.inbox_recent_cards_limit || 21
+      activityLimit = p.inbox_activity_limit || 25
+    } catch { /* use defaults */ }
 
     recentLoading = true
     activityLoading = true
     try {
       const [recent, activity] = await Promise.all([
-        ListRecentlyUpdatedCards(limit).catch(() => [] as RecentCard[]),
-        ListActivityLog(50).catch(() => [] as ActivityEntry[]),
+        ListRecentlyUpdatedCards(recentLimit).catch(() => [] as RecentCard[]),
+        ListActivityLog(activityLimit).catch(() => [] as ActivityEntry[]),
       ])
       recentCards = recent
       activityEntries = activity

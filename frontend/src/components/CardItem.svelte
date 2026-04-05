@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { search, dnd, getTagColor, cardTypes } from '../lib/store.svelte'
+  import { search, boardSearch, nav, dnd, getTagColor, cardTypes } from '../lib/store.svelte'
   import { renderInline } from '../lib/markdown'
   import { t } from '../lib/i18n.svelte'
   import { getCardTypeColor, getCardTypeTextColor } from '../lib/cardTypes'
@@ -33,8 +33,10 @@
 
 <button
   class="card-item"
-  class:search-highlight={search.matchingIds.has(card.id)}
-  class:search-dimmed={search.query.trim() && search.matchingIds.size > 0 && !search.matchingIds.has(card.id)}
+  class:search-highlight={nav.inboxMode ? search.matchingIds.has(card.id) : boardSearch.matchingIds.has(card.id)}
+  class:search-collapsed={nav.inboxMode
+    ? (search.query.trim() && search.matchingIds.size > 0 && !search.matchingIds.has(card.id))
+    : (boardSearch.query.trim() && boardSearch.matchingIds.size > 0 && !boardSearch.matchingIds.has(card.id))}
   class:dragging={dnd.dragging?.type === 'card' && dnd.dragging.cardId === card.id}
   draggable="true"
   ondragstart={handleDragStart}
@@ -94,8 +96,14 @@
     box-shadow: 0 2px 8px var(--shadow);
   }
 
-  .card-item.search-dimmed {
-    opacity: 0.5;
+  .card-item.search-collapsed {
+    opacity: 0.35;
+    gap: 0;
+  }
+
+  .card-item.search-collapsed .card-header,
+  .card-item.search-collapsed .card-footer {
+    display: none;
   }
 
   .card-item.search-highlight {

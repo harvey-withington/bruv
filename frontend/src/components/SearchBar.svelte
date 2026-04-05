@@ -1,34 +1,57 @@
 <script lang="ts">
-  import { search, nav, cardTypes } from '../lib/store.svelte'
-  import { SearchCards, SearchOrphanedCards } from '../lib/api'
+  import { search, boardSearch, nav, cardTypes } from '../lib/store.svelte'
+  import { SearchOrphanedCards } from '../lib/api'
   import { Search, X } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import { getCardTypeColor } from '../lib/cardTypes'
 
-  function clearSearch() {
-    search.query = ''
-    search.results = []
-    search.open = false
-    search.matchingIds = new Set()
-    inputEl?.focus()
-  }
+  let { onSelectCard, grouped = false }: { onSelectCard?: (cardId: string) => void; grouped?: boolean } = $props()
 
   let inputEl: HTMLInputElement | undefined = $state()
   let debounceTimer: ReturnType<typeof setTimeout> | undefined
 
-  let { onSelectCard, grouped = false }: { onSelectCard?: (cardId: string) => void; grouped?: boolean } = $props()
+  // The active store depends on context
+  const activeQuery = $derived(nav.inboxMode ? search.query : boardSearch.query)
 
-  function handleInput() {
-    clearTimeout(debounceTimer)
-    if (!search.query.trim()) {
+  function setQuery(q: string) {
+    if (nav.inboxMode) search.query = q
+    else boardSearch.query = q
+  }
+
+  function clearSearch() {
+    setQuery('')
+    if (nav.inboxMode) {
       search.results = []
       search.open = false
+      search.matchingIds = new Set()
+    } else {
+      boardSearch.matchingIds = new Set()
+    }
+    inputEl?.focus()
+  }
+
+  function handleInput(e: Event) {
+    const q = (e.target as HTMLInputElement).value
+    setQuery(q)
+    clearTimeout(debounceTimer)
+
+    if (!q.trim()) {
+      if (nav.inboxMode) {
+        search.results = []
+        search.open = false
+        search.matchingIds = new Set()
+      } else {
+        boardSearch.matchingIds = new Set()
+      }
       return
     }
+
+    // Board mode: client-side filtering handled by Board's $effect
+    if (!nav.inboxMode) return
+
     debounceTimer = setTimeout(async () => {
       try {
-        const searchFn = nav.inboxMode ? SearchOrphanedCards : SearchCards
-        const results = await searchFn(search.query, 20)
+        const results = await SearchOrphanedCards(search.query, 20)
         search.results = results || []
         search.open = search.results.length > 0
         search.matchingIds = new Set(search.results.map(r => r.CardID))
@@ -41,14 +64,13 @@
   }
 
   function handleFocus() {
-    if (search.query.trim() && search.results.length > 0) {
+    if (nav.inboxMode && search.query.trim() && search.results.length > 0) {
       search.open = true
     }
   }
 
   function handleBlur() {
-    // Delay closing so click on result registers
-    setTimeout(() => { search.open = false }, 200)
+    if (nav.inboxMode) setTimeout(() => { search.open = false }, 200)
   }
 
   function selectResult(cardId: string) {
@@ -61,9 +83,7 @@
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
-      search.open = false
-      search.query = ''
-      search.matchingIds = new Set()
+      clearSearch()
       inputEl?.blur()
     }
   }
@@ -75,7 +95,7 @@
     <input
       bind:this={inputEl}
       type="text"
-      bind:value={search.query}
+      value={activeQuery}
       oninput={handleInput}
       onfocus={handleFocus}
       onblur={handleBlur}
@@ -83,7 +103,7 @@
       placeholder={t('search.placeholder')}
       class="search-input"
     />
-    {#if search.query}
+    {#if activeQuery}
       <button class="search-clear" onclick={clearSearch} title={t('tooltip.clear_search')}><X size={12} /></button>
     {/if}
   </div>

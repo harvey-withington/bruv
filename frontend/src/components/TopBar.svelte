@@ -2,7 +2,7 @@
   import SearchBar from './SearchBar.svelte'
   import CardTypesTab from './CardTypesTab.svelte'
   import { Tags, SlidersHorizontal, BotMessageSquare, Inbox, Layers, Type, User, FolderOpen, Check } from 'lucide-svelte'
-  import { nav, inboxSearchFilters } from '../lib/store.svelte'
+  import { nav, inboxSearchFilters, boardSearchFilters } from '../lib/store.svelte'
   import { t } from '../lib/i18n.svelte'
 
   let { onSelectCard, onOpenTagEditor, onOpenProjectSettings, onCreateAIChat }: {
@@ -86,6 +86,39 @@
         </button>
         </div>
       </div>
+    {:else if nav.projectSlug}
+      <div class="search-filter-group">
+        <SearchBar {onSelectCard} grouped />
+        <div class="board-filters">
+          <button
+            class="filter-btn"
+            class:active={boardSearchFilters.title}
+            onclick={() => boardSearchFilters.title = !boardSearchFilters.title}
+            title={t('board.filter_title')}
+          >
+            <Type size={13} />
+            {#if boardSearchFilters.title}<span class="check"><Check size={10} strokeWidth={3} /></span>{/if}
+          </button>
+          <button
+            class="filter-btn"
+            class:active={boardSearchFilters.type}
+            onclick={() => boardSearchFilters.type = !boardSearchFilters.type}
+            title={t('board.filter_type')}
+          >
+            <Layers size={13} />
+            {#if boardSearchFilters.type}<span class="check"><Check size={10} strokeWidth={3} /></span>{/if}
+          </button>
+          <button
+            class="filter-btn"
+            class:active={boardSearchFilters.tags}
+            onclick={() => boardSearchFilters.tags = !boardSearchFilters.tags}
+            title={t('board.filter_tags')}
+          >
+            <Tags size={13} />
+            {#if boardSearchFilters.tags}<span class="check"><Check size={10} strokeWidth={3} /></span>{/if}
+          </button>
+        </div>
+      </div>
     {:else}
       <SearchBar {onSelectCard} />
     {/if}
@@ -137,7 +170,8 @@
     border-color: var(--accent);
   }
 
-  .inbox-filters {
+  .inbox-filters,
+  .board-filters {
     display: flex;
     align-items: center;
     border-left: 1px solid var(--border);

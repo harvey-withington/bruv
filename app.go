@@ -567,10 +567,10 @@ func (a *App) MoveCategoryCards(brandSlug, streamSlug, projectSlug, fromCategory
 // --- Card ---
 
 // logActivity records a card action to the activity log asynchronously.
-// It is safe to call from any goroutine; errors are silently swallowed.
-// If a.llmActors has an entry for cardID the action is attributed to that LLM model;
-// otherwise it is attributed to the signed-in user's profile.
-func (a *App) logActivity(cardID, action, field string) {
+// logActivityWithContext is the low-level activity writer. cardTitle and breadcrumbs
+// must be captured before calling (e.g. before a card is deleted). Actor resolution
+// is the only work deferred to the goroutine.
+func (a *App) logActivityWithContext(cardID, action, field, cardTitle string, breadcrumbs []CategoryPath) {
 	if a.repo == nil {
 		return
 	}
@@ -588,12 +588,6 @@ func (a *App) logActivity(cardID, action, field string) {
 			actorType = "user"
 		}
 
-		cardTitle := ""
-		card, err := a.repo.GetCard(cardID)
-		if err == nil {
-			cardTitle = card.Title
-		}
-
 		entry := model.ActivityEntry{
 			ID:        uuid.New().String(),
 			Timestamp: time.Now().UTC(),
@@ -605,9 +599,7 @@ func (a *App) logActivity(cardID, action, field string) {
 			CardTitle: cardTitle,
 		}
 
-		// Best-effort path resolution from first pin breadcrumb
-		breadcrumbs, err := a.GetCardPinBreadcrumbs(cardID)
-		if err == nil && len(breadcrumbs) > 0 {
+		if len(breadcrumbs) > 0 {
 			bc := breadcrumbs[0]
 			entry.BrandSlug = bc.BrandSlug
 			entry.StreamSlug = bc.StreamSlug
@@ -620,6 +612,22 @@ func (a *App) logActivity(cardID, action, field string) {
 
 		a.repo.AppendActivity(entry)
 	}()
+}
+
+// logActivity captures card context synchronously then logs asynchronously.
+// It is safe to call from any goroutine; errors are silently swallowed.
+// If a.llmActors has an entry for cardID the action is attributed to that LLM model;
+// otherwise it is attributed to the signed-in user's profile.
+func (a *App) logActivity(cardID, action, field string) {
+	if a.repo == nil {
+		return
+	}
+	cardTitle := ""
+	if card, err := a.repo.GetCard(cardID); err == nil {
+		cardTitle = card.Title
+	}
+	breadcrumbs, _ := a.GetCardPinBreadcrumbs(cardID)
+	a.logActivityWithContext(cardID, action, field, cardTitle, breadcrumbs)
 }
 
 func (a *App) CreateCard(cardType, title string) (*model.Card, error) {
@@ -722,13 +730,19 @@ func (a *App) DeleteCard(id string) error {
 	if a.repo == nil {
 		return fmt.Errorf("no repository open")
 	}
-	err := a.repo.DeleteCard(id)
-	if err != nil {
+	// Capture card context before deletion — both will fail once the card is gone.
+	cardTitle := ""
+	if card, err := a.repo.GetCard(id); err == nil {
+		cardTitle = card.Title
+	}
+	breadcrumbs, _ := a.GetCardPinBreadcrumbs(id)
+	if err := a.repo.DeleteCard(id); err != nil {
 		return err
 	}
 	if a.idx != nil {
 		_ = a.idx.RemoveCard(id)
 	}
+	a.logActivityWithContext(id, model.ActivityDeleted, "", cardTitle, breadcrumbs)
 	return nil
 }
 
@@ -2034,7 +2048,7 @@ func (a *App) ListRecentlyUpdatedCards(limit int) ([]RecentCard, error) {
 		return nil, fmt.Errorf("no repository open")
 	}
 	if limit <= 0 {
-		limit = 15
+		limit = 21
 	}
 
 	all, err := a.repo.ListCards()

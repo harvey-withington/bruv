@@ -24,6 +24,7 @@
   function actionLabel(entry: ActivityEntry): string {
     switch (entry.action) {
       case 'created':          return t('activity.created')
+      case 'deleted':          return t('activity.deleted')
       case 'updated_title':    return t('activity.updated_title')
       case 'updated_type':     return t('activity.updated_type')
       case 'updated_field':    return t('activity.updated_field', { field: entry.field || 'content' })

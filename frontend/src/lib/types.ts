@@ -154,6 +154,40 @@ export type RecentCard = {
   breadcrumb?: string
 }
 
+// --- Agent ---
+
+export type AgentStatus = 'idle' | 'running' | 'failed' | 'disabled'
+
+export type AgentConfig = {
+  enabled: boolean
+  goal: string
+  schedule: string
+  allowed_tools: string[]
+  status: AgentStatus
+  notify_on: string[]
+  notify_channel: string
+  last_run_at: string | null
+  next_run_at: string | null
+}
+
+export type AgentRun = {
+  id: string
+  card_id: string
+  started_at: string
+  finished_at: string | null
+  status: string
+  summary: string
+  tool_calls: { tool: string; input: Record<string, unknown>; result?: string }[]
+  error: string
+  tokens_used: number
+}
+
+export type AgentFile = {
+  card_id: string
+  config: AgentConfig
+  runs: AgentRun[]
+}
+
 // --- LLM: AI-specific configuration (grows independently) ---
 export type LLMConfig = {
   context: string
@@ -327,6 +361,11 @@ export interface BackendAdapter {
   ListCardIDsInCategory(projectID: string, categoryID: string): Promise<string[]>
   ListOrphanedCardIDs(): Promise<string[]>
   ListCardIDsByTag(tag: string): Promise<string[]>
+
+  // Agent
+  GetAgentConfig(cardID: string): Promise<AgentFile>
+  SaveAgentConfig(cardID: string, config: AgentConfig): Promise<void>
+  GetAgentRuns(cardID: string): Promise<AgentRun[]>
 
   // Chat
   LoadChatHistory(cardID: string): Promise<any>

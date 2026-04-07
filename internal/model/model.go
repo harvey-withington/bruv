@@ -213,3 +213,47 @@ type ChatFile struct {
 	CardID   string        `json:"card_id"`
 	Messages []ChatMessage `json:"messages"`
 }
+
+// AgentStatus represents the current state of a card's agent.
+type AgentStatus string
+
+const (
+	AgentStatusIdle     AgentStatus = "idle"
+	AgentStatusRunning  AgentStatus = "running"
+	AgentStatusFailed   AgentStatus = "failed"
+	AgentStatusDisabled AgentStatus = "disabled"
+)
+
+// AgentConfig holds the agent configuration for a card.
+// Persisted separately as cards/<card-uuid>.agent.json.
+type AgentConfig struct {
+	Enabled       bool        `json:"enabled"`
+	Goal          string      `json:"goal"`
+	Schedule      string      `json:"schedule"`
+	AllowedTools  []string    `json:"allowed_tools"`
+	Status        AgentStatus `json:"status"`
+	NotifyOn      []string    `json:"notify_on,omitempty"`
+	NotifyChannel string      `json:"notify_channel,omitempty"`
+	LastRunAt     *time.Time  `json:"last_run_at,omitempty"`
+	NextRunAt     *time.Time  `json:"next_run_at,omitempty"`
+}
+
+// AgentRun records a single execution of a card's agent.
+type AgentRun struct {
+	ID         string       `json:"id"`
+	CardID     string       `json:"card_id"`
+	StartedAt  time.Time    `json:"started_at"`
+	FinishedAt *time.Time   `json:"finished_at,omitempty"`
+	Status     string       `json:"status"`
+	Summary    string       `json:"summary,omitempty"`
+	ToolCalls  []ToolAction `json:"tool_calls,omitempty"`
+	Error      string       `json:"error,omitempty"`
+	TokensUsed int          `json:"tokens_used,omitempty"`
+}
+
+// AgentFile is the on-disk format for cards/<card-uuid>.agent.json.
+type AgentFile struct {
+	CardID string      `json:"card_id"`
+	Config AgentConfig `json:"config"`
+	Runs   []AgentRun  `json:"runs,omitempty"`
+}

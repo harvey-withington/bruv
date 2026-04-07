@@ -2285,6 +2285,40 @@ func (a *App) SetLLMConfig(c config.LLMConfig) error {
 	return config.SaveLLMConfig(c)
 }
 
+// --- Agent ---
+
+func (a *App) GetAgentConfig(cardID string) (*model.AgentFile, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.GetAgentConfig(cardID)
+}
+
+func (a *App) SaveAgentConfig(cardID string, config model.AgentConfig) error {
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
+	if err := a.repo.SaveAgentConfig(cardID, config); err != nil {
+		return err
+	}
+	// Update index with agent state
+	if a.idx != nil {
+		nextRun := ""
+		if config.NextRunAt != nil {
+			nextRun = config.NextRunAt.Format("2006-01-02T15:04:05Z07:00")
+		}
+		_ = a.idx.UpdateAgentIndex(cardID, config.Enabled, string(config.Status), nextRun)
+	}
+	return nil
+}
+
+func (a *App) GetAgentRuns(cardID string) ([]model.AgentRun, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.GetAgentRuns(cardID)
+}
+
 // --- Chat ---
 
 func (a *App) LoadChatHistory(cardID string) (*model.ChatFile, error) {

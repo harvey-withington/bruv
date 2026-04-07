@@ -32,6 +32,12 @@ import {
   GetPreferences, SetPreferences,
   GetProfile, SetProfile,
   GetAuthInfo, GetLLMConfig, SetLLMConfig,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  GetAgentConfig,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  SaveAgentConfig,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  GetAgentRuns,
   LoadChatHistory, SendChatMessage,
   // @ts-ignore — generated after `wails generate` with updated Go code
   LoadProjectChatHistory,
@@ -173,6 +179,10 @@ export const wailsAdapter: BackendAdapter = {
   ListCardIDsInCategory,
   ListOrphanedCardIDs,
   ListCardIDsByTag,
+
+  GetAgentConfig: GetAgentConfig as unknown as BackendAdapter['GetAgentConfig'],
+  SaveAgentConfig,
+  GetAgentRuns: GetAgentRuns as unknown as BackendAdapter['GetAgentRuns'],
 
   LoadChatHistory,
   SendChatMessage,

@@ -109,13 +109,17 @@ func (r *Repository) repairOrphanedChatFiles(stats *RevalidateStats) {
 
 	for _, e := range entries {
 		name := e.Name()
-		if !strings.HasSuffix(name, ".messages.json") {
-			continue
-		}
-		cardID := strings.TrimSuffix(name, ".messages.json")
-		if !fileExists(r.cardFilePath(cardID)) {
-			_ = os.Remove(r.chatFilePath(cardID))
-			stats.OrphanedChatFiles++
+		if strings.HasSuffix(name, ".messages.json") {
+			cardID := strings.TrimSuffix(name, ".messages.json")
+			if !fileExists(r.cardFilePath(cardID)) {
+				_ = os.Remove(r.chatFilePath(cardID))
+				stats.OrphanedChatFiles++
+			}
+		} else if strings.HasSuffix(name, ".agent.json") {
+			cardID := strings.TrimSuffix(name, ".agent.json")
+			if !fileExists(r.cardFilePath(cardID)) {
+				_ = os.Remove(r.agentFilePath(cardID))
+			}
 		}
 	}
 }

@@ -8,6 +8,7 @@
   import MentionPicker from './MentionPicker.svelte'
   import PinPicker from './PinPicker.svelte'
   import ChatSection from './ChatSection.svelte'
+  import AgentTab from './AgentTab.svelte'
   import EditableChecklist from './EditableChecklist.svelte'
   import EditableList from './EditableList.svelte'
   import MediaBlock from './MediaBlock.svelte'
@@ -41,6 +42,7 @@
   let showOtherPins = $state(false)
   const CHAT_VISIBLE_KEY = 'bruv:chatPanelVisible'
   let showChat = $state(localStorage.getItem(CHAT_VISIBLE_KEY) === 'true')
+  let activeTab = $state<'details' | 'agent'>('details')
   $effect(() => { localStorage.setItem(CHAT_VISIBLE_KEY, String(showChat)) })
 
   // Splitter: redistributes space between main and chat when chat is open
@@ -1045,6 +1047,15 @@
         {/if}
       </div>
 
+      <!-- Tab bar: Details / Agent -->
+      <div class="card-tab-bar">
+        <button class="card-tab" class:active={activeTab === 'details'} onclick={() => activeTab = 'details'}>{t('card.tab_details')}</button>
+        <button class="card-tab" class:active={activeTab === 'agent'} onclick={() => activeTab = 'agent'}>{t('card.tab_agent')}</button>
+      </div>
+
+      {#if activeTab === 'agent'}
+        <AgentTab {cardId} />
+      {:else}
       <div class="modal-body">
         <!-- Standard fields: compact 2-column grid + FAB in third column -->
         <div class="fields-grid">
@@ -1336,6 +1347,7 @@
           <span class="meta">{t('card.created')} {card.created_at?.slice(0, 10) || '—'}</span>
         </span>
       </div>
+      {/if}
     {/if}
    </div>
 
@@ -1442,6 +1454,30 @@
     gap: 0.75rem;
     padding: 1rem 1.25rem;
     border-bottom: 1px solid var(--border-muted);
+  }
+
+  .card-tab-bar {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border-muted);
+    padding: 0 1.25rem;
+    flex-shrink: 0;
+  }
+  .card-tab {
+    padding: 0.4rem 0.75rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .card-tab:hover { color: var(--text); }
+  .card-tab.active {
+    color: var(--text);
+    border-bottom-color: var(--accent);
   }
 
   .modal-subheader {

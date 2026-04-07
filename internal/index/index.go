@@ -111,6 +111,12 @@ func (idx *Index) createTables() error {
 	// Migration: add project_context column if missing (existing databases)
 	idx.db.Exec("ALTER TABLE cards ADD COLUMN project_context TEXT NOT NULL DEFAULT ''")
 
+	// Migration: add agent columns for Phase 2 scheduler support
+	idx.db.Exec("ALTER TABLE cards ADD COLUMN agent_enabled BOOLEAN DEFAULT 0")
+	idx.db.Exec("ALTER TABLE cards ADD COLUMN agent_status TEXT DEFAULT ''")
+	idx.db.Exec("ALTER TABLE cards ADD COLUMN next_run_at TEXT DEFAULT ''")
+	idx.db.Exec("CREATE INDEX IF NOT EXISTS idx_cards_agent_next_run ON cards(next_run_at) WHERE agent_enabled = 1")
+
 	return nil
 }
 
@@ -195,6 +201,15 @@ func (idx *Index) RemoveCard(cardID string) error {
 	tx.Exec("DELETE FROM cards_fts WHERE id = ?", cardID)
 
 	return tx.Commit()
+}
+
+// UpdateAgentIndex updates the agent-related columns for a card in the index.
+func (idx *Index) UpdateAgentIndex(cardID string, enabled bool, status string, nextRunAt string) error {
+	_, err := idx.db.Exec(
+		"UPDATE cards SET agent_enabled = ?, agent_status = ?, next_run_at = ? WHERE id = ?",
+		enabled, status, nextRunAt, cardID,
+	)
+	return err
 }
 
 // --- Pin Indexing ---

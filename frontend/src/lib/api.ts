@@ -2,7 +2,7 @@
 
 import { getBackend } from './adapters'
 
-export type { UserProfile, AuthInfo, LLMConfig, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard } from './types'
+export type { UserProfile, AuthInfo, LLMConfig, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard, AgentConfig, AgentRun, AgentFile, AgentStatus } from './types'
 
 // Capabilities
 export const getCapabilities = () => getBackend().getCapabilities()
@@ -148,6 +148,11 @@ export const RefreshIndex = () => getBackend().RefreshIndex()
 export const ListCardIDsInCategory = (...args: Parameters<ReturnType<typeof getBackend>['ListCardIDsInCategory']>) => getBackend().ListCardIDsInCategory(...args)
 export const ListOrphanedCardIDs = () => getBackend().ListOrphanedCardIDs()
 export const ListCardIDsByTag = (...args: Parameters<ReturnType<typeof getBackend>['ListCardIDsByTag']>) => getBackend().ListCardIDsByTag(...args)
+
+// Agent
+export const GetAgentConfig = (...args: Parameters<ReturnType<typeof getBackend>['GetAgentConfig']>) => getBackend().GetAgentConfig(...args)
+export const SaveAgentConfig = (...args: Parameters<ReturnType<typeof getBackend>['SaveAgentConfig']>) => getBackend().SaveAgentConfig(...args)
+export const GetAgentRuns = (...args: Parameters<ReturnType<typeof getBackend>['GetAgentRuns']>) => getBackend().GetAgentRuns(...args)
 
 // Chat
 export const LoadChatHistory = (...args: Parameters<ReturnType<typeof getBackend>['LoadChatHistory']>) => getBackend().LoadChatHistory(...args)

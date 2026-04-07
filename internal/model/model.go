@@ -4,10 +4,11 @@ import "time"
 
 // Manifest holds repository-level metadata stored in .bruv/manifest.json
 type Manifest struct {
-	Version   string    `json:"version"`
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Version     string    `json:"version"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // Brand is the top-level container representing a coherent identity or organisation.

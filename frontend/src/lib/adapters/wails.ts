@@ -3,10 +3,16 @@ import type { BackendAdapter, EventCallback } from '../types'
 import {
   Version, HasRepository, InitRepository, OpenRepository, CloseRepository,
   PickFolder, ListRecentRepos, RemoveRecentRepo,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  GetRepoDescription,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  UpdateRepoDescription,
   CreateBrand, GetBrand, ListBrands, RenameBrand, UpdateBrandDescription, DeleteBrand,
   CreateStream, ListStreams, RenameStream, UpdateStreamDescription, DeleteStream,
   CreateProject, ListProjects, RenameProject, UpdateProjectDescription, DeleteProject,
   CreateCategory, ListCategories, RenameCategory, DeleteCategory, MoveCategoryCards, CopyCategory, UpdateCategoryAcceptedTypes,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  UpdateCategoryDescription,
   CreateCard, GetCard, ListCards, DeleteCard, DuplicateCard,
   UpdateCardTitle, UpdateCardType, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardLabels, UpdateCardDueDate,
   // @ts-ignore — generated after `wails generate` with updated Go code
@@ -68,6 +74,8 @@ export const wailsAdapter: BackendAdapter = {
   PickFolder,
   ListRecentRepos,
   RemoveRecentRepo,
+  GetRepoDescription,
+  UpdateRepoDescription,
 
   CreateBrand,
   GetBrand,
@@ -95,6 +103,7 @@ export const wailsAdapter: BackendAdapter = {
   MoveCategoryCards,
   CopyCategory,
   UpdateCategoryAcceptedTypes,
+  UpdateCategoryDescription,
 
   CreateCard,
   GetCard,

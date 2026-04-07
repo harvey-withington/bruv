@@ -171,6 +171,7 @@ export async function loadBoard(brandSlug: string, streamSlug: string, projectSl
         id: cat.id,
         name: cat.name,
         slug: cat.slug,
+        description: cat.description || '',
         position: cat.position,
         accepted_types: cat.accepted_types?.length ? [...cat.accepted_types] : undefined,
         cards: cards.filter((c): c is NonNullable<typeof c> => c !== null),

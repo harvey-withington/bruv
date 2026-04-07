@@ -31,6 +31,8 @@ export const CloseRepository = () => getBackend().CloseRepository()
 export const PickFolder = (...args: Parameters<ReturnType<typeof getBackend>['PickFolder']>) => getBackend().PickFolder(...args)
 export const ListRecentRepos = () => getBackend().ListRecentRepos()
 export const RemoveRecentRepo = (...args: Parameters<ReturnType<typeof getBackend>['RemoveRecentRepo']>) => getBackend().RemoveRecentRepo(...args)
+export const GetRepoDescription = () => getBackend().GetRepoDescription()
+export const UpdateRepoDescription = (...args: Parameters<ReturnType<typeof getBackend>['UpdateRepoDescription']>) => getBackend().UpdateRepoDescription(...args)
 
 // Brand CRUD
 export const CreateBrand = (...args: Parameters<ReturnType<typeof getBackend>['CreateBrand']>) => getBackend().CreateBrand(...args)
@@ -62,6 +64,7 @@ export const DeleteCategory = (...args: Parameters<ReturnType<typeof getBackend>
 export const MoveCategoryCards = (...args: Parameters<ReturnType<typeof getBackend>['MoveCategoryCards']>) => getBackend().MoveCategoryCards(...args)
 export const CopyCategory = (...args: Parameters<ReturnType<typeof getBackend>['CopyCategory']>) => getBackend().CopyCategory(...args)
 export const UpdateCategoryAcceptedTypes = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCategoryAcceptedTypes']>) => getBackend().UpdateCategoryAcceptedTypes(...args)
+export const UpdateCategoryDescription = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCategoryDescription']>) => getBackend().UpdateCategoryDescription(...args)
 
 // Card CRUD
 export const CreateCard = (...args: Parameters<ReturnType<typeof getBackend>['CreateCard']>) => getBackend().CreateCard(...args)

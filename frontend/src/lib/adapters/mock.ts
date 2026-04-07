@@ -53,6 +53,8 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     PickFolder: async () => '/tmp/picked',
     ListRecentRepos: async () => [],
     RemoveRecentRepo: async () => {},
+    GetRepoDescription: async () => '',
+    UpdateRepoDescription: async () => {},
 
     CreateBrand: async () => ({ slug: 'test-brand', name: 'Test Brand' }),
     GetBrand: async () => ({ slug: 'test-brand', name: 'Test Brand' }),
@@ -80,6 +82,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     MoveCategoryCards: async () => {},
     CopyCategory: async () => ({ slug: 'copy-category', name: 'Copy Category' }),
     UpdateCategoryAcceptedTypes: async () => ({ slug: 'test-category', name: 'Test Category' }),
+    UpdateCategoryDescription: async () => ({ slug: 'test-category', name: 'Test Category' }),
 
     CreateCard: async () => ({ id: 'card-1', title: '', type: '', tags: [], due_date: null, created_at: '', fields: {}, blocks: [] }),
     GetCard: async () => ({ id: 'card-1', title: '', type: '', tags: [], due_date: null, created_at: '', fields: {}, blocks: [] }),

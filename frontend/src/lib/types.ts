@@ -210,6 +210,8 @@ export interface BackendAdapter {
   PickFolder(title: string): Promise<string>
   ListRecentRepos(): Promise<Array<{ path: string; name: string; last_opened: string }>>
   RemoveRecentRepo(path: string): Promise<void>
+  GetRepoDescription(): Promise<string>
+  UpdateRepoDescription(description: string): Promise<void>
 
   // Brand CRUD
   CreateBrand(name: string): Promise<any>
@@ -241,6 +243,7 @@ export interface BackendAdapter {
   MoveCategoryCards(brandSlug: string, streamSlug: string, projectSlug: string, fromCategoryID: string, toCategoryID: string): Promise<void>
   CopyCategory(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string): Promise<any>
   UpdateCategoryAcceptedTypes(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string, acceptedTypes: string[]): Promise<any>
+  UpdateCategoryDescription(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string, description: string): Promise<any>
 
   // Card CRUD
   CreateCard(cardType: string, title: string): Promise<any>

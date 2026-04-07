@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { nav, board, loadBoard } from '../lib/store.svelte'
-  import { CloseRepository, CreateBrand, RenameBrand, UpdateBrandDescription, CreateStream, RenameStream, UpdateStreamDescription, CreateProject, RenameProject, UpdateProjectDescription, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, GetCard, GetCardPins, ListOrphanedCardIDs, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject, GetPreferences } from '../lib/api'
-  import { LogOut, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox } from 'lucide-svelte'
+  import { CloseRepository, CreateBrand, RenameBrand, UpdateBrandDescription, CreateStream, RenameStream, UpdateStreamDescription, CreateProject, RenameProject, UpdateProjectDescription, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, GetCard, GetCardPins, ListOrphanedCardIDs, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject, GetPreferences, GetRepoDescription, UpdateRepoDescription } from '../lib/api'
+  import { LogOut, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox, ChevronsUpDown, ChevronsDownUp } from 'lucide-svelte'
   import ThemeToggle from './ThemeToggle.svelte'
   import BruvIcon from './BruvIcon.svelte'
   import { t } from '../lib/i18n.svelte'
@@ -45,6 +45,9 @@
   let expandedStreams = $state<Set<string>>(new Set())
   let projectsByStream = $state<Record<string, Project[]>>({})
   let inboxCount = $state(0)
+  let repoDescription = $state('')
+  let editingRepoDesc = $state(false)
+  let repoDescDraft = $state('')
 
   // Inline rename state — unified for brand/stream/project
   let renaming = $state<{
@@ -97,6 +100,7 @@
 
   async function loadBrandsAndRestore() {
     await loadBrands()
+    try { repoDescription = await GetRepoDescription() || '' } catch { repoDescription = '' }
     // Check if user prefers a collapsed tree on load
     let collapseOnLoad = false
     try {
@@ -437,6 +441,25 @@
     }
   }
 
+  function startEditRepoDesc() {
+    repoDescDraft = repoDescription
+    editingRepoDesc = true
+    setTimeout(() => { const el = document.querySelector('.repo-desc-input') as HTMLTextAreaElement; el?.focus() }, 0)
+  }
+
+  async function commitRepoDesc() {
+    editingRepoDesc = false
+    const trimmed = repoDescDraft.trim()
+    if (trimmed === repoDescription) return
+    repoDescription = trimmed
+    try { await UpdateRepoDescription(trimmed) } catch (e) { console.error('UpdateRepoDescription:', e) }
+  }
+
+  function cancelRepoDesc() {
+    editingRepoDesc = false
+    repoDescDraft = repoDescription
+  }
+
   function startEdit(e: MouseEvent, type: 'brand' | 'stream' | 'project', key: string, name: string, brandSlug: string, streamSlug = '', projectSlug = '', description = '') {
     e.stopPropagation()
     renaming = { type, key, name, original: name, description, originalDescription: description, isCreate: false, brandSlug, streamSlug, projectSlug }
@@ -650,25 +673,46 @@
       {t('sidebar.close_repo')}
     </button>
 
-    <div class="tree-header">
-      <button class="tree-ctrl-btn" onclick={expandAll} title={t('sidebar.expandAll')}>{t('sidebar.expandAll')}</button>
-      <button class="tree-ctrl-btn" onclick={collapseAll} title={t('sidebar.collapseAll')}>{t('sidebar.collapseAll')}</button>
+    <div class="repo-description-area">
+      {#if editingRepoDesc}
+        <textarea
+          class="repo-desc-input"
+          bind:value={repoDescDraft}
+          placeholder={t('sidebar.repoDescriptionPlaceholder')}
+          rows="2"
+          onblur={commitRepoDesc}
+          onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitRepoDesc() } if (e.key === 'Escape') cancelRepoDesc() }}
+        ></textarea>
+      {:else}
+        <button class="repo-desc-display" onclick={startEditRepoDesc} title={t('sidebar.repoDescriptionEdit')}>
+          {#if repoDescription}
+            <span class="repo-desc-text">{repoDescription}</span>
+          {:else}
+            <span class="repo-desc-placeholder">{t('sidebar.repoDescriptionPlaceholder')}</span>
+          {/if}
+          <Pencil size={10} />
+        </button>
+      {/if}
+    </div>
+
+    <div class="tree-node inbox-node">
+      <div class="tree-row" role="treeitem" tabindex="-1" aria-selected={nav.inboxMode}>
+        <button class="tree-item inbox-item" class:selected={nav.inboxMode} onclick={selectInbox}>
+          <Inbox size={14} />
+          <span class="label">{t('sidebar.inbox')}</span>
+          {#if inboxCount > 0}<span class="inbox-badge">{inboxCount}</span>{/if}
+        </button>
+      </div>
+      <div class="tree-ctrl-group">
+        <button class="tree-ctrl-btn" onclick={expandAll} title={t('sidebar.expandAll')}><ChevronsUpDown size={12} /></button>
+        <button class="tree-ctrl-btn" onclick={collapseAll} title={t('sidebar.collapseAll')}><ChevronsDownUp size={12} /></button>
+      </div>
     </div>
 
     <div class="nav-tree" role="tree" tabindex="0"
       ondragover={(e) => { if (dragging) { e.preventDefault(); isCopyMode = e.ctrlKey; if (e.dataTransfer) e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move' } }}
       ondrop={handleDrop}
     >
-      <div class="tree-node">
-        <div class="tree-row" role="treeitem" tabindex="-1" aria-selected={nav.inboxMode}>
-          <button class="tree-item inbox-item" class:selected={nav.inboxMode} onclick={selectInbox}>
-            <Inbox size={14} />
-            <span class="label">{t('sidebar.inbox')}</span>
-            {#if inboxCount > 0}<span class="inbox-badge">{inboxCount}</span>{/if}
-          </button>
-        </div>
-      </div>
-
       {#each brands as brand, brandIdx}
         {#if isDropIndicator('brand', '', brandIdx)}
           <div class="drop-indicator" class:copy-mode={isCopyMode}></div>
@@ -687,21 +731,22 @@
                 <input
                   class="rename-input brand-level"
                   bind:value={renaming.name}
-                  use:inlineEdit={{ onCommit: () => commitRename(), onCancel: () => cancelRename() }}
+                  use:inlineEdit={{ onCommit: () => commitRename(), onCancel: () => cancelRename(), container: '.rename-group' }}
                 />
                 <textarea
                   class="description-input"
                   bind:value={renaming.description}
                   placeholder={t('sidebar.descriptionPlaceholder')}
                   rows="2"
+                  onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitRename() } if (e.key === 'Escape') cancelRename() }}
+                  onblur={(e) => { const related = (e as FocusEvent).relatedTarget as HTMLElement | null; if (!related || !related.closest('.rename-group')) commitRename() }}
                 ></textarea>
               </div>
             {:else}
               <button class="tree-item brand-item" onclick={() => toggleBrand(brand.slug)}>
                 <span class="chevron">{#if expandedBrands.has(brand.slug)}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</span>
                 <span class="label-group">
-                  <span class="label">{@html renderInline(brand.name)}</span>
-                  {#if brand.description}<span class="node-desc" title={brand.description}>{brand.description}</span>{/if}
+                  <span class="label" title={brand.description ? `${brand.name} — ${brand.description}` : brand.name}>{@html renderInline(brand.name)}</span>
                 </span>
               </button>
               <button class="row-action action-reveal action-reveal--edit" onclick={(e) => startEdit(e, 'brand', brand.slug, brand.name, brand.slug, '', '', brand.description)} title={t('tooltip.rename_brand')}><Pencil size={12} /></button>
@@ -729,21 +774,22 @@
                         <input
                           class="rename-input stream-level"
                           bind:value={renaming.name}
-                          use:inlineEdit={{ onCommit: () => commitRename(), onCancel: () => cancelRename() }}
+                          use:inlineEdit={{ onCommit: () => commitRename(), onCancel: () => cancelRename(), container: '.rename-group' }}
                         />
                         <textarea
                           class="description-input"
                           bind:value={renaming.description}
                           placeholder={t('sidebar.descriptionPlaceholder')}
                           rows="2"
+                          onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitRename() } if (e.key === 'Escape') cancelRename() }}
+                          onblur={(e) => { const related = (e as FocusEvent).relatedTarget as HTMLElement | null; if (!related || !related.closest('.rename-group')) commitRename() }}
                         ></textarea>
                       </div>
                     {:else}
                       <button class="tree-item stream-item" onclick={() => toggleStream(brand.slug, stream.slug)}>
                         <span class="chevron">{#if expandedStreams.has(`${brand.slug}/${stream.slug}`)}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</span>
                         <span class="label-group">
-                          <span class="label">{@html renderInline(stream.name)}</span>
-                          {#if stream.description}<span class="node-desc" title={stream.description}>{stream.description}</span>{/if}
+                          <span class="label" title={stream.description ? `${stream.name} — ${stream.description}` : stream.name}>{@html renderInline(stream.name)}</span>
                         </span>
                       </button>
                       <button class="row-action action-reveal action-reveal--edit" onclick={(e) => startEdit(e, 'stream', `${brand.slug}/${stream.slug}`, stream.name, brand.slug, stream.slug, '', stream.description)} title={t('tooltip.rename_stream')}><Pencil size={12} /></button>
@@ -770,13 +816,15 @@
                               <input
                                 class="rename-input project-level"
                                 bind:value={renaming.name}
-                                use:inlineEdit={{ onCommit: () => commitRename(), onCancel: () => cancelRename() }}
+                                use:inlineEdit={{ onCommit: () => commitRename(), onCancel: () => cancelRename(), container: '.rename-group' }}
                               />
                               <textarea
                                 class="description-input"
                                 bind:value={renaming.description}
                                 placeholder={t('sidebar.descriptionPlaceholder')}
                                 rows="2"
+                                onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitRename() } if (e.key === 'Escape') cancelRename() }}
+                                onblur={(e) => { const related = (e as FocusEvent).relatedTarget as HTMLElement | null; if (!related || !related.closest('.rename-group')) commitRename() }}
                               ></textarea>
                             </div>
                           {:else}
@@ -786,8 +834,7 @@
                               onclick={() => selectProject(brand.slug, stream.slug, project.slug)}
                             >
                               <span class="label-group">
-                                <span class="label">{@html renderInline(project.name)}</span>
-                                {#if project.description}<span class="node-desc" title={project.description}>{project.description}</span>{/if}
+                                <span class="label" title={project.description ? `${project.name} — ${project.description}` : project.name}>{@html renderInline(project.name)}</span>
                               </span>
                             </button>
                             <button class="row-action action-reveal action-reveal--edit" onclick={(e) => startEdit(e, 'project', `${brand.slug}/${stream.slug}/${project.slug}`, project.name, brand.slug, stream.slug, project.slug, project.description)} title={t('tooltip.rename_project')}><Pencil size={12} /></button>
@@ -885,6 +932,19 @@
   .collapsed .sidebar-title {
     display: none;
   }
+  .collapsed .sidebar-header {
+    justify-content: center;
+    padding: 0.75rem 0.5rem;
+  }
+  .collapsed .sidebar-footer {
+    flex-direction: column;
+    align-items: center;
+    gap: 0.15rem;
+    padding: 0.5rem 0.25rem;
+  }
+  .collapsed .footer-spacer {
+    display: none;
+  }
 
   .header-btn {
     background: none;
@@ -901,6 +961,7 @@
   .close-repo-btn {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 0.5rem;
     width: calc(100% - 1rem);
     margin: 0.5rem;
@@ -921,27 +982,94 @@
     border-color: var(--border-hover);
   }
 
-  .tree-header {
+  .repo-description-area {
+    padding: 0 0.5rem;
+  }
+  .repo-desc-display {
     display: flex;
-    gap: 0.25rem;
-    padding: 0.25rem 0.5rem 0;
-  }
-
-  .tree-ctrl-btn {
-    flex: 1;
-    padding: 0.2rem 0.4rem;
-    border: 1px solid var(--border);
+    align-items: center;
+    gap: 0.35rem;
+    width: 100%;
+    padding: 0.3rem 0.5rem;
+    border: 1px dashed transparent;
     border-radius: 4px;
-    background: transparent;
+    background: none;
     color: var(--text-secondary);
-    font-size: 0.7rem;
+    font-size: 0.75rem;
+    line-height: 1.3;
     cursor: pointer;
-    transition: background 0.12s, color 0.12s;
+    text-align: left;
+    transition: border-color 0.15s;
+  }
+  .repo-desc-display:hover {
+    border-color: var(--border);
+  }
+  .repo-desc-display :global(svg) {
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .repo-desc-display:hover :global(svg) {
+    opacity: 0.6;
+  }
+  .repo-desc-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .repo-desc-placeholder {
+    flex: 1;
+    font-style: italic;
+    opacity: 0.5;
+  }
+  .repo-desc-input {
+    width: 100%;
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    font-size: 0.75rem;
+    font-family: inherit;
+    line-height: 1.3;
+    resize: vertical;
   }
 
+  .inbox-node {
+    position: relative;
+  }
+  .tree-ctrl-group {
+    position: absolute;
+    bottom: 0;
+    right: 0.5rem;
+    transform: translateY(calc(50% - 5px));
+    display: flex;
+    gap: 0.15rem;
+    z-index: 1;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-muted);
+    border-radius: 4px;
+    padding: 0 0.1rem;
+  }
+  .tree-ctrl-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.1rem;
+    border: none;
+    border-radius: 3px;
+    background: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: color 0.12s, background 0.12s;
+  }
   .tree-ctrl-btn:hover {
-    background: var(--border);
     color: var(--text-strong);
+    background: var(--bg-elevated);
   }
 
   .nav-tree {
@@ -1030,6 +1158,7 @@
     display: flex;
     align-items: center;
     cursor: grab;
+    position: relative;
   }
 
   .tree-row:active {
@@ -1044,6 +1173,17 @@
   .row-action {
     font-size: 0.7rem;
     flex-shrink: 0;
+    position: absolute;
+    right: 0.25rem;
+    top: 50%;
+    transform: translateY(-50%);
+    background: var(--bg-primary);
+  }
+  .row-action + .row-action {
+    right: 1.6rem;
+  }
+  .tree-row:hover .row-action {
+    background: var(--bg-elevated);
   }
 
   .empty-hint {
@@ -1120,21 +1260,15 @@
   }
 
   .label-group {
-    display: flex;
-    flex-direction: column;
     min-width: 0;
     flex: 1;
+    overflow: hidden;
   }
-
-  .node-desc {
-    font-size: 0.68rem;
-    color: var(--text-secondary);
-    opacity: 0.7;
+  .label-group .label {
+    display: block;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    line-height: 1.2;
-    margin-top: 1px;
   }
 
   .sidebar-footer {

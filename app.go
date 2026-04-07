@@ -251,6 +251,23 @@ func (a *App) RemoveRecentRepo(path string) error {
 	return config.RemoveRecent(path)
 }
 
+// --- Repository metadata ---
+
+func (a *App) GetRepoDescription() (string, error) {
+	if a.repo == nil {
+		return "", fmt.Errorf("no repository open")
+	}
+	return a.repo.Manifest.Description, nil
+}
+
+func (a *App) UpdateRepoDescription(description string) error {
+	description = repo.SanitizeText(description)
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
+	return a.repo.UpdateManifestDescription(description)
+}
+
 // --- Brand ---
 
 func (a *App) CreateBrand(name string) (*model.Brand, error) {
@@ -2472,7 +2489,9 @@ func (a *App) SendProjectChatMessage(brandSlug, streamSlug, projectSlug, userMes
 
 	// Build system prompt with project context
 	categories, _ := a.repo.ListCategories(brandSlug, streamSlug, projectSlug)
-	systemPrompt := a.buildProjectSystemPrompt(project, categories, cfg)
+	brand, _ := a.repo.GetBrand(brandSlug)
+	stream, _ := a.repo.GetStream(brandSlug, streamSlug)
+	systemPrompt := a.buildProjectSystemPrompt(brand, stream, project, categories, cfg)
 
 	// Build tool definitions
 	var catMaps []map[string]string
@@ -2504,9 +2523,32 @@ func (a *App) SendProjectChatMessage(brandSlug, streamSlug, projectSlug, userMes
 }
 
 // buildProjectSystemPrompt builds the system prompt for project-level chat.
-func (a *App) buildProjectSystemPrompt(project *model.Project, categories []model.Category, cfg config.LLMConfig) string {
+func (a *App) buildProjectSystemPrompt(brand *model.Brand, stream *model.Stream, project *model.Project, categories []model.Category, cfg config.LLMConfig) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("You are BRUV AI, a project assistant. Today is %s.\n\n", time.Now().Format("2006-01-02 (Monday)")))
+
+	// Hierarchy context
+	if a.repo != nil && a.repo.Manifest.Description != "" {
+		sb.WriteString(fmt.Sprintf("## Repository: %s\n%s\n\n", a.repo.Manifest.Name, a.repo.Manifest.Description))
+	}
+	if brand != nil {
+		sb.WriteString(fmt.Sprintf("## Brand: %s\n", brand.Name))
+		if brand.Description != "" {
+			sb.WriteString(brand.Description + "\n")
+		}
+		if brand.SystemPrompt != "" {
+			sb.WriteString("\nBrand instructions:\n" + brand.SystemPrompt + "\n")
+		}
+		sb.WriteString("\n")
+	}
+	if stream != nil {
+		sb.WriteString(fmt.Sprintf("## Stream: %s\n", stream.Name))
+		if stream.Description != "" {
+			sb.WriteString(stream.Description + "\n")
+		}
+		sb.WriteString("\n")
+	}
+
 	sb.WriteString(fmt.Sprintf("## Project: %s\n", project.Name))
 	if project.Description != "" {
 		sb.WriteString(project.Description + "\n")
@@ -2524,6 +2566,9 @@ func (a *App) buildProjectSystemPrompt(project *model.Project, categories []mode
 		sb.WriteString("## Categories and cards\n\n")
 		for _, cat := range categories {
 			sb.WriteString(fmt.Sprintf("### %s (category_id: %s)\n", cat.Name, cat.ID))
+			if cat.Description != "" {
+				sb.WriteString(cat.Description + "\n")
+			}
 			pins, _ := a.repo.ListCardsInCategory(cat.ID, cat.ID)
 			if len(pins) == 0 {
 				sb.WriteString("  (empty)\n\n")
@@ -4000,31 +4045,53 @@ TOOLS:
 		return strings.Join(parts, "\n\n")
 	}
 
-	// Always show categories for pin suggestions — include descriptions for context
+	// Repository description
+	if a.repo.Manifest.Description != "" {
+		parts = append(parts, "Repository: "+a.repo.Manifest.Name+"\n"+a.repo.Manifest.Description)
+	}
+
+	// Build hierarchy descriptions (deduplicated — each entity listed once)
 	allCats, _ := a.ListAllCategories()
 	if len(allCats) > 0 {
+		seenBrands := map[string]bool{}
+		seenStreams := map[string]bool{}
+		seenProjects := map[string]bool{}
+		var hierarchy []string
+		for _, c := range allCats {
+			if !seenBrands[c.BrandName] {
+				seenBrands[c.BrandName] = true
+				if c.BrandDescription != "" {
+					hierarchy = append(hierarchy, fmt.Sprintf("Brand %q — %s", c.BrandName, c.BrandDescription))
+				}
+			}
+			streamKey := c.BrandName + "/" + c.StreamName
+			if !seenStreams[streamKey] {
+				seenStreams[streamKey] = true
+				if c.StreamDescription != "" {
+					hierarchy = append(hierarchy, fmt.Sprintf("  Stream %q — %s", c.StreamName, c.StreamDescription))
+				}
+			}
+			projectKey := streamKey + "/" + c.ProjectName
+			if !seenProjects[projectKey] {
+				seenProjects[projectKey] = true
+				if c.ProjectDescription != "" {
+					hierarchy = append(hierarchy, fmt.Sprintf("    Project %q — %s", c.ProjectName, c.ProjectDescription))
+				}
+			}
+			if c.CategoryDescription != "" {
+				hierarchy = append(hierarchy, fmt.Sprintf("      Category %q — %s", c.CategoryName, c.CategoryDescription))
+			}
+		}
+		if len(hierarchy) > 0 {
+			parts = append(parts, "Hierarchy descriptions:\n"+strings.Join(hierarchy, "\n"))
+		}
+
+		// Category listing for pin suggestions (compact — no repeated descriptions)
 		var catDescs []string
 		for _, c := range allCats {
 			desc := fmt.Sprintf("- %s (id: %s)", c.Breadcrumb, c.CategoryID)
 			if len(c.AcceptedTypes) > 0 {
 				desc += " [accepts: " + strings.Join(c.AcceptedTypes, ", ") + "]"
-			}
-			// Append any descriptions to help the LLM understand what this location is for
-			var descs []string
-			if c.BrandDescription != "" {
-				descs = append(descs, c.BrandName+": "+c.BrandDescription)
-			}
-			if c.StreamDescription != "" {
-				descs = append(descs, c.StreamName+": "+c.StreamDescription)
-			}
-			if c.ProjectDescription != "" {
-				descs = append(descs, c.ProjectName+": "+c.ProjectDescription)
-			}
-			if c.CategoryDescription != "" {
-				descs = append(descs, c.CategoryName+": "+c.CategoryDescription)
-			}
-			if len(descs) > 0 {
-				desc += "\n  " + strings.Join(descs, " | ")
 			}
 			catDescs = append(catDescs, desc)
 		}
@@ -4039,7 +4106,7 @@ TOOLS:
 		parts = append(parts, "Existing tags (prefer these, or create short new ones if none fit):\n"+strings.Join(projectTags, "\n"))
 	}
 
-	// Brand context for pinned cards
+	// Brand instructions for pinned cards
 	pins, _ := a.repo.GetCardPins(card.ID)
 	if len(pins) > 0 && (level == model.ContextBrand || level == model.ContextGlobal) {
 		loc, err := a.GetCardLocation(card.ID)

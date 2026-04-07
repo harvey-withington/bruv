@@ -22,7 +22,7 @@ export function focusOnMount(node: HTMLInputElement | HTMLTextAreaElement, selec
  */
 export function inlineEdit(
   node: HTMLInputElement | HTMLTextAreaElement,
-  params: { onCommit: () => void; onCancel: () => void },
+  params: { onCommit: () => void; onCancel: () => void; container?: string },
 ) {
   let committed = false
 
@@ -48,12 +48,18 @@ export function inlineEdit(
     }
   }
 
-  function handleBlur() {
+  function handleBlur(e: FocusEvent) {
+    // If a container selector is set, only commit when focus leaves the container
+    if (params.container) {
+      const container = node.closest(params.container)
+      const related = e.relatedTarget as HTMLElement | null
+      if (container && related && container.contains(related)) return
+    }
     commit()
   }
 
   node.addEventListener('keydown', handleKeydown as EventListener)
-  node.addEventListener('blur', handleBlur)
+  node.addEventListener('blur', handleBlur as EventListener)
 
   return {
     update(newParams: typeof params) {
@@ -62,7 +68,7 @@ export function inlineEdit(
     },
     destroy() {
       node.removeEventListener('keydown', handleKeydown as EventListener)
-      node.removeEventListener('blur', handleBlur)
+      node.removeEventListener('blur', handleBlur as EventListener)
     },
   }
 }

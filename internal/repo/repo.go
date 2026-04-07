@@ -95,6 +95,17 @@ func Open(root string) (*Repository, error) {
 	return &Repository{Root: root, Manifest: &manifest}, nil
 }
 
+// UpdateManifestDescription sets or clears the repository description.
+func (r *Repository) UpdateManifestDescription(description string) error {
+	r.Manifest.Description = description
+	r.Manifest.UpdatedAt = time.Now().UTC()
+	mpath := filepath.Join(r.Root, bruvDir, manifestFile)
+	if err := writeJSON(mpath, r.Manifest); err != nil {
+		return fmt.Errorf("write manifest: %w", err)
+	}
+	return nil
+}
+
 // Path helpers
 
 func (r *Repository) brandsPath() string {

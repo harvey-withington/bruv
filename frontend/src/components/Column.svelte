@@ -5,7 +5,8 @@
   import { t } from '../lib/i18n.svelte'
   import { renderInline } from '../lib/markdown'
   import { getCardTypeColor, CARD_TYPE_ORDER } from '../lib/cardTypes'
-  import { UpdateCategoryAcceptedTypes } from '../lib/api'
+  import { UpdateCategoryAcceptedTypes, UpdateCategoryDescription } from '../lib/api'
+  import { Pencil as PencilSmall } from 'lucide-svelte'
   import { inlineEdit, floatingDropdown } from '../lib/actions'
 
   type CardData = {
@@ -23,6 +24,7 @@
     id: string
     name: string
     slug: string
+    description?: string
     position: number
     accepted_types?: string[]
     cards: CardData[]
@@ -51,6 +53,8 @@
   let renameInputEl = $state<HTMLInputElement | null>(null)
   let showSettings = $derived(columnSettings.openCategoryId === category.id)
   let dropRejected = $state(false)
+  let editingDesc = $state(false)
+  let descDraft = $state('')
 
   // Sorted list of all card types (built-ins first in order, then user types)
   let allCardTypes = $derived(
@@ -228,6 +232,27 @@
     }
   })
 
+  function startEditDesc() {
+    descDraft = category.description || ''
+    editingDesc = true
+    setTimeout(() => { const el = document.querySelector(`.col-desc-input-${category.id}`) as HTMLTextAreaElement; el?.focus() }, 0)
+  }
+
+  async function commitDesc() {
+    editingDesc = false
+    const trimmed = descDraft.trim()
+    if (trimmed === (category.description || '')) return
+    category.description = trimmed
+    if (brandSlug && streamSlug && projectSlug) {
+      try { await UpdateCategoryDescription(brandSlug, streamSlug, projectSlug, category.slug, trimmed) } catch (e) { console.error('UpdateCategoryDescription:', e) }
+    }
+  }
+
+  function cancelDesc() {
+    editingDesc = false
+    descDraft = category.description || ''
+  }
+
 </script>
 
 <div class="column" class:drop-rejected={dropRejected}>
@@ -273,6 +298,36 @@
       {/if}
     {/if}
   </div>
+
+  {#if !isReadonly}
+    <div class="col-description">
+      {#if editingDesc}
+        <textarea
+          class="col-desc-input col-desc-input-{category.id}"
+          bind:value={descDraft}
+          placeholder={t('column.descriptionPlaceholder')}
+          rows="2"
+          onblur={commitDesc}
+          onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitDesc() } if (e.key === 'Escape') cancelDesc() }}
+        ></textarea>
+      {:else}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <span
+          class="col-desc-display"
+          role="button"
+          tabindex={0}
+          onclick={startEditDesc}
+          title={category.description || t('column.descriptionPlaceholder')}
+        >
+          {#if category.description}
+            <span class="col-desc-text">{category.description}</span>
+          {:else}
+            <span class="col-desc-placeholder">{t('column.descriptionPlaceholder')}</span>
+          {/if}
+        </span>
+      {/if}
+    </div>
+  {/if}
 
   {#if category.accepted_types && category.accepted_types.length > 0 && prefs.typeBadgeDisplay !== 'hidden'}
     {#if prefs.typeBadgeDisplay === 'color'}
@@ -440,6 +495,48 @@
   .column-header:hover .col-action-btn { opacity: 1; }
   .col-action-btn:hover { color: var(--accent); }
   .col-delete-btn:hover { color: var(--danger); }
+
+  /* Category description */
+  .col-description {
+    padding: 0 0.75rem 0.3rem;
+  }
+  .col-desc-display {
+    display: block;
+    width: 100%;
+    font-size: 0.7rem;
+    line-height: 1.3;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 3px;
+    padding: 0.1rem 0.2rem;
+    transition: color 0.15s;
+  }
+  .col-desc-display:hover {
+    color: var(--text-secondary);
+  }
+  .col-desc-text {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .col-desc-placeholder {
+    font-style: italic;
+    opacity: 0.5;
+  }
+  .col-desc-input {
+    width: 100%;
+    padding: 0.2rem 0.35rem;
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    font-size: 0.7rem;
+    font-family: inherit;
+    line-height: 1.3;
+    resize: vertical;
+  }
 
   /* Type badges below column title */
   .type-badges {

@@ -38,10 +38,14 @@
   "sidebar.expandAll": "Expand all",
   "sidebar.collapseAll": "Collapse all",
   "sidebar.descriptionPlaceholder": "Add a description…",
+  "sidebar.repoDescriptionPlaceholder": "Describe what this repository is for…",
+  "sidebar.repoDescriptionEdit": "Edit repository description",
   "sidebar.close_repo": "Close Repository",
   "sidebar.confirm_delete_brand": "Delete brand \"{name}\" and all its streams/projects?",
   "sidebar.confirm_delete_stream": "Delete stream \"{name}\" and all its projects?",
   "sidebar.confirm_delete_project": "Delete project \"{name}\"?",
+
+  "column.descriptionPlaceholder": "What belongs in this category?",
 
   "board.add_category": "Add category",
   "board.add_category_long": "+ Add another category",

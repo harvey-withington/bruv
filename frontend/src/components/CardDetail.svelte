@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { GetCard, UpdateCardTitle, UpdateCardType, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
+  import { GetCard, UpdateCardTitle, UpdateCardType, RefreshTypeBlocks, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
     DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, AddProjectLabel, GetProjectLabels, GetProjectLocation } from '../lib/api'
   import { projectTags, nav, getTagColor, cardTypes } from '../lib/store.svelte'
-  import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, GripVertical, Pencil, MapPin, MapPinOff, MoveRight, Bot, ChevronDown, ChevronRight, Maximize2 } from 'lucide-svelte'
+  import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, GripVertical, Pencil, MapPin, MapPinOff, MoveRight, Bot, ChevronDown, ChevronRight, Maximize2, RefreshCw } from 'lucide-svelte'
   import { renderMarkdown, renderInline } from '../lib/markdown'
   import { t } from '../lib/i18n.svelte'
   import MentionPicker from './MentionPicker.svelte'
@@ -43,89 +43,11 @@
   let showChat = $state(localStorage.getItem(CHAT_VISIBLE_KEY) === 'true')
   $effect(() => { localStorage.setItem(CHAT_VISIBLE_KEY, String(showChat)) })
 
-  // Resizable main panel width
+  // Splitter: redistributes space between main and chat when chat is open
   const MAIN_WIDTH_KEY = 'bruv:mainPanelWidth'
-  const EDGE_PAD = 32
-  const COLLAPSE_GUARD = 350
-  let mainWidth = $state(Number(localStorage.getItem(MAIN_WIDTH_KEY)) || 600)
-  let mainResizing = $state(false)
-  let modalEl: HTMLDivElement | undefined = $state()
-
-  function onMainResizeDown(e: MouseEvent) {
-    e.preventDefault()
-    if (!modalEl) return
-    mainResizing = true
-    const startX = e.clientX
-    const startW = mainWidth
-    const startLeft = parseFloat(modalEl.style.left) || modalEl.getBoundingClientRect().left
-
-    function onMove(ev: MouseEvent) {
-      const delta = ev.clientX - startX  // negative when dragging left
-      const raw = startW - delta
-      // Don't let the left edge past the screen edge (plus padding)
-      const maxW = startLeft + startW - EDGE_PAD
-      const newW = Math.max(COLLAPSE_GUARD, Math.min(raw, maxW))
-      const actualDelta = newW - startW
-      mainWidth = newW
-      if (modalEl) modalEl.style.left = (startLeft - actualDelta) + 'px'
-    }
-
-    function suppressClick(ev: MouseEvent) {
-      ev.stopPropagation()
-      ev.preventDefault()
-      window.removeEventListener('click', suppressClick, true)
-    }
-
-    function onUp() {
-      mainResizing = false
-      localStorage.setItem(MAIN_WIDTH_KEY, String(mainWidth))
-      // Persist the new modal position after left-edge resize shifted it
-      if (modalEl) {
-        localStorage.setItem('bruv:cardDialogPos', JSON.stringify({
-          left: parseFloat(modalEl.style.left),
-          top: parseFloat(modalEl.style.top),
-        }))
-      }
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-      window.addEventListener('click', suppressClick, true)
-    }
-
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-  }
-
-  function onMainRightResizeDown(e: MouseEvent) {
-    e.preventDefault()
-    if (!modalEl) return
-    mainResizing = true
-    const startX = e.clientX
-    const startW = mainWidth
-    const modalLeft = parseFloat(modalEl.style.left) || modalEl.getBoundingClientRect().left
-
-    function onMove(ev: MouseEvent) {
-      const raw = startW + (ev.clientX - startX)
-      const maxW = (window.innerWidth - EDGE_PAD) - modalLeft
-      mainWidth = Math.max(COLLAPSE_GUARD, Math.min(raw, maxW))
-    }
-
-    function suppressClick(ev: MouseEvent) {
-      ev.stopPropagation()
-      ev.preventDefault()
-      window.removeEventListener('click', suppressClick, true)
-    }
-
-    function onUp() {
-      mainResizing = false
-      localStorage.setItem(MAIN_WIDTH_KEY, String(mainWidth))
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-      window.addEventListener('click', suppressClick, true)
-    }
-
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-  }
+  const MIN_PANEL = 350
+  let mainWidth = $state(Number(localStorage.getItem(MAIN_WIDTH_KEY)) || 720)
+  let splitterDragging = $state(false)
 
   let savingCount = $state(0)
   let saving = $derived(savingCount > 0)
@@ -482,6 +404,14 @@
     onUpdated?.()
   }
 
+  async function refreshType() {
+    if (!card?.type) return
+    try {
+      card = await tracked(RefreshTypeBlocks(cardId)) as Card
+    } catch (e) { showToast(t('error.type_failed'), 'error'); return }
+    onUpdated?.()
+  }
+
   async function saveTitle() {
     if (!titleDraft.trim() || titleDraft === card?.title) {
       editingTitle = false
@@ -744,13 +674,20 @@
   }
 
   async function addTag() {
-    const tag = newTag.trim()
-    if (!tag || card?.tags?.some((t: string) => t.toLowerCase() === tag.toLowerCase())) { newTag = ''; return }
-    const tags = [...(card?.tags || []), tag]
+    await addTagBatch(newTag)
+  }
+
+  async function addTagBatch(rawInput: string) {
+    const segments = rawInput.split(',').map(s => s.trim()).filter(Boolean)
+    if (segments.length === 0) { newTag = ''; return }
+    const existingLower = new Set((card?.tags || []).map((t: string) => t.toLowerCase()))
+    const incoming = segments.filter(s => !existingLower.has(s.toLowerCase()))
+    if (incoming.length === 0) { newTag = ''; return }
+    const tags = [...(card?.tags || []), ...incoming]
     try {
       card = await tracked(UpdateCardTags(cardId, tags)) as Card
       newTag = ''
-      await syncTagToProjects(tag)
+      for (const tag of incoming) await syncTagToProjects(tag)
     } catch (e) { showToast(t('error.tag_failed'), 'error'); return }
     onUpdated?.()
   }
@@ -798,7 +735,7 @@
     onUpdated?.()
   }
 
-  function handleTagKeydown(e: KeyboardEvent) {
+  async function handleTagKeydown(e: KeyboardEvent) {
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       if (filteredProjectTags.length > 0) {
@@ -813,6 +750,13 @@
         highlightIdx = Math.max(highlightIdx - 1, 0)
       } else {
         highlightIdx = Math.min(highlightIdx + 1, filteredProjectTags.length - 1)
+      }
+    } else if (e.key === ',') {
+      // Comma immediately commits whatever is typed before it as a tag
+      const before = newTag.split(',')[0]?.trim()
+      if (before) {
+        e.preventDefault()
+        await addTagBatch(before)
       }
     } else if (e.key === 'Enter') {
       e.preventDefault()
@@ -983,9 +927,8 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div class="modal-backdrop" role="presentation" onclick={handleBackdropClick}>
-  <div class="modal" bind:this={modalEl} class:chat-open={showChat} class:main-resizing={mainResizing} style={showChat ? '' : `width: ${mainWidth}px;`} use:draggable={{ handle: '.modal-header', persistKey: 'bruv:cardDialogPos' }} use:focusTrap>
-   <div class="modal-left-resize" role="separator" tabindex="-1" onmousedown={onMainResizeDown}></div>
-   <div class="modal-main" style="width: {mainWidth}px;">
+  <div class="modal" class:chat-open={showChat} class:splitter-dragging={splitterDragging} use:draggable={{ handle: '.modal-header' }} use:focusTrap>
+   <div class="modal-main" style={showChat ? `width: ${mainWidth}px;` : ''}>
     {#if loading}
       <div class="modal-loading">{t('app.loading')}</div>
     {:else if card}
@@ -1019,6 +962,11 @@
             </div>
           {/if}
         </div>
+        {#if card.type}
+          <button class="refresh-type-btn" onclick={refreshType} title={t('tooltip.refresh_type')}>
+            <RefreshCw size={12} />
+          </button>
+        {/if}
 
         {#if editingTitle}
           <input
@@ -1392,11 +1340,7 @@
    </div>
 
     {#if !loading && card}
-      <ChatSection {cardId} bind:visible={showChat} bind:mainWidth onCardChanged={loadCard} />
-    {/if}
-
-    {#if !showChat}
-      <div class="modal-right-resize" role="separator" tabindex="-1" onmousedown={onMainRightResizeDown}></div>
+      <ChatSection {cardId} bind:visible={showChat} bind:mainWidth bind:splitterDragging onCardChanged={loadCard} />
     {/if}
 
     <div class="modal-actions">
@@ -1462,7 +1406,7 @@
   .modal {
     background: var(--bg-surface);
     border-radius: 10px;
-    width: 600px;
+    width: 720px;
     max-width: 95vw;
     max-height: 85vh;
     display: flex;
@@ -1474,49 +1418,16 @@
   .modal.chat-open {
     width: auto;
   }
-  .modal.main-resizing {
+  .modal.splitter-dragging {
     user-select: none;
   }
 
-  .modal-left-resize {
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 5px;
-    cursor: w-resize;
-    z-index: 5;
-    transition: background 0.15s;
-    border-radius: 10px 0 0 10px;
-  }
-  .modal-left-resize:hover,
-  .modal.main-resizing .modal-left-resize {
-    background: var(--accent);
-    box-shadow: 0 0 6px var(--accent-glow-1);
-  }
-
-  .modal-right-resize {
-    position: absolute;
-    right: 0;
-    top: 0;
-    bottom: 0;
-    width: 5px;
-    cursor: e-resize;
-    z-index: 5;
-    transition: background 0.15s;
-    border-radius: 0 10px 10px 0;
-  }
-  .modal-right-resize:hover,
-  .modal.main-resizing .modal-right-resize {
-    background: var(--accent);
-    box-shadow: 0 0 6px var(--accent-glow-1);
-  }
-
   .modal-main {
-    flex-shrink: 0;
+    flex: 1;
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    min-width: 350px;
   }
 
   .modal-loading {
@@ -1704,6 +1615,24 @@
   .type-badge-btn:hover {
     opacity: 0.85;
     border-color: var(--border);
+  }
+
+  .refresh-type-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px;
+    border: none;
+    background: none;
+    color: var(--text-faint);
+    cursor: pointer;
+    border-radius: 3px;
+    transition: color 0.15s, background 0.15s;
+    flex-shrink: 0;
+  }
+  .refresh-type-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-subtle-hover);
   }
 
   .type-picker-dropdown {

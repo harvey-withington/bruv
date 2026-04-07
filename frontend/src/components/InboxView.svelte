@@ -1,11 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Lightbulb } from 'lucide-svelte'
+  import { Lightbulb, SquareCheckBig, Trash2 } from 'lucide-svelte'
   import CardItem from './CardItem.svelte'
   import InboxRecentCards from './InboxRecentCards.svelte'
   import InboxActivity from './InboxActivity.svelte'
   import { board, search, inboxSearchFilters } from '../lib/store.svelte'
-  import { ListActivityLog, ListRecentlyUpdatedCards, GetPreferences } from '../lib/api'
+  import { ListActivityLog, ListRecentlyUpdatedCards, GetPreferences, DeleteCard } from '../lib/api'
+  import { showConfirm } from '../lib/confirm.svelte'
+  import { showToast } from '../lib/toast.svelte'
   import { t } from '../lib/i18n.svelte'
   import type { ActivityEntry, RecentCard } from '../lib/types'
 
@@ -16,6 +18,11 @@
     onNewIdea: () => void
     onCardClick: (cardId: string) => void
   } = $props()
+
+  // Multi-select state
+  let selectMode = $state(false)
+  let selectedIds = $state(new Set<string>())
+  let deleting = $state(false)
 
   // Orphaned cards come from board store (populated by Sidebar.selectInbox)
   let orphanedCards = $derived(board.categories[0]?.cards || [])
@@ -82,6 +89,55 @@
     }
   }
 
+  function toggleSelectMode() {
+    selectMode = !selectMode
+    if (!selectMode) selectedIds = new Set()
+  }
+
+  function toggleCard(id: string) {
+    const next = new Set(selectedIds)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    selectedIds = next
+  }
+
+  function toggleSelectAll() {
+    const ids = filteredOrphaned.map(c => c.id)
+    const allSelected = ids.length > 0 && ids.every(id => selectedIds.has(id))
+    if (allSelected) {
+      selectedIds = new Set()
+    } else {
+      selectedIds = new Set(ids)
+    }
+  }
+
+  let allSelected = $derived(
+    filteredOrphaned.length > 0 && filteredOrphaned.every(c => selectedIds.has(c.id))
+  )
+
+  async function bulkDelete() {
+    if (selectedIds.size === 0) return
+    const count = selectedIds.size
+    const msg = t('inbox.confirm_bulk_delete').replace('{count}', String(count))
+    if (!await showConfirm(msg)) return
+    deleting = true
+    try {
+      for (const id of selectedIds) {
+        await DeleteCard(id)
+      }
+      selectedIds = new Set()
+      selectMode = false
+      document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
+      document.dispatchEvent(new CustomEvent('bruv:sidebar-changed'))
+      showToast(t('inbox.bulk_deleted').replace('{count}', String(count)), 'success')
+    } catch (e) {
+      showToast(t('error.delete_failed'), 'error')
+      console.error('Bulk delete failed:', e)
+    } finally {
+      deleting = false
+    }
+  }
+
   onMount(() => {
     loadRecentAndActivity()
     function handleInboxChanged() { loadRecentAndActivity() }
@@ -94,14 +150,38 @@
   <div class="inbox-columns">
     <!-- Column 1: Orphaned cards -->
     <section class="inbox-col" aria-label={t('board.inbox_orphaned')}>
-      <h2 class="col-heading">{t('board.inbox_orphaned')}</h2>
+      <div class="col-heading-row">
+        <h2 class="col-heading">{t('board.inbox_orphaned')}</h2>
+        {#if filteredOrphaned.length > 0}
+          <button class="select-toggle" class:active={selectMode} onclick={toggleSelectMode} title={t('inbox.select')}>
+            <SquareCheckBig size={13} />
+          </button>
+        {/if}
+      </div>
+      {#if selectMode}
+        <div class="select-toolbar">
+          <label class="select-all-label">
+            <input type="checkbox" checked={allSelected} onchange={toggleSelectAll} />
+            {t('inbox.select_all')}
+          </label>
+          {#if selectedIds.size > 0}
+            <button class="bulk-delete-btn" onclick={bulkDelete} disabled={deleting}>
+              <Trash2 size={12} />
+              {t('inbox.delete_selected').replace('{count}', String(selectedIds.size))}
+            </button>
+          {/if}
+        </div>
+      {/if}
       {#if filteredOrphaned.length === 0}
         <p class="col-empty">{search.query ? t('board.inbox_search_empty') : t('board.inbox_empty')}</p>
       {:else}
         <div class="cards-grid" role="list">
           {#each filteredOrphaned as card (card.id)}
-            <div class="card-slot" role="listitem">
-              <CardItem {card} categoryId="__inbox__" onclick={() => onCardClick(card.id)} />
+            <div class="card-slot" class:selected={selectMode && selectedIds.has(card.id)} role="listitem">
+              {#if selectMode}
+                <input type="checkbox" class="card-checkbox" checked={selectedIds.has(card.id)} onchange={() => toggleCard(card.id)} />
+              {/if}
+              <CardItem {card} categoryId="__inbox__" onclick={() => selectMode ? toggleCard(card.id) : onCardClick(card.id)} />
             </div>
           {/each}
         </div>
@@ -184,6 +264,87 @@
     margin: 0;
   }
 
+  .col-heading-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    background: var(--bg-base);
+    z-index: 1;
+    padding-top: 0.25rem;
+    padding-bottom: 0.4rem;
+  }
+
+  .col-heading-row .col-heading {
+    position: static;
+    padding: 0;
+  }
+
+  .select-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .select-toggle:hover {
+    color: var(--text-primary);
+    border-color: var(--accent);
+  }
+  .select-toggle.active {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+
+  .select-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+  }
+
+  .select-all-label {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .select-all-label input {
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+
+  .bulk-delete-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid var(--danger, #ef4444);
+    background: color-mix(in srgb, var(--danger, #ef4444) 8%, var(--bg-elevated));
+    color: var(--danger, #ef4444);
+    transition: background 0.15s;
+  }
+  .bulk-delete-btn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--danger, #ef4444) 18%, var(--bg-elevated));
+  }
+  .bulk-delete-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
   .cards-grid {
     display: grid;
     grid-template-columns: 1fr;
@@ -193,6 +354,20 @@
 
   .card-slot {
     min-width: 0;
+    display: flex;
+    align-items: stretch;
+    gap: 0.35rem;
+  }
+  .card-slot.selected {
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    border-radius: 6px;
+  }
+
+  .card-checkbox {
+    flex-shrink: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+    margin-left: 2px;
   }
 
   /* FAB — top-right corner of the inbox view, floating above content */

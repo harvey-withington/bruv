@@ -38,6 +38,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
       base_url: '',
       auto_pin: 'off',
       ai_mode: 'edit',
+      min_confidence: '',
     }),
     SetLLMConfig: async () => {},
 
@@ -57,16 +58,19 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     GetBrand: async () => ({ slug: 'test-brand', name: 'Test Brand' }),
     ListBrands: async () => [],
     RenameBrand: async () => ({ slug: 'test-brand', name: 'Test Brand' }),
+    UpdateBrandDescription: async () => ({ slug: 'test-brand', name: 'Test Brand' }),
     DeleteBrand: async () => {},
 
     CreateStream: async () => ({ slug: 'test-stream', name: 'Test Stream' }),
     ListStreams: async () => [],
     RenameStream: async () => ({ slug: 'test-stream', name: 'Test Stream' }),
+    UpdateStreamDescription: async () => ({ slug: 'test-stream', name: 'Test Stream' }),
     DeleteStream: async () => {},
 
     CreateProject: async () => ({ slug: 'test-project', name: 'Test Project' }),
     ListProjects: async () => [],
     RenameProject: async () => ({ slug: 'test-project', name: 'Test Project' }),
+    UpdateProjectDescription: async () => ({ slug: 'test-project', name: 'Test Project' }),
     DeleteProject: async () => {},
 
     CreateCategory: async () => ({ slug: 'test-category', name: 'Test Category' }),
@@ -85,6 +89,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
 
     UpdateCardTitle: async () => ({}),
     UpdateCardType: async () => ({}),
+    RefreshTypeBlocks: async () => ({}),
     UpdateCardFields: async () => ({}),
     UpdateCardBlocks: async () => ({}),
     UpdateCardTags: async () => ({}),
@@ -149,6 +154,8 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
 
     LoadChatHistory: async () => ({ card_id: '', messages: [] }),
     SendChatMessage: async () => ({ card_id: '', messages: [] }),
+    LoadProjectChatHistory: async () => ({ card_id: '', messages: [] }),
+    SendProjectChatMessage: async () => ({ card_id: '', messages: [] }),
     IsLLMConfigured: async () => false,
     TestLLMConnection: async () => 'OK',
 

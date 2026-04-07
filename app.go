@@ -1732,21 +1732,29 @@ func (a *App) ValidateCardFields(cardType string, fields map[string]any) []strin
 
 // applyTypeBlocks non-destructively merges a type's template blocks into a card.
 // Existing blocks are NEVER removed or overwritten. Template blocks are only
-// appended when no existing block shares the same key.
+// appended when no existing block shares the same key. Legacy field values
+// (card.Fields) are carried forward into matching template blocks so content
+// is never lost during a type change.
 // For built-in types it uses the schema registry; for user types it uses the
 // associated CardTemplate.
 func (a *App) applyTypeBlocks(cardID, cardType string) {
-	var templateBlocks []model.Block
+	templateBlocks := a.resolveTemplateBlocks(cardType)
+	if len(templateBlocks) == 0 {
+		return
+	}
+	a.mergeTemplateBlocks(cardID, templateBlocks)
+}
 
+// resolveTemplateBlocks returns the template/schema blocks for a card type.
+func (a *App) resolveTemplateBlocks(cardType string) []model.Block {
 	store, _ := config.LoadUserTypeStore()
 
-	// Priority 1: user-defined type template (always wins over schema)
+	// Priority 1: user-defined type template
 	for _, ut := range store.Types {
 		if ut.ID == cardType && ut.TemplateID != "" {
 			for _, tmpl := range store.Templates {
 				if tmpl.ID == ut.TemplateID {
-					templateBlocks = cloneBlocksWithFreshIDs(tmpl.Blocks)
-					break
+					return cloneBlocksWithFreshIDs(tmpl.Blocks)
 				}
 			}
 			break
@@ -1754,48 +1762,111 @@ func (a *App) applyTypeBlocks(cardID, cardType string) {
 	}
 
 	// Priority 2: builtin override template
-	if len(templateBlocks) == 0 {
-		if ov, ok := store.BuiltinOverrides[cardType]; ok && ov.TemplateID != "" {
-			for _, tmpl := range store.Templates {
-				if tmpl.ID == ov.TemplateID {
-					templateBlocks = cloneBlocksWithFreshIDs(tmpl.Blocks)
-					break
-				}
+	if ov, ok := store.BuiltinOverrides[cardType]; ok && ov.TemplateID != "" {
+		for _, tmpl := range store.Templates {
+			if tmpl.ID == ov.TemplateID {
+				return cloneBlocksWithFreshIDs(tmpl.Blocks)
 			}
 		}
 	}
 
-	if len(templateBlocks) == 0 {
+	// Priority 3: built-in schema
+	if a.registry != nil {
+		blocks := a.registry.SchemaToBlocks(cardType)
+		if len(blocks) > 0 {
+			return blocks
+		}
+	}
+
+	return nil
+}
+
+// mergeTemplateBlocks merges template blocks into an existing card non-destructively.
+// - Existing blocks are never removed or reordered.
+// - If a template block's key matches an existing block, the existing value is kept.
+// - Template blocks whose key matches an intrinsic field are skipped entirely.
+// - Template blocks with keys not present in the card are appended.
+func (a *App) mergeTemplateBlocks(cardID string, templateBlocks []model.Block) {
+	existingCard, _ := a.repo.GetCard(cardID)
+	if existingCard == nil {
 		return
 	}
 
-	existingCard, _ := a.repo.GetCard(cardID)
+	// Intrinsic fields are managed outside the block system (description, due_date,
+	// labels, etc.). Template blocks with these keys must never be added as blocks.
+	intrinsicKeys := map[string]bool{
+		"description": true,
+	}
 
-	// Build a set of keys already present on the card
-	existingKeys := make(map[string]bool)
-	if existingCard != nil {
-		for _, b := range existingCard.Blocks {
-			if b.Key != "" {
-				existingKeys[b.Key] = true
-			}
+	// Index existing blocks by key for lookup
+	existingByKey := make(map[string]int) // key → index in Blocks slice
+	for i, b := range existingCard.Blocks {
+		if b.Key != "" {
+			existingByKey[b.Key] = i
 		}
 	}
 
 	// Start from the card's current blocks (preserving everything)
-	merged := make([]model.Block, 0)
-	if existingCard != nil {
-		merged = append(merged, existingCard.Blocks...)
-	}
+	merged := make([]model.Block, len(existingCard.Blocks))
+	copy(merged, existingCard.Blocks)
 
-	// Append only template blocks whose key doesn't already exist
 	for _, tb := range templateBlocks {
-		if tb.Key != "" && existingKeys[tb.Key] {
+		if tb.Key != "" && intrinsicKeys[tb.Key] {
+			continue
+		}
+		if idx, exists := existingByKey[tb.Key]; exists {
+			// Block already present — only fill in the value if the user hasn't set one
+			if isBlockValueEmpty(merged[idx].Value) && !isBlockValueEmpty(tb.Value) {
+				merged[idx].Value = tb.Value
+			}
 			continue
 		}
 		merged = append(merged, tb)
 	}
 
 	a.UpdateCardBlocks(cardID, merged)
+}
+
+// isBlockValueEmpty returns true if a block value is nil, empty string, empty slice, or zero.
+func isBlockValueEmpty(v any) bool {
+	if v == nil {
+		return true
+	}
+	switch val := v.(type) {
+	case string:
+		return val == ""
+	case []any:
+		return len(val) == 0
+	case []map[string]any:
+		return len(val) == 0
+	case float64:
+		return val == 0
+	case bool:
+		return false // false is a valid user-set value
+	}
+	return false
+}
+
+// RefreshTypeBlocks re-merges the current card type's template blocks into the card.
+// Missing template blocks are added (with empty values), existing blocks are untouched.
+// This is the "refresh" action — safe to call any time.
+func (a *App) RefreshTypeBlocks(cardID string) (*model.Card, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	card, err := a.repo.GetCard(cardID)
+	if err != nil {
+		return nil, err
+	}
+	if card.Type == "" {
+		return card, nil
+	}
+	templateBlocks := a.resolveTemplateBlocks(card.Type)
+	if len(templateBlocks) == 0 {
+		return card, nil
+	}
+	a.mergeTemplateBlocks(cardID, templateBlocks)
+	return a.repo.GetCard(cardID)
 }
 
 // cloneBlocksWithFreshIDs returns a copy of blocks with new UUIDs to avoid
@@ -2206,26 +2277,333 @@ func (a *App) LoadChatHistory(cardID string) (*model.ChatFile, error) {
 	return a.repo.LoadChat(cardID)
 }
 
+// projectChatID returns the virtual chat ID used to store project-level chat messages.
+func projectChatID(projectID string) string {
+	return "__project__" + projectID
+}
+
+// LoadProjectChatHistory returns the chat history for a project.
+func (a *App) LoadProjectChatHistory(brandSlug, streamSlug, projectSlug string) (*model.ChatFile, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	project, err := a.repo.GetProject(brandSlug, streamSlug, projectSlug)
+	if err != nil {
+		return nil, err
+	}
+	return a.repo.LoadChat(projectChatID(project.ID))
+}
+
+// SendProjectChatMessage sends a message in the project-level AI chat.
+// Context is assembled from all cards pinned to the project, grouped by category.
+// The LLM has tools to create cards, bulk-tag, move cards, and update cards.
+// --- Chat loop infrastructure ---
+
+// chatLoopConfig holds the per-call configuration for runChatLoop.
+type chatLoopConfig struct {
+	chatID       string
+	systemPrompt string
+	tools        []llm.ToolDef
+	maxIter      int
+
+	// allowDuplicateTool: tool names in this set bypass dedup (e.g. "create_card")
+	allowDuplicateTool map[string]bool
+
+	// executeTool runs a single tool call. Returns (result, action, pinSuggestion).
+	// Project chat returns nil for pinSuggestion.
+	executeTool func(tc llm.ToolCall) (string, *model.ToolAction, *model.PinSuggestion)
+
+	// stageTool is non-nil only for card chat in suggest mode.
+	stageTool func(tc llm.ToolCall) (string, []model.PendingEdit)
+
+	// afterToolsRun is called after each iteration's tool calls (e.g. reload card, rebuild tools, nudge).
+	// It receives the tool calls from the current iteration and the accumulated state,
+	// and returns updated tools + optional system nudge messages to inject.
+	afterToolsRun func(calls []llm.ToolCall, tools []llm.ToolDef, pin *model.PinSuggestion, edits []model.PendingEdit) ([]llm.ToolDef, []llm.Message)
+
+	// suggest mode: if true, executeTool is ignored and stageTool is used instead.
+	suggestMode bool
+
+	// minConfidence filters pin suggestions below this threshold.
+	minConfidence string
+
+	// fallbackContent is the assistant message if max iterations are reached.
+	fallbackContent string
+}
+
+// runChatLoop runs the shared LLM tool-calling loop for both card and project chat.
+func (a *App) runChatLoop(ctx context.Context, provider llm.Provider, modelName string, cf *model.ChatFile, lc chatLoopConfig) (*model.ChatFile, error) {
+	// Convert chat history to LLM messages
+	var llmMessages []llm.Message
+	for _, m := range cf.Messages {
+		if m.Role == model.RoleUser || m.Role == model.RoleAssistant {
+			llmMessages = append(llmMessages, llm.Message{Role: m.Role, Content: m.Content})
+		}
+	}
+
+	var allToolActions []model.ToolAction
+	var pinSuggestion *model.PinSuggestion
+	var allPendingEdits []model.PendingEdit
+	toolDefs := lc.tools
+
+	for iteration := 0; iteration < lc.maxIter; iteration++ {
+		resp, err := provider.ChatCompletion(ctx, llm.ChatRequest{
+			SystemPrompt: lc.systemPrompt,
+			Messages:     llmMessages,
+			Model:        modelName,
+			Tools:        toolDefs,
+		})
+		if err != nil {
+			errMsg := model.ChatMessage{
+				ID:        uuid.New().String(),
+				Role:      model.RoleSystem,
+				Content:   "Error: " + err.Error(),
+				Timestamp: time.Now().UTC(),
+			}
+			cf, _ = a.repo.AppendMessage(lc.chatID, errMsg)
+			return cf, nil
+		}
+
+		// No tool calls — final text response
+		if len(resp.ToolCalls) == 0 {
+			assistantMsg := model.ChatMessage{
+				ID:            uuid.New().String(),
+				Role:          model.RoleAssistant,
+				Content:       resp.Content,
+				Timestamp:     time.Now().UTC(),
+				ToolActions:   allToolActions,
+				PinSuggestion: pinSuggestion,
+				PendingEdits:  allPendingEdits,
+			}
+			cf, _ = a.repo.AppendMessage(lc.chatID, assistantMsg)
+			return cf, nil
+		}
+
+		// Add assistant message with tool calls to conversation
+		llmMessages = append(llmMessages, llm.Message{
+			Role:      model.RoleAssistant,
+			Content:   resp.Content,
+			ToolCalls: resp.ToolCalls,
+		})
+
+		// Deduplicate tool calls within same response
+		seenCalls := make(map[string]bool)
+		for _, tc := range resp.ToolCalls {
+			if seenCalls[tc.Name] && !lc.allowDuplicateTool[tc.Name] {
+				llmMessages = append(llmMessages, llm.Message{
+					Role:       "tool",
+					Content:    "Skipped — duplicate call",
+					ToolCallID: tc.ID,
+				})
+				continue
+			}
+			seenCalls[tc.Name] = true
+
+			var result string
+			if lc.suggestMode && lc.stageTool != nil {
+				var edits []model.PendingEdit
+				result, edits = lc.stageTool(tc)
+				allPendingEdits = append(allPendingEdits, edits...)
+			} else {
+				var action *model.ToolAction
+				var ps *model.PinSuggestion
+				result, action, ps = lc.executeTool(tc)
+				if action != nil {
+					allToolActions = append(allToolActions, *action)
+				}
+				if ps != nil && config.ConfidenceMeetsThreshold(ps.Confidence, lc.minConfidence) {
+					pinSuggestion = ps
+				}
+			}
+
+			llmMessages = append(llmMessages, llm.Message{
+				Role:       "tool",
+				Content:    result,
+				ToolCallID: tc.ID,
+			})
+		}
+
+		// Post-iteration hook: rebuild tools, inject nudge messages
+		if lc.afterToolsRun != nil {
+			var nudges []llm.Message
+			toolDefs, nudges = lc.afterToolsRun(resp.ToolCalls, toolDefs, pinSuggestion, allPendingEdits)
+			llmMessages = append(llmMessages, nudges...)
+		}
+	}
+
+	// Max iterations reached — save what we have
+	assistantMsg := model.ChatMessage{
+		ID:            uuid.New().String(),
+		Role:          model.RoleAssistant,
+		Content:       lc.fallbackContent,
+		Timestamp:     time.Now().UTC(),
+		ToolActions:   allToolActions,
+		PinSuggestion: pinSuggestion,
+		PendingEdits:  allPendingEdits,
+	}
+	cf, _ = a.repo.AppendMessage(lc.chatID, assistantMsg)
+	return cf, nil
+}
+
+// --- Project chat ---
+
+func (a *App) SendProjectChatMessage(brandSlug, streamSlug, projectSlug, userMessage string) (*model.ChatFile, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+
+	project, err := a.repo.GetProject(brandSlug, streamSlug, projectSlug)
+	if err != nil {
+		return nil, err
+	}
+	chatID := projectChatID(project.ID)
+
+	// Save user message
+	cf, err := a.saveUserMessage(chatID, userMessage)
+	if err != nil {
+		return nil, err
+	}
+
+	// Load LLM config + provider
+	cfg, provider, err := a.loadLLMProvider()
+	if err != nil || provider == nil {
+		return cf, nil
+	}
+
+	// Build system prompt with project context
+	categories, _ := a.repo.ListCategories(brandSlug, streamSlug, projectSlug)
+	systemPrompt := a.buildProjectSystemPrompt(project, categories, cfg)
+
+	// Build tool definitions
+	var catMaps []map[string]string
+	for _, cat := range categories {
+		catMaps = append(catMaps, map[string]string{"id": cat.ID, "breadcrumb": cat.Name})
+	}
+	cardTypes := a.listCardTypeIDs()
+	toolDefs := llm.ProjectTools(cardTypes, catMaps)
+
+	modelName := cfg.Model
+	if modelName == "" {
+		modelName = defaultModelForProvider(cfg.Provider)
+	}
+	ctx, cancel := context.WithTimeout(a.ctx, 120*time.Second)
+	defer cancel()
+
+	return a.runChatLoop(ctx, provider, modelName, cf, chatLoopConfig{
+		chatID:             chatID,
+		systemPrompt:       systemPrompt,
+		tools:              toolDefs,
+		maxIter:            5,
+		allowDuplicateTool: map[string]bool{"create_card": true},
+		executeTool: func(tc llm.ToolCall) (string, *model.ToolAction, *model.PinSuggestion) {
+			result, action := a.executeProjectToolCall(tc)
+			return result, action, nil
+		},
+		fallbackContent: "I've made the requested changes to your project.",
+	})
+}
+
+// buildProjectSystemPrompt builds the system prompt for project-level chat.
+func (a *App) buildProjectSystemPrompt(project *model.Project, categories []model.Category, cfg config.LLMConfig) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("You are BRUV AI, a project assistant. Today is %s.\n\n", time.Now().Format("2006-01-02 (Monday)")))
+	sb.WriteString(fmt.Sprintf("## Project: %s\n", project.Name))
+	if project.Description != "" {
+		sb.WriteString(project.Description + "\n")
+	}
+	sb.WriteString("\n")
+
+	if cfg.Context != "" {
+		sb.WriteString("## User context\n" + cfg.Context + "\n\n")
+	}
+
+	// Enumerate all cards grouped by category
+	totalCards := 0
+	seenCards := make(map[string]bool)
+	if len(categories) > 0 {
+		sb.WriteString("## Categories and cards\n\n")
+		for _, cat := range categories {
+			sb.WriteString(fmt.Sprintf("### %s (category_id: %s)\n", cat.Name, cat.ID))
+			pins, _ := a.repo.ListCardsInCategory(cat.ID, cat.ID)
+			if len(pins) == 0 {
+				sb.WriteString("  (empty)\n\n")
+				continue
+			}
+			for _, pin := range pins {
+				if seenCards[pin.CardID] {
+					continue
+				}
+				seenCards[pin.CardID] = true
+				card, err := a.repo.GetCard(pin.CardID)
+				if err != nil {
+					continue
+				}
+				totalCards++
+				line := fmt.Sprintf("- **%s** (id: `%s`, type: %s", card.Title, card.ID, card.Type)
+				if len(card.Tags) > 0 {
+					line += ", tags: " + strings.Join(card.Tags, ", ")
+				}
+				if card.DueDate != nil {
+					line += ", due: " + card.DueDate.Format("2006-01-02")
+				}
+				line += ")"
+				// Include description from intrinsic fields
+				if desc, ok := card.Fields["description"].(string); ok && desc != "" {
+					if len(desc) > 200 {
+						desc = desc[:200] + "…"
+					}
+					line += "\n  > " + strings.ReplaceAll(desc, "\n", "\n  > ")
+				}
+				// Include first text block content if no description field
+				if _, hasDesc := card.Fields["description"]; !hasDesc {
+					for _, b := range card.Blocks {
+						if b.Type == "text" {
+							if s, ok := b.Value.(string); ok && s != "" {
+								if len(s) > 200 {
+									s = s[:200] + "…"
+								}
+								line += "\n  > " + strings.ReplaceAll(s, "\n", "\n  > ")
+							}
+							break
+						}
+					}
+				}
+				sb.WriteString(line + "\n")
+			}
+			sb.WriteString("\n")
+		}
+	} else {
+		sb.WriteString("This project has no categories yet.\n\n")
+	}
+
+	if totalCards == 0 && len(categories) > 0 {
+		sb.WriteString("All categories are empty — no cards yet.\n\n")
+	}
+
+	sb.WriteString("## Your capabilities\n")
+	sb.WriteString("You can answer questions about the project's cards and structure. ")
+	sb.WriteString("You have tools to **create cards**, **add tags to cards**, **move cards between categories**, and **update cards**. ")
+	sb.WriteString("When the user asks you to create a card or make changes, USE THE TOOLS — do not just describe what to do. ")
+	sb.WriteString("When creating cards, always pin them to the most appropriate category.\n")
+	return sb.String()
+}
+
+// --- Card chat ---
+
 func (a *App) SendChatMessage(cardID, userMessage string) (*model.ChatFile, error) {
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
 
-	// 1. Save user message immediately
-	userMsg := model.ChatMessage{
-		ID:        uuid.New().String(),
-		Role:      model.RoleUser,
-		Content:   repo.SanitizeText(userMessage),
-		Timestamp: time.Now().UTC(),
-	}
-	cf, err := a.repo.AppendMessage(cardID, userMsg)
+	// Save user message
+	cf, err := a.saveUserMessage(cardID, userMessage)
 	if err != nil {
 		return nil, err
 	}
 
-	// 2. Load LLM config — if not configured, return with just user message
-	cfg, err := config.LoadLLMConfig()
-	if err != nil || cfg.Provider == "" {
+	// Load LLM config + provider
+	cfg, provider, err := a.loadLLMProvider()
+	if err != nil || provider == nil {
 		return cf, nil
 	}
 
@@ -2233,39 +2611,24 @@ func (a *App) SendChatMessage(cardID, userMessage string) (*model.ChatFile, erro
 	a.llmActors.Store(cardID, cfg.Model)
 	defer a.llmActors.Delete(cardID)
 
-	// 3. Create provider
-	provider, err := llm.NewProvider(cfg.Provider, cfg.APIKey, cfg.BaseURL)
-	if err != nil {
-		return cf, nil
-	}
-
-	// 4. Load card for context
+	// Load card for context
 	card, err := a.repo.GetCard(cardID)
 	if err != nil {
 		return cf, nil
 	}
 
-	// 5. Build system prompt
 	systemPrompt := a.buildSystemPrompt(card, cfg)
 
-	// 6. Build tool definitions
-	cardTypes := []string{}
-	if a.registry != nil {
-		cardTypes = a.registry.List()
-	}
+	// Build tool definitions
+	cardTypes := a.listCardTypeIDs()
 	allCats, _ := a.ListAllCategories()
 	var catMaps []map[string]string
 	for _, c := range allCats {
-		catMaps = append(catMaps, map[string]string{
-			"id":         c.CategoryID,
-			"breadcrumb": c.Breadcrumb,
-		})
+		catMaps = append(catMaps, map[string]string{"id": c.CategoryID, "breadcrumb": c.Breadcrumb})
 	}
-	// Build tools with a card-specific set_fields definition
+
 	buildToolDefs := func(c *model.Card) []llm.ToolDef {
 		tools := llm.CardTools(cardTypes, catMaps)
-		// Replace the generic set_fields with a card-specific version
-		// that has explicit property names matching the card's actual blocks
 		if c != nil && len(c.Blocks) > 0 {
 			fieldProps := make(map[string]any)
 			for _, b := range c.Blocks {
@@ -2294,7 +2657,6 @@ func (a *App) SendChatMessage(cardID, userMessage string) (*model.ChatFile, erro
 					if opts, ok := b.Meta["options"].([]string); ok && len(opts) > 0 {
 						prop["enum"] = opts
 					}
-					// Handle options as []any (from JSON unmarshaling)
 					if opts, ok := b.Meta["options"].([]any); ok && len(opts) > 0 {
 						prop["enum"] = opts
 					}
@@ -2302,16 +2664,12 @@ func (a *App) SendChatMessage(cardID, userMessage string) (*model.ChatFile, erro
 				fieldProps[b.Key] = prop
 			}
 			if len(fieldProps) > 0 {
-				// Find and replace the generic set_fields tool
 				for i, t := range tools {
 					if t.Name == "set_fields" {
 						tools[i] = llm.ToolDef{
 							Name:        "set_fields",
 							Description: "Fill in field values on the card. ALWAYS call this to write content into fields.",
-							Parameters: map[string]any{
-								"type":       "object",
-								"properties": fieldProps,
-							},
+							Parameters:  map[string]any{"type": "object", "properties": fieldProps},
 						}
 						break
 					}
@@ -2320,22 +2678,13 @@ func (a *App) SendChatMessage(cardID, userMessage string) (*model.ChatFile, erro
 		}
 		return tools
 	}
-	// In chat-only mode skip all tools so the LLM responds conversationally.
-	// Both "edit" and "suggest" modes use tools; suggest mode stages instead of applies.
+
+	// In chat-only mode skip all tools
 	var toolDefs []llm.ToolDef
 	if cfg.AIMode != "chat" {
 		toolDefs = buildToolDefs(card)
 	}
 
-	// 7. Convert chat history to LLM messages
-	var llmMessages []llm.Message
-	for _, m := range cf.Messages {
-		if m.Role == model.RoleUser || m.Role == model.RoleAssistant {
-			llmMessages = append(llmMessages, llm.Message{Role: m.Role, Content: m.Content})
-		}
-	}
-
-	// 8. Call LLM with tool loop (max 3 iterations)
 	modelName := cfg.Model
 	if modelName == "" {
 		modelName = defaultModelForProvider(cfg.Provider)
@@ -2343,161 +2692,117 @@ func (a *App) SendChatMessage(cardID, userMessage string) (*model.ChatFile, erro
 	ctx, cancel := context.WithTimeout(a.ctx, 120*time.Second)
 	defer cancel()
 
-	var allToolActions []model.ToolAction
-	var pinSuggestion *model.PinSuggestion
-	var allPendingEdits []model.PendingEdit
+	return a.runChatLoop(ctx, provider, modelName, cf, chatLoopConfig{
+		chatID:       cardID,
+		systemPrompt: systemPrompt,
+		tools:        toolDefs,
+		maxIter:      3,
+		suggestMode:  cfg.AIMode == "suggest",
+		stageTool: func(tc llm.ToolCall) (string, []model.PendingEdit) {
+			return a.stageToolCall(tc, allCats)
+		},
+		executeTool: func(tc llm.ToolCall) (string, *model.ToolAction, *model.PinSuggestion) {
+			return a.executeToolCall(cardID, card, tc, allCats, cfg.AutoPin)
+		},
+		minConfidence: cfg.MinConfidence,
+		afterToolsRun: func(calls []llm.ToolCall, tools []llm.ToolDef, pin *model.PinSuggestion, edits []model.PendingEdit) ([]llm.ToolDef, []llm.Message) {
+			var nudges []llm.Message
 
-	for iteration := 0; iteration < 3; iteration++ {
-		resp, err := provider.ChatCompletion(ctx, llm.ChatRequest{
-			SystemPrompt: systemPrompt,
-			Messages:     llmMessages,
-			Model:        modelName,
-			Tools:        toolDefs,
-		})
-		if err != nil {
-			errMsg := model.ChatMessage{
-				ID:        uuid.New().String(),
-				Role:      model.RoleSystem,
-				Content:   "Error: " + err.Error(),
-				Timestamp: time.Now().UTC(),
+			// Reload card after tool execution (it may have changed)
+			if cfg.AIMode != "suggest" {
+				card, _ = a.repo.GetCard(cardID)
+				tools = buildToolDefs(card)
 			}
-			cf, _ = a.repo.AppendMessage(cardID, errMsg)
-			return cf, nil
-		}
 
-		// No tool calls — final text response
-		if len(resp.ToolCalls) == 0 {
-			assistantMsg := model.ChatMessage{
-				ID:            uuid.New().String(),
-				Role:          model.RoleAssistant,
-				Content:       resp.Content,
-				Timestamp:     time.Now().UTC(),
-				ToolActions:   allToolActions,
-				PinSuggestion: pinSuggestion,
-				PendingEdits:  allPendingEdits,
-			}
-			cf, _ = a.repo.AppendMessage(cardID, assistantMsg)
-			return cf, nil
-		}
-
-		// Process tool calls
-		// Add assistant message with tool calls to conversation
-		assistantLLMMsg := llm.Message{
-			Role:      model.RoleAssistant,
-			Content:   resp.Content,
-			ToolCalls: resp.ToolCalls,
-		}
-		llmMessages = append(llmMessages, assistantLLMMsg)
-
-		// Deduplicate tool calls within same response — same tool name = skip
-		seenCalls := make(map[string]bool)
-		for _, tc := range resp.ToolCalls {
-			if seenCalls[tc.Name] {
-				// Still need to send a tool result back to the LLM
-				llmMessages = append(llmMessages, llm.Message{
-					Role:       "tool",
-					Content:    "Skipped — duplicate call",
-					ToolCallID: tc.ID,
-				})
-				continue
-			}
-			seenCalls[tc.Name] = true
-			var result string
-			if cfg.AIMode == "suggest" {
-				// Stage the edit without applying it; return a fake success to the LLM
-				var edits []model.PendingEdit
-				result, edits = a.stageToolCall(tc, allCats)
-				allPendingEdits = append(allPendingEdits, edits...)
-			} else {
-				var action *model.ToolAction
-				var ps *model.PinSuggestion
-				result, action, ps = a.executeToolCall(cardID, card, tc, allCats, cfg.AutoPin)
-				if action != nil {
-					allToolActions = append(allToolActions, *action)
-				}
-				if ps != nil {
-					pinSuggestion = ps
+			// Nudge to fill empty fields
+			calledSetFields := false
+			for _, tc := range calls {
+				if tc.Name == "set_fields" || tc.Name == "update_blocks" {
+					calledSetFields = true
+					break
 				}
 			}
-			// Add tool result to conversation
-			llmMessages = append(llmMessages, llm.Message{
-				Role:       "tool",
-				Content:    result,
-				ToolCallID: tc.ID,
-			})
-		}
-
-		// Reload card after tool execution (it may have changed).
-		// In suggest mode nothing was written, so skip the reload.
-		if cfg.AIMode != "suggest" {
-			card, _ = a.repo.GetCard(cardID)
-			// Rebuild tool definitions in case type changed and blocks are different now
-			toolDefs = buildToolDefs(card)
-		}
-
-		// Check if set_fields was missed — nudge the LLM to fill empty fields
-		calledSetFields := false
-		for _, tc := range resp.ToolCalls {
-			if tc.Name == "set_fields" || tc.Name == "update_blocks" {
-				calledSetFields = true
-				break
-			}
-		}
-		if !calledSetFields && card != nil && len(card.Blocks) > 0 {
-			var emptyKeys []string
-			for _, b := range card.Blocks {
-				if b.Key != "" {
-					if v, ok := b.Value.(string); ok && v == "" {
-						emptyKeys = append(emptyKeys, b.Key)
+			if !calledSetFields && card != nil && len(card.Blocks) > 0 {
+				var emptyKeys []string
+				for _, b := range card.Blocks {
+					if b.Key != "" {
+						if v, ok := b.Value.(string); ok && v == "" {
+							emptyKeys = append(emptyKeys, b.Key)
+						}
 					}
 				}
+				if len(emptyKeys) > 0 {
+					nudges = append(nudges, llm.Message{
+						Role:    model.RoleUser,
+						Content: fmt.Sprintf("[System: The card has empty fields that need content: %s. Use set_fields to fill them based on the conversation.]", strings.Join(emptyKeys, ", ")),
+					})
+				}
 			}
-			if len(emptyKeys) > 0 {
-				llmMessages = append(llmMessages, llm.Message{
-					Role:    model.RoleUser,
-					Content: fmt.Sprintf("[System: The card has empty fields that need content: %s. Use set_fields to fill them based on the conversation.]", strings.Join(emptyKeys, ", ")),
-				})
-			}
-		}
 
-		// Nudge for pin if not yet pinned and suggest_pin wasn't called
-		calledPin := false
-		for _, tc := range resp.ToolCalls {
-			if tc.Name == "suggest_pin" {
-				calledPin = true
-				break
+			// Nudge for pin
+			calledPin := false
+			for _, tc := range calls {
+				if tc.Name == "suggest_pin" {
+					calledPin = true
+					break
+				}
 			}
-		}
-		suggestPinStaged := false
-		for _, e := range allPendingEdits {
-			if e.Tool == "suggest_pin" {
-				suggestPinStaged = true
-				break
+			suggestPinStaged := false
+			for _, e := range edits {
+				if e.Tool == "suggest_pin" {
+					suggestPinStaged = true
+					break
+				}
 			}
-		}
-		if !calledPin && pinSuggestion == nil && !suggestPinStaged {
-			existingPins, _ := a.repo.GetCardPins(cardID)
-			if len(existingPins) == 0 {
-				llmMessages = append(llmMessages, llm.Message{
-					Role:    model.RoleUser,
-					Content: "[System: This card has no pin location yet. Use suggest_pin to pin it to the best-fit category.]",
-				})
+			if !calledPin && pin == nil && !suggestPinStaged {
+				existingPins, _ := a.repo.GetCardPins(cardID)
+				if len(existingPins) == 0 {
+					nudges = append(nudges, llm.Message{
+						Role:    model.RoleUser,
+						Content: "[System: This card has no pin location yet. Use suggest_pin to pin it to the best-fit category.]",
+					})
+				}
 			}
-		}
-	}
 
-	// Max iterations reached — save what we have
-	assistantMsg := model.ChatMessage{
-		ID:            uuid.New().String(),
-		Role:          model.RoleAssistant,
-		Content:       "I've made the changes to your card.",
-		Timestamp:     time.Now().UTC(),
-		ToolActions:   allToolActions,
-		PinSuggestion: pinSuggestion,
-		PendingEdits:  allPendingEdits,
+			return tools, nudges
+		},
+		fallbackContent: "I've made the changes to your card.",
+	})
+}
+
+// --- Chat helpers ---
+
+// saveUserMessage saves a user message to a chat and returns the updated ChatFile.
+func (a *App) saveUserMessage(chatID, userMessage string) (*model.ChatFile, error) {
+	userMsg := model.ChatMessage{
+		ID:        uuid.New().String(),
+		Role:      model.RoleUser,
+		Content:   repo.SanitizeText(userMessage),
+		Timestamp: time.Now().UTC(),
 	}
-	cf, _ = a.repo.AppendMessage(cardID, assistantMsg)
-	return cf, nil
+	return a.repo.AppendMessage(chatID, userMsg)
+}
+
+// loadLLMProvider loads config and creates a provider. Returns (cfg, provider, err).
+// If LLM is not configured, provider is nil and err is nil.
+func (a *App) loadLLMProvider() (config.LLMConfig, llm.Provider, error) {
+	cfg, err := config.LoadLLMConfig()
+	if err != nil || cfg.Provider == "" {
+		return cfg, nil, nil
+	}
+	provider, err := llm.NewProvider(cfg.Provider, cfg.APIKey, cfg.BaseURL)
+	if err != nil {
+		return cfg, nil, nil
+	}
+	return cfg, provider, nil
+}
+
+// listCardTypeIDs returns all registered card type IDs.
+func (a *App) listCardTypeIDs() []string {
+	if a.registry != nil {
+		return a.registry.List()
+	}
+	return nil
 }
 
 // coerceBlockValue converts an LLM-provided value into the format expected by
@@ -2822,6 +3127,7 @@ func (a *App) executeToolCall(cardID string, card *model.Card, tc llm.ToolCall, 
 	case "suggest_pin":
 		catID, _ := tc.Arguments["category_id"].(string)
 		reason, _ := tc.Arguments["reason"].(string)
+		confidence, _ := tc.Arguments["confidence"].(string)
 
 		var catName, breadcrumb string
 
@@ -2874,6 +3180,7 @@ func (a *App) executeToolCall(cardID string, card *model.Card, tc llm.ToolCall, 
 				CategoryName: catName,
 				Breadcrumb:   breadcrumb,
 				Reason:       reason,
+				Confidence:   confidence,
 				Status:       "accepted",
 			}
 			action := &model.ToolAction{Tool: "suggest_pin", Input: tc.Arguments, Result: "Pinned to " + breadcrumb}
@@ -2886,6 +3193,7 @@ func (a *App) executeToolCall(cardID string, card *model.Card, tc llm.ToolCall, 
 			CategoryName: catName,
 			Breadcrumb:   breadcrumb,
 			Reason:       reason,
+			Confidence:   confidence,
 			Status:       "pending",
 		}
 		action := &model.ToolAction{Tool: "suggest_pin", Input: tc.Arguments, Result: "Suggested pin to " + breadcrumb}
@@ -2893,6 +3201,175 @@ func (a *App) executeToolCall(cardID string, card *model.Card, tc llm.ToolCall, 
 
 	default:
 		return "error: unknown tool " + tc.Name, nil, nil
+	}
+}
+
+// executeProjectToolCall runs a single project-level tool and returns (result, action).
+func (a *App) executeProjectToolCall(tc llm.ToolCall) (string, *model.ToolAction) {
+	switch tc.Name {
+	case "create_card":
+		title, _ := tc.Arguments["title"].(string)
+		if title == "" {
+			return "error: title is required", nil
+		}
+		cardType, _ := tc.Arguments["card_type"].(string)
+		if cardType == "" {
+			cardType = "idea"
+		}
+		card, err := a.CreateCard(cardType, title)
+		if err != nil {
+			return "error: " + err.Error(), nil
+		}
+		cardID := card.ID
+		// Pin to category if specified
+		categoryID, _ := tc.Arguments["category_id"].(string)
+		if categoryID != "" {
+			_ = a.PinCard(cardID, categoryID, categoryID)
+		}
+		// Add tags if specified
+		if tagsRaw, ok := tc.Arguments["tags"].([]any); ok && len(tagsRaw) > 0 {
+			var tags []string
+			for _, t := range tagsRaw {
+				if s, ok := t.(string); ok && s != "" {
+					tags = append(tags, s)
+				}
+			}
+			if len(tags) > 0 {
+				a.UpdateCardTags(cardID, tags)
+			}
+		}
+		// Set description if specified
+		if desc, ok := tc.Arguments["description"].(string); ok && desc != "" {
+			c, _ := a.repo.GetCard(cardID)
+			if c != nil {
+				// Find first text block or create one
+				found := false
+				for i, b := range c.Blocks {
+					if b.Type == "text" {
+						c.Blocks[i].Value = desc
+						found = true
+						break
+					}
+				}
+				if !found {
+					c.Blocks = append(c.Blocks, model.Block{
+						ID:    fmt.Sprintf("blk-%s", uuid.New().String()[:8]),
+						Type:  "text",
+						Label: "Description",
+						Key:   "description",
+						Value: desc,
+					})
+				}
+				a.UpdateCardBlocks(cardID, c.Blocks)
+			}
+		}
+		result := fmt.Sprintf("Created card '%s' (ID: %s)", title, cardID)
+		if categoryID != "" {
+			result += " and pinned to category"
+		}
+		action := &model.ToolAction{Tool: "create_card", Input: tc.Arguments, Result: result}
+		return result, action
+
+	case "add_tags_to_cards":
+		cardIDsRaw, _ := tc.Arguments["card_ids"].([]any)
+		tagsRaw, _ := tc.Arguments["tags"].([]any)
+		if len(cardIDsRaw) == 0 || len(tagsRaw) == 0 {
+			return "error: card_ids and tags are required", nil
+		}
+		var newTags []string
+		for _, t := range tagsRaw {
+			if s, ok := t.(string); ok && s != "" {
+				newTags = append(newTags, s)
+			}
+		}
+		var updated int
+		for _, raw := range cardIDsRaw {
+			cid, ok := raw.(string)
+			if !ok || cid == "" {
+				continue
+			}
+			c, err := a.repo.GetCard(cid)
+			if err != nil {
+				continue
+			}
+			existing := make(map[string]bool)
+			for _, t := range c.Tags {
+				existing[strings.ToLower(t)] = true
+			}
+			merged := c.Tags
+			for _, t := range newTags {
+				if !existing[strings.ToLower(t)] {
+					merged = append(merged, t)
+					existing[strings.ToLower(t)] = true
+				}
+			}
+			if len(merged) > len(c.Tags) {
+				a.UpdateCardTags(cid, merged)
+				updated++
+			}
+		}
+		result := fmt.Sprintf("Added tags [%s] to %d cards", strings.Join(newTags, ", "), updated)
+		action := &model.ToolAction{Tool: "add_tags_to_cards", Input: tc.Arguments, Result: result}
+		return result, action
+
+	case "move_card":
+		cardID, _ := tc.Arguments["card_id"].(string)
+		fromCat, _ := tc.Arguments["from_category_id"].(string)
+		toCat, _ := tc.Arguments["to_category_id"].(string)
+		if cardID == "" || fromCat == "" || toCat == "" {
+			return "error: card_id, from_category_id, and to_category_id are required", nil
+		}
+		err := a.MoveCardToCategory(cardID, fromCat, fromCat, toCat, 0)
+		if err != nil {
+			return "error: " + err.Error(), nil
+		}
+		result := "Card moved to new category"
+		action := &model.ToolAction{Tool: "move_card", Input: tc.Arguments, Result: result}
+		return result, action
+
+	case "update_card":
+		cardID, _ := tc.Arguments["card_id"].(string)
+		if cardID == "" {
+			return "error: card_id is required", nil
+		}
+		var changes []string
+		if title, ok := tc.Arguments["title"].(string); ok && title != "" {
+			if _, err := a.UpdateCardTitle(cardID, title); err == nil {
+				changes = append(changes, "title")
+			}
+		}
+		if cardType, ok := tc.Arguments["card_type"].(string); ok && cardType != "" {
+			if _, err := a.UpdateCardType(cardID, cardType); err == nil {
+				changes = append(changes, "type")
+			}
+		}
+		if tagsRaw, ok := tc.Arguments["tags"].([]any); ok && len(tagsRaw) > 0 {
+			c, err := a.repo.GetCard(cardID)
+			if err == nil {
+				existing := make(map[string]bool)
+				for _, t := range c.Tags {
+					existing[strings.ToLower(t)] = true
+				}
+				merged := c.Tags
+				for _, raw := range tagsRaw {
+					if s, ok := raw.(string); ok && s != "" && !existing[strings.ToLower(s)] {
+						merged = append(merged, s)
+						existing[strings.ToLower(s)] = true
+					}
+				}
+				a.UpdateCardTags(cardID, merged)
+				changes = append(changes, "tags")
+			}
+		}
+		if len(changes) == 0 {
+			return "No changes applied", nil
+		}
+		result := "Updated: " + strings.Join(changes, ", ")
+		action := &model.ToolAction{Tool: "update_card", Input: tc.Arguments, Result: result}
+		return result, action
+
+	default:
+		return "error: unknown tool " + tc.Name, nil
 	}
 }
 

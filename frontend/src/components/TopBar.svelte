@@ -5,11 +5,12 @@
   import { nav, inboxSearchFilters, boardSearchFilters } from '../lib/store.svelte'
   import { t } from '../lib/i18n.svelte'
 
-  let { onSelectCard, onOpenTagEditor, onOpenProjectSettings, onCreateAIChat }: {
+  let { onSelectCard, onOpenTagEditor, onOpenProjectSettings, onToggleProjectChat, projectChatActive }: {
     onSelectCard?: (cardId: string) => void
     onOpenTagEditor?: () => void
     onOpenProjectSettings?: () => void
-    onCreateAIChat?: () => void
+    onToggleProjectChat?: () => void
+    projectChatActive?: boolean
   } = $props()
 
   let showCardTypes = $state(false)
@@ -127,7 +128,7 @@
   <div class="topbar-actions">
     <button class="icon-btn" onclick={() => showCardTypes = true} title={t('toolbar.card_types')}><Layers size={16} /></button>
     {#if nav.projectSlug}
-      <button class="icon-btn" onclick={onCreateAIChat} title={t('toolbar.ai_chat')}><BotMessageSquare size={16} /></button>
+      <button class="icon-btn" class:active={projectChatActive} onclick={onToggleProjectChat} title={t('toolbar.project_chat')}><BotMessageSquare size={16} /></button>
       <button class="icon-btn" onclick={onOpenTagEditor} title={t('toolbar.tags')}><Tags size={16} /></button>
       <button class="icon-btn" onclick={onOpenProjectSettings} title={t('toolbar.project_settings')}><SlidersHorizontal size={16} /></button>
     {/if}
@@ -265,5 +266,9 @@
   .icon-btn:hover {
     color: var(--text-primary);
     background: var(--bg-subtle-hover);
+  }
+  .icon-btn.active {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, var(--bg-base));
   }
 </style>

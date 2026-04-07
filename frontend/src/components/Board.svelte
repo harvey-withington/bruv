@@ -21,8 +21,13 @@
   // Close board's card dialog when navigating via internal links
   onMount(() => {
     function handleClose() { selectedCardId = null; selectedCategoryId = null; selectedCategoryName = null; autoEditTitle = false }
+    function handleBoardChanged() { refreshBoard() }
     document.addEventListener('bruv:close-card-detail', handleClose)
-    return () => document.removeEventListener('bruv:close-card-detail', handleClose)
+    document.addEventListener('bruv:board-changed', handleBoardChanged)
+    return () => {
+      document.removeEventListener('bruv:close-card-detail', handleClose)
+      document.removeEventListener('bruv:board-changed', handleBoardChanged)
+    }
   })
 
   // Category delete confirmation state

@@ -163,6 +163,7 @@ export type LLMConfig = {
   base_url: string
   auto_pin: string
   ai_mode: string
+  min_confidence: string
 }
 
 // --- Backend capabilities ---
@@ -215,18 +216,21 @@ export interface BackendAdapter {
   GetBrand(slug: string): Promise<any>
   ListBrands(): Promise<any[]>
   RenameBrand(slug: string, newName: string): Promise<any>
+  UpdateBrandDescription(slug: string, description: string): Promise<any>
   DeleteBrand(slug: string): Promise<void>
 
   // Stream CRUD
   CreateStream(brandSlug: string, name: string): Promise<any>
   ListStreams(brandSlug: string): Promise<any[]>
   RenameStream(brandSlug: string, streamSlug: string, newName: string): Promise<any>
+  UpdateStreamDescription(brandSlug: string, streamSlug: string, description: string): Promise<any>
   DeleteStream(brandSlug: string, streamSlug: string): Promise<void>
 
   // Project CRUD
   CreateProject(brandSlug: string, streamSlug: string, name: string): Promise<any>
   ListProjects(brandSlug: string, streamSlug: string): Promise<any[]>
   RenameProject(brandSlug: string, streamSlug: string, projectSlug: string, newName: string): Promise<any>
+  UpdateProjectDescription(brandSlug: string, streamSlug: string, projectSlug: string, description: string): Promise<any>
   DeleteProject(brandSlug: string, streamSlug: string, projectSlug: string): Promise<void>
 
   // Category CRUD
@@ -248,6 +252,7 @@ export interface BackendAdapter {
   // Card updates
   UpdateCardTitle(id: string, title: string): Promise<any>
   UpdateCardType(id: string, cardType: string): Promise<any>
+  RefreshTypeBlocks(cardID: string): Promise<any>
   UpdateCardFields(id: string, fields: Record<string, any>): Promise<any>
   UpdateCardBlocks(id: string, blocks: any[]): Promise<any>
   UpdateCardTags(id: string, tags: string[]): Promise<any>
@@ -323,6 +328,10 @@ export interface BackendAdapter {
   // Chat
   LoadChatHistory(cardID: string): Promise<any>
   SendChatMessage(cardID: string, userMessage: string): Promise<any>
+
+  // Project chat
+  LoadProjectChatHistory(brandSlug: string, streamSlug: string, projectSlug: string): Promise<any>
+  SendProjectChatMessage(brandSlug: string, streamSlug: string, projectSlug: string, userMessage: string): Promise<any>
 
   // LLM utilities
   IsLLMConfigured(): Promise<boolean>

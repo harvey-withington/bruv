@@ -3,12 +3,14 @@ import type { BackendAdapter, EventCallback } from '../types'
 import {
   Version, HasRepository, InitRepository, OpenRepository, CloseRepository,
   PickFolder, ListRecentRepos, RemoveRecentRepo,
-  CreateBrand, GetBrand, ListBrands, RenameBrand, DeleteBrand,
-  CreateStream, ListStreams, RenameStream, DeleteStream,
-  CreateProject, ListProjects, RenameProject, DeleteProject,
+  CreateBrand, GetBrand, ListBrands, RenameBrand, UpdateBrandDescription, DeleteBrand,
+  CreateStream, ListStreams, RenameStream, UpdateStreamDescription, DeleteStream,
+  CreateProject, ListProjects, RenameProject, UpdateProjectDescription, DeleteProject,
   CreateCategory, ListCategories, RenameCategory, DeleteCategory, MoveCategoryCards, CopyCategory, UpdateCategoryAcceptedTypes,
   CreateCard, GetCard, ListCards, DeleteCard, DuplicateCard,
   UpdateCardTitle, UpdateCardType, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardLabels, UpdateCardDueDate,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  RefreshTypeBlocks,
   AddChecklistItem, ToggleChecklistItem, RemoveChecklistItem,
   PinCard, UnpinCard, GetCardPins, GetCardLocation, GetProjectLocation,
   ListAllCategories, GetCardPinBreadcrumbs,
@@ -25,6 +27,10 @@ import {
   GetProfile, SetProfile,
   GetAuthInfo, GetLLMConfig, SetLLMConfig,
   LoadChatHistory, SendChatMessage,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  LoadProjectChatHistory,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  SendProjectChatMessage,
   IsLLMConfigured, TestLLMConnection,
   AcceptPinSuggestion, RejectPinSuggestion,
   AcceptPendingEdit, RejectPendingEdit, AcceptAllPendingEdits, RejectAllPendingEdits, ApplyPendingEdits,
@@ -48,7 +54,7 @@ export const wailsAdapter: BackendAdapter = {
   GetAuthInfo,
   GetProfile,
   SetProfile,
-  GetLLMConfig,
+  GetLLMConfig: GetLLMConfig as unknown as BackendAdapter['GetLLMConfig'],
   SetLLMConfig,
 
   subscribe(_cb: EventCallback) {},
@@ -67,16 +73,19 @@ export const wailsAdapter: BackendAdapter = {
   GetBrand,
   ListBrands,
   RenameBrand,
+  UpdateBrandDescription,
   DeleteBrand,
 
   CreateStream,
   ListStreams,
   RenameStream,
+  UpdateStreamDescription,
   DeleteStream,
 
   CreateProject,
   ListProjects,
   RenameProject,
+  UpdateProjectDescription,
   DeleteProject,
 
   CreateCategory,
@@ -95,6 +104,7 @@ export const wailsAdapter: BackendAdapter = {
 
   UpdateCardTitle,
   UpdateCardType,
+  RefreshTypeBlocks,
   UpdateCardFields,
   UpdateCardBlocks,
   UpdateCardTags,
@@ -157,6 +167,8 @@ export const wailsAdapter: BackendAdapter = {
 
   LoadChatHistory,
   SendChatMessage,
+  LoadProjectChatHistory: LoadProjectChatHistory as unknown as BackendAdapter['LoadProjectChatHistory'],
+  SendProjectChatMessage: SendProjectChatMessage as unknown as BackendAdapter['SendProjectChatMessage'],
   IsLLMConfigured,
   TestLLMConnection,
   AcceptPinSuggestion,

@@ -37,18 +37,21 @@ export const CreateBrand = (...args: Parameters<ReturnType<typeof getBackend>['C
 export const GetBrand = (...args: Parameters<ReturnType<typeof getBackend>['GetBrand']>) => getBackend().GetBrand(...args)
 export const ListBrands = () => getBackend().ListBrands()
 export const RenameBrand = (...args: Parameters<ReturnType<typeof getBackend>['RenameBrand']>) => getBackend().RenameBrand(...args)
+export const UpdateBrandDescription = (...args: Parameters<ReturnType<typeof getBackend>['UpdateBrandDescription']>) => getBackend().UpdateBrandDescription(...args)
 export const DeleteBrand = (...args: Parameters<ReturnType<typeof getBackend>['DeleteBrand']>) => getBackend().DeleteBrand(...args)
 
 // Stream CRUD
 export const CreateStream = (...args: Parameters<ReturnType<typeof getBackend>['CreateStream']>) => getBackend().CreateStream(...args)
 export const ListStreams = (...args: Parameters<ReturnType<typeof getBackend>['ListStreams']>) => getBackend().ListStreams(...args)
 export const RenameStream = (...args: Parameters<ReturnType<typeof getBackend>['RenameStream']>) => getBackend().RenameStream(...args)
+export const UpdateStreamDescription = (...args: Parameters<ReturnType<typeof getBackend>['UpdateStreamDescription']>) => getBackend().UpdateStreamDescription(...args)
 export const DeleteStream = (...args: Parameters<ReturnType<typeof getBackend>['DeleteStream']>) => getBackend().DeleteStream(...args)
 
 // Project CRUD
 export const CreateProject = (...args: Parameters<ReturnType<typeof getBackend>['CreateProject']>) => getBackend().CreateProject(...args)
 export const ListProjects = (...args: Parameters<ReturnType<typeof getBackend>['ListProjects']>) => getBackend().ListProjects(...args)
 export const RenameProject = (...args: Parameters<ReturnType<typeof getBackend>['RenameProject']>) => getBackend().RenameProject(...args)
+export const UpdateProjectDescription = (...args: Parameters<ReturnType<typeof getBackend>['UpdateProjectDescription']>) => getBackend().UpdateProjectDescription(...args)
 export const DeleteProject = (...args: Parameters<ReturnType<typeof getBackend>['DeleteProject']>) => getBackend().DeleteProject(...args)
 
 // Category CRUD
@@ -70,6 +73,7 @@ export const DuplicateCard = (...args: Parameters<ReturnType<typeof getBackend>[
 // Card updates
 export const UpdateCardTitle = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardTitle']>) => getBackend().UpdateCardTitle(...args)
 export const UpdateCardType = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardType']>) => getBackend().UpdateCardType(...args)
+export const RefreshTypeBlocks = (...args: Parameters<ReturnType<typeof getBackend>['RefreshTypeBlocks']>) => getBackend().RefreshTypeBlocks(...args)
 export const UpdateCardFields = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardFields']>) => getBackend().UpdateCardFields(...args)
 export const UpdateCardBlocks = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardBlocks']>) => getBackend().UpdateCardBlocks(...args)
 export const UpdateCardTags = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardTags']>) => getBackend().UpdateCardTags(...args)
@@ -145,6 +149,10 @@ export const ListCardIDsByTag = (...args: Parameters<ReturnType<typeof getBacken
 // Chat
 export const LoadChatHistory = (...args: Parameters<ReturnType<typeof getBackend>['LoadChatHistory']>) => getBackend().LoadChatHistory(...args)
 export const SendChatMessage = (...args: Parameters<ReturnType<typeof getBackend>['SendChatMessage']>) => getBackend().SendChatMessage(...args)
+
+// Project chat
+export const LoadProjectChatHistory = (...args: Parameters<ReturnType<typeof getBackend>['LoadProjectChatHistory']>) => getBackend().LoadProjectChatHistory(...args)
+export const SendProjectChatMessage = (...args: Parameters<ReturnType<typeof getBackend>['SendProjectChatMessage']>) => getBackend().SendProjectChatMessage(...args)
 
 // LLM utilities
 export const IsLLMConfigured = () => getBackend().IsLLMConfigured()

@@ -13,8 +13,22 @@ type LLMConfig struct {
 	Model    string `json:"model,omitempty"`    // e.g. "gpt-4o", "claude-sonnet-4-20250514", "llama3"
 	APIKey   string `json:"api_key,omitempty"`  // plain text for now
 	BaseURL  string `json:"base_url,omitempty"` // custom endpoint override
-	AutoPin  string `json:"auto_pin,omitempty"` // "auto", "suggest", "off"
-	AIMode   string `json:"ai_mode,omitempty"`  // "edit" (default), "suggest", or "chat"
+	AutoPin       string `json:"auto_pin,omitempty"`       // "auto", "suggest", "off"
+	AIMode        string `json:"ai_mode,omitempty"`        // "edit" (default), "suggest", or "chat"
+	MinConfidence string `json:"min_confidence,omitempty"` // "high", "medium", "low", "" (any)
+}
+
+// confidenceOrder maps confidence strings to numeric rank (higher = stricter).
+var confidenceOrder = map[string]int{"": 0, "low": 1, "medium": 2, "high": 3}
+
+// ConfidenceMeetsThreshold returns true when the suggestion confidence is at or above
+// the minimum configured threshold. Empty min means accept any confidence.
+func ConfidenceMeetsThreshold(confidence, min string) bool {
+	minScore, ok := confidenceOrder[min]
+	if !ok || minScore == 0 {
+		return true
+	}
+	return confidenceOrder[confidence] >= minScore
 }
 
 func llmConfigPath() (string, error) {

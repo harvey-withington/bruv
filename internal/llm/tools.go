@@ -164,3 +164,127 @@ func CardTools(cardTypes []string, categories []map[string]string) []ToolDef {
 
 	return tools
 }
+
+// ProjectTools returns the tool definitions for project-level AI chat.
+// The LLM can create cards, bulk-tag, move cards between categories, etc.
+func ProjectTools(cardTypes []string, categories []map[string]string) []ToolDef {
+	typeEnum := make([]any, len(cardTypes))
+	for i, t := range cardTypes {
+		typeEnum[i] = t
+	}
+
+	catIDs := make([]any, len(categories))
+	for i, c := range categories {
+		catIDs[i] = c["id"]
+	}
+
+	tools := []ToolDef{
+		{
+			Name:        "create_card",
+			Description: "Create a new card and optionally pin it to a category in this project. Returns the card ID. After creation, the user can open it to continue editing.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"title": map[string]any{
+						"type":        "string",
+						"description": "Card title",
+					},
+					"card_type": map[string]any{
+						"type":        "string",
+						"enum":        typeEnum,
+						"description": "Card type (optional)",
+					},
+					"category_id": map[string]any{
+						"type":        "string",
+						"enum":        catIDs,
+						"description": "Category to pin the card to (optional, from categories in this project)",
+					},
+					"tags": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string"},
+						"description": "Tags to add to the card (optional)",
+					},
+					"description": map[string]any{
+						"type":        "string",
+						"description": "Initial description text for the card's first text block (optional)",
+					},
+				},
+				"required": []string{"title"},
+			},
+		},
+		{
+			Name:        "add_tags_to_cards",
+			Description: "Add tags to one or more cards by their ID. Use this for bulk-tagging based on criteria.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"card_ids": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string"},
+						"description": "List of card IDs to add tags to",
+					},
+					"tags": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string"},
+						"description": "Tags to add",
+					},
+				},
+				"required": []string{"card_ids", "tags"},
+			},
+		},
+		{
+			Name:        "move_card",
+			Description: "Move a card from one category to another within this project.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"card_id": map[string]any{
+						"type":        "string",
+						"description": "ID of the card to move",
+					},
+					"from_category_id": map[string]any{
+						"type":        "string",
+						"enum":        catIDs,
+						"description": "Current category",
+					},
+					"to_category_id": map[string]any{
+						"type":        "string",
+						"enum":        catIDs,
+						"description": "Destination category",
+					},
+				},
+				"required": []string{"card_id", "from_category_id", "to_category_id"},
+			},
+		},
+		{
+			Name:        "update_card",
+			Description: "Update a card's title, type, or tags.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"card_id": map[string]any{
+						"type":        "string",
+						"description": "ID of the card to update",
+					},
+					"title": map[string]any{
+						"type":        "string",
+						"description": "New title (optional)",
+					},
+					"card_type": map[string]any{
+						"type":        "string",
+						"enum":        typeEnum,
+						"description": "New card type (optional)",
+					},
+					"tags": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string"},
+						"description": "Tags to add (appended to existing, optional)",
+					},
+				},
+				"required": []string{"card_id"},
+			},
+		},
+	}
+
+	return tools
+}

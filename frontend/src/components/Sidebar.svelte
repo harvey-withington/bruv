@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { nav, board, loadBoard } from '../lib/store.svelte'
-  import { CloseRepository, CreateBrand, RenameBrand, CreateStream, RenameStream, CreateProject, RenameProject, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, GetCard, GetCardPins, ListOrphanedCardIDs, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject } from '../lib/api'
+  import { CloseRepository, CreateBrand, RenameBrand, UpdateBrandDescription, CreateStream, RenameStream, UpdateStreamDescription, CreateProject, RenameProject, UpdateProjectDescription, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, GetCard, GetCardPins, ListOrphanedCardIDs, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject, GetPreferences } from '../lib/api'
   import { LogOut, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox } from 'lucide-svelte'
   import ThemeToggle from './ThemeToggle.svelte'
   import BruvIcon from './BruvIcon.svelte'
@@ -26,7 +26,7 @@
     nav.brandName = ''
     nav.streamName = ''
     nav.projectName = ''
-    localStorage.removeItem('bruv-last-nav')
+    // Keep bruv-last-nav so the project is restored on re-open
     board.categories = []
     brands = []
     streamsByBrand = {}
@@ -35,9 +35,9 @@
     expandedStreams = new Set()
   }
 
-  type Brand = { id: string; name: string; slug: string }
-  type Stream = { id: string; name: string; slug: string }
-  type Project = { id: string; name: string; slug: string }
+  type Brand = { id: string; name: string; slug: string; description?: string }
+  type Stream = { id: string; name: string; slug: string; description?: string }
+  type Project = { id: string; name: string; slug: string; description?: string }
 
   let brands = $state<Brand[]>([])
   let expandedBrands = $state<Set<string>>(new Set())
@@ -52,6 +52,8 @@
     key: string
     name: string
     original: string
+    description: string
+    originalDescription: string
     isCreate: boolean
     brandSlug: string
     streamSlug: string
@@ -95,20 +97,30 @@
 
   async function loadBrandsAndRestore() {
     await loadBrands()
+    // Check if user prefers a collapsed tree on load
+    let collapseOnLoad = false
+    try {
+      const p = await GetPreferences()
+      collapseOnLoad = p?.sidebar_collapse_default ?? false
+    } catch { /* use default */ }
     // Restore last nav state if available, otherwise default to Inbox
     try {
       const raw = localStorage.getItem('bruv-last-nav')
       if (!raw) {
+        // No saved project — expand all brands if not collapsed
+        if (!collapseOnLoad) await expandAll()
         await selectInbox()
         return
       }
       const last = JSON.parse(raw) as { brandSlug: string; streamSlug: string; projectSlug: string }
-      if (!last.brandSlug || !last.streamSlug || !last.projectSlug) return
-      // Expand brand
+      if (!last.brandSlug || !last.streamSlug || !last.projectSlug) {
+        if (!collapseOnLoad) await expandAll()
+        return
+      }
+      // Always expand the path to the saved project so it's visible in the tree
       expandedBrands.add(last.brandSlug)
       expandedBrands = new Set(expandedBrands)
       streamsByBrand[last.brandSlug] = await ListStreams(last.brandSlug) || []
-      // Expand stream
       const streamKey = `${last.brandSlug}/${last.streamSlug}`
       expandedStreams.add(streamKey)
       expandedStreams = new Set(expandedStreams)
@@ -169,6 +181,31 @@
       board.categories = []
     }
     board.loading = false
+  }
+
+  async function expandAll() {
+    for (const brand of brands) {
+      if (!streamsByBrand[brand.slug]) {
+        try { streamsByBrand[brand.slug] = await ListStreams(brand.slug) || [] } catch { streamsByBrand[brand.slug] = [] }
+      }
+      expandedBrands.add(brand.slug)
+    }
+    expandedBrands = new Set(expandedBrands)
+    for (const brand of brands) {
+      for (const stream of (streamsByBrand[brand.slug] || [])) {
+        const key = `${brand.slug}/${stream.slug}`
+        if (!projectsByStream[key]) {
+          try { projectsByStream[key] = await ListProjects(brand.slug, stream.slug) || [] } catch { projectsByStream[key] = [] }
+        }
+        expandedStreams.add(key)
+      }
+    }
+    expandedStreams = new Set(expandedStreams)
+  }
+
+  function collapseAll() {
+    expandedBrands = new Set()
+    expandedStreams = new Set()
   }
 
   async function toggleBrand(slug: string) {
@@ -271,7 +308,7 @@
       expandedBrands.add(created.slug)
       expandedBrands = new Set(expandedBrands)
       streamsByBrand[created.slug] = []
-      renaming = { type: 'brand', key: created.slug, name: created.name, original: created.name, isCreate: true, brandSlug: created.slug, streamSlug: '', projectSlug: '' }
+      renaming = { type: 'brand', key: created.slug, name: created.name, original: created.name, description: '', originalDescription: '', isCreate: true, brandSlug: created.slug, streamSlug: '', projectSlug: '' }
       setTimeout(() => { const el = document.querySelector('.rename-input') as HTMLInputElement; el?.scrollIntoView({ block: 'nearest' }); el?.select() }, 0)
     } catch (e) { console.error('CreateBrand:', e) }
   }
@@ -286,7 +323,7 @@
       expandedStreams.add(streamKey)
       expandedStreams = new Set(expandedStreams)
       projectsByStream[streamKey] = []
-      renaming = { type: 'stream', key: streamKey, name: created.name, original: created.name, isCreate: true, brandSlug, streamSlug: created.slug, projectSlug: '' }
+      renaming = { type: 'stream', key: streamKey, name: created.name, original: created.name, description: '', originalDescription: '', isCreate: true, brandSlug, streamSlug: created.slug, projectSlug: '' }
       setTimeout(() => { const el = document.querySelector('.rename-input') as HTMLInputElement; el?.scrollIntoView({ block: 'nearest' }); el?.select() }, 0)
     } catch (e) { console.error('CreateStream:', e) }
   }
@@ -298,7 +335,7 @@
       const name = await findUniqueName(t('default.project_name'), existing.map(p => p.name))
       const created = await CreateProject(brandSlug, streamSlug, name)
       projectsByStream[streamKey] = await ListProjects(brandSlug, streamSlug) || []
-      renaming = { type: 'project', key: `${brandSlug}/${streamSlug}/${created.slug}`, name: created.name, original: created.name, isCreate: true, brandSlug, streamSlug, projectSlug: created.slug }
+      renaming = { type: 'project', key: `${brandSlug}/${streamSlug}/${created.slug}`, name: created.name, original: created.name, description: '', originalDescription: '', isCreate: true, brandSlug, streamSlug, projectSlug: created.slug }
       setTimeout(() => { const el = document.querySelector('.rename-input') as HTMLInputElement; el?.scrollIntoView({ block: 'nearest' }); el?.select() }, 0)
     } catch (e) { console.error('CreateProject:', e) }
   }
@@ -307,13 +344,14 @@
 
   async function commitRename() {
     if (!renaming) return
-    const { type, name: rawName, brandSlug, streamSlug, projectSlug } = renaming
+    const { type, name: rawName, description, originalDescription, brandSlug, streamSlug, projectSlug } = renaming
     const name = rawName.trim()
     renaming = null
     if (!name) return
     try {
       if (type === 'brand') {
         const updated = await RenameBrand(brandSlug, name)
+        if (description !== originalDescription) await UpdateBrandDescription(updated.slug, description)
         const newSlug = updated.slug
         if (newSlug !== brandSlug) {
           // Migrate expanded/cached state to new slug
@@ -342,6 +380,7 @@
         await loadBrands()
       } else if (type === 'stream') {
         const updated = await RenameStream(brandSlug, streamSlug, name)
+        if (description !== originalDescription) await UpdateStreamDescription(brandSlug, updated.slug, description)
         const newSlug = updated.slug
         if (newSlug !== streamSlug) {
           const oldKey = `${brandSlug}/${streamSlug}`, newKey = `${brandSlug}/${newSlug}`
@@ -363,6 +402,7 @@
         streamsByBrand[brandSlug] = await ListStreams(brandSlug) || []
       } else {
         const updated = await RenameProject(brandSlug, streamSlug, projectSlug, name)
+        if (description !== originalDescription) await UpdateProjectDescription(brandSlug, streamSlug, updated.slug, description)
         const newSlug = updated.slug
         if (newSlug !== projectSlug && nav.brandSlug === brandSlug && nav.streamSlug === streamSlug && nav.projectSlug === projectSlug) {
           nav.projectSlug = newSlug
@@ -397,9 +437,9 @@
     }
   }
 
-  function startEdit(e: MouseEvent, type: 'brand' | 'stream' | 'project', key: string, name: string, brandSlug: string, streamSlug = '', projectSlug = '') {
+  function startEdit(e: MouseEvent, type: 'brand' | 'stream' | 'project', key: string, name: string, brandSlug: string, streamSlug = '', projectSlug = '', description = '') {
     e.stopPropagation()
-    renaming = { type, key, name, original: name, isCreate: false, brandSlug, streamSlug, projectSlug }
+    renaming = { type, key, name, original: name, description, originalDescription: description, isCreate: false, brandSlug, streamSlug, projectSlug }
     setTimeout(() => { const el = document.querySelector('.rename-input') as HTMLInputElement; el?.focus(); el?.select() }, 0)
   }
 
@@ -610,6 +650,11 @@
       {t('sidebar.close_repo')}
     </button>
 
+    <div class="tree-header">
+      <button class="tree-ctrl-btn" onclick={expandAll} title={t('sidebar.expandAll')}>{t('sidebar.expandAll')}</button>
+      <button class="tree-ctrl-btn" onclick={collapseAll} title={t('sidebar.collapseAll')}>{t('sidebar.collapseAll')}</button>
+    </div>
+
     <div class="nav-tree" role="tree" tabindex="0"
       ondragover={(e) => { if (dragging) { e.preventDefault(); isCopyMode = e.ctrlKey; if (e.dataTransfer) e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move' } }}
       ondrop={handleDrop}
@@ -638,17 +683,28 @@
             class:dragging-item={dragging?.type === 'brand' && dragging?.slug === brand.slug}
           >
             {#if renaming && renaming.key === brand.slug}
-              <input
-                class="rename-input brand-level"
-                bind:value={renaming.name}
-                use:inlineEdit={{ onCommit: () => commitRename(), onCancel: () => cancelRename() }}
-              />
+              <div class="rename-group">
+                <input
+                  class="rename-input brand-level"
+                  bind:value={renaming.name}
+                  use:inlineEdit={{ onCommit: () => commitRename(), onCancel: () => cancelRename() }}
+                />
+                <textarea
+                  class="description-input"
+                  bind:value={renaming.description}
+                  placeholder={t('sidebar.descriptionPlaceholder')}
+                  rows="2"
+                ></textarea>
+              </div>
             {:else}
               <button class="tree-item brand-item" onclick={() => toggleBrand(brand.slug)}>
                 <span class="chevron">{#if expandedBrands.has(brand.slug)}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</span>
-                <span class="label">{@html renderInline(brand.name)}</span>
+                <span class="label-group">
+                  <span class="label">{@html renderInline(brand.name)}</span>
+                  {#if brand.description}<span class="node-desc" title={brand.description}>{brand.description}</span>{/if}
+                </span>
               </button>
-              <button class="row-action action-reveal action-reveal--edit" onclick={(e) => startEdit(e, 'brand', brand.slug, brand.name, brand.slug)} title={t('tooltip.rename_brand')}><Pencil size={12} /></button>
+              <button class="row-action action-reveal action-reveal--edit" onclick={(e) => startEdit(e, 'brand', brand.slug, brand.name, brand.slug, '', '', brand.description)} title={t('tooltip.rename_brand')}><Pencil size={12} /></button>
               <button class="row-action action-reveal action-reveal--danger" onclick={(e) => handleDeleteBrand(e, brand.slug)} title={t('tooltip.delete_brand')}><Trash2 size={12} /></button>
             {/if}
           </div>
@@ -669,17 +725,28 @@
                     class:dragging-item={dragging?.type === 'stream' && dragging?.slug === stream.slug}
                   >
                     {#if renaming && renaming.key === `${brand.slug}/${stream.slug}`}
-                      <input
-                        class="rename-input stream-level"
-                        bind:value={renaming.name}
-                        use:inlineEdit={{ onCommit: () => commitRename(), onCancel: () => cancelRename() }}
-                      />
+                      <div class="rename-group">
+                        <input
+                          class="rename-input stream-level"
+                          bind:value={renaming.name}
+                          use:inlineEdit={{ onCommit: () => commitRename(), onCancel: () => cancelRename() }}
+                        />
+                        <textarea
+                          class="description-input"
+                          bind:value={renaming.description}
+                          placeholder={t('sidebar.descriptionPlaceholder')}
+                          rows="2"
+                        ></textarea>
+                      </div>
                     {:else}
                       <button class="tree-item stream-item" onclick={() => toggleStream(brand.slug, stream.slug)}>
                         <span class="chevron">{#if expandedStreams.has(`${brand.slug}/${stream.slug}`)}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</span>
-                        <span class="label">{@html renderInline(stream.name)}</span>
+                        <span class="label-group">
+                          <span class="label">{@html renderInline(stream.name)}</span>
+                          {#if stream.description}<span class="node-desc" title={stream.description}>{stream.description}</span>{/if}
+                        </span>
                       </button>
-                      <button class="row-action action-reveal action-reveal--edit" onclick={(e) => startEdit(e, 'stream', `${brand.slug}/${stream.slug}`, stream.name, brand.slug, stream.slug)} title={t('tooltip.rename_stream')}><Pencil size={12} /></button>
+                      <button class="row-action action-reveal action-reveal--edit" onclick={(e) => startEdit(e, 'stream', `${brand.slug}/${stream.slug}`, stream.name, brand.slug, stream.slug, '', stream.description)} title={t('tooltip.rename_stream')}><Pencil size={12} /></button>
                       <button class="row-action action-reveal action-reveal--danger" onclick={(e) => handleDeleteStream(e, brand.slug, stream.slug)} title={t('tooltip.delete_stream')}><Trash2 size={12} /></button>
                     {/if}
                   </div>
@@ -699,20 +766,31 @@
                           class:dragging-item={dragging?.type === 'project' && dragging?.slug === project.slug}
                         >
                           {#if renaming && renaming.key === `${brand.slug}/${stream.slug}/${project.slug}`}
-                            <input
-                              class="rename-input project-level"
-                              bind:value={renaming.name}
-                              use:inlineEdit={{ onCommit: () => commitRename(), onCancel: () => cancelRename() }}
-                            />
+                            <div class="rename-group">
+                              <input
+                                class="rename-input project-level"
+                                bind:value={renaming.name}
+                                use:inlineEdit={{ onCommit: () => commitRename(), onCancel: () => cancelRename() }}
+                              />
+                              <textarea
+                                class="description-input"
+                                bind:value={renaming.description}
+                                placeholder={t('sidebar.descriptionPlaceholder')}
+                                rows="2"
+                              ></textarea>
+                            </div>
                           {:else}
                             <button
                               class="tree-item project-item"
                               class:selected={isSelected(brand.slug, stream.slug, project.slug)}
                               onclick={() => selectProject(brand.slug, stream.slug, project.slug)}
                             >
-                              <span class="label">{@html renderInline(project.name)}</span>
+                              <span class="label-group">
+                                <span class="label">{@html renderInline(project.name)}</span>
+                                {#if project.description}<span class="node-desc" title={project.description}>{project.description}</span>{/if}
+                              </span>
                             </button>
-                            <button class="row-action action-reveal action-reveal--edit" onclick={(e) => startEdit(e, 'project', `${brand.slug}/${stream.slug}/${project.slug}`, project.name, brand.slug, stream.slug, project.slug)} title={t('tooltip.rename_project')}><Pencil size={12} /></button>
+                            <button class="row-action action-reveal action-reveal--edit" onclick={(e) => startEdit(e, 'project', `${brand.slug}/${stream.slug}/${project.slug}`, project.name, brand.slug, stream.slug, project.slug, project.description)} title={t('tooltip.rename_project')}><Pencil size={12} /></button>
                             <button class="row-action action-reveal action-reveal--danger" onclick={(e) => handleDeleteProject(e, brand.slug, stream.slug, project.slug)} title={t('tooltip.delete_project')}><Trash2 size={12} /></button>
                           {/if}
                         </div>
@@ -841,6 +919,29 @@
     background: var(--border);
     color: var(--text-strong);
     border-color: var(--border-hover);
+  }
+
+  .tree-header {
+    display: flex;
+    gap: 0.25rem;
+    padding: 0.25rem 0.5rem 0;
+  }
+
+  .tree-ctrl-btn {
+    flex: 1;
+    padding: 0.2rem 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.7rem;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+  }
+
+  .tree-ctrl-btn:hover {
+    background: var(--border);
+    color: var(--text-strong);
   }
 
   .nav-tree {
@@ -993,6 +1094,47 @@
   .rename-input.project-level {
     margin-left: 0.5rem;
     margin-right: 0.5rem;
+  }
+
+  .rename-group {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    gap: 0.25rem;
+  }
+
+  .description-input {
+    flex: 1;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    font-size: 0.75rem;
+    outline: none;
+    resize: none;
+    box-sizing: border-box;
+    margin-left: 0.5rem;
+    margin-right: 0.5rem;
+    font-family: inherit;
+  }
+
+  .label-group {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .node-desc {
+    font-size: 0.68rem;
+    color: var(--text-secondary);
+    opacity: 0.7;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.2;
+    margin-top: 1px;
   }
 
   .sidebar-footer {

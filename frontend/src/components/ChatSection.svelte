@@ -28,59 +28,36 @@
   let {
     cardId,
     visible = $bindable(false),
-    mainWidth = $bindable(600),
+    mainWidth = $bindable(720),
+    splitterDragging = $bindable(false),
     onCardChanged,
+    projectMode = false,
+    loadFn,
+    sendFn,
+    reloadKey,
   }: {
     cardId: string
     visible: boolean
-    mainWidth: number
+    mainWidth?: number
+    splitterDragging?: boolean
     onCardChanged?: () => void
+    projectMode?: boolean
+    loadFn?: () => Promise<{ messages: ChatMessage[] }>
+    sendFn?: (text: string) => Promise<{ messages: ChatMessage[] }>
+    reloadKey?: string
   } = $props()
 
-  // Resizable chat width
+  // Resizable chat width (splitter between main and chat)
   const CHAT_WIDTH_KEY = 'bruv:chatPanelWidth'
-  const EDGE_PAD = 32  // generous padding from screen edges
-  const COLLAPSE_GUARD = 350  // minimum panel size so splitter can't collapse either side
-  let chatWidth = $state(Number(localStorage.getItem(CHAT_WIDTH_KEY)) || 340)
-  let resizingHandle = $state<'left' | 'right' | null>(null)
-  let resizing = $derived(resizingHandle !== null)
+  const MIN_PANEL = 300
+  let chatWidth = $state(Number(localStorage.getItem(CHAT_WIDTH_KEY)) || 380)
+  let resizing = $state(false)
 
-  function suppressClick(ev: MouseEvent) {
-    ev.stopPropagation()
-    ev.preventDefault()
-    window.removeEventListener('click', suppressClick, true)
-  }
-
-  /** Right handle: drag right → chat wider, only right edge moves */
-  function onRightResizeDown(e: MouseEvent) {
-    e.preventDefault()
-    resizingHandle = 'right'
-    const startX = e.clientX
-    const startW = chatWidth
-    const chatPanel = (e.target as HTMLElement).closest('.chat-panel') as HTMLElement
-    const modalLeft = chatPanel.closest('.modal')?.getBoundingClientRect().left ?? 0
-
-    function onMove(ev: MouseEvent) {
-      const raw = startW + (ev.clientX - startX)
-      // Don't let the right edge past the screen edge (minus padding)
-      const maxW = (window.innerWidth - EDGE_PAD) - modalLeft - mainWidth
-      chatWidth = Math.max(COLLAPSE_GUARD, Math.min(raw, maxW))
-    }
-    function onUp() {
-      resizingHandle = null
-      localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth))
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-      window.addEventListener('click', suppressClick, true)
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-  }
-
-  /** Splitter (left handle): redistributes space, outer edges stay fixed */
+  /** Splitter: redistributes space between main and chat, outer edges stay fixed */
   function onSplitterDown(e: MouseEvent) {
     e.preventDefault()
-    resizingHandle = 'left'
+    resizing = true
+    splitterDragging = true
     const startX = e.clientX
     const startChat = chatWidth
     const startMain = mainWidth
@@ -89,18 +66,18 @@
       const delta = ev.clientX - startX
       const newMain = startMain + delta
       const newChat = startChat - delta
-      if (newMain >= COLLAPSE_GUARD && newChat >= COLLAPSE_GUARD) {
+      if (newMain >= MIN_PANEL && newChat >= MIN_PANEL) {
         mainWidth = newMain
         chatWidth = newChat
       }
     }
     function onUp() {
-      resizingHandle = null
+      resizing = false
+      splitterDragging = false
       localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth))
       localStorage.setItem('bruv:mainPanelWidth', String(mainWidth))
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
-      window.addEventListener('click', suppressClick, true)
     }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
@@ -200,15 +177,21 @@
   async function loadChat() {
     loading = true
     try {
-      const [result, isConfigured, llmCfg] = await Promise.all([
-        LoadChatHistory(cardId),
-        IsLLMConfigured(),
-        GetLLMConfig(),
-      ])
-      messages = result?.messages || []
-      configured = isConfigured
-      const mode = llmCfg?.ai_mode
-      aiMode = (mode === 'chat' || mode === 'suggest') ? mode : 'edit'
+      if (projectMode && loadFn) {
+        const [result, isConfigured] = await Promise.all([loadFn(), IsLLMConfigured()])
+        messages = result?.messages || []
+        configured = isConfigured
+      } else {
+        const [result, isConfigured, llmCfg] = await Promise.all([
+          LoadChatHistory(cardId),
+          IsLLMConfigured(),
+          GetLLMConfig(),
+        ])
+        messages = result?.messages || []
+        configured = isConfigured
+        const mode = llmCfg?.ai_mode
+        aiMode = (mode === 'chat' || mode === 'suggest') ? mode : 'edit'
+      }
     } catch (e) {
       console.error('Failed to load chat:', e)
     }
@@ -240,13 +223,25 @@
     await tick()
     scrollToBottom()
     try {
-      const result = await SendChatMessage(cardId, text)
+      const result = projectMode && sendFn
+        ? await sendFn(text)
+        : await SendChatMessage(cardId, text)
       messages = result?.messages || []
-      // Notify parent that card data may have changed (AI may have set type, blocks, tags)
-      onCardChanged?.()
-      // Refresh sidebar in case LLM created new hierarchy
-      document.dispatchEvent(new CustomEvent('bruv:sidebar-changed'))
-      document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
+      if (projectMode) {
+        // Refresh board and sidebar after project-level tool actions
+        const lastMsg = messages[messages.length - 1]
+        if (lastMsg?.tool_actions?.length) {
+          document.dispatchEvent(new CustomEvent('bruv:sidebar-changed'))
+          document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
+          document.dispatchEvent(new CustomEvent('bruv:board-changed'))
+        }
+      } else {
+        // Notify parent that card data may have changed (AI may have set type, blocks, tags)
+        onCardChanged?.()
+        // Refresh sidebar in case LLM created new hierarchy
+        document.dispatchEvent(new CustomEvent('bruv:sidebar-changed'))
+        document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
+      }
     } catch (e) {
       console.error('Failed to send message:', e)
     }
@@ -301,22 +296,38 @@
     }
   }
 
-  function toolActionLabel(action: any): string {
+  function toolActionLabel(action: { tool: string; input: unknown; result: string }): string {
+    const inp = (action.input ?? {}) as Record<string, unknown>
     switch (action.tool) {
-      case 'set_title': return `Title: ${action.input?.title || '?'}`
-      case 'set_due_date': return action.input?.due_date ? `Due: ${action.input.due_date}` : 'Cleared due date'
-      case 'set_card_type': return `Set type: ${action.input?.card_type || '?'}`
+      case 'set_title': return `Title: ${inp.title || '?'}`
+      case 'set_due_date': return inp.due_date ? `Due: ${inp.due_date}` : 'Cleared due date'
+      case 'set_card_type': return `Set type: ${inp.card_type || '?'}`
       case 'set_fields':
       case 'update_blocks': {
-        const fields = action.input?.fields || action.input?.blocks
+        const fields = (inp.fields || inp.blocks) as Record<string, unknown> | undefined
         const keys = fields ? Object.keys(fields) : []
         return `Updated: ${keys.join(', ') || '?'}`
       }
-      case 'add_tags': return `Added tags: ${(action.input?.tags || []).join(', ')}`
-      case 'add_field': return `Added field: ${action.input?.label || action.input?.key || '?'} (${action.input?.field_type || '?'})`
+      case 'add_tags': return `Added tags: ${(inp.tags as string[] || []).join(', ')}`
+      case 'add_field': return `Added field: ${inp.label || inp.key || '?'} (${inp.field_type || '?'})`
       case 'suggest_pin': return `Suggested pin: ${action.result || '?'}`
+      // Project-level tools
+      case 'create_card': return `Created card: ${inp.title || '?'}`
+      case 'add_tags_to_cards': return `Tagged ${(inp.card_ids as string[] || []).length} cards: ${(inp.tags as string[] || []).join(', ')}`
+      case 'move_card': return `Moved card`
+      case 'update_card': return action.result || 'Updated card'
       default: return action.tool
     }
+  }
+
+  /** Extract card ID from a create_card tool result string */
+  function extractCardId(result: string): string | null {
+    const match = result.match(/\(ID: ([^)]+)\)/)
+    return match ? match[1] : null
+  }
+
+  function openCreatedCard(cardId: string) {
+    document.dispatchEvent(new CustomEvent('bruv:navigate', { detail: { type: 'card', id: cardId } }))
   }
 
   function scrollToBottom() {
@@ -379,6 +390,7 @@
   })
 
   $effect(() => {
+    void reloadKey  // re-run when project changes
     if (visible) loadChat()
   })
 </script>
@@ -393,9 +405,9 @@
 {#if visible}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div class="chat-panel" class:resizing style="width: {chatWidth}px;">
-    <div class="chat-resize-handle left" class:active={resizingHandle === 'left'} role="separator" tabindex="-1" onmousedown={onSplitterDown}></div>
+    {#if !projectMode}<div class="chat-resize-handle left" class:active={resizing} role="separator" tabindex="-1" onmousedown={onSplitterDown}></div>{/if}
     <div class="chat-header">
-      <span class="chat-title">{t('chat.title')}{messages.length > 0 ? ` (${messages.length})` : ''}</span>
+      <span class="chat-title">{projectMode ? t('chat.project_title') : t('chat.title')}{messages.length > 0 ? ` (${messages.length})` : ''}</span>
     </div>
 
     {#if !configured}
@@ -420,12 +432,17 @@
                   <div class="tool-action">
                     <Wrench size={10} />
                     <span>{toolActionLabel(action)}</span>
+                    {#if action.tool === 'create_card' && extractCardId(action.result)}
+                      <button class="open-card-link" onclick={() => openCreatedCard(extractCardId(action.result)!)}>
+                        {t('chat.open_card')}
+                      </button>
+                    {/if}
                   </div>
                 {/each}
               </div>
             {/if}
 
-            {#if msg.pending_edits?.length}
+            {#if !projectMode && msg.pending_edits?.length}
               <div class="pending-edits">
                 <div class="pending-edits-header">
                   {#if hasPendingEdits(msg)}
@@ -480,7 +497,7 @@
               </div>
             {/if}
 
-            {#if msg.pin_suggestion}
+            {#if !projectMode && msg.pin_suggestion}
               <div class="pin-suggestion" class:accepted={msg.pin_suggestion.status === 'accepted'} class:rejected={msg.pin_suggestion.status === 'rejected'}>
                 <div class="pin-suggestion-header">
                   <MapPin size={12} />
@@ -539,6 +556,7 @@
           rows="2"
         ></textarea>
         <div class="chat-actions-col">
+        {#if !projectMode}
         <button
           class="mode-btn"
           class:mode-chat={aiMode === 'chat'}
@@ -558,6 +576,7 @@
             {t('chat.mode_chat')}
           {/if}
         </button>
+        {/if}
         <button class="chat-send-btn" onclick={send} disabled={!inputText.trim() || sending}>
           <Send size={14} />
           {t('chat.send')}
@@ -565,7 +584,6 @@
       </div>
     </div>
     </div>
-    <div class="chat-resize-handle right" class:active={resizingHandle === 'right'} role="separator" tabindex="-1" onmousedown={onRightResizeDown}></div>
   </div>
 {/if}
 
@@ -593,13 +611,8 @@
   }
   .chat-resize-handle.left {
     left: 0;
-    cursor: w-resize;
+    cursor: col-resize;
     border-radius: 0;
-  }
-  .chat-resize-handle.right {
-    right: 0;
-    cursor: e-resize;
-    border-radius: 0 10px 10px 0;
   }
   .chat-resize-handle:hover,
   .chat-resize-handle.active {
@@ -748,6 +761,19 @@
     font-size: 0.7rem;
     color: var(--text-muted);
     padding: 2px 0;
+  }
+  .open-card-link {
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-size: 0.7rem;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 0 2px;
+    text-decoration: underline;
+  }
+  .open-card-link:hover {
+    color: var(--accent-hover, var(--accent));
   }
 
   /* Pin suggestion */

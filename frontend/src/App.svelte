@@ -7,6 +7,7 @@
   import Sidebar from './components/Sidebar.svelte'
   import TopBar from './components/TopBar.svelte'
   import Board from './components/Board.svelte'
+  import ChatSection from './components/ChatSection.svelte'
   import CardDetail from './components/CardDetail.svelte'
   import SettingsDialog from './components/SettingsDialog.svelte'
   import UserProfile from './components/UserProfile.svelte'
@@ -14,7 +15,7 @@
   import Toast from './components/Toast.svelte'
   import ConfirmDialog from './components/ConfirmDialog.svelte'
 
-  import { GetPreferences, ListRecentRepos, OpenRepository, GetCardLocation, GetProjectLocation } from './lib/api'
+  import { GetPreferences, ListRecentRepos, OpenRepository, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage } from './lib/api'
 
   // Restore persisted preferences
   loadTheme()
@@ -50,6 +51,7 @@
   let showSettings = $state(false)
   let showProfile = $state(false)
   let showTagEditor = $state(false)
+  let showProjectChat = $state(false)
 
   function handleSearchSelectCard(cardId: string) {
     searchCardId = cardId
@@ -137,9 +139,22 @@
         onSelectCard={handleSearchSelectCard}
         onOpenTagEditor={() => showTagEditor = true}
         onOpenProjectSettings={() => { /* TODO: open project settings */ }}
-        onCreateAIChat={() => { /* TODO: create AI chat card */ }}
+        onToggleProjectChat={() => showProjectChat = !showProjectChat}
+        projectChatActive={showProjectChat}
       />
-      <Board />
+      <div class="board-row">
+        <Board />
+        {#if showProjectChat && nav.projectSlug}
+          <ChatSection
+            cardId=""
+            visible={true}
+            projectMode={true}
+            reloadKey={nav.projectSlug}
+            loadFn={() => LoadProjectChatHistory(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!)}
+            sendFn={(text) => SendProjectChatMessage(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, text)}
+          />
+        {/if}
+      </div>
     </div>
   </div>
 
@@ -213,6 +228,12 @@
     flex: 1;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
+  }
+
+  .board-row {
+    flex: 1;
+    display: flex;
     overflow: hidden;
   }
 

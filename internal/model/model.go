@@ -182,7 +182,8 @@ type PinSuggestion struct {
 	CategoryName string `json:"category_name"`
 	Breadcrumb   string `json:"breadcrumb"`
 	Reason       string `json:"reason"`
-	Status       string `json:"status"` // "pending", "accepted", "rejected"
+	Confidence   string `json:"confidence,omitempty"` // "high", "medium", "low"
+	Status       string `json:"status"`               // "pending", "accepted", "rejected"
 }
 
 // PendingEdit is a staged LLM-proposed change awaiting user approval in Suggest mode.

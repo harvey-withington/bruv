@@ -27,6 +27,7 @@
     default_category_name: 'Ideas',
     inbox_recent_cards_limit: 21,
     inbox_activity_limit: 25,
+    sidebar_collapse_default: false,
   })
 
   // --- AI / LLM ---
@@ -38,6 +39,7 @@
     base_url: '',
     auto_pin: 'off',
     ai_mode: 'edit',
+    min_confidence: '',
   })
   let showKey = $state(false)
   let testing = $state(false)
@@ -63,6 +65,7 @@
         prefs.default_category_name = p.default_category_name || 'Ideas'
         prefs.inbox_recent_cards_limit = p.inbox_recent_cards_limit || 21
         prefs.inbox_activity_limit = p.inbox_activity_limit || 25
+        prefs.sidebar_collapse_default = p.sidebar_collapse_default ?? false
       }
       if (c) {
         llm.context = c.context || ''
@@ -72,6 +75,7 @@
         llm.base_url = c.base_url || ''
         llm.auto_pin = c.auto_pin || 'off'
         llm.ai_mode = c.ai_mode || 'edit'
+        llm.min_confidence = c.min_confidence || ''
       }
     } catch { /* use defaults */ }
     loaded = true
@@ -142,12 +146,14 @@
     { tab: 'general', key: 'type_badge_display', label: 'category type badges' },
     { tab: 'general', key: 'default_category_name', label: 'default category name' },
     { tab: 'general', key: 'inbox_recent_cards_limit', label: 'inbox recently updated card limit' },
+    { tab: 'general', key: 'sidebar_collapse_default', label: 'sidebar collapsed collapse tree startup' },
     { tab: 'ai', key: 'provider', label: 'ai provider openai anthropic ollama' },
     { tab: 'ai', key: 'model', label: 'ai model' },
     { tab: 'ai', key: 'api_key', label: 'api key' },
     { tab: 'ai', key: 'base_url', label: 'base url endpoint' },
     { tab: 'ai', key: 'ai_mode', label: 'ai mode chat edit card fields' },
     { tab: 'ai', key: 'auto_pin', label: 'auto pin behavior' },
+    { tab: 'ai', key: 'min_confidence', label: 'minimum confidence ai suggestion pin threshold' },
     { tab: 'ai', key: 'context', label: 'ai context additional' },
   ]
 
@@ -330,6 +336,13 @@
               <span class="field-hint">{t('prefs.inbox_activity_limit_hint')}</span>
             </label>
           {/if}
+
+          {#if fieldVisible('sidebar_collapse_default')}
+            <label class="field toggle-field">
+              <span class="field-label">{t('prefs.sidebar_collapse_default')}</span>
+              <input type="checkbox" bind:checked={prefs.sidebar_collapse_default} />
+            </label>
+          {/if}
         {/if}
 
         <!-- AI TAB -->
@@ -391,6 +404,19 @@
                 <option value="suggest">{t('llm.auto_pin_suggest')}</option>
                 <option value="auto">{t('llm.auto_pin_auto')}</option>
               </select>
+            </label>
+          {/if}
+
+          {#if fieldVisible('min_confidence')}
+            <label class="field">
+              <span class="field-label">{t('llm.min_confidence')}</span>
+              <select bind:value={llm.min_confidence} disabled={llmDisabled}>
+                <option value="">{t('llm.min_confidence_any')}</option>
+                <option value="low">{t('llm.min_confidence_low')}</option>
+                <option value="medium">{t('llm.min_confidence_medium')}</option>
+                <option value="high">{t('llm.min_confidence_high')}</option>
+              </select>
+              <span class="field-hint">{t('llm.min_confidence_hint')}</span>
             </label>
           {/if}
 

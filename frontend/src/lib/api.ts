@@ -149,10 +149,18 @@ export const ListCardIDsInCategory = (...args: Parameters<ReturnType<typeof getB
 export const ListOrphanedCardIDs = () => getBackend().ListOrphanedCardIDs()
 export const ListCardIDsByTag = (...args: Parameters<ReturnType<typeof getBackend>['ListCardIDsByTag']>) => getBackend().ListCardIDsByTag(...args)
 
+// Category details
+export const GetCategoryAcceptedTypes = (...args: Parameters<ReturnType<typeof getBackend>['GetCategoryAcceptedTypes']>) => getBackend().GetCategoryAcceptedTypes(...args)
+
 // Agent
 export const GetAgentConfig = (...args: Parameters<ReturnType<typeof getBackend>['GetAgentConfig']>) => getBackend().GetAgentConfig(...args)
 export const SaveAgentConfig = (...args: Parameters<ReturnType<typeof getBackend>['SaveAgentConfig']>) => getBackend().SaveAgentConfig(...args)
 export const GetAgentRuns = (...args: Parameters<ReturnType<typeof getBackend>['GetAgentRuns']>) => getBackend().GetAgentRuns(...args)
+export const TriggerAgent = (...args: Parameters<ReturnType<typeof getBackend>['TriggerAgent']>) => getBackend().TriggerAgent(...args)
+export const PauseAllAgents = () => getBackend().PauseAllAgents()
+export const ResumeAllAgents = () => getBackend().ResumeAllAgents()
+export const GetAgentSchedulerStatus = () => getBackend().GetAgentSchedulerStatus()
+export const ForceQuit = () => getBackend().ForceQuit()
 
 // Chat
 export const LoadChatHistory = (...args: Parameters<ReturnType<typeof getBackend>['LoadChatHistory']>) => getBackend().LoadChatHistory(...args)

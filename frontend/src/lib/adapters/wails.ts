@@ -33,11 +33,23 @@ import {
   GetProfile, SetProfile,
   GetAuthInfo, GetLLMConfig, SetLLMConfig,
   // @ts-ignore — generated after `wails generate` with updated Go code
+  GetCategoryAcceptedTypes,
+  // @ts-ignore — generated after `wails generate` with updated Go code
   GetAgentConfig,
   // @ts-ignore — generated after `wails generate` with updated Go code
   SaveAgentConfig,
   // @ts-ignore — generated after `wails generate` with updated Go code
   GetAgentRuns,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  TriggerAgent,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  PauseAllAgents,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  ResumeAllAgents,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  GetAgentSchedulerStatus,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  ForceQuit,
   LoadChatHistory, SendChatMessage,
   // @ts-ignore — generated after `wails generate` with updated Go code
   LoadProjectChatHistory,
@@ -180,9 +192,15 @@ export const wailsAdapter: BackendAdapter = {
   ListOrphanedCardIDs,
   ListCardIDsByTag,
 
+  GetCategoryAcceptedTypes,
   GetAgentConfig: GetAgentConfig as unknown as BackendAdapter['GetAgentConfig'],
   SaveAgentConfig,
   GetAgentRuns: GetAgentRuns as unknown as BackendAdapter['GetAgentRuns'],
+  TriggerAgent,
+  PauseAllAgents,
+  ResumeAllAgents,
+  GetAgentSchedulerStatus,
+  ForceQuit,
 
   LoadChatHistory,
   SendChatMessage,

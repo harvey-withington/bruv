@@ -155,9 +155,15 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     ListOrphanedCardIDs: async () => [],
     ListCardIDsByTag: async () => [],
 
-    GetAgentConfig: async () => ({ card_id: '', config: { enabled: false, goal: '', schedule: '', allowed_tools: [], status: 'disabled' as const, notify_on: [], notify_channel: '', last_run_at: null, next_run_at: null }, runs: [] }),
+    GetCategoryAcceptedTypes: async () => null,
+    GetAgentConfig: async () => ({ card_id: '', config: { enabled: false, goal: '', schedule: '', allowed_tools: [], status: 'disabled' as const, notify_on: [], notify_channel: '', last_run_at: null, next_run_at: null, max_tokens_budget: 0 }, runs: [] }),
     SaveAgentConfig: async () => {},
     GetAgentRuns: async () => [],
+    TriggerAgent: async () => {},
+    PauseAllAgents: async () => {},
+    ResumeAllAgents: async () => {},
+    GetAgentSchedulerStatus: async () => ({ active: false, paused: false, runningCount: 0 }),
+    ForceQuit: async () => {},
 
     LoadChatHistory: async () => ({ card_id: '', messages: [] }),
     SendChatMessage: async () => ({ card_id: '', messages: [] }),

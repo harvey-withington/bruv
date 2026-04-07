@@ -11,7 +11,11 @@ import (
 
 // CategoryAcceptsType returns true if the category allows the given card type.
 // An empty or nil AcceptedTypes means all types are accepted.
+// Untyped cards (empty string) are always accepted — they haven't been classified yet.
 func CategoryAcceptsType(cat *model.Category, cardType string) bool {
+	if cardType == "" {
+		return true
+	}
 	if len(cat.AcceptedTypes) == 0 {
 		return true
 	}

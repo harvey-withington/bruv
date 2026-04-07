@@ -168,6 +168,7 @@ export type AgentConfig = {
   notify_channel: string
   last_run_at: string | null
   next_run_at: string | null
+  max_tokens_budget: number
 }
 
 export type AgentRun = {
@@ -362,10 +363,18 @@ export interface BackendAdapter {
   ListOrphanedCardIDs(): Promise<string[]>
   ListCardIDsByTag(tag: string): Promise<string[]>
 
+  // Category details
+  GetCategoryAcceptedTypes(categoryID: string): Promise<string[] | null>
+
   // Agent
   GetAgentConfig(cardID: string): Promise<AgentFile>
   SaveAgentConfig(cardID: string, config: AgentConfig): Promise<void>
   GetAgentRuns(cardID: string): Promise<AgentRun[]>
+  TriggerAgent(cardID: string): Promise<void>
+  PauseAllAgents(): Promise<void>
+  ResumeAllAgents(): Promise<void>
+  GetAgentSchedulerStatus(): Promise<{ active: boolean; paused: boolean; runningCount: number }>
+  ForceQuit(): Promise<void>
 
   // Chat
   LoadChatHistory(cardID: string): Promise<any>

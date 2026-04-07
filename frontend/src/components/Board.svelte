@@ -37,10 +37,15 @@
 
   async function handleAddCard(categoryId: string) {
     try {
-      // Create a card with default name, pinned to this category
-      const card = await CreateCard('task', t('default.card_name'))
-
       const cat = board.categories.find(c => c.id === categoryId)
+      // If the category restricts types, use the sole type or start untyped
+      let cardType = ''
+      if (cat?.accepted_types?.length === 1) {
+        cardType = cat.accepted_types[0]
+      }
+
+      const card = await CreateCard(cardType, t('default.card_name'))
+
       if (cat) {
         await PinCard(card.id, cat.id, cat.id)
       }
@@ -49,6 +54,8 @@
 
       // Auto-open the card detail modal so user can rename
       selectedCardId = card.id
+      selectedCategoryId = categoryId
+      selectedCategoryName = cat?.name || null
       autoEditTitle = true
     } catch (e) {
       console.error('Failed to add card:', e)
@@ -489,6 +496,7 @@
     cardId={selectedCardId}
     currentCategoryId={selectedCategoryId}
     currentCategoryName={selectedCategoryName}
+    categoryAcceptedTypes={selectedCategoryId ? board.categories.find(c => c.id === selectedCategoryId)?.accepted_types : undefined}
     onClose={closeCardDetail}
     onUpdated={handleCardUpdated}
     onPin={handleCardPinned}

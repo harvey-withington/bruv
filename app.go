@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bruv/internal/agent"
 	"bruv/internal/config"
 	"bruv/internal/index"
 	"bruv/internal/llm"
@@ -35,6 +36,9 @@ type App struct {
 	// llmActors tracks active LLM chat sessions by cardID → model name.
 	// Set during SendChatMessage so logActivity can attribute edits to the correct actor.
 	llmActors sync.Map
+	// Agent scheduler
+	scheduler *agent.Scheduler
+	forceQuit bool
 }
 
 // NewApp creates a new App application struct
@@ -119,28 +123,18 @@ func (a *App) saveCurrentBounds() {
 }
 
 // beforeClose is called when the window is about to close.
-// We save the current window position and size.
+// If agents are enabled, hide to background instead of quitting.
 func (a *App) beforeClose(ctx context.Context) bool {
-	maximised := wailsRuntime.WindowIsMaximised(ctx)
+	a.saveCurrentBounds()
 
-	// If maximised, un-maximise briefly to get the restored position
-	if maximised {
-		wailsRuntime.WindowUnmaximise(ctx)
+	if a.forceQuit {
+		a.stopScheduler()
+		return false // allow quit
 	}
 
-	x, y := wailsRuntime.WindowGetPosition(ctx)
-	w, h := wailsRuntime.WindowGetSize(ctx)
-
-	wb := &config.WindowBounds{
-		X:         x,
-		Y:         y,
-		Width:     w,
-		Height:    h,
-		Maximised: maximised,
-	}
-	_ = config.SaveWindowBounds(wb)
-
-	return false // allow close
+	// Hide window instead of closing — agents keep running in background
+	wailsRuntime.WindowHide(ctx)
+	return true // prevent close
 }
 
 // Version returns the current application version
@@ -224,6 +218,9 @@ func (a *App) OpenRepository(path string) error {
 	// Heal tag colours in the background — no-op if already healthy.
 	go a.healTagColors()
 
+	// Start agent scheduler
+	a.startScheduler()
+
 	return nil
 }
 
@@ -234,6 +231,7 @@ func (a *App) HasRepository() bool {
 
 // CloseRepository closes the current repository and its index.
 func (a *App) CloseRepository() {
+	a.stopScheduler()
 	if a.idx != nil {
 		a.idx.Close()
 		a.idx = nil
@@ -660,6 +658,13 @@ func (a *App) CreateCard(cardType, title string) (*model.Card, error) {
 		_ = a.idx.IndexCard(card, time.Now(), "")
 	}
 	a.logActivity(card.ID, model.ActivityCreated, "")
+	// Apply template blocks if a type was set at creation
+	if cardType != "" {
+		a.applyTypeBlocks(card.ID, cardType)
+		if updated, err := a.repo.GetCard(card.ID); err == nil {
+			return updated, nil
+		}
+	}
 	return card, nil
 }
 
@@ -982,6 +987,19 @@ func (a *App) getCategoryByID(categoryID string) (*model.Category, string, strin
 		}
 	}
 	return nil, "", "", "", fmt.Errorf("category %q not found", categoryID)
+}
+
+// GetCategoryAcceptedTypes returns the accepted card types for a category by its ID.
+// Returns nil (all types accepted) if the category has no restrictions.
+func (a *App) GetCategoryAcceptedTypes(categoryID string) ([]string, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	cat, _, _, _, err := a.getCategoryByID(categoryID)
+	if err != nil {
+		return nil, err
+	}
+	return cat.AcceptedTypes, nil
 }
 
 // validateCardTypeForCategory checks that a card's type is accepted by the target category.
@@ -2294,20 +2312,32 @@ func (a *App) GetAgentConfig(cardID string) (*model.AgentFile, error) {
 	return a.repo.GetAgentConfig(cardID)
 }
 
-func (a *App) SaveAgentConfig(cardID string, config model.AgentConfig) error {
+func (a *App) SaveAgentConfig(cardID string, cfg model.AgentConfig) error {
 	if a.repo == nil {
 		return fmt.Errorf("no repository open")
 	}
-	if err := a.repo.SaveAgentConfig(cardID, config); err != nil {
+	// Calculate NextRunAt when enabled with a schedule
+	if cfg.Enabled && cfg.Schedule != "" {
+		if next, err := agent.NextRunTime(cfg.Schedule, time.Now()); err == nil {
+			cfg.NextRunAt = &next
+		}
+		if cfg.Status == model.AgentStatusDisabled {
+			cfg.Status = model.AgentStatusIdle
+		}
+	} else if !cfg.Enabled {
+		cfg.Status = model.AgentStatusDisabled
+		cfg.NextRunAt = nil
+	}
+	if err := a.repo.SaveAgentConfig(cardID, cfg); err != nil {
 		return err
 	}
 	// Update index with agent state
 	if a.idx != nil {
 		nextRun := ""
-		if config.NextRunAt != nil {
-			nextRun = config.NextRunAt.Format("2006-01-02T15:04:05Z07:00")
+		if cfg.NextRunAt != nil {
+			nextRun = cfg.NextRunAt.Format(time.RFC3339)
 		}
-		_ = a.idx.UpdateAgentIndex(cardID, config.Enabled, string(config.Status), nextRun)
+		_ = a.idx.UpdateAgentIndex(cardID, cfg.Enabled, string(cfg.Status), nextRun)
 	}
 	return nil
 }

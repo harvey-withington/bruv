@@ -234,8 +234,9 @@ type AgentConfig struct {
 	Status        AgentStatus `json:"status"`
 	NotifyOn      []string    `json:"notify_on,omitempty"`
 	NotifyChannel string      `json:"notify_channel,omitempty"`
-	LastRunAt     *time.Time  `json:"last_run_at,omitempty"`
-	NextRunAt     *time.Time  `json:"next_run_at,omitempty"`
+	LastRunAt       *time.Time  `json:"last_run_at,omitempty"`
+	NextRunAt       *time.Time  `json:"next_run_at,omitempty"`
+	MaxTokensBudget int         `json:"max_tokens_budget,omitempty"` // 0 = default (50000)
 }
 
 // AgentRun records a single execution of a card's agent.

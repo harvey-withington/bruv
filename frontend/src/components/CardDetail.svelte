@@ -1,6 +1,6 @@
 <script lang="ts">
   import { GetCard, UpdateCardTitle, UpdateCardType, RefreshTypeBlocks, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
-    DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, AddProjectLabel, GetProjectLabels, GetProjectLocation } from '../lib/api'
+    DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, AddProjectLabel, GetProjectLabels, GetProjectLocation, GetCategoryAcceptedTypes } from '../lib/api'
   import { projectTags, nav, getTagColor, cardTypes } from '../lib/store.svelte'
   import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, GripVertical, Pencil, MapPin, MapPinOff, MoveRight, Bot, ChevronDown, ChevronRight, Maximize2, RefreshCw } from 'lucide-svelte'
   import { renderMarkdown, renderInline } from '../lib/markdown'
@@ -22,10 +22,11 @@
   import type { Card, Block, BlockMeta, CardPin, ChecklistItem, ListItem, MediaItem } from '../lib/types'
 
 
-  let { cardId, currentCategoryId, currentCategoryName, onClose, onUpdated, onPin, autoEditTitle }: {
+  let { cardId, currentCategoryId, currentCategoryName, categoryAcceptedTypes, onClose, onUpdated, onPin, autoEditTitle }: {
     cardId: string
     currentCategoryId?: string | null
     currentCategoryName?: string | null
+    categoryAcceptedTypes?: string[]
     onClose: (opts?: { escaped?: boolean }) => void
     onUpdated?: () => void
     onPin?: () => void
@@ -35,6 +36,7 @@
   let card = $state<Card | null>(null)
   let loading = $state(true)
   let pinBreadcrumbs = $state<CardPin[]>([])
+  let acceptedTypes = $state<string[] | undefined>(categoryAcceptedTypes)
   let showPinPicker = $state(false)
   let pinPickerMode = $state<'pin' | 'move'>('pin')
   let pinPickerSourcePin = $state<CardPin | null>(null)
@@ -855,6 +857,10 @@
         inboxPinCategoryId = target.categoryId
         inboxPinCategoryName = target.categoryName
         showOtherPins = false
+        // Refresh accepted types for the new category
+        try {
+          acceptedTypes = (await GetCategoryAcceptedTypes(target.categoryId)) || undefined
+        } catch { acceptedTypes = undefined }
         document.dispatchEvent(new CustomEvent('bruv:select-project', {
           detail: { brandSlug: target.brandSlug, streamSlug: target.streamSlug, projectSlug: target.projectSlug }
         }))
@@ -944,6 +950,9 @@
             title={t('tooltip.change_card_type')}
           >{cardTypes.list.find(t => t.id === card.type)?.label || card.type || t('card.type_none')}</button>
           {#if showTypePicker && typeBadgeBtnEl}
+            {@const filteredTypes = acceptedTypes?.length
+              ? cardTypes.list.filter(ct => acceptedTypes!.includes(ct.id))
+              : cardTypes.list}
             <div class="type-picker-dropdown" use:floatingDropdown={{ trigger: typeBadgeBtnEl }}>
               <button
                 class="type-picker-option"
@@ -952,7 +961,7 @@
               >
                 <span class="type-option-badge" style="background: var(--bg-elevated); color: var(--text-muted)">{t('card.type_none')}</span>
               </button>
-              {#each cardTypes.list as ct}
+              {#each filteredTypes as ct}
                 <button
                   class="type-picker-option"
                   class:active={card.type === ct.id}

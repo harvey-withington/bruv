@@ -103,6 +103,11 @@ func (r *Repository) UpdateCard(id string, update func(*model.Card)) (*model.Car
 	return card, nil
 }
 
+// UpdateCardDirect writes a pre-modified card directly to disk.
+func (r *Repository) UpdateCardDirect(id string, card *model.Card) error {
+	return writeJSON(r.cardFilePath(id), card)
+}
+
 // DeleteCard removes a Card and its associated pins.
 func (r *Repository) DeleteCard(id string) error {
 	cardPath := r.cardFilePath(id)

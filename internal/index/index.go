@@ -203,6 +203,44 @@ func (idx *Index) RemoveCard(cardID string) error {
 	return tx.Commit()
 }
 
+// DueAgent represents a card with an agent that is due to run.
+type DueAgent struct {
+	CardID    string
+	NextRunAt time.Time
+}
+
+// QueryDueAgents returns agent cards that are due to run.
+func (idx *Index) QueryDueAgents(now time.Time) ([]DueAgent, error) {
+	rows, err := idx.db.Query(`
+		SELECT id, next_run_at FROM cards
+		WHERE agent_enabled = 1
+		  AND agent_status != 'running'
+		  AND next_run_at != ''
+		  AND next_run_at <= ?
+		ORDER BY next_run_at ASC
+		LIMIT 10`,
+		now.Format(time.RFC3339),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query due agents: %w", err)
+	}
+	defer rows.Close()
+
+	var agents []DueAgent
+	for rows.Next() {
+		var da DueAgent
+		var nra string
+		if err := rows.Scan(&da.CardID, &nra); err != nil {
+			return nil, fmt.Errorf("scan due agent: %w", err)
+		}
+		if t, err := time.Parse(time.RFC3339, nra); err == nil {
+			da.NextRunAt = t
+		}
+		agents = append(agents, da)
+	}
+	return agents, rows.Err()
+}
+
 // UpdateAgentIndex updates the agent-related columns for a card in the index.
 func (idx *Index) UpdateAgentIndex(cardID string, enabled bool, status string, nextRunAt string) error {
 	_, err := idx.db.Exec(

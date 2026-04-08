@@ -1,6 +1,6 @@
 <script lang="ts">
   import { GetCard, UpdateCardTitle, UpdateCardType, RefreshTypeBlocks, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
-    DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, AddProjectLabel, GetProjectLabels, GetProjectLocation, GetCategoryAcceptedTypes } from '../lib/api'
+    DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, AddProjectLabel, GetProjectLabels, GetProjectLocation, GetCategoryAcceptedTypes, GetAgentConfig } from '../lib/api'
   import { projectTags, nav, getTagColor, cardTypes } from '../lib/store.svelte'
   import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, GripVertical, Pencil, MapPin, MapPinOff, MoveRight, Bot, ChevronDown, ChevronRight, Maximize2, RefreshCw } from 'lucide-svelte'
   import { renderMarkdown, renderInline } from '../lib/markdown'
@@ -37,6 +37,7 @@
   let loading = $state(true)
   let pinBreadcrumbs = $state<CardPin[]>([])
   let acceptedTypes = $state<string[] | undefined>(categoryAcceptedTypes)
+  let hasAgent = $state(false)
   let showPinPicker = $state(false)
   let pinPickerMode = $state<'pin' | 'move'>('pin')
   let pinPickerSourcePin = $state<CardPin | null>(null)
@@ -385,6 +386,8 @@
       }
       restoreCollapsedFromMeta()
       if (autoEditTitle) editingTitle = true
+      // Check if card has an agent configured
+      try { const af = await GetAgentConfig(cardId); hasAgent = af?.config?.enabled ?? false } catch { hasAgent = false }
       // Refresh project tags so new tags (e.g. added by AI) get their colors
       if (nav.brandSlug && nav.streamSlug && nav.projectSlug) {
         try { projectTags.list = await GetProjectLabels(nav.brandSlug, nav.streamSlug, nav.projectSlug) || [] } catch {}
@@ -1059,7 +1062,12 @@
       <!-- Tab bar: Details / Agent -->
       <div class="card-tab-bar">
         <button class="card-tab" class:active={activeTab === 'details'} onclick={() => activeTab = 'details'}>{t('card.tab_details')}</button>
-        <button class="card-tab" class:active={activeTab === 'agent'} onclick={() => activeTab = 'agent'}>{t('card.tab_agent')}</button>
+        <button class="card-tab" class:active={activeTab === 'agent'} onclick={() => activeTab = 'agent'}>
+          {t('card.tab_agent')}
+          {#if hasAgent}
+            <span class="agent-dot"></span>
+          {/if}
+        </button>
       </div>
 
       {#if activeTab === 'agent'}
@@ -1487,6 +1495,16 @@
   .card-tab.active {
     color: var(--text);
     border-bottom-color: var(--accent);
+  }
+
+  .agent-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-left: 0.3rem;
+    vertical-align: middle;
   }
 
   .modal-subheader {

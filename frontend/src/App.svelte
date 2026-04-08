@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { nav, prefs as prefsStore, loadCardTypes, loadGlobalTagColors } from './lib/store.svelte'
+  import { nav, prefs as prefsStore, loadCardTypes, loadGlobalTagColors, setupAgentEventListeners } from './lib/store.svelte'
   import { onMount, onDestroy } from 'svelte'
   import { loadTheme } from './lib/theme.svelte'
-  import { showToast } from './lib/toast.svelte'
+  import { loadNotifications, handleNewNotification } from './lib/notifications.svelte'
+  import { EventsOn } from '../wailsjs/runtime/runtime'
   import { loadLocale, t } from './lib/i18n.svelte'
   import WelcomeScreen from './components/WelcomeScreen.svelte'
   import Sidebar from './components/Sidebar.svelte'
@@ -93,20 +94,18 @@
     return () => document.removeEventListener('bruv:navigate', handleBruvNav)
   })
 
-  // Agent notification listener (Wails events)
-  let agentCleanups: (() => void)[] = []
+  // Notification system (Wails events + persistent store)
+  let notifCleanups: (() => void)[] = []
   onMount(() => {
-    if (typeof window !== 'undefined' && (window as any).runtime) {
-      const rt = (window as any).runtime
-      const unsub = rt.EventsOn('agent:notification', (data: any) => {
-        if (data?.title) {
-          showToast(`${data.title}: ${data.body || ''}`, 'success')
-        }
-      })
-      if (unsub) agentCleanups.push(unsub)
-    }
+    loadNotifications()
+    notifCleanups = [
+      EventsOn('notification:new', (data: any) => {
+        handleNewNotification(data)
+      }),
+      setupAgentEventListeners(),
+    ]
   })
-  onDestroy(() => { for (const fn of agentCleanups) fn?.() })
+  onDestroy(() => { for (const fn of notifCleanups) fn?.() })
 
   function onSplitterDown(e: MouseEvent) {
     if (nav.sidebarCollapsed) return

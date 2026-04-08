@@ -2,7 +2,7 @@
 
 import { getBackend } from './adapters'
 
-export type { UserProfile, AuthInfo, LLMConfig, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard, AgentConfig, AgentRun, AgentFile, AgentStatus } from './types'
+export type { UserProfile, AuthInfo, LLMConfig, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard, AgentConfig, AgentRun, AgentFile, AgentStatus, AppNotification, NotifyConfig } from './types'
 
 // Capabilities
 export const getCapabilities = () => getBackend().getCapabilities()
@@ -149,6 +149,17 @@ export const ListCardIDsInCategory = (...args: Parameters<ReturnType<typeof getB
 export const ListOrphanedCardIDs = () => getBackend().ListOrphanedCardIDs()
 export const ListCardIDsByTag = (...args: Parameters<ReturnType<typeof getBackend>['ListCardIDsByTag']>) => getBackend().ListCardIDsByTag(...args)
 
+// Agent card IDs
+export const ListAgentCardIDs = () => getBackend().ListAgentCardIDs()
+
+// Notifications
+export const GetNotifyConfig = () => getBackend().GetNotifyConfig()
+export const SetNotifyConfig = (...args: Parameters<ReturnType<typeof getBackend>['SetNotifyConfig']>) => getBackend().SetNotifyConfig(...args)
+export const GetNotifications = () => getBackend().GetNotifications()
+export const MarkNotificationRead = (...args: Parameters<ReturnType<typeof getBackend>['MarkNotificationRead']>) => getBackend().MarkNotificationRead(...args)
+export const MarkAllNotificationsRead = () => getBackend().MarkAllNotificationsRead()
+export const ClearAllNotifications = () => getBackend().ClearAllNotifications()
+
 // Category details
 export const GetCategoryAcceptedTypes = (...args: Parameters<ReturnType<typeof getBackend>['GetCategoryAcceptedTypes']>) => getBackend().GetCategoryAcceptedTypes(...args)
 
@@ -157,6 +168,7 @@ export const GetAgentConfig = (...args: Parameters<ReturnType<typeof getBackend>
 export const SaveAgentConfig = (...args: Parameters<ReturnType<typeof getBackend>['SaveAgentConfig']>) => getBackend().SaveAgentConfig(...args)
 export const GetAgentRuns = (...args: Parameters<ReturnType<typeof getBackend>['GetAgentRuns']>) => getBackend().GetAgentRuns(...args)
 export const TriggerAgent = (...args: Parameters<ReturnType<typeof getBackend>['TriggerAgent']>) => getBackend().TriggerAgent(...args)
+export const CancelAgent = (...args: Parameters<ReturnType<typeof getBackend>['CancelAgent']>) => getBackend().CancelAgent(...args)
 export const PauseAllAgents = () => getBackend().PauseAllAgents()
 export const ResumeAllAgents = () => getBackend().ResumeAllAgents()
 export const GetAgentSchedulerStatus = () => getBackend().GetAgentSchedulerStatus()

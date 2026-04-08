@@ -1,5 +1,6 @@
 // Reactive app state using Svelte 5 module-level $state
-import { ListCategories, GetCard, ListCardIDsInCategory, GetProjectLabels, ListCardTypes, GetTagColors } from './api'
+import { ListCategories, GetCard, ListCardIDsInCategory, GetProjectLabels, ListCardTypes, GetTagColors, ListAgentCardIDs } from './api'
+import { EventsOn } from '../../wailsjs/runtime/runtime'
 import type { CardTypeInfo } from './types'
 
 // Navigation state
@@ -42,6 +43,8 @@ export const board = $state({
     }>
   }>,
   loading: false,
+  agentCardIds: {} as Record<string, boolean>,
+  runningAgentIds: {} as Record<string, boolean>,
 })
 
 // Global card types (built-in + user-defined), loaded once at startup
@@ -177,9 +180,39 @@ export async function loadBoard(brandSlug: string, streamSlug: string, projectSl
         cards: cards.filter((c): c is NonNullable<typeof c> => c !== null),
       }
     }))
+    // Load agent card IDs before setting categories so indicators are ready when cards render
+    try {
+      const ids = await ListAgentCardIDs() || []
+      const map: Record<string, boolean> = {}
+      for (const id of ids) map[id] = true
+      board.agentCardIds = map
+    } catch { board.agentCardIds = {} }
     board.categories = populated
   } catch {
     board.categories = []
   }
   board.loading = false
+}
+
+// Set up Wails event listeners for agent running state.
+// Returns cleanup function. Call once from App.svelte onMount.
+export function setupAgentEventListeners(): () => void {
+  const unsub1 = EventsOn('agent:started', (data: any) => {
+    if (data?.cardID) {
+      board.runningAgentIds = { ...board.runningAgentIds, [data.cardID]: true }
+    }
+  })
+  const unsub2 = EventsOn('agent:completed', (data: any) => {
+    if (data?.cardID) {
+      const { [data.cardID]: _, ...rest } = board.runningAgentIds
+      board.runningAgentIds = rest
+    }
+  })
+  const unsub3 = EventsOn('agent:failed', (data: any) => {
+    if (data?.cardID) {
+      const { [data.cardID]: _, ...rest } = board.runningAgentIds
+      board.runningAgentIds = rest
+    }
+  })
+  return () => { unsub1(); unsub2(); unsub3() }
 }

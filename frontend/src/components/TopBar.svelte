@@ -1,8 +1,10 @@
 <script lang="ts">
   import SearchBar from './SearchBar.svelte'
   import CardTypesTab from './CardTypesTab.svelte'
-  import { Tags, SlidersHorizontal, BotMessageSquare, Inbox, Layers, Type, User, FolderOpen, Check } from 'lucide-svelte'
+  import NotificationPanel from './NotificationPanel.svelte'
+  import { Tags, SlidersHorizontal, BotMessageSquare, Inbox, Layers, Type, User, FolderOpen, Check, Bell } from 'lucide-svelte'
   import { nav, inboxSearchFilters, boardSearchFilters } from '../lib/store.svelte'
+  import { notifications } from '../lib/notifications.svelte'
   import { t } from '../lib/i18n.svelte'
 
   let { onSelectCard, onOpenTagEditor, onOpenProjectSettings, onToggleProjectChat, projectChatActive }: {
@@ -14,6 +16,7 @@
   } = $props()
 
   let showCardTypes = $state(false)
+  let showNotifications = $state(false)
 </script>
 
 <header class="topbar">
@@ -126,6 +129,17 @@
   </div>
 
   <div class="topbar-actions">
+    <div class="notif-wrapper">
+      <button class="icon-btn" onclick={() => showNotifications = !showNotifications} title={t('toolbar.notifications')}>
+        <Bell size={16} />
+        {#if notifications.unreadCount > 0}
+          <span class="notif-badge">{notifications.unreadCount > 99 ? '99+' : notifications.unreadCount}</span>
+        {/if}
+      </button>
+      {#if showNotifications}
+        <NotificationPanel onClose={() => showNotifications = false} />
+      {/if}
+    </div>
     <button class="icon-btn" onclick={() => showCardTypes = true} title={t('toolbar.card_types')}><Layers size={16} /></button>
     {#if nav.projectSlug}
       <button class="icon-btn" class:active={projectChatActive} onclick={onToggleProjectChat} title={t('toolbar.project_chat')}><BotMessageSquare size={16} /></button>
@@ -270,5 +284,25 @@
   .icon-btn.active {
     color: var(--accent);
     background: color-mix(in srgb, var(--accent) 12%, var(--bg-base));
+  }
+
+  .notif-wrapper {
+    position: relative;
+  }
+  .notif-badge {
+    position: absolute;
+    top: 0;
+    right: 0;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: #ef4444;
+    color: white;
+    font-size: 0.6rem;
+    font-weight: 700;
+    line-height: 16px;
+    text-align: center;
+    pointer-events: none;
   }
 </style>

@@ -122,6 +122,7 @@ func (s *Scheduler) TriggerNow(ctx context.Context, cardID string) error {
 	s.mu.Unlock()
 
 	s.wg.Add(1)
+	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
 		s.sem <- struct{}{} // acquire
@@ -129,12 +130,17 @@ func (s *Scheduler) TriggerNow(ctx context.Context, cardID string) error {
 		s.running[cardID] = true
 		s.mu.Unlock()
 
-		_ = s.execFn(ctx, cardID)
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("agent scheduler: panic running card %s: %v\n", cardID, r)
+			}
+			<-s.sem // release
+			s.mu.Lock()
+			delete(s.running, cardID)
+			s.mu.Unlock()
+		}()
 
-		<-s.sem // release
-		s.mu.Lock()
-		delete(s.running, cardID)
-		s.mu.Unlock()
+		_ = s.execFn(ctx, cardID)
 	}()
 
 	return nil
@@ -171,12 +177,17 @@ func (s *Scheduler) tick(ctx context.Context) {
 			s.running[cardID] = true
 			s.mu.Unlock()
 
-			_ = s.execFn(ctx, cardID)
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Printf("agent scheduler: panic running card %s: %v\n", cardID, r)
+				}
+				<-s.sem // release
+				s.mu.Lock()
+				delete(s.running, cardID)
+				s.mu.Unlock()
+			}()
 
-			<-s.sem // release
-			s.mu.Lock()
-			delete(s.running, cardID)
-			s.mu.Unlock()
+			_ = s.execFn(ctx, cardID)
 		}()
 	}
 }

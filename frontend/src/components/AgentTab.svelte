@@ -1,14 +1,17 @@
 <script lang="ts">
-  import { GetAgentConfig, SaveAgentConfig, TriggerAgent } from '../lib/api'
+  import { GetAgentConfig, SaveAgentConfig, TriggerAgent, CancelAgent, IsLLMConfigured, ListAgentCardIDs } from '../lib/api'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
+  import { board } from '../lib/store.svelte'
   import type { AgentConfig, AgentRun } from '../lib/types'
-  import { Bot, Play, Clock, Bell, ChevronDown, ChevronRight, CheckCircle, XCircle, AlertTriangle, Zap } from 'lucide-svelte'
+  import { Bot, Clock, ChevronDown, ChevronRight, CircleCheck, CircleX, TriangleAlert, Play, Square } from 'lucide-svelte'
   import { onMount, onDestroy } from 'svelte'
+  import { EventsOn } from '../../wailsjs/runtime/runtime'
 
   let { cardId }: { cardId: string } = $props()
 
   let loading = $state(true)
+  let llmConfigured = $state(true)
   let saving = $state(false)
   let triggering = $state(false)
   let dirty = $state(false)
@@ -45,7 +48,8 @@
   async function loadConfig() {
     loading = true
     try {
-      const af = await GetAgentConfig(cardId)
+      const [af, isConfigured] = await Promise.all([GetAgentConfig(cardId), IsLLMConfigured()])
+      llmConfigured = isConfigured
       enabled = af.config.enabled
       goal = af.config.goal
       schedule = af.config.schedule
@@ -68,12 +72,21 @@
     try {
       await TriggerAgent(cardId)
       showToast(t('agent.triggered'), 'success')
-      // Refresh after a short delay to show running status
       setTimeout(() => loadConfig(), 1500)
     } catch (e) {
       showToast(t('agent.trigger_failed'), 'error')
     } finally {
       triggering = false
+    }
+  }
+
+  async function cancelNow() {
+    try {
+      await CancelAgent(cardId)
+      showToast(t('agent.cancelled'), 'info')
+      setTimeout(() => loadConfig(), 1000)
+    } catch (e) {
+      showToast(t('agent.cancel_failed'), 'error')
     }
   }
 
@@ -93,6 +106,13 @@
         max_tokens_budget: 0,
       }
       await SaveAgentConfig(cardId, config)
+      // Refresh board's agent card IDs so indicators update
+      try {
+        const ids = await ListAgentCardIDs() || []
+        const map: Record<string, boolean> = {}
+        for (const id of ids) map[id] = true
+        board.agentCardIds = map
+      } catch { /* ignore */ }
       showToast(t('agent.saved'), 'success')
       dirty = false
     } catch (e) {
@@ -134,9 +154,10 @@
 
   function runStatusIcon(s: string) {
     switch (s) {
-      case 'success': return CheckCircle
-      case 'failure': return XCircle
-      case 'timeout': return AlertTriangle
+      case 'success': return CircleCheck
+      case 'failure': return CircleX
+      case 'timeout': return TriangleAlert
+      case 'cancelled': return Square
       default: return Clock
     }
   }
@@ -157,19 +178,17 @@
   let cleanupFns: (() => void)[] = []
 
   onMount(() => {
-    if (typeof window !== 'undefined' && (window as any).runtime) {
-      const rt = (window as any).runtime
-      const onStarted = rt.EventsOn('agent:started', (data: any) => {
-        if (data?.cardID === cardId) { status = 'running'; }
-      })
-      const onCompleted = rt.EventsOn('agent:completed', (data: any) => {
-        if (data?.cardID === cardId) { loadConfig(); }
-      })
-      const onFailed = rt.EventsOn('agent:failed', (data: any) => {
-        if (data?.cardID === cardId) { loadConfig(); }
-      })
-      cleanupFns = [onStarted, onCompleted, onFailed].filter(Boolean)
-    }
+    cleanupFns = [
+      EventsOn('agent:started', (data: any) => {
+        if (data?.cardID === cardId) { status = 'running' }
+      }),
+      EventsOn('agent:completed', (data: any) => {
+        if (data?.cardID === cardId) { loadConfig() }
+      }),
+      EventsOn('agent:failed', (data: any) => {
+        if (data?.cardID === cardId) { loadConfig() }
+      }),
+    ]
   })
 
   onDestroy(() => {
@@ -189,6 +208,12 @@
   </div>
 {:else}
   <div class="agent-tab">
+    {#if !llmConfigured}
+      <div class="agent-banner">
+        {@html t('chat.not_configured')}
+      </div>
+    {/if}
+
     <!-- Header bar -->
     <div class="agent-header">
       <label class="toggle-row">
@@ -201,15 +226,19 @@
       <div class="agent-actions-row">
         {#if enabled && status !== 'running'}
           <button class="run-now-btn" onclick={triggerNow} disabled={triggering}>
-            <Zap size={14} />
+            <Play size={14} />
             {triggering ? '...' : t('agent.run_now')}
           </button>
         {/if}
-        {#if enabled && nextRunAt}
-          <span class="next-run-text">{formatNextRun(nextRunAt)}</span>
-        {/if}
         {#if status === 'running'}
+          <button class="cancel-btn" onclick={cancelNow}>
+            <Square size={12} />
+            {t('agent.cancel')}
+          </button>
           <span class="running-indicator">{t('agent.running')}</span>
+        {/if}
+        {#if enabled && nextRunAt && status !== 'running'}
+          <span class="next-run-text">{formatNextRun(nextRunAt)}</span>
         {/if}
         {#if dirty}
           <button class="save-btn" onclick={save} disabled={saving}>
@@ -281,7 +310,12 @@
     <!-- Two-column panels: Tools + Run History -->
     <div class="agent-panels">
       <div class="panel">
-        <div class="panel-header">{t('agent.tools')}</div>
+        <div class="panel-header">
+          {t('agent.tools')}
+          {#if allowedTools.length > 0}
+            <span class="header-badge">{allowedTools.length}</span>
+          {/if}
+        </div>
         <div class="panel-body panel-scroll">
           {#each AVAILABLE_TOOLS as tool}
             <label class="tool-item">
@@ -300,7 +334,14 @@
       </div>
 
       <div class="panel">
-        <div class="panel-header">{t('agent.runs')}</div>
+        <div class="panel-header">
+          {t('agent.runs')}
+          {#if runs.length > 0}
+            <span class="header-stats">
+              <span class="stat-success">{runs.filter(r => r.status === 'success').length}</span> / <span class="stat-fail">{runs.filter(r => r.status === 'failure' || r.status === 'cancelled').length}</span>
+            </span>
+          {/if}
+        </div>
         <div class="panel-body panel-scroll">
           {#if runs.length === 0}
             <p class="runs-empty">{t('agent.runs_empty')}</p>
@@ -381,8 +422,23 @@
     flex-direction: column;
     gap: 0.75rem;
     padding: 1rem 1.25rem;
-    overflow-y: auto;
-    max-height: 100%;
+    overflow: hidden;
+    height: 100%;
+  }
+
+  /* ── AI not configured banner ── */
+  .agent-banner {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border-muted);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--accent) 8%, var(--bg-elevated));
+    font-size: 0.8rem;
+    color: var(--text-body);
+    line-height: 1.4;
+  }
+  .agent-banner :global(a) {
+    color: var(--accent);
+    text-decoration: underline;
   }
 
   /* ── Header bar ── */
@@ -438,6 +494,21 @@
   }
   .run-now-btn:hover { filter: brightness(1.15); }
   .run-now-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .cancel-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.2rem 0.55rem;
+    background: #eb5a46;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    font-size: 0.73rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: filter 0.1s;
+  }
+  .cancel-btn:hover { filter: brightness(1.15); }
   .next-run-text {
     font-size: 0.73rem;
     color: var(--text-muted);
@@ -576,6 +647,7 @@
     gap: 0.6rem;
     min-height: 0;
     flex: 1;
+    overflow: hidden;
   }
 
   .panel {
@@ -584,9 +656,13 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    min-height: 0;
   }
 
   .panel-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
     font-size: 0.7rem;
     font-weight: 600;
     text-transform: uppercase;
@@ -597,6 +673,25 @@
     background: var(--bg-elevated);
     flex-shrink: 0;
   }
+  .header-badge {
+    font-size: 0.6rem;
+    font-weight: 700;
+    background: var(--accent);
+    color: white;
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    line-height: 1.4;
+  }
+  .header-stats {
+    font-size: 0.65rem;
+    font-weight: 500;
+    margin-left: auto;
+    color: var(--text-muted);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .stat-success { color: #22c55e; }
+  .stat-fail { color: #ef4444; }
 
   .panel-body {
     padding: 0.35rem;
@@ -606,8 +701,9 @@
   }
 
   .panel-scroll {
-    max-height: 280px;
     overflow-y: auto;
+    flex: 1;
+    min-height: 0;
   }
 
   /* ── Tools ── */
@@ -619,6 +715,7 @@
     border-radius: 4px;
     cursor: pointer;
     transition: background 0.1s;
+    flex-shrink: 0;
   }
   .tool-item:hover { background: var(--bg-hover); }
   .tool-item input { margin-top: 0.15rem; }
@@ -637,6 +734,7 @@
     border-radius: 4px;
     overflow: hidden;
     transition: background 0.1s;
+    flex-shrink: 0;
   }
   .run-item + .run-item {
     border-top: 1px solid var(--border-muted);

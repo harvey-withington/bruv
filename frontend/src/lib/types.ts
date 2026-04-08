@@ -189,6 +189,32 @@ export type AgentFile = {
   runs: AgentRun[]
 }
 
+// --- Notifications ---
+
+export type AppNotification = {
+  id: string
+  title: string
+  body: string
+  source: string
+  card_id?: string
+  card_title?: string
+  created_at: string
+  read: boolean
+}
+
+export type NotifyConfig = {
+  system_enabled: boolean
+  smtp_host: string
+  smtp_port: number
+  smtp_username: string
+  smtp_password: string
+  smtp_from_addr: string
+  smtp_to_addr: string
+  smtp_tls: boolean
+  webhook_url: string
+  webhook_auth_header: string
+}
+
 // --- LLM: AI-specific configuration (grows independently) ---
 export type LLMConfig = {
   context: string
@@ -363,6 +389,17 @@ export interface BackendAdapter {
   ListOrphanedCardIDs(): Promise<string[]>
   ListCardIDsByTag(tag: string): Promise<string[]>
 
+  // Agent card IDs
+  ListAgentCardIDs(): Promise<string[]>
+
+  // Notifications
+  GetNotifyConfig(): Promise<NotifyConfig>
+  SetNotifyConfig(c: NotifyConfig): Promise<void>
+  GetNotifications(): Promise<AppNotification[]>
+  MarkNotificationRead(id: string): Promise<void>
+  MarkAllNotificationsRead(): Promise<void>
+  ClearAllNotifications(): Promise<void>
+
   // Category details
   GetCategoryAcceptedTypes(categoryID: string): Promise<string[] | null>
 
@@ -371,6 +408,7 @@ export interface BackendAdapter {
   SaveAgentConfig(cardID: string, config: AgentConfig): Promise<void>
   GetAgentRuns(cardID: string): Promise<AgentRun[]>
   TriggerAgent(cardID: string): Promise<void>
+  CancelAgent(cardID: string): Promise<void>
   PauseAllAgents(): Promise<void>
   ResumeAllAgents(): Promise<void>
   GetAgentSchedulerStatus(): Promise<{ active: boolean; paused: boolean; runningCount: number }>

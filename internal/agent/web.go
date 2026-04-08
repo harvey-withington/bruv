@@ -153,9 +153,11 @@ func extractTextFromHTML(html string) string {
 		title = strings.TrimSpace(m[1])
 	}
 
-	// Remove script and style elements
-	scriptRe := regexp.MustCompile(`(?is)<(script|style|noscript)[^>]*>.*?</\1>`)
-	html = scriptRe.ReplaceAllString(html, "")
+	// Remove script, style, and noscript elements
+	for _, tag := range []string{"script", "style", "noscript"} {
+		re := regexp.MustCompile(`(?is)<` + tag + `[^>]*>.*?</` + tag + `>`)
+		html = re.ReplaceAllString(html, "")
+	}
 
 	// Strip HTML tags
 	text := htmlTagRe.ReplaceAllString(html, " ")

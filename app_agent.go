@@ -5,8 +5,11 @@ import (
 	"bruv/internal/config"
 	"bruv/internal/llm"
 	"bruv/internal/model"
+	"bruv/internal/notify"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,21 +19,12 @@ import (
 
 // startScheduler creates and starts the agent scheduler.
 func (a *App) startScheduler() {
-	if a.idx == nil {
+	if a.repo == nil {
 		return
 	}
 	a.scheduler = agent.NewScheduler(
 		func() ([]agent.DueAgent, error) {
-			results, err := a.idx.QueryDueAgents(time.Now())
-			if err != nil {
-				return nil, err
-			}
-			// Convert index.DueAgent to agent.DueAgent
-			agents := make([]agent.DueAgent, len(results))
-			for i, r := range results {
-				agents[i] = agent.DueAgent{CardID: r.CardID, NextRunAt: r.NextRunAt}
-			}
-			return agents, nil
+			return a.queryDueAgentsFromDisk()
 		},
 		func(ctx context.Context, cardID string) error {
 			return a.executeAgent(ctx, cardID)
@@ -39,12 +33,56 @@ func (a *App) startScheduler() {
 	a.scheduler.Start(a.ctx)
 }
 
+// queryDueAgentsFromDisk scans agent config files to find agents due to run.
+// This bypasses the index entirely for reliability.
+func (a *App) queryDueAgentsFromDisk() ([]agent.DueAgent, error) {
+	if a.repo == nil {
+		return nil, nil
+	}
+	cardsDir := filepath.Join(a.repo.Root, "cards")
+	entries, err := os.ReadDir(cardsDir)
+	if err != nil {
+		return nil, nil
+	}
+	now := time.Now()
+	var due []agent.DueAgent
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".agent.json") {
+			continue
+		}
+		cardID := strings.TrimSuffix(name, ".agent.json")
+		af, err := a.repo.GetAgentConfig(cardID)
+		if err != nil || !af.Config.Enabled {
+			continue
+		}
+		if af.Config.Status == model.AgentStatusRunning {
+			continue // already running (or stuck — will be caught by cancel)
+		}
+		if af.Config.NextRunAt == nil {
+			continue
+		}
+		if af.Config.NextRunAt.Before(now) || af.Config.NextRunAt.Equal(now) {
+			due = append(due, agent.DueAgent{CardID: cardID, NextRunAt: *af.Config.NextRunAt})
+		}
+	}
+	return due, nil
+}
+
 // stopScheduler stops the agent scheduler if running.
 func (a *App) stopScheduler() {
 	if a.scheduler != nil {
 		a.scheduler.Stop()
 		a.scheduler = nil
 	}
+}
+
+// makeNotifier creates a notification dispatcher using the current config.
+func (a *App) makeNotifier() *notify.Dispatcher {
+	cfg, _ := config.LoadNotifyConfig()
+	return notify.NewDispatcher(cfg, func(name string, data any) {
+		wailsRuntime.EventsEmit(a.ctx, name, data)
+	})
 }
 
 // executeAgent runs a single agent card end-to-end.
@@ -70,12 +108,23 @@ func (a *App) executeAgent(ctx context.Context, cardID string) error {
 		_ = a.idx.UpdateAgentIndex(cardID, true, string(model.AgentStatusRunning), "")
 	}
 
+	// Create cancellable context for this agent run
+	agentCtx, agentCancel := context.WithCancel(ctx)
+	a.agentCancels.Store(cardID, agentCancel)
+	defer func() {
+		agentCancel()
+		a.agentCancels.Delete(cardID)
+	}()
+
 	// Emit started event
 	wailsRuntime.EventsEmit(a.ctx, "agent:started", map[string]any{"cardID": cardID})
 
 	// 3. Register in llmActors for activity attribution
 	a.llmActors.Store(cardID, "agent")
 	defer a.llmActors.Delete(cardID)
+
+	// Use the cancellable context from here on
+	ctx = agentCtx
 
 	// Track the run
 	run := model.AgentRun{
@@ -107,14 +156,6 @@ func (a *App) executeAgent(ctx context.Context, cardID string) error {
 		_ = a.repo.SaveAgentConfig(cardID, af.Config)
 		_ = a.repo.AppendAgentRun(cardID, run)
 
-		if a.idx != nil {
-			nextRun := ""
-			if af.Config.NextRunAt != nil {
-				nextRun = af.Config.NextRunAt.Format(time.RFC3339)
-			}
-			_ = a.idx.UpdateAgentIndex(cardID, af.Config.Enabled, string(finalStatus), nextRun)
-		}
-
 		// Emit completion event
 		eventName := "agent:completed"
 		eventData := map[string]any{"cardID": cardID, "status": run.Status, "summary": run.Summary}
@@ -123,6 +164,31 @@ func (a *App) executeAgent(ctx context.Context, cardID string) error {
 			eventData["error"] = run.Error
 		}
 		wailsRuntime.EventsEmit(a.ctx, eventName, eventData)
+
+		// Dispatch notifications based on agent config
+		shouldNotify := false
+		for _, trigger := range af.Config.NotifyOn {
+			if (trigger == "success" && run.Status == "success") ||
+				(trigger == "failure" && run.Status == "failure") {
+				shouldNotify = true
+				break
+			}
+		}
+		if shouldNotify && af.Config.NotifyChannel != "" {
+			cardTitle := ""
+			if c, err := a.repo.GetCard(cardID); err == nil {
+				cardTitle = c.Title
+			}
+			notifier := a.makeNotifier()
+			notifier.Send(notify.Request{
+				Title:     fmt.Sprintf("Agent %s: %s", run.Status, cardTitle),
+				Body:      run.Summary,
+				Source:    "agent",
+				CardID:    cardID,
+				CardTitle: cardTitle,
+				Channels:  notify.ParseChannels(af.Config.NotifyChannel),
+			})
+		}
 	}()
 
 	// 4. Load card
@@ -167,12 +233,12 @@ func (a *App) executeAgent(ctx context.Context, cardID string) error {
 
 	// 9. Run tool loop with timeout
 	timeout := 5 * time.Minute
-	agentCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
+	runCtx, runCancel := context.WithTimeout(ctx, timeout)
+	defer runCancel()
 
 	var allToolActions []model.ToolAction
 
-	resultCf, err := a.runChatLoop(agentCtx, provider, modelName, cf, chatLoopConfig{
+	resultCf, err := a.runChatLoop(runCtx, provider, modelName, cf, chatLoopConfig{
 		chatID:       "__agent__" + cardID,
 		systemPrompt: systemPrompt,
 		tools:        toolDefs,
@@ -188,8 +254,13 @@ func (a *App) executeAgent(ctx context.Context, cardID string) error {
 	})
 
 	if err != nil {
-		run.Status = "failure"
-		run.Error = err.Error()
+		if ctx.Err() != nil {
+			run.Status = "cancelled"
+			run.Error = "cancelled by user"
+		} else {
+			run.Status = "failure"
+			run.Error = err.Error()
+		}
 		return err
 	}
 
@@ -250,10 +321,16 @@ func (a *App) executeAgentToolCall(cardID string, card *model.Card, tc llm.ToolC
 	case "notify":
 		title, _ := tc.Arguments["title"].(string)
 		body, _ := tc.Arguments["body"].(string)
-		wailsRuntime.EventsEmit(a.ctx, "agent:notification", map[string]any{
-			"cardID": cardID,
-			"title":  title,
-			"body":   body,
+		notifier := a.makeNotifier()
+		// Always include in-app; add agent's configured channels
+		channels := notify.ParseChannels("in-app")
+		notifier.Send(notify.Request{
+			Title:     title,
+			Body:      body,
+			Source:    "agent",
+			CardID:    cardID,
+			CardTitle: card.Title,
+			Channels:  channels,
 		})
 		action.Result = "notification sent"
 		return "Notification sent to user.", action
@@ -425,6 +502,32 @@ func formatCardContent(card *model.Card) string {
 }
 
 // --- Wails-bound agent methods ---
+
+// CancelAgent cancels a running agent, or resets a stuck status.
+func (a *App) CancelAgent(cardID string) error {
+	if cancelFn, ok := a.agentCancels.Load(cardID); ok {
+		cancelFn.(context.CancelFunc)()
+		return nil
+	}
+	// No active goroutine — reset stuck status from a previous crash
+	if a.repo != nil {
+		af, err := a.repo.GetAgentConfig(cardID)
+		if err == nil && af.Config.Status == model.AgentStatusRunning {
+			af.Config.Status = model.AgentStatusIdle
+			_ = a.repo.SaveAgentConfig(cardID, af.Config)
+			if a.idx != nil {
+				nextRun := ""
+				if af.Config.NextRunAt != nil {
+					nextRun = af.Config.NextRunAt.Format(time.RFC3339)
+				}
+				_ = a.idx.UpdateAgentIndex(cardID, af.Config.Enabled, string(model.AgentStatusIdle), nextRun)
+			}
+			wailsRuntime.EventsEmit(a.ctx, "agent:completed", map[string]any{"cardID": cardID, "status": "cancelled"})
+			return nil
+		}
+	}
+	return nil
+}
 
 // TriggerAgent runs an agent immediately, bypassing the schedule.
 func (a *App) TriggerAgent(cardID string) error {

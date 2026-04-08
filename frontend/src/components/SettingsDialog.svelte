@@ -1,13 +1,13 @@
 <script lang="ts">
   import { X, Eye, EyeOff, Zap, Search } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
-  import { GetPreferences, SetPreferences, GetLLMConfig, SetLLMConfig, TestLLMConnection } from '../lib/api'
+  import { GetPreferences, SetPreferences, GetLLMConfig, SetLLMConfig, TestLLMConnection, GetNotifyConfig, SetNotifyConfig } from '../lib/api'
   import { theme, setTheme } from '../lib/theme.svelte'
   import { setLocale, availableLocales } from '../lib/i18n.svelte'
   import { nav, prefs as prefsStore } from '../lib/store.svelte'
   import { draggable } from '../lib/draggable'
   import { focusTrap } from '../lib/actions'
-  type TabId = 'general' | 'ai'
+  type TabId = 'general' | 'ai' | 'notifications'
 
   let { onClose, initialTab }: { onClose: () => void; initialTab?: TabId } = $props()
 
@@ -41,7 +41,20 @@
     ai_mode: 'edit',
     min_confidence: '',
   })
+  let notifCfg = $state({
+    system_enabled: false,
+    smtp_host: '',
+    smtp_port: 587,
+    smtp_username: '',
+    smtp_password: '',
+    smtp_from_addr: '',
+    smtp_to_addr: '',
+    smtp_tls: true,
+    webhook_url: '',
+    webhook_auth_header: '',
+  })
   let showKey = $state(false)
+  let showSmtpPassword = $state(false)
   let testing = $state(false)
   let testResult = $state<{ ok: boolean; message: string } | null>(null)
 
@@ -51,9 +64,10 @@
 
   async function loadAll() {
     try {
-      const [p, c] = await Promise.all([
+      const [p, c, nc] = await Promise.all([
         GetPreferences(),
         GetLLMConfig(),
+        GetNotifyConfig(),
       ])
       if (p) {
         prefs.reopen_last_repo = p.reopen_last_repo ?? false
@@ -77,6 +91,18 @@
         llm.ai_mode = c.ai_mode || 'edit'
         llm.min_confidence = c.min_confidence || ''
       }
+      if (nc) {
+        notifCfg.system_enabled = nc.system_enabled ?? false
+        notifCfg.smtp_host = nc.smtp_host || ''
+        notifCfg.smtp_port = nc.smtp_port || 587
+        notifCfg.smtp_username = nc.smtp_username || ''
+        notifCfg.smtp_password = nc.smtp_password || ''
+        notifCfg.smtp_from_addr = nc.smtp_from_addr || ''
+        notifCfg.smtp_to_addr = nc.smtp_to_addr || ''
+        notifCfg.smtp_tls = nc.smtp_tls ?? true
+        notifCfg.webhook_url = nc.webhook_url || ''
+        notifCfg.webhook_auth_header = nc.webhook_auth_header || ''
+      }
     } catch { /* use defaults */ }
     loaded = true
   }
@@ -86,6 +112,7 @@
       await Promise.all([
         SetPreferences(prefs),
         SetLLMConfig(llm),
+        SetNotifyConfig(notifCfg),
       ])
       setTheme(prefs.theme as 'dark' | 'light')
       setLocale(prefs.locale)
@@ -155,6 +182,10 @@
     { tab: 'ai', key: 'auto_pin', label: 'auto pin behavior' },
     { tab: 'ai', key: 'min_confidence', label: 'minimum confidence ai suggestion pin threshold' },
     { tab: 'ai', key: 'context', label: 'ai context additional' },
+    { tab: 'notifications', key: 'system_enabled', label: 'desktop system notifications' },
+    { tab: 'notifications', key: 'smtp_host', label: 'email smtp host server' },
+    { tab: 'notifications', key: 'smtp_to', label: 'email smtp recipient to address' },
+    { tab: 'notifications', key: 'webhook_url', label: 'webhook url post' },
   ]
 
   let matchingKeys = $derived.by(() => {
@@ -183,7 +214,7 @@
   // Auto-switch to first matching tab when searching
   $effect(() => {
     if (matchingTabs && !matchingTabs.has(activeTab)) {
-      const first = (['general', 'ai'] as TabId[]).find(t => matchingTabs!.has(t))
+      const first = (['general', 'ai', 'notifications'] as TabId[]).find(t => matchingTabs!.has(t))
       if (first) activeTab = first
     }
   })
@@ -191,6 +222,7 @@
   const tabs: { id: TabId; labelKey: string }[] = [
     { id: 'general', labelKey: 'prefs.tab_general' },
     { id: 'ai', labelKey: 'prefs.tab_ai' },
+    { id: 'notifications', labelKey: 'prefs.tab_notifications' },
   ]
 
   function handleOverlayClick(e: MouseEvent) {
@@ -442,6 +474,65 @@
           {/if}
         {/if}
 
+        {#if activeTab === 'notifications'}
+          <!-- System notifications -->
+          <div class="field-row">
+            <label class="field-label">{t('notifications.system_enabled')}</label>
+            <div class="field-value">
+              <label class="toggle"><input type="checkbox" bind:checked={notifCfg.system_enabled} /> {t('notifications.system_desc')}</label>
+            </div>
+          </div>
+
+          <!-- Email SMTP -->
+          <div class="field-section-label">{t('notifications.email_title')}</div>
+          <div class="field-row">
+            <label class="field-label">{t('notifications.smtp_host')}</label>
+            <div class="field-value"><input type="text" class="field-input" bind:value={notifCfg.smtp_host} placeholder="smtp.gmail.com" /></div>
+          </div>
+          <div class="field-row">
+            <label class="field-label">{t('notifications.smtp_port')}</label>
+            <div class="field-value"><input type="number" class="field-input field-input-short" bind:value={notifCfg.smtp_port} /></div>
+          </div>
+          <div class="field-row">
+            <label class="field-label">{t('notifications.smtp_username')}</label>
+            <div class="field-value"><input type="text" class="field-input" bind:value={notifCfg.smtp_username} /></div>
+          </div>
+          <div class="field-row">
+            <label class="field-label">{t('notifications.smtp_password')}</label>
+            <div class="field-value">
+              <div class="key-row">
+                <input type={showSmtpPassword ? 'text' : 'password'} class="field-input" bind:value={notifCfg.smtp_password} />
+                <button class="btn-icon" onclick={() => showSmtpPassword = !showSmtpPassword}>
+                  {#if showSmtpPassword}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="field-row">
+            <label class="field-label">{t('notifications.smtp_from')}</label>
+            <div class="field-value"><input type="email" class="field-input" bind:value={notifCfg.smtp_from_addr} placeholder="bruv@example.com" /></div>
+          </div>
+          <div class="field-row">
+            <label class="field-label">{t('notifications.smtp_to')}</label>
+            <div class="field-value"><input type="email" class="field-input" bind:value={notifCfg.smtp_to_addr} placeholder="you@example.com" /></div>
+          </div>
+          <div class="field-row">
+            <label class="field-label">{t('notifications.smtp_tls')}</label>
+            <div class="field-value"><input type="checkbox" bind:checked={notifCfg.smtp_tls} /></div>
+          </div>
+
+          <!-- Webhook -->
+          <div class="field-section-label">{t('notifications.webhook_title')}</div>
+          <div class="field-row">
+            <label class="field-label">{t('notifications.webhook_url')}</label>
+            <div class="field-value"><input type="url" class="field-input" bind:value={notifCfg.webhook_url} placeholder="https://example.com/webhook" /></div>
+          </div>
+          <div class="field-row">
+            <label class="field-label">{t('notifications.webhook_auth')}</label>
+            <div class="field-value"><input type="text" class="field-input" bind:value={notifCfg.webhook_auth_header} placeholder="Bearer token..." /></div>
+          </div>
+        {/if}
+
       </div>
 
       <div class="dialog-footer">
@@ -599,7 +690,23 @@
     color: var(--text-secondary);
   }
 
-  select, input[type="text"], input[type="password"], input[type="number"], .text-input, textarea {
+  .field-section-label {
+    grid-column: 1 / -1;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-top: 0.5rem;
+    padding-bottom: 0.25rem;
+    border-bottom: 1px solid var(--border-muted);
+  }
+
+  .field-input-short {
+    max-width: 100px;
+  }
+
+  select, input[type="text"], input[type="password"], input[type="number"], input[type="email"], input[type="url"], .text-input, textarea {
     padding: 0.45rem 0.6rem;
     border-radius: 6px;
     border: 1px solid var(--border);

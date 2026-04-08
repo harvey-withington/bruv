@@ -10,6 +10,7 @@ import (
 	"bruv/internal/schema"
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -37,8 +38,9 @@ type App struct {
 	// Set during SendChatMessage so logActivity can attribute edits to the correct actor.
 	llmActors sync.Map
 	// Agent scheduler
-	scheduler *agent.Scheduler
-	forceQuit bool
+	scheduler    *agent.Scheduler
+	agentCancels sync.Map // cardID → context.CancelFunc
+	forceQuit    bool
 }
 
 // NewApp creates a new App application struct
@@ -2303,6 +2305,63 @@ func (a *App) SetLLMConfig(c config.LLMConfig) error {
 	return config.SaveLLMConfig(c)
 }
 
+// ListAgentCardIDs returns IDs of all cards that have agents enabled.
+// Scans agent config files on disk rather than relying on the index,
+// to ensure accuracy even if the index is stale.
+func (a *App) ListAgentCardIDs() ([]string, error) {
+	if a.repo == nil {
+		return []string{}, nil
+	}
+	// Scan for .agent.json files in the cards directory
+	cardsDir := filepath.Join(a.repo.Root, "cards")
+	entries, err := os.ReadDir(cardsDir)
+	if err != nil {
+		return []string{}, nil
+	}
+	var ids []string
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".agent.json") {
+			continue
+		}
+		cardID := strings.TrimSuffix(name, ".agent.json")
+		af, err := a.repo.GetAgentConfig(cardID)
+		if err == nil && af.Config.Enabled {
+			ids = append(ids, cardID)
+		}
+	}
+	if ids == nil {
+		ids = []string{}
+	}
+	return ids, nil
+}
+
+// --- Notifications ---
+
+func (a *App) GetNotifyConfig() (config.NotifyConfig, error) {
+	return config.LoadNotifyConfig()
+}
+
+func (a *App) SetNotifyConfig(c config.NotifyConfig) error {
+	return config.SaveNotifyConfig(c)
+}
+
+func (a *App) GetNotifications() ([]config.Notification, error) {
+	return config.LoadNotifications()
+}
+
+func (a *App) MarkNotificationRead(id string) error {
+	return config.MarkNotificationRead(id)
+}
+
+func (a *App) MarkAllNotificationsRead() error {
+	return config.MarkAllNotificationsRead()
+}
+
+func (a *App) ClearAllNotifications() error {
+	return config.ClearAllNotifications()
+}
+
 // --- Agent ---
 
 func (a *App) GetAgentConfig(cardID string) (*model.AgentFile, error) {
@@ -2315,6 +2374,10 @@ func (a *App) GetAgentConfig(cardID string) (*model.AgentFile, error) {
 func (a *App) SaveAgentConfig(cardID string, cfg model.AgentConfig) error {
 	if a.repo == nil {
 		return fmt.Errorf("no repository open")
+	}
+	// Never accept 'running' status from the frontend — only the executor sets that
+	if cfg.Status == model.AgentStatusRunning {
+		cfg.Status = model.AgentStatusIdle
 	}
 	// Calculate NextRunAt when enabled with a schedule
 	if cfg.Enabled && cfg.Schedule != "" {

@@ -33,6 +33,20 @@ import {
   GetProfile, SetProfile,
   GetAuthInfo, GetLLMConfig, SetLLMConfig,
   // @ts-ignore — generated after `wails generate` with updated Go code
+  GetNotifyConfig,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  SetNotifyConfig,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  GetNotifications,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  MarkNotificationRead,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  MarkAllNotificationsRead,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  ClearAllNotifications,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  ListAgentCardIDs,
+  // @ts-ignore — generated after `wails generate` with updated Go code
   GetCategoryAcceptedTypes,
   // @ts-ignore — generated after `wails generate` with updated Go code
   GetAgentConfig,
@@ -42,6 +56,8 @@ import {
   GetAgentRuns,
   // @ts-ignore — generated after `wails generate` with updated Go code
   TriggerAgent,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  CancelAgent,
   // @ts-ignore — generated after `wails generate` with updated Go code
   PauseAllAgents,
   // @ts-ignore — generated after `wails generate` with updated Go code
@@ -192,14 +208,22 @@ export const wailsAdapter: BackendAdapter = {
   ListOrphanedCardIDs,
   ListCardIDsByTag,
 
+  ListAgentCardIDs: ListAgentCardIDs as unknown as BackendAdapter['ListAgentCardIDs'],
+  GetNotifyConfig: GetNotifyConfig as unknown as BackendAdapter['GetNotifyConfig'],
+  SetNotifyConfig,
+  GetNotifications: GetNotifications as unknown as BackendAdapter['GetNotifications'],
+  MarkNotificationRead,
+  MarkAllNotificationsRead,
+  ClearAllNotifications,
   GetCategoryAcceptedTypes,
   GetAgentConfig: GetAgentConfig as unknown as BackendAdapter['GetAgentConfig'],
-  SaveAgentConfig,
+  SaveAgentConfig: SaveAgentConfig as unknown as BackendAdapter['SaveAgentConfig'],
   GetAgentRuns: GetAgentRuns as unknown as BackendAdapter['GetAgentRuns'],
   TriggerAgent,
+  CancelAgent,
   PauseAllAgents,
   ResumeAllAgents,
-  GetAgentSchedulerStatus,
+  GetAgentSchedulerStatus: GetAgentSchedulerStatus as unknown as BackendAdapter['GetAgentSchedulerStatus'],
   ForceQuit,
 
   LoadChatHistory,

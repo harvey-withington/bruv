@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 )
@@ -132,7 +133,7 @@ func (s *Scheduler) TriggerNow(ctx context.Context, cardID string) error {
 
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Printf("agent scheduler: panic running card %s: %v\n", cardID, r)
+				log.Printf("agent scheduler: panic running card %s: %v\n", cardID, r)
 			}
 			<-s.sem // release
 			s.mu.Lock()
@@ -156,7 +157,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 
 	agents, err := s.queryFn()
 	if err != nil {
-		fmt.Printf("agent scheduler: query error: %v\n", err)
+		log.Printf("agent scheduler: query error: %v\n", err)
 		return
 	}
 
@@ -179,7 +180,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 
 			defer func() {
 				if r := recover(); r != nil {
-					fmt.Printf("agent scheduler: panic running card %s: %v\n", cardID, r)
+					log.Printf("agent scheduler: panic running card %s: %v\n", cardID, r)
 				}
 				<-s.sem // release
 				s.mu.Lock()

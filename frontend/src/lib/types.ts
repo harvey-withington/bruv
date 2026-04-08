@@ -166,6 +166,8 @@ export type AgentConfig = {
   status: AgentStatus
   notify_on: string[]
   notify_channel: string
+  llm_account_id: string
+  llm_model: string
   last_run_at: string | null
   next_run_at: string | null
   max_tokens_budget: number
@@ -213,6 +215,17 @@ export type NotifyConfig = {
   smtp_tls: boolean
   webhook_url: string
   webhook_auth_header: string
+}
+
+// --- LLM accounts ---
+export type LLMAccount = {
+  id: string
+  label: string
+  provider: string
+  model: string
+  api_key: string
+  base_url: string
+  is_default: boolean
 }
 
 // --- LLM: AI-specific configuration (grows independently) ---
@@ -409,6 +422,7 @@ export interface BackendAdapter {
   GetAgentRuns(cardID: string): Promise<AgentRun[]>
   TriggerAgent(cardID: string): Promise<void>
   CancelAgent(cardID: string): Promise<void>
+  ClearAgentRuns(cardID: string): Promise<void>
   PauseAllAgents(): Promise<void>
   ResumeAllAgents(): Promise<void>
   GetAgentSchedulerStatus(): Promise<{ active: boolean; paused: boolean; runningCount: number }>
@@ -422,9 +436,15 @@ export interface BackendAdapter {
   LoadProjectChatHistory(brandSlug: string, streamSlug: string, projectSlug: string): Promise<any>
   SendProjectChatMessage(brandSlug: string, streamSlug: string, projectSlug: string, userMessage: string): Promise<any>
 
+  // LLM accounts
+  GetLLMAccounts(): Promise<LLMAccount[]>
+  SaveLLMAccounts(accounts: LLMAccount[]): Promise<void>
+  TestLLMAccountConnection(accountID: string): Promise<string>
+
   // LLM utilities
   IsLLMConfigured(): Promise<boolean>
   TestLLMConnection(): Promise<string>
+  TestSystemNotification(): Promise<void>
 
   // Pin suggestions (from AI)
   AcceptPinSuggestion(cardID: string, messageID: string): Promise<void>

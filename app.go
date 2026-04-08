@@ -6,10 +6,12 @@ import (
 	"bruv/internal/index"
 	"bruv/internal/llm"
 	"bruv/internal/model"
+	"bruv/internal/notify"
 	"bruv/internal/repo"
 	"bruv/internal/schema"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -56,9 +58,12 @@ func (a *App) startup(ctx context.Context) {
 	// Load the card type schema registry
 	reg, err := schema.NewRegistry()
 	if err != nil {
-		fmt.Printf("warning: failed to load card type schemas: %v\n", err)
+		log.Printf("warning: failed to load card type schemas: %v", err)
 	}
 	a.registry = reg
+
+	// Migrate legacy single-provider config to multi-account
+	_ = config.MigrateLegacyLLMConfig()
 }
 
 // domReady is called after the frontend DOM is ready.
@@ -75,6 +80,9 @@ func (a *App) domReady(ctx context.Context) {
 	}
 	wailsRuntime.WindowShow(ctx)
 	a.startBoundsPoller()
+
+	// System tray icon (after window is fully ready)
+	a.setupTray()
 }
 
 // startBoundsPoller starts a background goroutine that saves the window
@@ -174,7 +182,7 @@ func (a *App) InitRepository(basePath, name string) (string, error) {
 
 	// Open the SQLite index and do an initial (empty) rebuild
 	if err := a.openIndex(r.Root); err != nil {
-		fmt.Printf("warning: failed to open index: %v\n", err)
+		log.Printf("warning: failed to open index: %v\n", err)
 	}
 
 	// Add to recent repos
@@ -200,17 +208,17 @@ func (a *App) OpenRepository(path string) error {
 
 	// Revalidate repo data (remove stale pins, orphaned files, etc.)
 	if repairStats, err := r.Revalidate(); err != nil {
-		fmt.Printf("warning: revalidation failed: %v\n", err)
+		log.Printf("warning: revalidation failed: %v\n", err)
 	} else {
-		fmt.Printf("revalidate: %s\n", repairStats)
+		log.Printf("revalidate: %s\n", repairStats)
 	}
 
 	// Open the SQLite index and do an incremental refresh
 	if err := a.openIndex(path); err != nil {
-		fmt.Printf("warning: failed to open index: %v\n", err)
+		log.Printf("warning: failed to open index: %v\n", err)
 	} else if a.idx != nil {
 		if _, err := a.idx.IncrementalRefresh(path); err != nil {
-			fmt.Printf("warning: index refresh failed: %v\n", err)
+			log.Printf("warning: index refresh failed: %v\n", err)
 		}
 	}
 
@@ -1639,9 +1647,10 @@ type CardTypeInfo struct {
 
 // builtinTypes defines the built-in card types in display order.
 var builtinTypes = []CardTypeInfo{
-	{ID: "brainstorm", Label: "Brainstorm", Color: "#f59e0b", Builtin: true},
-	{ID: "task", Label: "Task", Color: "#22c55e", Builtin: true},
-	{ID: "reference", Label: "Reference", Color: "#06b6d4", Builtin: true},
+	{ID: "brainstorm", Label: "Brainstorm", Color: "#84cc16", Builtin: true},  // lime green
+	{ID: "task", Label: "Task", Color: "#38bdf8", Builtin: true},              // light blue
+	{ID: "reference", Label: "Reference", Color: "#fb923c", Builtin: true},    // orange
+	{ID: "agent", Label: "Agent", Color: "#ef4444", Builtin: true},            // red
 }
 
 // seedTypes are pre-installed as user types on first run so they can be
@@ -1719,11 +1728,48 @@ func (a *App) ensureStarterTemplates(store *config.UserTypeStore) bool {
 	return true
 }
 
+// ensureMissingBuiltinTemplates creates templates for any built-in types
+// that were added after the initial StarterTemplatesSeeded run.
+func (a *App) ensureMissingBuiltinTemplates(store *config.UserTypeStore) bool {
+	if a.registry == nil {
+		return false
+	}
+	if store.BuiltinOverrides == nil {
+		store.BuiltinOverrides = make(map[string]config.BuiltinOverride)
+	}
+	changed := false
+	for _, bt := range builtinTypes {
+		ov := store.BuiltinOverrides[bt.ID]
+		if ov.TemplateID != "" {
+			continue // already has a template
+		}
+		blocks := a.registry.SchemaToBlocks(bt.ID)
+		if len(blocks) == 0 {
+			continue
+		}
+		name := bt.Label
+		if s := a.registry.Get(bt.ID); s != nil && s.Name != "" {
+			name = s.Name
+		}
+		tmpl := config.CardTemplate{
+			ID:     uuid.New().String(),
+			Name:   name,
+			Blocks: blocks,
+		}
+		store.Templates = append(store.Templates, tmpl)
+		ov.TemplateID = tmpl.ID
+		store.BuiltinOverrides[bt.ID] = ov
+		changed = true
+	}
+	return changed
+}
+
 // ListCardTypes returns all card types (built-in first, then user-defined).
 func (a *App) ListCardTypes() []CardTypeInfo {
 	store, _ := config.LoadUserTypeStore()
 	dirty := a.ensureSeeded(&store)
 	dirty = a.ensureStarterTemplates(&store) || dirty
+	dirty = a.ensureMissingBuiltinTemplates(&store) || dirty
 	if dirty {
 		_ = config.SaveUserTypeStore(store)
 	}
@@ -2412,6 +2458,14 @@ func (a *App) GetAgentRuns(cardID string) ([]model.AgentRun, error) {
 	return a.repo.GetAgentRuns(cardID)
 }
 
+// ClearAgentRuns removes all run history for a card's agent.
+func (a *App) ClearAgentRuns(cardID string) error {
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
+	return a.repo.ClearAgentRuns(cardID)
+}
+
 // --- Chat ---
 
 func (a *App) LoadChatHistory(cardID string) (*model.ChatFile, error) {
@@ -2958,8 +3012,54 @@ func (a *App) saveUserMessage(chatID, userMessage string) (*model.ChatFile, erro
 // loadLLMProvider loads config and creates a provider. Returns (cfg, provider, err).
 // If LLM is not configured, provider is nil and err is nil.
 func (a *App) loadLLMProvider() (config.LLMConfig, llm.Provider, error) {
+	return a.loadLLMProviderForAccount("", "")
+}
+
+// loadLLMProviderForAccount resolves the LLM provider from:
+// 1. Specific account (if accountID is set)
+// 2. Default account from llm_accounts.json
+// 3. Legacy fields in llm_config.json (backward compat)
+func (a *App) loadLLMProviderForAccount(accountID, modelOverride string) (config.LLMConfig, llm.Provider, error) {
 	cfg, err := config.LoadLLMConfig()
-	if err != nil || cfg.Provider == "" {
+	if err != nil {
+		return cfg, nil, nil
+	}
+
+	// Try accounts-based resolution
+	accounts, _ := config.LoadLLMAccounts()
+	var acct *config.LLMAccount
+
+	if accountID != "" {
+		acct = config.FindAccountByID(accounts, accountID)
+	}
+	if acct == nil && cfg.DefaultAccountID != "" {
+		acct = config.FindAccountByID(accounts, cfg.DefaultAccountID)
+	}
+	if acct == nil {
+		acct = config.GetDefaultAccount(accounts)
+	}
+
+	if acct != nil {
+		// Use account credentials
+		provider, err := llm.NewProvider(acct.Provider, acct.APIKey, acct.BaseURL)
+		if err != nil {
+			return cfg, nil, nil
+		}
+		// Determine model: override > account default > provider default
+		model := modelOverride
+		if model == "" {
+			model = acct.Model
+		}
+		if model == "" {
+			model = defaultModelForProvider(acct.Provider)
+		}
+		cfg.Model = model
+		cfg.Provider = acct.Provider
+		return cfg, provider, nil
+	}
+
+	// Legacy fallback: use fields directly from llm_config.json
+	if cfg.Provider == "" {
 		return cfg, nil, nil
 	}
 	provider, err := llm.NewProvider(cfg.Provider, cfg.APIKey, cfg.BaseURL)
@@ -2967,6 +3067,47 @@ func (a *App) loadLLMProvider() (config.LLMConfig, llm.Provider, error) {
 		return cfg, nil, nil
 	}
 	return cfg, provider, nil
+}
+
+// GetLLMAccounts returns all configured AI accounts.
+func (a *App) GetLLMAccounts() ([]config.LLMAccount, error) {
+	return config.LoadLLMAccounts()
+}
+
+// SaveLLMAccounts persists the AI accounts list.
+func (a *App) SaveLLMAccounts(accounts []config.LLMAccount) error {
+	return config.SaveLLMAccounts(accounts)
+}
+
+// TestLLMAccountConnection tests connectivity for a specific account by ID.
+func (a *App) TestLLMAccountConnection(accountID string) (string, error) {
+	accounts, err := config.LoadLLMAccounts()
+	if err != nil {
+		return "", err
+	}
+	acct := config.FindAccountByID(accounts, accountID)
+	if acct == nil {
+		return "", fmt.Errorf("account not found")
+	}
+	provider, err := llm.NewProvider(acct.Provider, acct.APIKey, acct.BaseURL)
+	if err != nil {
+		return "", err
+	}
+	modelName := acct.Model
+	if modelName == "" {
+		modelName = defaultModelForProvider(acct.Provider)
+	}
+	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+	defer cancel()
+	resp, err := provider.ChatCompletion(ctx, llm.ChatRequest{
+		SystemPrompt: "You are a test. Reply with exactly: OK",
+		Messages:     []llm.Message{{Role: "user", Content: "Hello"}},
+		Model:        modelName,
+	})
+	if err != nil {
+		return "", err
+	}
+	return resp.Model, nil
 }
 
 // listCardTypeIDs returns all registered card type IDs.
@@ -3370,6 +3511,73 @@ func (a *App) executeToolCall(cardID string, card *model.Card, tc llm.ToolCall, 
 		}
 		action := &model.ToolAction{Tool: "suggest_pin", Input: tc.Arguments, Result: "Suggested pin to " + breadcrumb}
 		return "Pin suggestion created for " + breadcrumb, action, ps
+
+	case "configure_agent":
+		enabled, _ := tc.Arguments["enabled"].(bool)
+		goal, _ := tc.Arguments["goal"].(string)
+		schedule, _ := tc.Arguments["schedule"].(string)
+
+		var allowedTools []string
+		if tools, ok := tc.Arguments["allowed_tools"].([]any); ok {
+			for _, t := range tools {
+				if s, ok := t.(string); ok {
+					allowedTools = append(allowedTools, s)
+				}
+			}
+		}
+
+		var notifyOn []string
+		if triggers, ok := tc.Arguments["notify_on"].([]any); ok {
+			for _, t := range triggers {
+				if s, ok := t.(string); ok {
+					notifyOn = append(notifyOn, s)
+				}
+			}
+		}
+		notifyChannel, _ := tc.Arguments["notify_channel"].(string)
+
+		af, err := a.repo.GetAgentConfig(cardID)
+		if err != nil {
+			return "error: " + err.Error(), nil, nil
+		}
+
+		af.Config.Enabled = enabled
+		if goal != "" {
+			af.Config.Goal = goal
+		}
+		if schedule != "" {
+			af.Config.Schedule = schedule
+		}
+		if len(allowedTools) > 0 {
+			af.Config.AllowedTools = allowedTools
+		}
+		if len(notifyOn) > 0 {
+			af.Config.NotifyOn = notifyOn
+		}
+		if notifyChannel != "" {
+			af.Config.NotifyChannel = notifyChannel
+		}
+
+		// Set status and calculate next run
+		if enabled {
+			af.Config.Status = model.AgentStatusIdle
+			if af.Config.Schedule != "" {
+				now := time.Now()
+				if next, err := agent.NextRunTime(af.Config.Schedule, now); err == nil {
+					af.Config.NextRunAt = &next
+				}
+			}
+		} else {
+			af.Config.Status = model.AgentStatusDisabled
+		}
+
+		if err := a.repo.SaveAgentConfig(cardID, af.Config); err != nil {
+			return "error: " + err.Error(), nil, nil
+		}
+
+		summary := fmt.Sprintf("Agent %s — schedule: %s, tools: %s", map[bool]string{true: "enabled", false: "disabled"}[enabled], schedule, strings.Join(allowedTools, ", "))
+		action := &model.ToolAction{Tool: "configure_agent", Input: tc.Arguments, Result: summary}
+		return summary, action, nil
 
 	default:
 		return "error: unknown tool " + tc.Name, nil, nil
@@ -3800,6 +4008,14 @@ func (a *App) stageToolCall(tc llm.ToolCall, allCats []CategoryPath) (string, []
 		}
 		return "Pin suggestion staged for " + breadcrumb, one(tc.Name, tc.Arguments, "Pin to "+breadcrumb, detail)
 
+	case "configure_agent":
+		enabled, _ := tc.Arguments["enabled"].(bool)
+		goal, _ := tc.Arguments["goal"].(string)
+		schedule, _ := tc.Arguments["schedule"].(string)
+		label := "Configure agent"
+		detail := fmt.Sprintf("Enabled: %v, Schedule: %s\nGoal: %s", enabled, schedule, goal)
+		return "Agent configuration staged", one(tc.Name, tc.Arguments, label, detail)
+
 	default:
 		return "Staged unknown tool " + tc.Name, nil
 	}
@@ -4057,6 +4273,11 @@ func (a *App) TestLLMConnection() (string, error) {
 	return resp.Model, nil
 }
 
+// TestSystemNotification sends a test OS notification to verify desktop notifications work.
+func (a *App) TestSystemNotification() error {
+	return notify.TestSystemNotification()
+}
+
 func defaultModelForProvider(provider string) string {
 	switch provider {
 	case "openai":
@@ -4088,7 +4309,8 @@ TOOLS:
 - set_due_date — YYYY-MM-DD format. Resolve relative dates from today (%s).
 - suggest_pin — ALWAYS pin the card. STRONGLY prefer an existing category_id from the list below. The hierarchy is: Brand > Stream > Project > Category (e.g. "Big Ideas / YouTube Channels / Channel Brainstorm / Ideas"). Do NOT use the card title as a brand name. Only create new names if NOTHING existing fits.
 - add_tags — Add relevant tags. Prefer existing project tags listed below, but you may create new short, descriptive tags if none fit.
-- add_field — Add a NEW field to the card (e.g. a checklist, extra notes, a checkbox). Use when the user asks for a field that does not already exist. You can provide an initial value, or use set_fields afterward to populate it.`, time.Now().Format("2006-01-02 (Monday)"), time.Now().Format("2006-01-02")))
+- add_field — Add a NEW field to the card (e.g. a checklist, extra notes, a checkbox). Use when the user asks for a field that does not already exist. You can provide an initial value, or use set_fields afterward to populate it.
+- configure_agent — Set up or modify the card's autonomous agent. Provide enabled, goal, schedule, and allowed_tools. The agent runs in the background and can fetch web pages, search, notify the user, and update this card. Use this when the user asks to "set up an agent", "run this on a schedule", "check daily", etc.`, time.Now().Format("2006-01-02 (Monday)"), time.Now().Format("2006-01-02")))
 
 	if cfg.Context != "" {
 		parts = append(parts, "User context:\n"+cfg.Context)
@@ -4162,6 +4384,24 @@ TOOLS:
 		cardParts = append(cardParts, fmt.Sprintf(">>> EMPTY FIELDS that need content: %s — use set_fields to fill them!", strings.Join(emptyFields, ", ")))
 	}
 	parts = append(parts, strings.Join(cardParts, "\n"))
+
+	// Agent context — show current agent config if it exists
+	if a.repo != nil {
+		af, err := a.repo.GetAgentConfig(card.ID)
+		if err == nil && af.Config.Enabled {
+			agentParts := []string{"Agent: ENABLED"}
+			agentParts = append(agentParts, fmt.Sprintf("  Goal: %s", af.Config.Goal))
+			agentParts = append(agentParts, fmt.Sprintf("  Schedule: %s", af.Config.Schedule))
+			agentParts = append(agentParts, fmt.Sprintf("  Status: %s", af.Config.Status))
+			agentParts = append(agentParts, fmt.Sprintf("  Tools: %s", strings.Join(af.Config.AllowedTools, ", ")))
+			if af.Config.LastRunAt != nil {
+				agentParts = append(agentParts, fmt.Sprintf("  Last run: %s", af.Config.LastRunAt.Format("2006-01-02 15:04")))
+			}
+			parts = append(parts, strings.Join(agentParts, "\n"))
+		} else {
+			parts = append(parts, "Agent: not configured. Use configure_agent to set up an autonomous agent on this card.")
+		}
+	}
 
 	// Hierarchy context based on ContextLevel
 	level := card.ContextLevel

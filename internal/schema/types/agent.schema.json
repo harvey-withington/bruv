@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "title": "Agent",
+  "description": "An agentic card that runs autonomous tasks on a schedule",
+  "properties": {
+    "description": {
+      "type": "string",
+      "description": "What this agent does"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["idle", "running", "success", "failed", "disabled"],
+      "description": "Current agent status"
+    },
+    "last_run": {
+      "type": "string",
+      "description": "Summary of the most recent run"
+    },
+    "last_run_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the agent last ran"
+    },
+    "findings": {
+      "type": "string",
+      "description": "Accumulated findings or results from agent runs"
+    }
+  },
+  "required": []
+}

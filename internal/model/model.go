@@ -234,6 +234,8 @@ type AgentConfig struct {
 	Status        AgentStatus `json:"status"`
 	NotifyOn      []string    `json:"notify_on,omitempty"`
 	NotifyChannel string      `json:"notify_channel,omitempty"`
+	LLMAccountID  string      `json:"llm_account_id,omitempty"` // empty = use default account
+	LLMModel      string      `json:"llm_model,omitempty"`      // empty = use account default model
 	LastRunAt       *time.Time  `json:"last_run_at,omitempty"`
 	NextRunAt       *time.Time  `json:"next_run_at,omitempty"`
 	MaxTokensBudget int         `json:"max_tokens_budget,omitempty"` // 0 = default (50000)

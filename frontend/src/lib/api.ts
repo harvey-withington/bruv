@@ -2,7 +2,7 @@
 
 import { getBackend } from './adapters'
 
-export type { UserProfile, AuthInfo, LLMConfig, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard, AgentConfig, AgentRun, AgentFile, AgentStatus, AppNotification, NotifyConfig } from './types'
+export type { UserProfile, AuthInfo, LLMConfig, LLMAccount, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard, AgentConfig, AgentRun, AgentFile, AgentStatus, AppNotification, NotifyConfig } from './types'
 
 // Capabilities
 export const getCapabilities = () => getBackend().getCapabilities()
@@ -169,6 +169,7 @@ export const SaveAgentConfig = (...args: Parameters<ReturnType<typeof getBackend
 export const GetAgentRuns = (...args: Parameters<ReturnType<typeof getBackend>['GetAgentRuns']>) => getBackend().GetAgentRuns(...args)
 export const TriggerAgent = (...args: Parameters<ReturnType<typeof getBackend>['TriggerAgent']>) => getBackend().TriggerAgent(...args)
 export const CancelAgent = (...args: Parameters<ReturnType<typeof getBackend>['CancelAgent']>) => getBackend().CancelAgent(...args)
+export const ClearAgentRuns = (...args: Parameters<ReturnType<typeof getBackend>['ClearAgentRuns']>) => getBackend().ClearAgentRuns(...args)
 export const PauseAllAgents = () => getBackend().PauseAllAgents()
 export const ResumeAllAgents = () => getBackend().ResumeAllAgents()
 export const GetAgentSchedulerStatus = () => getBackend().GetAgentSchedulerStatus()
@@ -182,9 +183,15 @@ export const SendChatMessage = (...args: Parameters<ReturnType<typeof getBackend
 export const LoadProjectChatHistory = (...args: Parameters<ReturnType<typeof getBackend>['LoadProjectChatHistory']>) => getBackend().LoadProjectChatHistory(...args)
 export const SendProjectChatMessage = (...args: Parameters<ReturnType<typeof getBackend>['SendProjectChatMessage']>) => getBackend().SendProjectChatMessage(...args)
 
+// LLM accounts
+export const GetLLMAccounts = () => getBackend().GetLLMAccounts()
+export const SaveLLMAccounts = (...args: Parameters<ReturnType<typeof getBackend>['SaveLLMAccounts']>) => getBackend().SaveLLMAccounts(...args)
+export const TestLLMAccountConnection = (...args: Parameters<ReturnType<typeof getBackend>['TestLLMAccountConnection']>) => getBackend().TestLLMAccountConnection(...args)
+
 // LLM utilities
 export const IsLLMConfigured = () => getBackend().IsLLMConfigured()
 export const TestLLMConnection = () => getBackend().TestLLMConnection()
+export const TestSystemNotification = () => getBackend().TestSystemNotification()
 
 // Pin suggestions (from AI)
 export const AcceptPinSuggestion = (...args: Parameters<ReturnType<typeof getBackend>['AcceptPinSuggestion']>) => getBackend().AcceptPinSuggestion(...args)

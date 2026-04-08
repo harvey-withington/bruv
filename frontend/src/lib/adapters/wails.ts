@@ -58,6 +58,8 @@ import {
   TriggerAgent,
   // @ts-ignore — generated after `wails generate` with updated Go code
   CancelAgent,
+  // @ts-ignore — generated after `wails generate`
+  ClearAgentRuns,
   // @ts-ignore — generated after `wails generate` with updated Go code
   PauseAllAgents,
   // @ts-ignore — generated after `wails generate` with updated Go code
@@ -71,6 +73,14 @@ import {
   LoadProjectChatHistory,
   // @ts-ignore — generated after `wails generate` with updated Go code
   SendProjectChatMessage,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  GetLLMAccounts,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  SaveLLMAccounts,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  TestLLMAccountConnection,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  TestSystemNotification,
   IsLLMConfigured, TestLLMConnection,
   AcceptPinSuggestion, RejectPinSuggestion,
   AcceptPendingEdit, RejectPendingEdit, AcceptAllPendingEdits, RejectAllPendingEdits, ApplyPendingEdits,
@@ -221,6 +231,7 @@ export const wailsAdapter: BackendAdapter = {
   GetAgentRuns: GetAgentRuns as unknown as BackendAdapter['GetAgentRuns'],
   TriggerAgent,
   CancelAgent,
+  ClearAgentRuns,
   PauseAllAgents,
   ResumeAllAgents,
   GetAgentSchedulerStatus: GetAgentSchedulerStatus as unknown as BackendAdapter['GetAgentSchedulerStatus'],
@@ -230,6 +241,10 @@ export const wailsAdapter: BackendAdapter = {
   SendChatMessage,
   LoadProjectChatHistory: LoadProjectChatHistory as unknown as BackendAdapter['LoadProjectChatHistory'],
   SendProjectChatMessage: SendProjectChatMessage as unknown as BackendAdapter['SendProjectChatMessage'],
+  GetLLMAccounts: GetLLMAccounts as unknown as BackendAdapter['GetLLMAccounts'],
+  SaveLLMAccounts,
+  TestLLMAccountConnection,
+  TestSystemNotification,
   IsLLMConfigured,
   TestLLMConnection,
   AcceptPinSuggestion,

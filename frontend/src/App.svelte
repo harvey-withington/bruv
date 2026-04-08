@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { nav, prefs as prefsStore, loadCardTypes, loadGlobalTagColors, setupAgentEventListeners } from './lib/store.svelte'
+  import { nav, board, prefs as prefsStore, loadCardTypes, loadGlobalTagColors, setupAgentEventListeners } from './lib/store.svelte'
   import { onMount, onDestroy } from 'svelte'
   import { loadTheme } from './lib/theme.svelte'
   import { loadNotifications, handleNewNotification } from './lib/notifications.svelte'
@@ -12,6 +12,7 @@
   import ChatSection from './components/ChatSection.svelte'
   import CardDetail from './components/CardDetail.svelte'
   import SettingsDialog from './components/SettingsDialog.svelte'
+  import ProjectSettingsDialog from './components/ProjectSettingsDialog.svelte'
   import UserProfile from './components/UserProfile.svelte'
   import TagEditor from './components/TagEditor.svelte'
   import Toast from './components/Toast.svelte'
@@ -51,12 +52,26 @@
   let searchCardId = $state<string | null>(null)
   let resizing = $state(false)
   let showSettings = $state(false)
+  let showProjectSettings = $state(false)
   let showProfile = $state(false)
   let showTagEditor = $state(false)
   let showProjectChat = $state(false)
 
   function handleSearchSelectCard(cardId: string) {
     searchCardId = cardId
+  }
+
+  // When opening a card via navigation, resolve its category from the loaded board
+  let searchCategoryId = $state<string | null>(null)
+  let searchCategoryName = $state<string | null>(null)
+
+  function findCardInBoard(cardId: string): { id: string; name: string } | null {
+    for (const cat of board.categories) {
+      if (cat.cards?.some((c: { id: string }) => c.id === cardId)) {
+        return { id: cat.id, name: cat.name }
+      }
+    }
+    return null
   }
 
   // Listen for internal bruv: link navigation events
@@ -66,6 +81,8 @@
       if (detail.type === 'card') {
         // Close ALL open card dialogs (both search-opened and board-opened)
         searchCardId = null
+        searchCategoryId = null
+        searchCategoryName = null
         document.dispatchEvent(new CustomEvent('bruv:close-card-detail'))
         try {
           const loc = await GetCardLocation(detail.id)
@@ -76,6 +93,14 @@
             })
           }
         } catch { /* card may be unpinned — just open it without switching */ }
+
+        // Resolve category context from the loaded board
+        const found = findCardInBoard(detail.id)
+        if (found) {
+          searchCategoryId = found.id
+          searchCategoryName = found.name
+        }
+
         searchCardId = detail.id
       } else if (detail.type === 'project') {
         searchCardId = null
@@ -153,7 +178,7 @@
       <TopBar
         onSelectCard={handleSearchSelectCard}
         onOpenTagEditor={() => showTagEditor = true}
-        onOpenProjectSettings={() => { /* TODO: open project settings */ }}
+        onOpenProjectSettings={() => showProjectSettings = true}
         onToggleProjectChat={() => showProjectChat = !showProjectChat}
         projectChatActive={showProjectChat}
       />
@@ -176,12 +201,18 @@
   {#if searchCardId}
     <CardDetail
       cardId={searchCardId}
-      onClose={() => searchCardId = null}
+      currentCategoryId={searchCategoryId}
+      currentCategoryName={searchCategoryName}
+      onClose={() => { searchCardId = null; searchCategoryId = null; searchCategoryName = null }}
     />
   {/if}
 
   {#if showSettings}
     <SettingsDialog onClose={() => showSettings = false} />
+  {/if}
+
+  {#if showProjectSettings}
+    <ProjectSettingsDialog onClose={() => showProjectSettings = false} />
   {/if}
 
   {#if showProfile}

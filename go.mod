@@ -5,6 +5,7 @@ go 1.24.0
 toolchain go1.24.1
 
 require (
+	github.com/energye/systray v1.0.3
 	github.com/gen2brain/beeep v0.11.2
 	github.com/google/uuid v1.6.0
 	github.com/robfig/cron/v3 v3.0.1

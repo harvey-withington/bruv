@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { GetAgentConfig, SaveAgentConfig, TriggerAgent, CancelAgent, IsLLMConfigured, ListAgentCardIDs } from '../lib/api'
+  import { GetAgentConfig, SaveAgentConfig, TriggerAgent, CancelAgent, ClearAgentRuns, IsLLMConfigured, ListAgentCardIDs, GetLLMAccounts } from '../lib/api'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
   import { board } from '../lib/store.svelte'
-  import type { AgentConfig, AgentRun } from '../lib/types'
-  import { Bot, Clock, ChevronDown, ChevronRight, CircleCheck, CircleX, TriangleAlert, Play, Square } from 'lucide-svelte'
+  import type { AgentConfig, AgentRun, LLMAccount } from '../lib/types'
+  import { Bot, Clock, CircleCheck, CircleX, TriangleAlert, Play, Square, Trash2 } from 'lucide-svelte'
+  import LLMAccountSelect from './LLMAccountSelect.svelte'
   import { onMount, onDestroy } from 'svelte'
   import { EventsOn } from '../../wailsjs/runtime/runtime'
 
@@ -26,7 +27,10 @@
   let allowedTools = $state<string[]>([])
   let status = $state<'idle' | 'running' | 'failed' | 'disabled'>('disabled')
   let notifyOn = $state<string[]>([])
-  let notifyChannel = $state('')
+  let notifyChannels = $state<string[]>([])
+  let llmAccountId = $state('')
+  let llmModel = $state('')
+  let llmAccounts = $state<LLMAccount[]>([])
 
   const AVAILABLE_TOOLS = [
     { id: 'web_fetch', labelKey: 'agent.tool_web_fetch', descKey: 'agent.tool_web_fetch_desc' },
@@ -48,7 +52,8 @@
   async function loadConfig() {
     loading = true
     try {
-      const [af, isConfigured] = await Promise.all([GetAgentConfig(cardId), IsLLMConfigured()])
+      const [af, isConfigured, accounts] = await Promise.all([GetAgentConfig(cardId), IsLLMConfigured(), GetLLMAccounts()])
+      llmAccounts = accounts || []
       llmConfigured = isConfigured
       enabled = af.config.enabled
       goal = af.config.goal
@@ -56,7 +61,11 @@
       allowedTools = [...(af.config.allowed_tools || [])]
       status = af.config.status || 'disabled'
       notifyOn = [...(af.config.notify_on || [])]
-      notifyChannel = af.config.notify_channel || ''
+      // Parse comma-separated channels, filtering out "in-app" (it's always implicit)
+      const rawChannels = (af.config.notify_channel || '').split(',').map((s: string) => s.trim()).filter((s: string) => s && s !== 'in-app')
+      notifyChannels = rawChannels
+      llmAccountId = af.config.llm_account_id || ''
+      llmModel = af.config.llm_model || ''
       runs = af.runs || []
       nextRunAt = af.config.next_run_at
       dirty = false
@@ -100,7 +109,9 @@
         allowed_tools: allowedTools,
         status: enabled ? (status === 'disabled' ? 'idle' : status) : 'disabled',
         notify_on: notifyOn,
-        notify_channel: notifyChannel,
+        notify_channel: notifyChannels.length > 0 ? notifyChannels.join(',') : '',
+        llm_account_id: llmAccountId,
+        llm_model: llmModel,
         last_run_at: null,
         next_run_at: null,
         max_tokens_budget: 0,
@@ -132,6 +143,15 @@
     dirty = true
   }
 
+  function toggleNotifyChannel(ch: string) {
+    if (notifyChannels.includes(ch)) {
+      notifyChannels = notifyChannels.filter(c => c !== ch)
+    } else {
+      notifyChannels = [...notifyChannels, ch]
+    }
+    dirty = true
+  }
+
   function toggleNotifyOn(value: string) {
     if (notifyOn.includes(value)) {
       notifyOn = notifyOn.filter(n => n !== value)
@@ -139,6 +159,17 @@
       notifyOn = [...notifyOn, value]
     }
     dirty = true
+  }
+
+  async function clearRuns() {
+    try {
+      await ClearAgentRuns(cardId)
+      runs = []
+      expandedRun = null
+      showToast(t('agent.runs_cleared'), 'success')
+    } catch {
+      showToast(t('error.delete_failed'), 'error')
+    }
   }
 
   function markDirty() { dirty = true }
@@ -160,6 +191,19 @@
       case 'cancelled': return Square
       default: return Clock
     }
+  }
+
+  function formatRunTime(iso: string): string {
+    const d = new Date(iso)
+    const diff = Date.now() - d.getTime()
+    const mins = Math.floor(diff / 60000)
+    if (mins < 1) return 'just now'
+    if (mins < 60) return `${mins}m ago`
+    const hours = Math.floor(mins / 60)
+    if (hours < 24) return `${hours}h ago`
+    const days = Math.floor(hours / 24)
+    if (days < 7) return `${days}d ago`
+    return d.toLocaleDateString()
   }
 
   function formatNextRun(iso: string | null): string {
@@ -262,6 +306,19 @@
         ></textarea>
       </div>
 
+      <!-- AI Model override -->
+      {#if llmAccounts.length > 0}
+        <div class="config-card">
+          <div class="config-label">{t('agent.llm_account')}</div>
+          <LLMAccountSelect
+            accounts={llmAccounts}
+            bind:selectedAccountId={llmAccountId}
+            bind:selectedModel={llmModel}
+            onchange={() => markDirty()}
+          />
+        </div>
+      {/if}
+
       <!-- Schedule + Notifications side by side -->
       <div class="config-row">
         <div class="config-card config-card-flex">
@@ -288,13 +345,11 @@
           <div class="config-label">{t('agent.notifications')}</div>
           <div class="notify-row">
             <span class="notify-label">{t('agent.notify_channel')}</span>
-            <select class="agent-select" bind:value={notifyChannel} onchange={markDirty}>
-              <option value="">&mdash;</option>
-              <option value="in-app">{t('agent.channel_inapp')}</option>
-              <option value="system">{t('agent.channel_system')}</option>
-              <option value="email">{t('agent.channel_email')}</option>
-              <option value="webhook">{t('agent.channel_webhook')}</option>
-            </select>
+            <div class="notify-checks">
+              <label><input type="checkbox" checked={notifyChannels.includes('system')} onchange={() => toggleNotifyChannel('system')} /> {t('agent.channel_system')}</label>
+              <label><input type="checkbox" checked={notifyChannels.includes('email')} onchange={() => toggleNotifyChannel('email')} /> {t('agent.channel_email')}</label>
+              <label><input type="checkbox" checked={notifyChannels.includes('webhook')} onchange={() => toggleNotifyChannel('webhook')} /> {t('agent.channel_webhook')}</label>
+            </div>
           </div>
           <div class="notify-row">
             <span class="notify-label">{t('agent.notify_on')}</span>
@@ -340,6 +395,9 @@
             <span class="header-stats">
               <span class="stat-success">{runs.filter(r => r.status === 'success').length}</span> / <span class="stat-fail">{runs.filter(r => r.status === 'failure' || r.status === 'cancelled').length}</span>
             </span>
+            <button class="clear-runs-btn" onclick={clearRuns} title={t('agent.clear_runs')}>
+              <Trash2 size={12} />
+            </button>
           {/if}
         </div>
         <div class="panel-body panel-scroll">
@@ -347,57 +405,44 @@
             <p class="runs-empty">{t('agent.runs_empty')}</p>
           {:else}
             {#each runs as run}
-              <div class="run-item" class:expanded={expandedRun === run.id}>
-                <button class="run-header" onclick={() => expandedRun = expandedRun === run.id ? null : run.id}>
-                  <span class="run-toggle">
-                    {#if expandedRun === run.id}
-                      <ChevronDown size={14} />
-                    {:else}
-                      <ChevronRight size={14} />
-                    {/if}
-                  </span>
-                  <span class="run-status-icon" style="color: {statusColor(run.status === 'success' ? 'idle' : run.status === 'failure' ? 'failed' : 'disabled')}">
-                    <svelte:component this={runStatusIcon(run.status)} size={14} />
-                  </span>
-                  <span class="run-time">{new Date(run.started_at).toLocaleString()}</span>
-                  <span class="run-status-text">{run.status}</span>
-                </button>
-                {#if expandedRun === run.id}
-                  <div class="run-detail">
-                    {#if run.summary}
-                      <div class="run-field">
-                        <span class="run-field-label">{t('agent.run_summary')}</span>
-                        <span>{run.summary}</span>
-                      </div>
-                    {/if}
-                    {#if run.error}
-                      <div class="run-field run-error">
-                        <span class="run-field-label">{t('agent.run_error')}</span>
-                        <span>{run.error}</span>
-                      </div>
-                    {/if}
-                    {#if run.tokens_used}
-                      <div class="run-field">
-                        <span class="run-field-label">{t('agent.run_tokens')}</span>
-                        <span>{run.tokens_used}</span>
-                      </div>
-                    {/if}
-                    {#if run.tool_calls?.length}
-                      <div class="run-field">
-                        <span class="run-field-label">Tool calls</span>
-                        <div class="tool-calls">
-                          {#each run.tool_calls as tc}
-                            <div class="tool-call">
-                              <code>{tc.tool}</code>
-                              {#if tc.result}<span class="tool-result">{tc.result}</span>{/if}
-                            </div>
-                          {/each}
-                        </div>
-                      </div>
-                    {/if}
-                  </div>
-                {/if}
-              </div>
+              <button class="run-entry" class:expanded={expandedRun === run.id} onclick={() => expandedRun = expandedRun === run.id ? null : run.id}>
+                <span class="run-status-icon" style="color: {statusColor(run.status === 'success' ? 'idle' : run.status === 'failure' ? 'failed' : 'disabled')}">
+                  {#each [runStatusIcon(run.status)] as RunIcon}
+                    <RunIcon size={13} />
+                  {/each}
+                </span>
+                <span class="run-time">{formatRunTime(run.started_at)}</span>
+                <span class="run-tools-badge">{run.tool_calls?.length ?? '?'} tools</span>
+                <span class="run-summary-preview">{run.error || run.summary || t('agent.run_no_summary')}</span>
+              </button>
+              {#if expandedRun === run.id}
+                <div class="run-detail">
+                  {#if run.summary}
+                    <div class="run-field">
+                      <span class="run-field-label">{t('agent.run_summary')}</span>
+                      <span>{run.summary}</span>
+                    </div>
+                  {/if}
+                  {#if run.error}
+                    <div class="run-field run-error">
+                      <span class="run-field-label">{t('agent.run_error')}</span>
+                      <span>{run.error}</span>
+                    </div>
+                  {/if}
+                  {#if run.tokens_used}
+                    <div class="run-field">
+                      <span class="run-field-label">{t('agent.run_tokens')}</span>
+                      <span>{run.tokens_used.toLocaleString()}</span>
+                    </div>
+                  {/if}
+                  {#if run.tool_calls?.length}
+                    <div class="run-field">
+                      <span class="run-field-label">{t('agent.run_tools_used')}</span>
+                      <span class="run-tools-list">{run.tool_calls.map(tc => tc.tool).join(', ')}</span>
+                    </div>
+                  {/if}
+                </div>
+              {/if}
             {/each}
           {/if}
         </div>
@@ -570,7 +615,7 @@
   }
 
   /* ── Inputs ── */
-  .agent-textarea, .agent-input, .agent-select {
+  .agent-textarea, .agent-input {
     width: 100%;
     padding: 0.4rem 0.5rem;
     border: 1px solid var(--border-muted);
@@ -582,7 +627,7 @@
     resize: vertical;
     transition: border-color 0.15s;
   }
-  .agent-textarea:focus, .agent-input:focus, .agent-select:focus {
+  .agent-textarea:focus, .agent-input:focus {
     outline: none;
     border-color: var(--accent);
   }
@@ -690,6 +735,18 @@
     text-transform: none;
     letter-spacing: 0;
   }
+  .clear-runs-btn {
+    display: flex;
+    align-items: center;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.1rem;
+    border-radius: 3px;
+    transition: color 0.1s;
+  }
+  .clear-runs-btn:hover { color: var(--danger, #ef4444); }
   .stat-success { color: #22c55e; }
   .stat-fail { color: #ef4444; }
 
@@ -730,19 +787,10 @@
     font-style: italic;
     padding: 0.5rem;
   }
-  .run-item {
-    border-radius: 4px;
-    overflow: hidden;
-    transition: background 0.1s;
-    flex-shrink: 0;
-  }
-  .run-item + .run-item {
-    border-top: 1px solid var(--border-muted);
-  }
-  .run-header {
+  .run-entry {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 0.35rem;
     padding: 0.3rem 0.5rem;
     width: 100%;
     background: none;
@@ -752,25 +800,43 @@
     font-size: 0.75rem;
     text-align: left;
     transition: background 0.1s;
+    flex-shrink: 0;
   }
-  .run-header:hover { background: var(--bg-hover); }
+  .run-entry:hover { background: var(--bg-hover); }
+  .run-entry + .run-entry { border-top: 1px solid var(--border-muted); }
+  .run-entry + .run-detail + .run-entry { border-top: 1px solid var(--border-muted); }
   .run-time {
-    flex: 1;
-    color: var(--text-body);
-  }
-  .run-status-text {
-    font-size: 0.65rem;
-    text-transform: uppercase;
-    font-weight: 600;
+    font-size: 0.7rem;
     color: var(--text-muted);
+    flex-shrink: 0;
+    min-width: 3.5rem;
+  }
+  .run-tools-badge {
+    font-size: 0.6rem;
+    padding: 0.05rem 0.3rem;
+    border-radius: 3px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-muted);
+    color: var(--text-muted);
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .run-summary-preview {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
   }
   .run-detail {
-    padding: 0.4rem 0.75rem 0.5rem;
+    padding: 0.5rem 0.75rem;
     border-top: 1px solid var(--border-muted);
     background: var(--bg-elevated);
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
+    gap: 0.35rem;
     font-size: 0.75rem;
   }
   .run-field {
@@ -785,25 +851,9 @@
     color: var(--text-secondary);
   }
   .run-error { color: #eb5a46; }
-  .tool-calls {
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-  }
-  .tool-call {
-    display: flex;
-    gap: 0.4rem;
-    align-items: baseline;
-  }
-  .tool-call code {
-    font-size: 0.7rem;
-    background: var(--bg-surface);
-    padding: 0.05rem 0.25rem;
-    border-radius: 3px;
-    border: 1px solid var(--border-muted);
-  }
-  .tool-result {
-    font-size: 0.7rem;
+  .run-tools-list {
+    font-size: 0.72rem;
     color: var(--text-muted);
+    font-family: monospace;
   }
 </style>

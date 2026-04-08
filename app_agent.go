@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -199,8 +200,8 @@ func (a *App) executeAgent(ctx context.Context, cardID string) error {
 		return err
 	}
 
-	// 5. Load LLM provider
-	cfg, provider, err := a.loadLLMProvider()
+	// 5. Load LLM provider (per-agent account/model override)
+	cfg, provider, err := a.loadLLMProviderForAccount(af.Config.LLMAccountID, af.Config.LLMModel)
 	if err != nil || provider == nil {
 		run.Status = "failure"
 		run.Error = "LLM not configured"
@@ -253,6 +254,9 @@ func (a *App) executeAgent(ctx context.Context, cardID string) error {
 		fallbackContent: "Agent run completed.",
 	})
 
+	// Always record tool actions, even on failure (partial runs)
+	run.ToolCalls = allToolActions
+
 	if err != nil {
 		if ctx.Err() != nil {
 			run.Status = "cancelled"
@@ -264,9 +268,19 @@ func (a *App) executeAgent(ctx context.Context, cardID string) error {
 		return err
 	}
 
-	// 10. Extract summary from last assistant message
-	run.ToolCalls = allToolActions
+	// 10. Extract summary from last message
 	if resultCf != nil && len(resultCf.Messages) > 0 {
+		lastMsg := resultCf.Messages[len(resultCf.Messages)-1]
+
+		// If the last message is a system error (e.g. network failure),
+		// mark the run as failed — runChatLoop returns nil error for these.
+		if lastMsg.Role == model.RoleSystem && strings.HasPrefix(lastMsg.Content, "Error: ") {
+			run.Status = "failure"
+			run.Error = strings.TrimPrefix(lastMsg.Content, "Error: ")
+			return nil
+		}
+
+		// Otherwise find the last assistant message as the summary
 		for i := len(resultCf.Messages) - 1; i >= 0; i-- {
 			if resultCf.Messages[i].Role == model.RoleAssistant && resultCf.Messages[i].Content != "" {
 				run.Summary = resultCf.Messages[i].Content
@@ -439,6 +453,20 @@ RULES:
 %s
 `, time.Now().Format("2006-01-02 (Monday)"), agentCfg.Goal))
 
+	// Agent card type guidance
+	if card.Type == "agent" {
+		sb.WriteString(`
+## Agent Card Fields
+This card has standard agent fields. Use update_self to maintain them if they exist:
+- "status": Set to your current state (e.g. "success", "failed", "idle").
+- "last_run": Write a brief summary of what you did this run.
+- "last_run_at": Set to the current ISO 8601 timestamp.
+- "findings": Append or update with accumulated results across runs.
+- "description": Update if the card has one, to reflect what this agent does.
+You may also create new fields with update_self if you have useful data to store.
+`)
+	}
+
 	// Card context
 	sb.WriteString("\n## Current Card State\n")
 	sb.WriteString(fmt.Sprintf("Title: %s\n", card.Title))
@@ -471,6 +499,14 @@ RULES:
 	if llmCfg.Context != "" {
 		sb.WriteString("\n## User Context\n" + llmCfg.Context + "\n")
 	}
+
+	// System context — timezone, date/time, OS, locale
+	now := time.Now()
+	zone, _ := now.Zone()
+	sb.WriteString("\n## System Context\n")
+	sb.WriteString(fmt.Sprintf("- Current time: %s (%s)\n", now.Format("2006-01-02 15:04:05 MST"), now.Format(time.RFC3339)))
+	sb.WriteString(fmt.Sprintf("- Timezone: %s (UTC%s)\n", zone, now.Format("-07:00")))
+	sb.WriteString(fmt.Sprintf("- OS: %s/%s\n", runtime.GOOS, runtime.GOARCH))
 
 	return sb.String()
 }

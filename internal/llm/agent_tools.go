@@ -50,7 +50,7 @@ var allAgentTools = []ToolDef{
 	},
 	{
 		Name:        "update_self",
-		Description: "Update this card's content blocks. Use this to record findings, update status, or modify the card's own data.",
+		Description: "Update or create content blocks on this card. Use existing block keys to update them, or use a new key to create a new field. Use this to record findings, update status, or store any useful data on the card.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

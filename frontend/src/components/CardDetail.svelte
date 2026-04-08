@@ -1261,7 +1261,7 @@
                               {#if block.value}
                                 <div class="markdown-content">{@html renderMarkdown(String(block.value))}</div>
                               {:else}
-                                <p class="placeholder">{t('card.description_placeholder')}</p>
+                                <p class="placeholder">{t('block.text_placeholder')}</p>
                               {/if}
                             </div>
                             {#if textBlockOverflows.has(block.id) && !expandedTextBlocks.has(block.id)}

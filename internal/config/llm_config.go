@@ -8,14 +8,15 @@ import (
 
 // LLMConfig holds AI-specific settings, separate from the user profile.
 type LLMConfig struct {
-	Context  string `json:"context"`            // Freeform text for LLM system prompts
-	Provider string `json:"provider,omitempty"` // "openai", "anthropic", "ollama", ""
-	Model    string `json:"model,omitempty"`    // e.g. "gpt-4o", "claude-sonnet-4-20250514", "llama3"
-	APIKey   string `json:"api_key,omitempty"`  // plain text for now
-	BaseURL  string `json:"base_url,omitempty"` // custom endpoint override
-	AutoPin       string `json:"auto_pin,omitempty"`       // "auto", "suggest", "off"
-	AIMode        string `json:"ai_mode,omitempty"`        // "edit" (default), "suggest", or "chat"
-	MinConfidence string `json:"min_confidence,omitempty"` // "high", "medium", "low", "" (any)
+	Context          string `json:"context"`                       // Freeform text for LLM system prompts
+	Provider         string `json:"provider,omitempty"`            // "openai", "anthropic", "ollama", "" (legacy, prefer accounts)
+	Model            string `json:"model,omitempty"`               // e.g. "gpt-4o" (legacy, prefer accounts)
+	APIKey           string `json:"api_key,omitempty"`             // plain text (legacy, prefer accounts)
+	BaseURL          string `json:"base_url,omitempty"`            // custom endpoint override (legacy, prefer accounts)
+	DefaultAccountID string `json:"default_account_id,omitempty"` // references LLMAccount.ID
+	AutoPin          string `json:"auto_pin,omitempty"`            // "auto", "suggest", "off"
+	AIMode           string `json:"ai_mode,omitempty"`             // "edit" (default), "suggest", or "chat"
+	MinConfidence    string `json:"min_confidence,omitempty"`      // "high", "medium", "low", "" (any)
 }
 
 // confidenceOrder maps confidence strings to numeric rank (higher = stricter).

@@ -28,22 +28,31 @@ func notifyConfigPath() (string, error) {
 	return filepath.Join(dir, "notify_config.json"), nil
 }
 
+// DefaultNotifyConfig returns sensible defaults for new installs.
+func DefaultNotifyConfig() NotifyConfig {
+	return NotifyConfig{
+		SystemEnabled: true,
+		SMTPPort:      587,
+		SMTPTLS:       true,
+	}
+}
+
 // LoadNotifyConfig reads the notification config from disk, returning defaults if not found.
 func LoadNotifyConfig() (NotifyConfig, error) {
-	var c NotifyConfig
 	path, err := notifyConfigPath()
 	if err != nil {
-		return c, err
+		return DefaultNotifyConfig(), err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return c, nil
+			return DefaultNotifyConfig(), nil
 		}
-		return c, err
+		return DefaultNotifyConfig(), err
 	}
+	var c NotifyConfig
 	if err := json.Unmarshal(data, &c); err != nil {
-		return NotifyConfig{}, err
+		return DefaultNotifyConfig(), err
 	}
 	return c, nil
 }

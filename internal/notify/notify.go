@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/smtp"
 	"time"
@@ -75,7 +76,7 @@ func (d *Dispatcher) Send(req Request) {
 
 func (d *Dispatcher) sendInApp(n config.Notification) {
 	if err := config.AppendNotification(n); err != nil {
-		fmt.Printf("notify: in-app persist error: %v\n", err)
+		log.Printf("notify: in-app persist error: %v\n", err)
 	}
 	if d.emitEvent != nil {
 		d.emitEvent("notification:new", n)
@@ -84,11 +85,18 @@ func (d *Dispatcher) sendInApp(n config.Notification) {
 
 func (d *Dispatcher) sendSystem(n config.Notification) {
 	if !d.cfg.SystemEnabled {
+		log.Printf("notify: system notifications disabled, skipping")
 		return
 	}
+	log.Printf("notify: sending system notification: %q", n.Title)
 	if err := beeep.Notify(n.Title, n.Body, ""); err != nil {
-		fmt.Printf("notify: system notification error: %v\n", err)
+		log.Printf("notify: system notification error: %v", err)
 	}
+}
+
+// TestSystemNotification sends a test OS notification synchronously and returns any error.
+func TestSystemNotification() error {
+	return beeep.Notify("BRUV", "Desktop notifications are working!", "")
 }
 
 func (d *Dispatcher) sendEmail(n config.Notification) {
@@ -116,7 +124,7 @@ func (d *Dispatcher) sendEmail(n config.Notification) {
 		err = smtp.SendMail(addr, auth, from, []string{to}, []byte(msg))
 	}
 	if err != nil {
-		fmt.Printf("notify: email error: %v\n", err)
+		log.Printf("notify: email error: %v\n", err)
 	}
 }
 
@@ -169,13 +177,13 @@ func (d *Dispatcher) sendWebhook(req Request, n config.Notification) {
 		"timestamp":  n.CreatedAt.Format(time.RFC3339),
 	})
 	if err != nil {
-		fmt.Printf("notify: webhook marshal error: %v\n", err)
+		log.Printf("notify: webhook marshal error: %v\n", err)
 		return
 	}
 
 	httpReq, err := http.NewRequest("POST", d.cfg.WebhookURL, bytes.NewReader(payload))
 	if err != nil {
-		fmt.Printf("notify: webhook request error: %v\n", err)
+		log.Printf("notify: webhook request error: %v\n", err)
 		return
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -187,30 +195,31 @@ func (d *Dispatcher) sendWebhook(req Request, n config.Notification) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		fmt.Printf("notify: webhook error: %v\n", err)
+		log.Printf("notify: webhook error: %v\n", err)
 		return
 	}
 	resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		fmt.Printf("notify: webhook returned HTTP %d\n", resp.StatusCode)
+		log.Printf("notify: webhook returned HTTP %d\n", resp.StatusCode)
 	}
 }
 
 // ParseChannels converts a comma-separated channel string into a slice.
-// Falls back to [ChannelInApp] if empty.
+// In-app is always included — it cannot be disabled.
 func ParseChannels(s string) []Channel {
+	channels := []Channel{ChannelInApp}
 	if s == "" {
-		return []Channel{ChannelInApp}
+		return channels
 	}
-	var channels []Channel
 	for _, part := range splitTrim(s) {
-		switch Channel(part) {
-		case ChannelInApp, ChannelSystem, ChannelEmail, ChannelWebhook:
-			channels = append(channels, Channel(part))
+		ch := Channel(part)
+		if ch == ChannelInApp {
+			continue // already included
 		}
-	}
-	if len(channels) == 0 {
-		return []Channel{ChannelInApp}
+		switch ch {
+		case ChannelSystem, ChannelEmail, ChannelWebhook:
+			channels = append(channels, ch)
+		}
 	}
 	return channels
 }

@@ -1,7 +1,10 @@
 <script lang="ts">
-  import { X, Eye, EyeOff, Zap, Search } from 'lucide-svelte'
+  import { X, Eye, EyeOff, Search, Bell } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
-  import { GetPreferences, SetPreferences, GetLLMConfig, SetLLMConfig, TestLLMConnection, GetNotifyConfig, SetNotifyConfig } from '../lib/api'
+  import { showToast } from '../lib/toast.svelte'
+  import { GetPreferences, SetPreferences, GetLLMConfig, SetLLMConfig, GetNotifyConfig, SetNotifyConfig, GetLLMAccounts, SaveLLMAccounts, TestSystemNotification } from '../lib/api'
+  import LLMAccountsManager from './LLMAccountsManager.svelte'
+  import type { LLMAccount } from '../lib/types'
   import { theme, setTheme } from '../lib/theme.svelte'
   import { setLocale, availableLocales } from '../lib/i18n.svelte'
   import { nav, prefs as prefsStore } from '../lib/store.svelte'
@@ -53,10 +56,9 @@
     webhook_url: '',
     webhook_auth_header: '',
   })
-  let showKey = $state(false)
+  let llmAccounts = $state<LLMAccount[]>([])
   let showSmtpPassword = $state(false)
-  let testing = $state(false)
-  let testResult = $state<{ ok: boolean; message: string } | null>(null)
+  let testingSystem = $state(false)
 
   let loaded = $state(false)
 
@@ -64,11 +66,13 @@
 
   async function loadAll() {
     try {
-      const [p, c, nc] = await Promise.all([
+      const [p, c, nc, accts] = await Promise.all([
         GetPreferences(),
         GetLLMConfig(),
         GetNotifyConfig(),
+        GetLLMAccounts(),
       ])
+      llmAccounts = accts || []
       if (p) {
         prefs.reopen_last_repo = p.reopen_last_repo ?? false
         prefs.theme = p.theme || 'dark'
@@ -113,6 +117,7 @@
         SetPreferences(prefs),
         SetLLMConfig(llm),
         SetNotifyConfig(notifCfg),
+        SaveLLMAccounts(llmAccounts),
       ])
       setTheme(prefs.theme as 'dark' | 'light')
       setLocale(prefs.locale)
@@ -123,39 +128,16 @@
     } catch (e) { console.error('Settings save error:', e) }
   }
 
-  async function testConnection() {
-    testing = true
-    testResult = null
+  async function testSystemNotif() {
+    testingSystem = true
     try {
-      await SetLLMConfig(llm)
-      const model = await TestLLMConnection()
-      testResult = { ok: true, message: `${t('llm.test_success')} (${model})` }
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
-      testResult = { ok: false, message: `${t('llm.test_failed')}: ${msg}` }
+      await TestSystemNotification()
+      showToast(t('notifications.test_system_ok'), 'success')
+    } catch {
+      showToast(t('notifications.test_system_fail'), 'error')
     }
-    testing = false
+    testingSystem = false
   }
-
-  function modelPlaceholder(provider: string): string {
-    switch (provider) {
-      case 'openai': return 'gpt-4o'
-      case 'anthropic': return 'claude-sonnet-4-20250514'
-      case 'ollama': return 'llama3'
-      default: return t('llm.model_placeholder')
-    }
-  }
-
-  function baseUrlPlaceholder(provider: string): string {
-    switch (provider) {
-      case 'openai': return 'https://api.openai.com/v1'
-      case 'anthropic': return 'https://api.anthropic.com'
-      case 'ollama': return 'http://localhost:11434'
-      default: return t('llm.base_url_placeholder')
-    }
-  }
-
-  let llmDisabled = $derived(!llm.provider)
 
   // --- Search filtering ---
   interface SettingsField {
@@ -174,10 +156,7 @@
     { tab: 'general', key: 'default_category_name', label: 'default category name' },
     { tab: 'general', key: 'inbox_recent_cards_limit', label: 'inbox recently updated card limit' },
     { tab: 'general', key: 'sidebar_collapse_default', label: 'sidebar collapsed collapse tree startup' },
-    { tab: 'ai', key: 'provider', label: 'ai provider openai anthropic ollama' },
-    { tab: 'ai', key: 'model', label: 'ai model' },
-    { tab: 'ai', key: 'api_key', label: 'api key' },
-    { tab: 'ai', key: 'base_url', label: 'base url endpoint' },
+    { tab: 'ai', key: 'accounts', label: 'ai accounts provider openai anthropic ollama api key model' },
     { tab: 'ai', key: 'ai_mode', label: 'ai mode chat edit card fields' },
     { tab: 'ai', key: 'auto_pin', label: 'auto pin behavior' },
     { tab: 'ai', key: 'min_confidence', label: 'minimum confidence ai suggestion pin threshold' },
@@ -379,48 +358,17 @@
 
         <!-- AI TAB -->
         {#if activeTab === 'ai'}
-          {#if fieldVisible('provider')}
-            <label class="field">
-              <span class="field-label">{t('llm.provider')}</span>
-              <select bind:value={llm.provider} onchange={() => { testResult = null }}>
-                <option value="">{t('llm.provider_none')}</option>
-                <option value="openai">{t('llm.provider_openai')}</option>
-                <option value="anthropic">{t('llm.provider_anthropic')}</option>
-                <option value="ollama">{t('llm.provider_ollama')}</option>
-              </select>
-            </label>
-          {/if}
+          <!-- Accounts section -->
+          <div class="field-section-label">{t('llm.accounts_title')}</div>
+          <LLMAccountsManager bind:accounts={llmAccounts} />
 
-          {#if fieldVisible('model')}
-            <label class="field">
-              <span class="field-label">{t('llm.model')}</span>
-              <input type="text" bind:value={llm.model} placeholder={modelPlaceholder(llm.provider)} disabled={llmDisabled} />
-            </label>
-          {/if}
-
-          {#if fieldVisible('api_key') && llm.provider !== 'ollama'}
-            <label class="field">
-              <span class="field-label">{t('llm.api_key')}</span>
-              <div class="key-row">
-                <input type={showKey ? 'text' : 'password'} bind:value={llm.api_key} placeholder={t('llm.api_key_placeholder')} disabled={llmDisabled} />
-                <button class="icon-btn" onclick={() => showKey = !showKey} title={showKey ? 'Hide' : 'Show'} disabled={llmDisabled}>
-                  {#if showKey}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
-                </button>
-              </div>
-            </label>
-          {/if}
-
-          {#if fieldVisible('base_url')}
-            <label class="field">
-              <span class="field-label">{t('llm.base_url')}</span>
-              <input type="text" bind:value={llm.base_url} placeholder={baseUrlPlaceholder(llm.provider)} disabled={llmDisabled} />
-            </label>
-          {/if}
+          <!-- Behavior section -->
+          <div class="field-section-label">{t('llm.behavior_title')}</div>
 
           {#if fieldVisible('ai_mode')}
             <label class="field">
               <span class="field-label">{t('llm.ai_mode')}</span>
-              <select bind:value={llm.ai_mode} disabled={llmDisabled}>
+              <select bind:value={llm.ai_mode}>
                 <option value="edit">{t('llm.ai_mode_edit')}</option>
                 <option value="suggest">{t('llm.ai_mode_suggest')}</option>
                 <option value="chat">{t('llm.ai_mode_chat')}</option>
@@ -431,7 +379,7 @@
           {#if fieldVisible('auto_pin')}
             <label class="field">
               <span class="field-label">{t('llm.auto_pin')}</span>
-              <select bind:value={llm.auto_pin} disabled={llmDisabled}>
+              <select bind:value={llm.auto_pin}>
                 <option value="off">{t('llm.auto_pin_off')}</option>
                 <option value="suggest">{t('llm.auto_pin_suggest')}</option>
                 <option value="auto">{t('llm.auto_pin_auto')}</option>
@@ -442,7 +390,7 @@
           {#if fieldVisible('min_confidence')}
             <label class="field">
               <span class="field-label">{t('llm.min_confidence')}</span>
-              <select bind:value={llm.min_confidence} disabled={llmDisabled}>
+              <select bind:value={llm.min_confidence}>
                 <option value="">{t('llm.min_confidence_any')}</option>
                 <option value="low">{t('llm.min_confidence_low')}</option>
                 <option value="medium">{t('llm.min_confidence_medium')}</option>
@@ -458,20 +406,6 @@
               <textarea rows="4" bind:value={llm.context} placeholder={t('llm.context_placeholder')}></textarea>
             </label>
           {/if}
-
-          {#if llm.provider}
-            <div class="test-row">
-              <button class="btn btn-outline" onclick={testConnection} disabled={testing}>
-                <Zap size={14} />
-                {testing ? 'Testing...' : t('llm.test_connection')}
-              </button>
-              {#if testResult}
-                <span class="test-result" class:success={testResult.ok} class:error={!testResult.ok}>
-                  {testResult.message}
-                </span>
-              {/if}
-            </div>
-          {/if}
         {/if}
 
         {#if activeTab === 'notifications'}
@@ -480,6 +414,15 @@
             <label class="field-label">{t('notifications.system_enabled')}</label>
             <div class="field-value">
               <label class="toggle"><input type="checkbox" bind:checked={notifCfg.system_enabled} /> {t('notifications.system_desc')}</label>
+            </div>
+          </div>
+          <div class="field-row">
+            <span class="field-label"></span>
+            <div class="field-value">
+              <button class="btn btn-outline btn-sm" onclick={testSystemNotif} disabled={testingSystem}>
+                <Bell size={14} />
+                {testingSystem ? '...' : t('notifications.test_system')}
+              </button>
             </div>
           </div>
 
@@ -775,34 +718,6 @@
     flex: 1;
   }
 
-  .icon-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text-muted);
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-  .icon-btn:hover { color: var(--text-primary); }
-  .icon-btn:disabled { opacity: 0.4; cursor: default; }
-
-  .test-row {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    flex-wrap: wrap;
-  }
-
-  .test-result {
-    font-size: 0.8rem;
-  }
-  .test-result.success { color: var(--success); }
-  .test-result.error { color: var(--danger, #ef4444); }
-
   .dialog-footer {
     display: flex;
     align-items: center;
@@ -844,4 +759,5 @@
   }
   .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
   .btn-outline:disabled { opacity: 0.5; cursor: default; }
+  .btn-sm { padding: 0.3rem 0.65rem; font-size: 0.8rem; }
 </style>

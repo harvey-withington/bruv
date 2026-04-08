@@ -117,6 +117,44 @@ func CardTools(cardTypes []string, categories []map[string]string) []ToolDef {
 		},
 	})
 
+	// configure_agent: set up or modify the card's autonomous agent
+	tools = append(tools, ToolDef{
+		Name:        "configure_agent",
+		Description: "Configure the card's autonomous agent. The agent runs on a schedule and can perform tasks like fetching web pages, searching the web, sending notifications, and updating this card. Set enabled to true and provide a goal and schedule to activate it.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"enabled": map[string]any{
+					"type":        "boolean",
+					"description": "Whether the agent is active",
+				},
+				"goal": map[string]any{
+					"type":        "string",
+					"description": "What the agent should do each run. Be specific — this is the agent's instruction.",
+				},
+				"schedule": map[string]any{
+					"type":        "string",
+					"description": "How often to run. Use: '@hourly', '@daily', '@weekly', '30m', '1h', or a cron expression like '0 9 * * *' (daily at 9am).",
+				},
+				"allowed_tools": map[string]any{
+					"type":  "array",
+					"items": map[string]any{"type": "string", "enum": []string{"web_fetch", "web_search", "notify", "update_self", "create_card", "read_card", "http_request"}},
+					"description": "Which tools the agent can use. Common sets: ['web_fetch', 'web_search', 'notify', 'update_self'] for monitoring tasks.",
+				},
+				"notify_on": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "string", "enum": []string{"success", "failure"}},
+					"description": "When to send notifications. Use ['success', 'failure'] for most agents.",
+				},
+				"notify_channel": map[string]any{
+					"type":        "string",
+					"description": "Notification channels as comma-separated string. Options: 'system', 'email', 'webhook'. In-app is always included automatically.",
+				},
+			},
+			"required": []string{"enabled", "goal", "schedule", "allowed_tools"},
+		},
+	})
+
 	// suggest_pin: always available — can pin to existing category or create new hierarchy
 	pinProps := map[string]any{
 		"reason": map[string]any{

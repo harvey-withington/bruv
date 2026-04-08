@@ -80,6 +80,16 @@ func (r *Repository) GetAgentRuns(cardID string) ([]model.AgentRun, error) {
 	return af.Runs, nil
 }
 
+// ClearAgentRuns removes all run history for a card's agent, preserving config.
+func (r *Repository) ClearAgentRuns(cardID string) error {
+	af, err := r.GetAgentConfig(cardID)
+	if err != nil {
+		return err
+	}
+	af.Runs = []model.AgentRun{}
+	return writeJSON(r.agentFilePath(cardID), af)
+}
+
 // DeleteAgentFile removes a card's agent config file. No error if the file doesn't exist.
 func (r *Repository) DeleteAgentFile(cardID string) error {
 	err := os.Remove(r.agentFilePath(cardID))

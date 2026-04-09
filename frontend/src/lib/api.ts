@@ -2,7 +2,7 @@
 
 import { getBackend } from './adapters'
 
-export type { UserProfile, AuthInfo, LLMConfig, LLMAccount, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard, AgentConfig, AgentRun, AgentFile, AgentStatus, AgentSummary, AgentRunEntry, AgentAnalytics, AppNotification, NotifyConfig } from './types'
+export type { UserProfile, AuthInfo, LLMConfig, LLMAccount, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard, AgentConfig, AgentRun, AgentFile, AgentStatus, AgentSummary, AgentRunEntry, AgentAnalytics, AppNotification, NotifyConfig, ModelPricing } from './types'
 
 // Capabilities
 export const getCapabilities = () => getBackend().getCapabilities()
@@ -40,6 +40,7 @@ export const GetBrand = (...args: Parameters<ReturnType<typeof getBackend>['GetB
 export const ListBrands = () => getBackend().ListBrands()
 export const RenameBrand = (...args: Parameters<ReturnType<typeof getBackend>['RenameBrand']>) => getBackend().RenameBrand(...args)
 export const UpdateBrandDescription = (...args: Parameters<ReturnType<typeof getBackend>['UpdateBrandDescription']>) => getBackend().UpdateBrandDescription(...args)
+export const UpdateBrandIcon = (...args: Parameters<ReturnType<typeof getBackend>['UpdateBrandIcon']>) => getBackend().UpdateBrandIcon(...args)
 export const DeleteBrand = (...args: Parameters<ReturnType<typeof getBackend>['DeleteBrand']>) => getBackend().DeleteBrand(...args)
 
 // Stream CRUD
@@ -47,6 +48,7 @@ export const CreateStream = (...args: Parameters<ReturnType<typeof getBackend>['
 export const ListStreams = (...args: Parameters<ReturnType<typeof getBackend>['ListStreams']>) => getBackend().ListStreams(...args)
 export const RenameStream = (...args: Parameters<ReturnType<typeof getBackend>['RenameStream']>) => getBackend().RenameStream(...args)
 export const UpdateStreamDescription = (...args: Parameters<ReturnType<typeof getBackend>['UpdateStreamDescription']>) => getBackend().UpdateStreamDescription(...args)
+export const UpdateStreamIcon = (...args: Parameters<ReturnType<typeof getBackend>['UpdateStreamIcon']>) => getBackend().UpdateStreamIcon(...args)
 export const DeleteStream = (...args: Parameters<ReturnType<typeof getBackend>['DeleteStream']>) => getBackend().DeleteStream(...args)
 
 // Project CRUD
@@ -54,6 +56,7 @@ export const CreateProject = (...args: Parameters<ReturnType<typeof getBackend>[
 export const ListProjects = (...args: Parameters<ReturnType<typeof getBackend>['ListProjects']>) => getBackend().ListProjects(...args)
 export const RenameProject = (...args: Parameters<ReturnType<typeof getBackend>['RenameProject']>) => getBackend().RenameProject(...args)
 export const UpdateProjectDescription = (...args: Parameters<ReturnType<typeof getBackend>['UpdateProjectDescription']>) => getBackend().UpdateProjectDescription(...args)
+export const UpdateProjectIcon = (...args: Parameters<ReturnType<typeof getBackend>['UpdateProjectIcon']>) => getBackend().UpdateProjectIcon(...args)
 export const DeleteProject = (...args: Parameters<ReturnType<typeof getBackend>['DeleteProject']>) => getBackend().DeleteProject(...args)
 
 // Category CRUD
@@ -131,6 +134,7 @@ export const ValidateCardFields = (...args: Parameters<ReturnType<typeof getBack
 export const CreateUserCardType = (...args: Parameters<ReturnType<typeof getBackend>['CreateUserCardType']>) => getBackend().CreateUserCardType(...args)
 export const UpdateUserCardType = (...args: Parameters<ReturnType<typeof getBackend>['UpdateUserCardType']>) => getBackend().UpdateUserCardType(...args)
 export const DeleteUserCardType = (...args: Parameters<ReturnType<typeof getBackend>['DeleteUserCardType']>) => getBackend().DeleteUserCardType(...args)
+export const UpdateUserCardTypeIcon = (...args: Parameters<ReturnType<typeof getBackend>['UpdateUserCardTypeIcon']>) => getBackend().UpdateUserCardTypeIcon(...args)
 export const UpdateBuiltinCardType = (...args: Parameters<ReturnType<typeof getBackend>['UpdateBuiltinCardType']>) => getBackend().UpdateBuiltinCardType(...args)
 
 // Card templates
@@ -163,6 +167,9 @@ export const ClearAllNotifications = () => getBackend().ClearAllNotifications()
 // Category details
 export const GetCategoryAcceptedTypes = (...args: Parameters<ReturnType<typeof getBackend>['GetCategoryAcceptedTypes']>) => getBackend().GetCategoryAcceptedTypes(...args)
 
+// Schedule preview
+export const ValidateSchedulePreview = (...args: Parameters<ReturnType<typeof getBackend>['ValidateSchedulePreview']>) => getBackend().ValidateSchedulePreview(...args)
+
 // Agent
 export const GetAgentConfig = (...args: Parameters<ReturnType<typeof getBackend>['GetAgentConfig']>) => getBackend().GetAgentConfig(...args)
 export const SaveAgentConfig = (...args: Parameters<ReturnType<typeof getBackend>['SaveAgentConfig']>) => getBackend().SaveAgentConfig(...args)
@@ -177,6 +184,10 @@ export const GetAllAgents = () => getBackend().GetAllAgents()
 export const GetAllAgentRuns = (...args: Parameters<ReturnType<typeof getBackend>['GetAllAgentRuns']>) => getBackend().GetAllAgentRuns(...args)
 export const GetAgentAnalytics = () => getBackend().GetAgentAnalytics()
 export const ForceQuit = () => getBackend().ForceQuit()
+
+// Token pricing
+export const GetTokenPricing = () => getBackend().GetTokenPricing()
+export const SaveTokenPricing = (...args: Parameters<ReturnType<typeof getBackend>['SaveTokenPricing']>) => getBackend().SaveTokenPricing(...args)
 
 // Chat
 export const LoadChatHistory = (...args: Parameters<ReturnType<typeof getBackend>['LoadChatHistory']>) => getBackend().LoadChatHistory(...args)
@@ -212,6 +223,10 @@ export const ApplyPendingEdits = (...args: Parameters<ReturnType<typeof getBacke
 // Attachments
 export const AddCardAttachment = (...args: Parameters<ReturnType<typeof getBackend>['AddCardAttachment']>) => getBackend().AddCardAttachment(...args)
 export const RemoveCardAttachment = (...args: Parameters<ReturnType<typeof getBackend>['RemoveCardAttachment']>) => getBackend().RemoveCardAttachment(...args)
+
+// Due-date notifications
+export const GetDueDateSettings = () => getBackend().GetDueDateSettings()
+export const SaveDueDateSettings = (...args: Parameters<ReturnType<typeof getBackend>['SaveDueDateSettings']>) => getBackend().SaveDueDateSettings(...args)
 
 // User preferences
 export const GetPreferences = () => getBackend().GetPreferences()

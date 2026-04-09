@@ -5,7 +5,7 @@
   import { getCardTypeColor, getCardTypeTextColor } from '../lib/cardTypes'
   import { TriggerAgent, CancelAgent } from '../lib/api'
   import { showToast } from '../lib/toast.svelte'
-  import { Timer, Play, Square } from 'lucide-svelte'
+  import { Timer, Play, Square, Calendar } from 'lucide-svelte'
 
   type CardData = {
     id: string
@@ -89,7 +89,7 @@
   <div class="card-header">
     <span class="type-badge" style="background: {getCardTypeColor(card.type, cardTypes.list)}; color: {getCardTypeTextColor(card.type)}">{cardTypes.list.find(t => t.id === card.type)?.label || card.type || t('card.type_none')}</span>
     {#if card.due_date}
-      <span class="due-date">📅 {card.due_date.slice(0, 10)}</span>
+      <span class="due-date"><Calendar size={11} /> {card.due_date.slice(0, 10)}</span>
     {/if}
   </div>
 
@@ -178,8 +178,12 @@
   }
 
   .due-date {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
     font-size: 0.7rem;
     color: var(--text-secondary);
+    margin-right: 22px; /* clear the agent indicator */
   }
 
   .agent-indicator {

@@ -40,9 +40,10 @@ type App struct {
 	// Set during SendChatMessage so logActivity can attribute edits to the correct actor.
 	llmActors sync.Map
 	// Agent scheduler
-	scheduler    *agent.Scheduler
-	agentCancels sync.Map // cardID → context.CancelFunc
-	forceQuit    bool
+	scheduler      *agent.Scheduler
+	dueDateScanner *agent.DueDateScanner
+	agentCancels   sync.Map // cardID → context.CancelFunc
+	forceQuit      bool
 	trayPauseItem interface{ Check(); Uncheck(); Checked() bool } // system tray "Pause Agents" menu item
 }
 
@@ -140,6 +141,7 @@ func (a *App) beforeClose(ctx context.Context) bool {
 
 	if a.forceQuit {
 		a.stopScheduler()
+		a.stopDueDateScanner()
 		return false // allow quit
 	}
 
@@ -232,6 +234,9 @@ func (a *App) OpenRepository(path string) error {
 	// Start agent scheduler
 	a.startScheduler()
 
+	// Start due-date notification scanner
+	a.startDueDateScanner()
+
 	return nil
 }
 
@@ -243,6 +248,7 @@ func (a *App) HasRepository() bool {
 // CloseRepository closes the current repository and its index.
 func (a *App) CloseRepository() {
 	a.stopScheduler()
+	a.stopDueDateScanner()
 	if a.idx != nil {
 		a.idx.Close()
 		a.idx = nil
@@ -324,6 +330,13 @@ func (a *App) UpdateBrandDescription(slug, description string) (*model.Brand, er
 	return a.repo.UpdateBrandDescription(slug, description)
 }
 
+func (a *App) UpdateBrandIcon(slug, icon string) (*model.Brand, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.UpdateBrandIcon(slug, icon)
+}
+
 func (a *App) DeleteBrand(slug string) error {
 	if a.repo == nil {
 		return fmt.Errorf("no repository open")
@@ -387,6 +400,13 @@ func (a *App) UpdateStreamDescription(brandSlug, streamSlug, description string)
 		return nil, fmt.Errorf("no repository open")
 	}
 	return a.repo.UpdateStreamDescription(brandSlug, streamSlug, description)
+}
+
+func (a *App) UpdateStreamIcon(brandSlug, streamSlug, icon string) (*model.Stream, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.UpdateStreamIcon(brandSlug, streamSlug, icon)
 }
 
 func (a *App) DeleteStream(brandSlug, streamSlug string) error {
@@ -460,6 +480,13 @@ func (a *App) UpdateProjectDescription(brandSlug, streamSlug, projectSlug, descr
 		return nil, fmt.Errorf("no repository open")
 	}
 	return a.repo.UpdateProjectDescription(brandSlug, streamSlug, projectSlug, description)
+}
+
+func (a *App) UpdateProjectIcon(brandSlug, streamSlug, projectSlug, icon string) (*model.Project, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.UpdateProjectIcon(brandSlug, streamSlug, projectSlug, icon)
 }
 
 func (a *App) DeleteProject(brandSlug, streamSlug, projectSlug string) error {
@@ -1640,6 +1667,7 @@ type CardTypeInfo struct {
 	ID          string `json:"id"`
 	Label       string `json:"label"`
 	Color       string `json:"color"`
+	Icon        string `json:"icon,omitempty"`
 	Description string `json:"description"`
 	AIHint      string `json:"ai_hint,omitempty"`
 	TemplateID  string `json:"template_id,omitempty"`
@@ -1798,6 +1826,7 @@ func (a *App) ListCardTypes() []CardTypeInfo {
 			ID:          t.ID,
 			Label:       t.Label,
 			Color:       t.Color,
+			Icon:        t.Icon,
 			Description: t.Description,
 			AIHint:      t.AIHint,
 			TemplateID:  t.TemplateID,
@@ -2005,6 +2034,21 @@ func (a *App) UpdateUserCardType(id, label, color, description, aiHint, template
 			store.Types[i].Description = description
 			store.Types[i].AIHint = aiHint
 			store.Types[i].TemplateID = templateID
+			return store.Types[i], config.SaveUserTypeStore(store)
+		}
+	}
+	return config.UserCardType{}, fmt.Errorf("card type %q not found", id)
+}
+
+// UpdateUserCardTypeIcon sets or clears the icon on a user-defined card type.
+func (a *App) UpdateUserCardTypeIcon(id, icon string) (config.UserCardType, error) {
+	store, err := config.LoadUserTypeStore()
+	if err != nil {
+		return config.UserCardType{}, err
+	}
+	for i, t := range store.Types {
+		if t.ID == id {
+			store.Types[i].Icon = icon
 			return store.Types[i], config.SaveUserTypeStore(store)
 		}
 	}
@@ -2393,6 +2437,38 @@ func (a *App) SetNotifyConfig(c config.NotifyConfig) error {
 	return config.SaveNotifyConfig(c)
 }
 
+// GetDueDateSettings returns the current due-date notification settings.
+func (a *App) GetDueDateSettings() (map[string]interface{}, error) {
+	prefs, err := config.LoadPreferences()
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{
+		"enabled":    prefs.DueDateNotify,
+		"thresholds": prefs.DueDateThresholds,
+		"channels":   prefs.DueDateChannels,
+	}, nil
+}
+
+// SaveDueDateSettings updates due-date notification settings and reconfigures the live scanner.
+func (a *App) SaveDueDateSettings(enabled bool, thresholds []string, channels string) error {
+	prefs, err := config.LoadPreferences()
+	if err != nil {
+		return err
+	}
+	prefs.DueDateNotify = enabled
+	prefs.DueDateThresholds = thresholds
+	prefs.DueDateChannels = channels
+	if err := config.SavePreferences(prefs); err != nil {
+		return err
+	}
+	// Update live scanner
+	if a.dueDateScanner != nil {
+		a.dueDateScanner.Configure(enabled, thresholds, channels)
+	}
+	return nil
+}
+
 func (a *App) GetNotifications() ([]config.Notification, error) {
 	return config.LoadNotifications()
 }
@@ -2440,7 +2516,16 @@ func (a *App) SaveAgentConfig(cardID string, cfg model.AgentConfig) error {
 	}
 	// Calculate NextRunAt when enabled with a schedule
 	if cfg.Enabled && cfg.Schedule != "" {
-		if next, err := agent.NextRunTime(cfg.Schedule, time.Now()); err == nil {
+		opts := agent.ScheduleOpts{
+			StartDate:         cfg.StartDate,
+			EndDate:           cfg.EndDate,
+			ActiveWindowStart: cfg.ActiveWindowStart,
+			ActiveWindowEnd:   cfg.ActiveWindowEnd,
+			OneShot:           cfg.OneShot,
+			LastRunAt:         cfg.LastRunAt,
+			Timezone:          cfg.Timezone,
+		}
+		if next, err := agent.NextRunTimeWithOpts(cfg.Schedule, time.Now(), opts); err == nil {
 			cfg.NextRunAt = &next
 		}
 		if cfg.Status == model.AgentStatusDisabled {
@@ -2462,6 +2547,48 @@ func (a *App) SaveAgentConfig(cardID string, cfg model.AgentConfig) error {
 		_ = a.idx.UpdateAgentIndex(cardID, cfg.Enabled, string(cfg.Status), nextRun)
 	}
 	return nil
+}
+
+// ValidateSchedulePreview returns the next N run times for a given schedule config.
+func (a *App) ValidateSchedulePreview(schedule string, startDate string, endDate string, timezone string, count int) ([]string, error) {
+	if schedule == "" {
+		return nil, fmt.Errorf("empty schedule")
+	}
+	if count <= 0 || count > 10 {
+		count = 5
+	}
+
+	var sd, ed *time.Time
+	if startDate != "" {
+		t, err := time.Parse(time.RFC3339, startDate)
+		if err == nil {
+			sd = &t
+		}
+	}
+	if endDate != "" {
+		t, err := time.Parse(time.RFC3339, endDate)
+		if err == nil {
+			ed = &t
+		}
+	}
+
+	opts := agent.ScheduleOpts{
+		StartDate: sd,
+		EndDate:   ed,
+		Timezone:  timezone,
+	}
+
+	var result []string
+	from := time.Now()
+	for i := 0; i < count; i++ {
+		next, err := agent.NextRunTimeWithOpts(schedule, from, opts)
+		if err != nil {
+			break
+		}
+		result = append(result, next.Format(time.RFC3339))
+		from = next.Add(time.Second) // advance past this run
+	}
+	return result, nil
 }
 
 func (a *App) GetAgentRuns(cardID string) ([]model.AgentRun, error) {
@@ -3627,12 +3754,32 @@ func (a *App) executeToolCall(cardID string, card *model.Card, tc llm.ToolCall, 
 			af.Config.NotifyChannel = notifyChannel
 		}
 
+		// Handle dynamic rescheduling: next_run_at and new_schedule
+		if nextRunAtStr, ok := tc.Arguments["next_run_at"].(string); ok && nextRunAtStr != "" {
+			if t, err := time.Parse(time.RFC3339, nextRunAtStr); err == nil {
+				af.Config.NextRunAt = &t
+			}
+		}
+		if newSchedule, ok := tc.Arguments["new_schedule"].(string); ok && newSchedule != "" {
+			af.Config.Schedule = newSchedule
+			schedule = newSchedule
+		}
+
 		// Set status and calculate next run
 		if enabled {
 			af.Config.Status = model.AgentStatusIdle
-			if af.Config.Schedule != "" {
+			if af.Config.NextRunAt == nil && af.Config.Schedule != "" {
 				now := time.Now()
-				if next, err := agent.NextRunTime(af.Config.Schedule, now); err == nil {
+				opts := agent.ScheduleOpts{
+					StartDate:         af.Config.StartDate,
+					EndDate:           af.Config.EndDate,
+					ActiveWindowStart: af.Config.ActiveWindowStart,
+					ActiveWindowEnd:   af.Config.ActiveWindowEnd,
+					OneShot:           af.Config.OneShot,
+					LastRunAt:         af.Config.LastRunAt,
+					Timezone:          af.Config.Timezone,
+				}
+				if next, err := agent.NextRunTimeWithOpts(af.Config.Schedule, now, opts); err == nil {
 					af.Config.NextRunAt = &next
 				}
 			}
@@ -4592,4 +4739,14 @@ func (a *App) collectProjectTags(allCats []CategoryPath) []string {
 		results = append(results, fmt.Sprintf("- %s / %s / %s: %s", c.BrandName, c.StreamName, c.ProjectName, strings.Join(tagNames, ", ")))
 	}
 	return results
+}
+
+// GetTokenPricing returns the current token pricing configuration.
+func (a *App) GetTokenPricing() (map[string]config.ModelPricing, error) {
+	return config.LoadCustomPricing()
+}
+
+// SaveTokenPricing saves custom token pricing overrides.
+func (a *App) SaveTokenPricing(pricing map[string]config.ModelPricing) error {
+	return config.SaveCustomPricing(pricing)
 }

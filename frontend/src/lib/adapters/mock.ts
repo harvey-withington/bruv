@@ -61,18 +61,21 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     ListBrands: async () => [],
     RenameBrand: async () => ({ slug: 'test-brand', name: 'Test Brand' }),
     UpdateBrandDescription: async () => ({ slug: 'test-brand', name: 'Test Brand' }),
+    UpdateBrandIcon: async () => ({ slug: 'test-brand', name: 'Test Brand' }),
     DeleteBrand: async () => {},
 
     CreateStream: async () => ({ slug: 'test-stream', name: 'Test Stream' }),
     ListStreams: async () => [],
     RenameStream: async () => ({ slug: 'test-stream', name: 'Test Stream' }),
     UpdateStreamDescription: async () => ({ slug: 'test-stream', name: 'Test Stream' }),
+    UpdateStreamIcon: async () => ({ slug: 'test-stream', name: 'Test Stream' }),
     DeleteStream: async () => {},
 
     CreateProject: async () => ({ slug: 'test-project', name: 'Test Project' }),
     ListProjects: async () => [],
     RenameProject: async () => ({ slug: 'test-project', name: 'Test Project' }),
     UpdateProjectDescription: async () => ({ slug: 'test-project', name: 'Test Project' }),
+    UpdateProjectIcon: async () => ({ slug: 'test-project', name: 'Test Project' }),
     DeleteProject: async () => {},
 
     CreateCategory: async () => ({ slug: 'test-category', name: 'Test Category' }),
@@ -139,6 +142,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     CreateUserCardType: async (): Promise<UserCardType> => ({ id: 'ut-1', label: '', color: '', description: '' }),
     UpdateUserCardType: async (): Promise<UserCardType> => ({ id: 'ut-1', label: '', color: '', description: '' }),
     DeleteUserCardType: async () => {},
+    UpdateUserCardTypeIcon: async () => ({ id: '', label: '', color: '', description: '' }),
     UpdateBuiltinCardType: async () => {},
 
     ListCardTemplates: async (): Promise<CardTemplate[]> => [],
@@ -163,7 +167,8 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     MarkAllNotificationsRead: async () => {},
     ClearAllNotifications: async () => {},
     GetCategoryAcceptedTypes: async () => null,
-    GetAgentConfig: async () => ({ card_id: '', config: { enabled: false, goal: '', schedule: '', allowed_tools: [], status: 'disabled' as const, notify_on: [], notify_channel: '', llm_account_id: '', llm_model: '', last_run_at: null, next_run_at: null, max_tokens_budget: 0, run_started_at: null, min_interval_minutes: 0, max_retries: 0, retry_count: 0, retry_backoff_minutes: 0 }, runs: [] }),
+    ValidateSchedulePreview: async () => [],
+    GetAgentConfig: async () => ({ card_id: '', config: { enabled: false, goal: '', schedule: '', allowed_tools: [], status: 'disabled' as const, notify_on: [], notify_channel: '', llm_account_id: '', llm_model: '', last_run_at: null, next_run_at: null, max_tokens_budget: 0, run_started_at: null, min_interval_minutes: 0, max_retries: 0, retry_count: 0, retry_backoff_minutes: 0, cost_budget_usd: 0, cost_spent_usd: 0, start_date: null, end_date: null, active_window_start: '', active_window_end: '', one_shot: false, timezone: '' }, runs: [] }),
     SaveAgentConfig: async () => {},
     GetAgentRuns: async () => [],
     TriggerAgent: async () => {},
@@ -174,7 +179,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     GetAgentSchedulerStatus: async () => ({ active: false, paused: false, runningCount: 0 }),
     GetAllAgents: async () => [],
     GetAllAgentRuns: async () => [],
-    GetAgentAnalytics: async () => ({ total_agents: 0, enabled_agents: 0, total_runs: 0, success_runs: 0, failed_runs: 0, total_tokens: 0 }),
+    GetAgentAnalytics: async () => ({ total_agents: 0, enabled_agents: 0, total_runs: 0, success_runs: 0, failed_runs: 0, total_tokens: 0, total_cost: 0, cost_today: 0, cost_7d: 0, cost_by_model: {} }),
     ForceQuit: async () => {},
 
     LoadChatHistory: async () => ({ card_id: '', messages: [] }),
@@ -201,6 +206,12 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
 
     AddCardAttachment: async () => ({} as any),
     RemoveCardAttachment: async () => ({} as any),
+
+    GetTokenPricing: async () => ({}),
+    SaveTokenPricing: async () => {},
+
+    GetDueDateSettings: async () => ({ enabled: true, thresholds: ['24h', '1h', '0'], channels: 'in-app,system' }),
+    SaveDueDateSettings: async () => {},
 
     GetPreferences: async () => ({}),
     SetPreferences: async () => {},

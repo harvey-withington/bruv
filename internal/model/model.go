@@ -17,6 +17,7 @@ type Brand struct {
 	Name         string    `json:"name"`
 	Slug         string    `json:"slug"`
 	Description  string    `json:"description,omitempty"`
+	Icon         string    `json:"icon,omitempty"`
 	Logo         string    `json:"logo,omitempty"`
 	Website      string    `json:"website,omitempty"`
 	SystemPrompt string    `json:"system_prompt,omitempty"`
@@ -32,6 +33,7 @@ type Stream struct {
 	Name        string    `json:"name"`
 	Slug        string    `json:"slug"`
 	Description string    `json:"description,omitempty"`
+	Icon        string    `json:"icon,omitempty"`
 	Position    int       `json:"position"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
@@ -45,6 +47,7 @@ type Project struct {
 	Name        string    `json:"name"`
 	Slug        string    `json:"slug"`
 	Description string    `json:"description,omitempty"`
+	Icon        string    `json:"icon,omitempty"`
 	Position    int       `json:"position"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
@@ -109,12 +112,14 @@ const (
 	BlockURL       = "url"
 	BlockDivider   = "divider"
 
+	BlockSelect = "select"
+	BlockNumber = "number"
+	BlockDate   = "date"
+	BlockRating = "rating"
+
 	// Legacy block types — kept for migration compatibility.
 	BlockCheckbox = "checkbox"
 	BlockRadio    = "radio"
-	BlockSelect   = "select"
-	BlockNumber   = "number"
-	BlockDate     = "date"
 	BlockImage    = "image"
 	BlockVideo    = "video"
 )
@@ -244,6 +249,14 @@ type AgentConfig struct {
 	MaxRetries      int         `json:"max_retries,omitempty"`      // 0 = no retry
 	RetryCount      int         `json:"retry_count,omitempty"`      // current consecutive failure count
 	RetryBackoffMins int        `json:"retry_backoff_minutes,omitempty"` // 0 = default (5)
+	CostBudgetUSD    float64    `json:"cost_budget_usd,omitempty"`
+	CostSpentUSD     float64    `json:"cost_spent_usd,omitempty"`
+	StartDate         *time.Time `json:"start_date,omitempty"`
+	EndDate           *time.Time `json:"end_date,omitempty"`
+	ActiveWindowStart string     `json:"active_window_start,omitempty"` // "09:00" format
+	ActiveWindowEnd   string     `json:"active_window_end,omitempty"`   // "17:00" format
+	OneShot           bool       `json:"one_shot,omitempty"`
+	Timezone          string     `json:"timezone,omitempty"` // IANA timezone, empty = local
 }
 
 // AgentRun records a single execution of a card's agent.
@@ -256,7 +269,9 @@ type AgentRun struct {
 	Summary    string       `json:"summary,omitempty"`
 	ToolCalls  []ToolAction `json:"tool_calls,omitempty"`
 	Error      string       `json:"error,omitempty"`
-	TokensUsed int          `json:"tokens_used,omitempty"`
+	TokensUsed   int          `json:"tokens_used,omitempty"`
+	ModelUsed    string       `json:"model_used,omitempty"`
+	ProviderUsed string       `json:"provider_used,omitempty"`
 }
 
 // AgentFile is the on-disk format for cards/<card-uuid>.agent.json.

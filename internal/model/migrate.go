@@ -144,12 +144,7 @@ func MigrateLegacyBlockTypes(card *Card) bool {
 	for i := range card.Blocks {
 		b := &card.Blocks[i]
 		switch b.Type {
-		case BlockNumber, BlockDate:
-			b.Type = BlockText
-			if b.Value != nil {
-				b.Value = fmt.Sprintf("%v", b.Value)
-			}
-			modified = true
+		// select, number, date are now active block types — do NOT migrate them
 		case BlockCheckbox:
 			b.Type = BlockText
 			if v, ok := b.Value.(bool); ok {
@@ -160,7 +155,7 @@ func MigrateLegacyBlockTypes(card *Card) bool {
 				}
 			}
 			modified = true
-		case BlockSelect, BlockRadio:
+		case BlockRadio:
 			b.Type = BlockText
 			// Value is already a string, meta.options no longer needed
 			modified = true

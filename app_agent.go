@@ -84,6 +84,35 @@ func (a *App) queryDueAgentsFromDisk() ([]agent.DueAgent, error) {
 		if af.Config.LastRunAt != nil && time.Since(*af.Config.LastRunAt) < time.Duration(minInterval)*time.Minute {
 			continue
 		}
+		// StartDate: skip if now is before start date
+		if af.Config.StartDate != nil && now.Before(*af.Config.StartDate) {
+			continue
+		}
+		// EndDate: auto-disable if now is past end date
+		if af.Config.EndDate != nil && now.After(*af.Config.EndDate) {
+			af.Config.Enabled = false
+			af.Config.Status = model.AgentStatusDisabled
+			af.Config.NextRunAt = nil
+			_ = a.repo.SaveAgentConfig(cardID, af.Config)
+			continue
+		}
+		// Active window: skip if current time is outside the active window
+		if af.Config.ActiveWindowStart != "" && af.Config.ActiveWindowEnd != "" {
+			loc := time.Local
+			if af.Config.Timezone != "" {
+				if l, err := time.LoadLocation(af.Config.Timezone); err == nil {
+					loc = l
+				}
+			}
+			localNow := now.In(loc)
+			startH, startM := agent.ParseHM(af.Config.ActiveWindowStart)
+			endH, endM := agent.ParseHM(af.Config.ActiveWindowEnd)
+			dayStart := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), startH, startM, 0, 0, loc)
+			dayEnd := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), endH, endM, 0, 0, loc)
+			if localNow.Before(dayStart) || localNow.After(dayEnd) {
+				continue
+			}
+		}
 		if af.Config.NextRunAt.Before(now) || af.Config.NextRunAt.Equal(now) {
 			due = append(due, agent.DueAgent{CardID: cardID, NextRunAt: *af.Config.NextRunAt})
 		}
@@ -97,6 +126,63 @@ func (a *App) stopScheduler() {
 		a.scheduler.Stop()
 		a.scheduler = nil
 	}
+}
+
+// startDueDateScanner creates and starts the due-date notification scanner.
+func (a *App) startDueDateScanner() {
+	if a.repo == nil {
+		return
+	}
+	prefs, _ := config.LoadPreferences()
+	configDir, _ := config.ConfigDir()
+
+	a.dueDateScanner = agent.NewDueDateScanner(
+		filepath.Join(a.repo.Root, "cards"),
+		configDir,
+		func(cardID, cardTitle string, threshold time.Duration, overdue bool) {
+			notifier := a.makeNotifier()
+			var title, body string
+			if overdue {
+				title = fmt.Sprintf("Overdue: %s", cardTitle)
+				body = "This card is past its due date."
+			} else if threshold == 0 {
+				title = fmt.Sprintf("Due now: %s", cardTitle)
+				body = "This card is due now."
+			} else {
+				title = fmt.Sprintf("Due in %s: %s", formatDuration(threshold), cardTitle)
+				body = fmt.Sprintf("This card is due in %s.", formatDuration(threshold))
+			}
+			channels := notify.ParseChannels(prefs.DueDateChannels)
+			notifier.Send(notify.Request{
+				Title:     title,
+				Body:      body,
+				Source:    "due_date",
+				CardID:    cardID,
+				CardTitle: cardTitle,
+				Channels:  channels,
+			})
+		},
+	)
+	a.dueDateScanner.Configure(prefs.DueDateNotify, prefs.DueDateThresholds, prefs.DueDateChannels)
+	a.dueDateScanner.Start()
+}
+
+// stopDueDateScanner stops the due-date scanner if running.
+func (a *App) stopDueDateScanner() {
+	if a.dueDateScanner != nil {
+		a.dueDateScanner.Stop()
+		a.dueDateScanner = nil
+	}
+}
+
+func formatDuration(d time.Duration) string {
+	if d >= 24*time.Hour {
+		return fmt.Sprintf("%d hours", int(d.Hours()))
+	}
+	if d >= time.Hour {
+		return fmt.Sprintf("%d hour(s)", int(d.Hours()))
+	}
+	return fmt.Sprintf("%d minutes", int(d.Minutes()))
 }
 
 // makeNotifier creates a notification dispatcher using the current config.
@@ -193,8 +279,48 @@ func (a *App) executeAgent(ctx context.Context, cardID string) error {
 		af.Config.LastRunAt = &finishedAt
 
 		if af.Config.Schedule != "" {
-			if next, err := agent.NextRunTime(af.Config.Schedule, now); err == nil {
+			opts := agent.ScheduleOpts{
+				StartDate:         af.Config.StartDate,
+				EndDate:           af.Config.EndDate,
+				ActiveWindowStart: af.Config.ActiveWindowStart,
+				ActiveWindowEnd:   af.Config.ActiveWindowEnd,
+				OneShot:           af.Config.OneShot,
+				LastRunAt:         af.Config.LastRunAt,
+				Timezone:          af.Config.Timezone,
+			}
+			if next, err := agent.NextRunTimeWithOpts(af.Config.Schedule, now, opts); err == nil {
 				af.Config.NextRunAt = &next
+			} else {
+				// One-shot completed or past end date — disable
+				af.Config.NextRunAt = nil
+				if af.Config.OneShot {
+					af.Config.Enabled = false
+				}
+			}
+		}
+
+		// Track estimated cost
+		if run.TokensUsed > 0 {
+			runCost := config.EstimateCost(run.ModelUsed, run.TokensUsed)
+			af.Config.CostSpentUSD += runCost
+
+			// Budget enforcement
+			if af.Config.CostBudgetUSD > 0 && af.Config.CostSpentUSD >= af.Config.CostBudgetUSD {
+				af.Config.Enabled = false
+				af.Config.Status = model.AgentStatusDisabled
+				cardTitle := ""
+				if c, err := a.repo.GetCard(cardID); err == nil {
+					cardTitle = c.Title
+				}
+				notifier := a.makeNotifier()
+				notifier.Send(notify.Request{
+					Title:     fmt.Sprintf("Budget exceeded: %s", cardTitle),
+					Body:      fmt.Sprintf("Agent disabled — cost $%.4f exceeded budget $%.2f", af.Config.CostSpentUSD, af.Config.CostBudgetUSD),
+					Source:    "budget",
+					CardID:    cardID,
+					CardTitle: cardTitle,
+					Channels:  notify.ParseChannels("in-app,system"),
+				})
 			}
 		}
 
@@ -256,6 +382,8 @@ func (a *App) executeAgent(ctx context.Context, cardID string) error {
 	if modelName == "" {
 		modelName = defaultModelForProvider(cfg.Provider)
 	}
+	run.ModelUsed = modelName
+	run.ProviderUsed = cfg.Provider
 
 	// 6. Build system prompt
 	systemPrompt := a.buildAgentSystemPrompt(card, af.Config, cfg)
@@ -425,20 +553,21 @@ func (a *App) executeAgentToolCall(cardID string, card *model.Card, tc llm.ToolC
 				continue
 			}
 			found := false
+			// Match by key first, then by label (case-insensitive) as fallback
 			for i, b := range updatedCard.Blocks {
-				if b.Key == key {
+				if b.Key == key || strings.EqualFold(b.Label, key) {
 					updatedCard.Blocks[i].Value = value
 					found = true
 					break
 				}
 			}
 			if !found {
-				// Create a new text block
+				// Create a new text block only if no existing block matches
 				updatedCard.Blocks = append(updatedCard.Blocks, model.Block{
 					ID:    fmt.Sprintf("blk-%s", uuid.New().String()[:8]),
 					Type:  model.BlockText,
 					Label: key,
-					Key:   key,
+					Key:   strings.ToLower(strings.ReplaceAll(key, " ", "_")),
 					Value: value,
 				})
 			}
@@ -710,6 +839,13 @@ func (a *App) GetAllAgents() ([]map[string]any, error) {
 			"schedule":   af.Config.Schedule,
 			"goal":       af.Config.Goal,
 			"is_running": isRunning,
+			"one_shot":   af.Config.OneShot,
+		}
+		if af.Config.StartDate != nil {
+			entry["start_date"] = af.Config.StartDate.Format(time.RFC3339)
+		}
+		if af.Config.EndDate != nil {
+			entry["end_date"] = af.Config.EndDate.Format(time.RFC3339)
 		}
 		if af.Config.LastRunAt != nil {
 			entry["last_run_at"] = af.Config.LastRunAt.Format(time.RFC3339)
@@ -798,8 +934,10 @@ func (a *App) GetAllAgentRuns(limit int) ([]map[string]any, error) {
 			"card_title":  rc.cardTitle,
 			"started_at":  r.StartedAt.Format(time.RFC3339),
 			"status":      r.Status,
-			"tokens_used": r.TokensUsed,
-			"tool_count":  len(r.ToolCalls),
+			"tokens_used":    r.TokensUsed,
+			"tool_count":     len(r.ToolCalls),
+			"model_used":     r.ModelUsed,
+			"estimated_cost": config.EstimateCost(r.ModelUsed, r.TokensUsed),
 		}
 		if r.FinishedAt != nil {
 			entry["finished_at"] = r.FinishedAt.Format(time.RFC3339)
@@ -828,6 +966,12 @@ func (a *App) GetAgentAnalytics() (map[string]any, error) {
 	}
 
 	var totalAgents, enabledAgents, totalRuns, successRuns, failedRuns, totalTokens int
+	var totalCost, costToday, cost7d float64
+	costByModel := make(map[string]float64)
+
+	now := time.Now()
+	now7d := now.AddDate(0, 0, -7)
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
 
 	for _, e := range entries {
 		name := e.Name()
@@ -855,6 +999,17 @@ func (a *App) GetAgentAnalytics() (map[string]any, error) {
 			} else if r.Status == "failure" {
 				failedRuns++
 			}
+			runCost := config.EstimateCost(r.ModelUsed, r.TokensUsed)
+			totalCost += runCost
+			if r.ModelUsed != "" {
+				costByModel[r.ModelUsed] += runCost
+			}
+			if r.StartedAt.After(todayStart) {
+				costToday += runCost
+			}
+			if r.StartedAt.After(now7d) {
+				cost7d += runCost
+			}
 		}
 	}
 
@@ -865,6 +1020,10 @@ func (a *App) GetAgentAnalytics() (map[string]any, error) {
 		"success_runs":   successRuns,
 		"failed_runs":    failedRuns,
 		"total_tokens":   totalTokens,
+		"total_cost":     totalCost,
+		"cost_today":     costToday,
+		"cost_7d":        cost7d,
+		"cost_by_model":  costByModel,
 	}, nil
 }
 

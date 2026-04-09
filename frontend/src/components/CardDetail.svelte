@@ -2,7 +2,7 @@
   import { GetCard, UpdateCardTitle, UpdateCardType, RefreshTypeBlocks, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
     DeleteCard, CreateCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, AddProjectLabel, GetProjectLabels, GetProjectLocation, GetCategoryAcceptedTypes, GetAgentConfig } from '../lib/api'
   import { projectTags, nav, getTagColor, cardTypes } from '../lib/store.svelte'
-  import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, GripVertical, Pencil, MapPin, MapPinOff, MoveRight, BotMessageSquare, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, Maximize2, ArrowLeftRight } from 'lucide-svelte'
+  import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, GripVertical, Pencil, MapPin, MapPinOff, MoveRight, BotMessageSquare, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, Maximize2, ArrowLeftRight, Hash, Calendar, Star, ListTree } from 'lucide-svelte'
   import { renderMarkdown, renderInline } from '../lib/markdown'
   import { t } from '../lib/i18n.svelte'
   import MentionPicker from './MentionPicker.svelte'
@@ -13,6 +13,10 @@
   import EditableList from './EditableList.svelte'
   import MediaBlock from './MediaBlock.svelte'
   import CardAttachments from './CardAttachments.svelte'
+  import SelectBlock from './SelectBlock.svelte'
+  import NumberBlock from './NumberBlock.svelte'
+  import DateBlock from './DateBlock.svelte'
+  import RatingBlock from './RatingBlock.svelte'
   import SaveIndicator from './SaveIndicator.svelte'
   import { draggable } from '../lib/draggable'
   import { getCardTypeColor, getCardTypeTextColor } from '../lib/cardTypes'
@@ -95,6 +99,8 @@
   // Block label editing
   let editingBlockLabelId = $state<string | null>(null)
   let blockLabelDraft = $state('')
+  // Select block options editing
+  let editingSelectOptionsId = $state<string | null>(null)
 
   // Block editing state: keyed by block ID (stable across reorders)
   let editingBlockId = $state<string | null>(null)
@@ -202,23 +208,12 @@
 
   // Add-block picker state
   let showBlockPicker = $state(false)
-  let fabBtnEl = $state<HTMLButtonElement | null>(null)
-  let fabPickerPos = $state({ top: 0, left: 0 })
-
-  let fabPickerEl = $state<HTMLDivElement | null>(null)
-
-  function toggleBlockPicker() {
-    if (!showBlockPicker && fabBtnEl) {
-      const r = fabBtnEl.getBoundingClientRect()
-      fabPickerPos = { top: r.bottom + 4, left: r.right - 220 }
-    }
-    showBlockPicker = !showBlockPicker
-  }
+  let addBlockBtnEl = $state<HTMLButtonElement | null>(null)
 
   function handleWindowClick(e: MouseEvent) {
     const target = e.target as Node
     if (showBlockPicker) {
-      if (!fabBtnEl?.contains(target) && !fabPickerEl?.contains(target)) showBlockPicker = false
+      if (!addBlockBtnEl?.contains(target) && !(target as HTMLElement).closest?.('.add-block-picker')) showBlockPicker = false
     }
     if (showTypePicker) {
       if (!typePickerEl?.contains(target) && !(target as HTMLElement).closest?.('.type-picker-dropdown')) showTypePicker = false
@@ -226,12 +221,16 @@
   }
 
   const BLOCK_OPTIONS = [
-    { type: 'text',      label: 'Text',      icon: 'Type' },
-    { type: 'checklist', label: 'Checklist', icon: 'ListChecks' },
-    { type: 'list',      label: 'List',      icon: 'List' },
-    { type: 'media',     label: 'Media',     icon: 'Film' },
-    { type: 'url',       label: 'Link',      icon: 'Link' },
-    { type: 'divider',   label: 'Divider',   icon: 'Minus' },
+    { type: 'text',      label: t('block.text'),      icon: 'Type' },
+    { type: 'checklist', label: t('block.checklist'), icon: 'ListChecks' },
+    { type: 'list',      label: t('block.list'),      icon: 'List' },
+    { type: 'media',     label: t('block.media'),     icon: 'Film' },
+    { type: 'url',       label: t('block.url'),       icon: 'Link' },
+    { type: 'divider',   label: t('block.divider'),   icon: 'Minus' },
+    { type: 'select',    label: t('block.select'),    icon: 'ChevronDown' },
+    { type: 'number',    label: t('block.number'),    icon: 'Hash' },
+    { type: 'date',      label: t('block.date'),      icon: 'Calendar' },
+    { type: 'rating',    label: t('block.rating'),    icon: 'Star' },
   ] as const
 
   function labelToKey(label: string): string {
@@ -240,7 +239,7 @@
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const BLOCK_ICON_MAP: Record<string, any> = {
-    Type, ListChecks, List, Film, Link, Minus,
+    Type, ListChecks, List, Film, Link, Minus, ChevronDown, Hash, Calendar, Star,
   }
 
   // --- Block collapse/expand ---
@@ -350,6 +349,10 @@
     else if (blockType === 'list') value = []
     else if (blockType === 'media') value = []
     else if (blockType === 'divider') value = null
+    else if (blockType === 'select') { value = ''; meta = { options: ['Option 1', 'Option 2', 'Option 3'] } }
+    else if (blockType === 'number') value = 0
+    else if (blockType === 'date') value = ''
+    else if (blockType === 'rating') { value = 0; meta = { max: 5 } }
 
     const newBlock: Block = { id, type: blockType as Block['type'], label, key: labelToKey(label), value, meta }
     const blocks = [...card.blocks, newBlock]
@@ -1102,20 +1105,6 @@
               />
             </div>
           </div>
-          <button class="fab-add-block" bind:this={fabBtnEl} onclick={toggleBlockPicker} title={t('tooltip.add_block')}>
-            <Plus size={16} />
-          </button>
-          {#if showBlockPicker}
-            <div class="fab-picker" bind:this={fabPickerEl} style="position:fixed; top:{fabPickerPos.top}px; left:{fabPickerPos.left}px;">
-              {#each BLOCK_OPTIONS as opt}
-                {@const Icon = BLOCK_ICON_MAP[opt.icon]}
-                <button class="block-picker-item" onclick={() => addBlock(opt.type)} title={opt.label}>
-                  <Icon size={14} />
-                  <span>{opt.label}</span>
-                </button>
-              {/each}
-            </div>
-          {/if}
         </div>
 
         <!-- Description (standard field, always present) -->
@@ -1143,9 +1132,9 @@
           {/if}
         </section>
 
-        <!-- Block toolbar: expand/collapse all — overlaid on divider line -->
-        {#if (card.blocks || []).filter(b => b.key !== 'description' && b.type !== 'divider').length > 1}
-          <div class="block-toolbar-divider">
+        <!-- Block toolbar: divider line with expand/collapse when multiple blocks -->
+        <div class="block-toolbar-divider">
+          {#if (card.blocks || []).filter(b => b.key !== 'description' && b.type !== 'divider').length > 1}
             <div class="block-toolbar-group">
               <button class="block-toolbar-btn" onclick={expandAllBlocks} title={t('block.expand_all')}>
                 <ChevronsUpDown size={12} />
@@ -1154,8 +1143,8 @@
                 <ChevronsDownUp size={12} />
               </button>
             </div>
-          </div>
-        {/if}
+          {/if}
+        </div>
 
         <!-- Blocks (excluding description block) -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -1223,6 +1212,9 @@
                         {/if}
                       {/if}
                       <span class="block-actions">
+                        {#if block.type === 'select'}
+                          <button class="block-action-btn action-reveal action-reveal--edit" onclick={(e) => { e.stopPropagation(); editingSelectOptionsId = editingSelectOptionsId === block.id ? null : block.id }} title={t('block.edit_options')}><ListTree size={11} /></button>
+                        {/if}
                         <button class="block-action-btn action-reveal action-reveal--edit" onclick={(e) => { e.stopPropagation(); editingBlockLabelId = block.id; blockLabelDraft = block.label || '' }} title={t('tooltip.rename_block')}><Pencil size={11} /></button>
                         <button class="block-action-btn action-reveal action-reveal--danger" onclick={(e) => { e.stopPropagation(); deleteBlock(block.id) }} title={t('tooltip.delete_block')}><Trash2 size={11} /></button>
                       </span>
@@ -1337,6 +1329,55 @@
                       {:else if block.type === 'divider'}
                         <hr class="block-divider" />
 
+                      {:else if block.type === 'select'}
+                        <SelectBlock
+                          value={block.value as string | string[]}
+                          meta={block.meta || { options: [] }}
+                          editingOptions={{
+                            get: () => editingSelectOptionsId === block.id,
+                            set: (v: boolean) => { editingSelectOptionsId = v ? block.id : null }
+                          }}
+                          onUpdate={(val, newMeta) => {
+                            if (!card) return
+                            block.value = val
+                            if (newMeta) block.meta = { ...block.meta, ...newMeta }
+                            tracked(UpdateCardBlocks(cardId, card.blocks))
+                            onUpdated?.()
+                          }}
+                        />
+                      {:else if block.type === 'number'}
+                        <NumberBlock
+                          value={block.value as number | null}
+                          meta={block.meta || {}}
+                          onUpdate={(val) => {
+                            if (!card) return
+                            block.value = val
+                            tracked(UpdateCardBlocks(cardId, card.blocks))
+                            onUpdated?.()
+                          }}
+                        />
+                      {:else if block.type === 'date'}
+                        <DateBlock
+                          value={block.value as string | null}
+                          onUpdate={(val) => {
+                            if (!card) return
+                            block.value = val
+                            tracked(UpdateCardBlocks(cardId, card.blocks))
+                            onUpdated?.()
+                          }}
+                        />
+                      {:else if block.type === 'rating'}
+                        <RatingBlock
+                          value={(block.value as number) || 0}
+                          meta={block.meta || {}}
+                          onUpdate={(val) => {
+                            if (!card) return
+                            block.value = val
+                            tracked(UpdateCardBlocks(cardId, card.blocks))
+                            onUpdated?.()
+                          }}
+                        />
+
                       {:else}
                         <!-- Legacy/unknown block type: show value as read-only text -->
                         <span class="block-value">{block.value ?? ''}</span>
@@ -1358,6 +1399,23 @@
 
       <!-- Card-level attachments (pinned between scrollable body and footer) -->
       <div class="card-attachments-pinned">
+        <div class="add-block-toolbar">
+          <button class="add-block-btn" bind:this={addBlockBtnEl} onclick={() => showBlockPicker = !showBlockPicker} title={t('tooltip.add_block')}>
+            <Plus size={12} />
+            <span>{t('tooltip.add_block')}</span>
+          </button>
+          {#if showBlockPicker && addBlockBtnEl}
+            <div class="add-block-picker" use:floatingDropdown={{ trigger: addBlockBtnEl }}>
+              {#each BLOCK_OPTIONS as opt}
+                {@const Icon = BLOCK_ICON_MAP[opt.icon]}
+                <button class="block-picker-item" onclick={() => { addBlock(opt.type); showBlockPicker = false }} title={opt.label}>
+                  <Icon size={14} />
+                  <span>{opt.label}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
         <CardAttachments
           {cardId}
           attachments={card.file_attachments || []}
@@ -2046,25 +2104,36 @@
     background: var(--bg-elevated);
   }
 
-  .fab-add-block {
-    align-self: center;
-    justify-self: center;
+  .add-block-toolbar {
+    position: relative;
+    height: 0;
+  }
+  .add-block-btn {
+    position: absolute;
+    right: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
     display: flex;
     align-items: center;
-    justify-content: center;
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    border: none;
+    gap: 0.3rem;
     background: #22c55e;
+    border: 1px solid #22c55e;
+    border-radius: 4px;
+    padding: 0.15rem 0.55rem 0.15rem 0.35rem;
     color: #fff;
+    font-size: 0.75rem;
+    font-weight: 500;
     cursor: pointer;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
     transition: background 0.15s, transform 0.1s;
+    z-index: 1;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
   }
-  .fab-add-block:hover { background: #16a34a; transform: scale(1.1); }
+  .add-block-btn:hover {
+    background: #16a34a;
+    border-color: #16a34a;
+  }
 
-  .fab-picker {
+  :global(.add-block-picker) {
     background: var(--bg-surface);
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -2073,11 +2142,10 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 2px;
-    z-index: 9999;
     min-width: 220px;
   }
 
-  .block-picker-item {
+  :global(.add-block-picker .block-picker-item) {
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -2090,7 +2158,7 @@
     cursor: pointer;
     white-space: nowrap;
   }
-  .block-picker-item:hover { background: var(--bg-elevated); color: var(--text-primary); }
+  :global(.add-block-picker .block-picker-item:hover) { background: var(--bg-elevated); color: var(--text-primary); }
 
   .block-label-row {
     display: flex;
@@ -2232,7 +2300,7 @@
   }
 
   .block-body {
-    /* Container for block content below the header */
+    padding-left: 22px; /* indent content past the drag-handle column */
   }
 
   .text-scroll-wrap {

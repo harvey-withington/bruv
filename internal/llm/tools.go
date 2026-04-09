@@ -150,6 +150,14 @@ func CardTools(cardTypes []string, categories []map[string]string) []ToolDef {
 					"type":        "string",
 					"description": "Notification channels as comma-separated string. Options: 'system', 'email', 'webhook'. In-app is always included automatically.",
 				},
+				"next_run_at": map[string]any{
+					"type":        "string",
+					"description": "ISO 8601 datetime to schedule the next run at a specific time. Use this to dynamically reschedule the agent.",
+				},
+				"new_schedule": map[string]any{
+					"type":        "string",
+					"description": "Cron expression or interval to change the agent's schedule (e.g. '@daily', '30m', '0 9 * * *').",
+				},
 			},
 			"required": []string{"enabled", "goal", "schedule", "allowed_tools"},
 		},

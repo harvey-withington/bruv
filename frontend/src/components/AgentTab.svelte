@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { GetAgentConfig, SaveAgentConfig, TriggerAgent, CancelAgent, ClearAgentRuns, IsLLMConfigured, ListAgentCardIDs, GetLLMAccounts } from '../lib/api'
+  import { GetAgentConfig, SaveAgentConfig, TriggerAgent, CancelAgent, ClearAgentRuns, IsLLMConfigured, ListAgentCardIDs, GetLLMAccounts, ValidateSchedulePreview } from '../lib/api'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
   import { board } from '../lib/store.svelte'
@@ -35,6 +35,22 @@
   let minIntervalMins = $state(0)
   let maxRetries = $state(0)
   let retryBackoffMins = $state(0)
+  let costBudgetUSD = $state(0)
+  let costSpentUSD = $state(0)
+  let startDate = $state('')
+  let endDate = $state('')
+  let activeWindowStart = $state('')
+  let activeWindowEnd = $state('')
+  let oneShot = $state(false)
+  let timezone = $state('')
+  let schedulePreview = $state<string[]>([])
+
+  const COMMON_TIMEZONES = [
+    '', 'UTC',
+    'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+    'Europe/London', 'Europe/Paris', 'Europe/Berlin',
+    'Asia/Tokyo', 'Asia/Shanghai', 'Australia/Sydney',
+  ]
 
   type ToolDef = { id: string; labelKey: string; descKey: string }
   type ToolGroup = { titleKey: string; tools: ToolDef[] }
@@ -72,6 +88,13 @@
     { label: '30m', value: '30m' },
   ]
 
+  async function loadPreview() {
+    if (!schedule) { schedulePreview = []; return }
+    try {
+      schedulePreview = await ValidateSchedulePreview(schedule, startDate, endDate, timezone, 5) || []
+    } catch { schedulePreview = [] }
+  }
+
   async function loadConfig() {
     loading = true
     try {
@@ -93,9 +116,18 @@
       minIntervalMins = af.config.min_interval_minutes || 0
       maxRetries = af.config.max_retries || 0
       retryBackoffMins = af.config.retry_backoff_minutes || 0
+      costBudgetUSD = af.config.cost_budget_usd || 0
+      costSpentUSD = af.config.cost_spent_usd || 0
+      startDate = af.config.start_date || ''
+      endDate = af.config.end_date || ''
+      activeWindowStart = af.config.active_window_start || ''
+      activeWindowEnd = af.config.active_window_end || ''
+      oneShot = af.config.one_shot || false
+      timezone = af.config.timezone || ''
       runs = af.runs || []
       nextRunAt = af.config.next_run_at
       dirty = false
+      loadPreview()
     } catch (e) {
       console.error('Failed to load agent config:', e)
     } finally {
@@ -147,6 +179,14 @@
         max_retries: maxRetries,
         retry_count: 0,
         retry_backoff_minutes: retryBackoffMins,
+        cost_budget_usd: costBudgetUSD,
+        cost_spent_usd: costSpentUSD,
+        start_date: startDate || null,
+        end_date: endDate || null,
+        active_window_start: activeWindowStart,
+        active_window_end: activeWindowEnd,
+        one_shot: oneShot,
+        timezone,
       }
       await SaveAgentConfig(cardId, config)
       // Refresh board's agent card IDs so indicators update
@@ -158,6 +198,7 @@
       } catch { /* ignore */ }
       showToast(t('agent.saved'), 'success')
       dirty = false
+      loadPreview()
     } catch (e) {
       showToast(t('agent.save_failed'), 'error')
       console.error('Failed to save agent config:', e)
@@ -202,6 +243,11 @@
     } catch {
       showToast(t('error.delete_failed'), 'error')
     }
+  }
+
+  async function resetCost() {
+    costSpentUSD = 0
+    dirty = true
   }
 
   function markDirty() { dirty = true }
@@ -370,6 +416,63 @@
               >{preset.label}</button>
             {/each}
           </div>
+
+          <!-- Date range -->
+          <div class="schedule-row">
+            <label class="schedule-field">
+              <span class="schedule-field-label">{t('agent.start_date')}</span>
+              <input type="datetime-local" class="agent-input agent-input-sm-wide" bind:value={startDate} oninput={markDirty} />
+            </label>
+            <label class="schedule-field">
+              <span class="schedule-field-label">{t('agent.end_date')}</span>
+              <input type="datetime-local" class="agent-input agent-input-sm-wide" bind:value={endDate} oninput={markDirty} />
+            </label>
+          </div>
+
+          <!-- Active window -->
+          <div class="schedule-row">
+            <label class="schedule-field">
+              <span class="schedule-field-label">{t('agent.active_window_start')}</span>
+              <input type="time" class="agent-input agent-input-sm" bind:value={activeWindowStart} oninput={markDirty} />
+            </label>
+            <label class="schedule-field">
+              <span class="schedule-field-label">{t('agent.active_window_end')}</span>
+              <input type="time" class="agent-input agent-input-sm" bind:value={activeWindowEnd} oninput={markDirty} />
+            </label>
+          </div>
+
+          <!-- One-shot + Timezone -->
+          <div class="schedule-row">
+            <label class="toggle-row">
+              <input type="checkbox" bind:checked={oneShot} onchange={markDirty} />
+              <span class="schedule-field-label">{t('agent.one_shot')}</span>
+            </label>
+            <label class="schedule-field">
+              <span class="schedule-field-label">{t('agent.timezone')}</span>
+              <select class="agent-input agent-input-sm-wide" bind:value={timezone} onchange={markDirty}>
+                {#each COMMON_TIMEZONES as tz}
+                  <option value={tz}>{tz || t('agent.timezone_local')}</option>
+                {/each}
+              </select>
+            </label>
+          </div>
+
+          <!-- Schedule preview -->
+          {#if schedulePreview.length > 0}
+            <div class="schedule-preview">
+              <span class="schedule-preview-label">{t('agent.schedule_preview')}</span>
+              <ul class="schedule-preview-list">
+                {#each schedulePreview as dt}
+                  <li>{new Date(dt).toLocaleString()}</li>
+                {/each}
+              </ul>
+            </div>
+          {:else if schedule}
+            <div class="schedule-preview">
+              <span class="schedule-preview-label">{t('agent.schedule_preview')}</span>
+              <span class="schedule-preview-empty">{t('agent.no_upcoming')}</span>
+            </div>
+          {/if}
         </div>
 
         <div class="config-card config-card-flex">
@@ -445,6 +548,25 @@
               min="0"
             />
             <span class="safety-hint">{t('agent.retry_backoff_hint')}</span>
+          </label>
+          <label class="safety-field">
+            <span class="safety-label">{t('agent.cost_budget')}</span>
+            <input
+              type="number"
+              class="agent-input agent-input-sm"
+              placeholder={t('agent.cost_budget_placeholder')}
+              bind:value={costBudgetUSD}
+              oninput={markDirty}
+              min="0"
+              step="0.01"
+            />
+            <span class="safety-hint">{t('agent.cost_budget_hint')}</span>
+            {#if costSpentUSD > 0}
+              <span class="cost-spent-row">
+                <span class="cost-spent-label">{t('agent.cost_spent')}: ${costSpentUSD.toFixed(4)}</span>
+                <button type="button" class="cost-reset-btn" onclick={resetCost}>{t('agent.cost_reset')}</button>
+              </span>
+            {/if}
           </label>
         </div>
       </div>
@@ -782,6 +904,30 @@
     color: var(--text-muted);
     line-height: 1.3;
   }
+  .cost-spent-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.2rem;
+  }
+  .cost-spent-label {
+    font-size: 0.68rem;
+    color: var(--text-body);
+    font-family: monospace;
+  }
+  .cost-reset-btn {
+    padding: 0.1rem 0.4rem;
+    font-size: 0.62rem;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-muted);
+    border-radius: 4px;
+    color: var(--text-body);
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .cost-reset-btn:hover {
+    border-color: var(--accent);
+  }
 
   /* ── Schedule presets ── */
   .preset-chips {
@@ -809,6 +955,58 @@
     background: var(--accent);
     color: white;
     border-color: var(--accent);
+  }
+
+  /* ── Schedule extras ── */
+  .schedule-row {
+    display: flex;
+    gap: 0.6rem;
+    align-items: flex-end;
+    margin-top: 0.3rem;
+  }
+  .schedule-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .schedule-field-label {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+  }
+  .agent-input-sm-wide {
+    max-width: 180px;
+  }
+
+  .schedule-preview {
+    margin-top: 0.35rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .schedule-preview-label {
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
+  }
+  .schedule-preview-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+  .schedule-preview-list li {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    font-family: monospace;
+  }
+  .schedule-preview-empty {
+    font-size: 0.72rem;
+    color: var(--text-faint);
+    font-style: italic;
   }
 
   /* ── Notifications ── */

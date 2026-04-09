@@ -8,8 +8,14 @@ import {
   // @ts-ignore — generated after `wails generate` with updated Go code
   UpdateRepoDescription,
   CreateBrand, GetBrand, ListBrands, RenameBrand, UpdateBrandDescription, DeleteBrand,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  UpdateBrandIcon,
   CreateStream, ListStreams, RenameStream, UpdateStreamDescription, DeleteStream,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  UpdateStreamIcon,
   CreateProject, ListProjects, RenameProject, UpdateProjectDescription, DeleteProject,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  UpdateProjectIcon,
   CreateCategory, ListCategories, RenameCategory, DeleteCategory, MoveCategoryCards, CopyCategory, UpdateCategoryAcceptedTypes,
   // @ts-ignore — generated after `wails generate` with updated Go code
   UpdateCategoryDescription,
@@ -26,6 +32,8 @@ import {
   GetProjectLabels, AddProjectLabel, RemoveProjectLabel, UpdateProjectLabel,
   ListCardTypes, ValidateCardFields,
   CreateUserCardType, UpdateUserCardType, DeleteUserCardType, UpdateBuiltinCardType,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  UpdateUserCardTypeIcon,
   ListCardTemplates, CreateCardTemplate, UpdateCardTemplate, DeleteCardTemplate,
   SearchCards, SearchOrphanedCards, GetCardProjectContext, RebuildIndex, RefreshIndex,
   ListCardIDsInCategory, ListOrphanedCardIDs, ListCardIDsByTag,
@@ -48,6 +56,8 @@ import {
   ListAgentCardIDs,
   // @ts-ignore — generated after `wails generate` with updated Go code
   GetCategoryAcceptedTypes,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  ValidateSchedulePreview,
   // @ts-ignore — generated after `wails generate` with updated Go code
   GetAgentConfig,
   // @ts-ignore — generated after `wails generate` with updated Go code
@@ -74,6 +84,10 @@ import {
   GetAgentAnalytics,
   // @ts-ignore — generated after `wails generate` with updated Go code
   ForceQuit,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  GetTokenPricing,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  SaveTokenPricing,
   LoadChatHistory, SendChatMessage,
   // @ts-ignore — generated after `wails generate` with updated Go code
   LoadProjectChatHistory,
@@ -98,6 +112,10 @@ import {
   AddCardAttachment,
   // @ts-ignore — generated after `wails generate` with updated Go code
   RemoveCardAttachment,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  GetDueDateSettings,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  SaveDueDateSettings,
   // @ts-ignore — generated after `wails generate` with updated Go code
   ListActivityLog,
   // @ts-ignore — generated after `wails generate` with updated Go code
@@ -136,18 +154,21 @@ export const wailsAdapter: BackendAdapter = {
   ListBrands,
   RenameBrand,
   UpdateBrandDescription,
+  UpdateBrandIcon,
   DeleteBrand,
 
   CreateStream,
   ListStreams,
   RenameStream,
   UpdateStreamDescription,
+  UpdateStreamIcon,
   DeleteStream,
 
   CreateProject,
   ListProjects,
   RenameProject,
   UpdateProjectDescription,
+  UpdateProjectIcon,
   DeleteProject,
 
   CreateCategory,
@@ -213,6 +234,7 @@ export const wailsAdapter: BackendAdapter = {
   CreateUserCardType,
   UpdateUserCardType,
   DeleteUserCardType,
+  UpdateUserCardTypeIcon,
   UpdateBuiltinCardType,
   ListCardTemplates: ListCardTemplates as unknown as BackendAdapter['ListCardTemplates'],
   CreateCardTemplate: CreateCardTemplate as unknown as BackendAdapter['CreateCardTemplate'],
@@ -236,6 +258,7 @@ export const wailsAdapter: BackendAdapter = {
   MarkAllNotificationsRead,
   ClearAllNotifications,
   GetCategoryAcceptedTypes,
+  ValidateSchedulePreview: ValidateSchedulePreview as unknown as BackendAdapter['ValidateSchedulePreview'],
   GetAgentConfig: GetAgentConfig as unknown as BackendAdapter['GetAgentConfig'],
   SaveAgentConfig: SaveAgentConfig as unknown as BackendAdapter['SaveAgentConfig'],
   GetAgentRuns: GetAgentRuns as unknown as BackendAdapter['GetAgentRuns'],
@@ -249,6 +272,8 @@ export const wailsAdapter: BackendAdapter = {
   GetAllAgentRuns: GetAllAgentRuns as unknown as BackendAdapter['GetAllAgentRuns'],
   GetAgentAnalytics: GetAgentAnalytics as unknown as BackendAdapter['GetAgentAnalytics'],
   ForceQuit,
+  GetTokenPricing: GetTokenPricing as unknown as BackendAdapter['GetTokenPricing'],
+  SaveTokenPricing: SaveTokenPricing as unknown as BackendAdapter['SaveTokenPricing'],
 
   LoadChatHistory,
   SendChatMessage,
@@ -272,6 +297,9 @@ export const wailsAdapter: BackendAdapter = {
 
   AddCardAttachment: AddCardAttachment as unknown as BackendAdapter['AddCardAttachment'],
   RemoveCardAttachment: RemoveCardAttachment as unknown as BackendAdapter['RemoveCardAttachment'],
+
+  GetDueDateSettings: GetDueDateSettings as unknown as BackendAdapter['GetDueDateSettings'],
+  SaveDueDateSettings,
 
   GetPreferences,
   SetPreferences,

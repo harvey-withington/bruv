@@ -11,7 +11,7 @@ export type ListItem = {
   text: string
 }
 
-export type BlockType = 'text' | 'checklist' | 'list' | 'media' | 'url' | 'divider'
+export type BlockType = 'text' | 'checklist' | 'list' | 'media' | 'url' | 'divider' | 'select' | 'number' | 'date' | 'rating'
 
 export type MediaItem = {
   id: string
@@ -23,6 +23,10 @@ export type MediaItem = {
 export type BlockMeta = {
   options?: string[]
   collapsed?: boolean
+  min?: number
+  max?: number
+  suffix?: string
+  multi?: boolean
 }
 
 export type Block = {
@@ -30,7 +34,7 @@ export type Block = {
   type: BlockType
   label: string
   key: string
-  value: string | number | boolean | ChecklistItem[] | ListItem[] | MediaItem[] | null
+  value: string | number | boolean | string[] | ChecklistItem[] | ListItem[] | MediaItem[] | null
   meta?: BlockMeta
 }
 
@@ -94,6 +98,7 @@ export type CardTypeInfo = {
   id: string
   label: string
   color: string
+  icon?: string
   description: string
   ai_hint?: string
   template_id?: string
@@ -104,6 +109,7 @@ export type UserCardType = {
   id: string
   label: string
   color: string
+  icon?: string
   description: string
   ai_hint?: string
   template_id?: string
@@ -176,6 +182,14 @@ export type AgentConfig = {
   max_retries: number
   retry_count: number
   retry_backoff_minutes: number
+  cost_budget_usd: number
+  cost_spent_usd: number
+  start_date: string | null
+  end_date: string | null
+  active_window_start: string
+  active_window_end: string
+  one_shot: boolean
+  timezone: string
 }
 
 export type AgentRun = {
@@ -210,6 +224,9 @@ export type AgentSummary = {
   last_run_summary: string | null
   last_run_tokens: number | null
   last_run_error: string | null
+  one_shot: boolean
+  start_date: string | null
+  end_date: string | null
 }
 
 export type AgentRunEntry = {
@@ -224,6 +241,8 @@ export type AgentRunEntry = {
   error: string | null
   tokens_used: number
   tool_count: number
+  model_used: string
+  estimated_cost: number
 }
 
 export type AgentAnalytics = {
@@ -233,6 +252,15 @@ export type AgentAnalytics = {
   success_runs: number
   failed_runs: number
   total_tokens: number
+  total_cost: number
+  cost_today: number
+  cost_7d: number
+  cost_by_model: Record<string, number>
+}
+
+export type ModelPricing = {
+  InputPerMTok: number
+  OutputPerMTok: number
 }
 
 // --- Notifications ---
@@ -337,6 +365,7 @@ export interface BackendAdapter {
   ListBrands(): Promise<any[]>
   RenameBrand(slug: string, newName: string): Promise<any>
   UpdateBrandDescription(slug: string, description: string): Promise<any>
+  UpdateBrandIcon(slug: string, icon: string): Promise<any>
   DeleteBrand(slug: string): Promise<void>
 
   // Stream CRUD
@@ -344,6 +373,7 @@ export interface BackendAdapter {
   ListStreams(brandSlug: string): Promise<any[]>
   RenameStream(brandSlug: string, streamSlug: string, newName: string): Promise<any>
   UpdateStreamDescription(brandSlug: string, streamSlug: string, description: string): Promise<any>
+  UpdateStreamIcon(brandSlug: string, streamSlug: string, icon: string): Promise<any>
   DeleteStream(brandSlug: string, streamSlug: string): Promise<void>
 
   // Project CRUD
@@ -351,6 +381,7 @@ export interface BackendAdapter {
   ListProjects(brandSlug: string, streamSlug: string): Promise<any[]>
   RenameProject(brandSlug: string, streamSlug: string, projectSlug: string, newName: string): Promise<any>
   UpdateProjectDescription(brandSlug: string, streamSlug: string, projectSlug: string, description: string): Promise<any>
+  UpdateProjectIcon(brandSlug: string, streamSlug: string, projectSlug: string, icon: string): Promise<any>
   DeleteProject(brandSlug: string, streamSlug: string, projectSlug: string): Promise<void>
 
   // Category CRUD
@@ -428,6 +459,7 @@ export interface BackendAdapter {
   CreateUserCardType(label: string, color: string, description: string, aiHint: string, templateId: string): Promise<UserCardType>
   UpdateUserCardType(id: string, label: string, color: string, description: string, aiHint: string, templateId: string): Promise<UserCardType>
   DeleteUserCardType(id: string): Promise<void>
+  UpdateUserCardTypeIcon(id: string, icon: string): Promise<UserCardType>
   UpdateBuiltinCardType(id: string, color: string, templateId: string): Promise<void>
 
   // Card templates
@@ -460,7 +492,12 @@ export interface BackendAdapter {
   // Category details
   GetCategoryAcceptedTypes(categoryID: string): Promise<string[] | null>
 
+  // Token pricing
+  GetTokenPricing(): Promise<Record<string, ModelPricing>>
+  SaveTokenPricing(pricing: Record<string, ModelPricing>): Promise<void>
+
   // Agent
+  ValidateSchedulePreview(schedule: string, startDate: string, endDate: string, timezone: string, count: number): Promise<string[]>
   GetAgentConfig(cardID: string): Promise<AgentFile>
   SaveAgentConfig(cardID: string, config: AgentConfig): Promise<void>
   GetAgentRuns(cardID: string): Promise<AgentRun[]>
@@ -509,6 +546,10 @@ export interface BackendAdapter {
   // Attachments
   AddCardAttachment(cardID: string, name: string, data: string): Promise<Card>
   RemoveCardAttachment(cardID: string, attachmentID: string): Promise<Card>
+
+  // Due-date notifications
+  GetDueDateSettings(): Promise<{ enabled: boolean; thresholds: string[]; channels: string }>
+  SaveDueDateSettings(enabled: boolean, thresholds: string[], channels: string): Promise<void>
 
   // User preferences
   GetPreferences(): Promise<any>

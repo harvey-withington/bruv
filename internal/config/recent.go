@@ -15,6 +15,11 @@ type RecentRepo struct {
 	LastOpened time.Time `json:"last_opened"`
 }
 
+// ConfigDir returns the BRUV config directory (e.g. %APPDATA%/bruv).
+func ConfigDir() (string, error) {
+	return configDir()
+}
+
 // configDir returns the BRUV config directory (e.g. %APPDATA%/bruv).
 func configDir() (string, error) {
 	dir, err := os.UserConfigDir()

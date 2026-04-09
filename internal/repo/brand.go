@@ -164,6 +164,20 @@ func (r *Repository) UpdateBrandDescription(slug, description string) (*model.Br
 	return brand, nil
 }
 
+// UpdateBrandIcon sets or clears the icon on a Brand.
+func (r *Repository) UpdateBrandIcon(slug, icon string) (*model.Brand, error) {
+	brand, err := r.GetBrand(slug)
+	if err != nil {
+		return nil, err
+	}
+	brand.Icon = icon
+	brand.UpdatedAt = time.Now().UTC()
+	if err := writeJSON(r.brandFilePath(slug), brand); err != nil {
+		return nil, fmt.Errorf("write brand: %w", err)
+	}
+	return brand, nil
+}
+
 // DeleteBrand removes a Brand and all its contents from the repository.
 func (r *Repository) DeleteBrand(slug string) error {
 	brandDir := r.brandPath(slug)

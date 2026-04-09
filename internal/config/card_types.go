@@ -13,6 +13,7 @@ type UserCardType struct {
 	ID          string `json:"id"`                    // auto-slugged from label, immutable after create
 	Label       string `json:"label"`
 	Color       string `json:"color"`                 // hex, e.g. "#6366f1"
+	Icon        string `json:"icon,omitempty"`         // lucide icon name, e.g. "rocket"
 	Description string `json:"description"`
 	AIHint      string `json:"ai_hint,omitempty"`
 	TemplateID  string `json:"template_id,omitempty"` // references CardTemplate.ID

@@ -18,6 +18,11 @@ type Preferences struct {
 	InboxRecentCardsLimit int    `json:"inbox_recent_cards_limit"` // max cards shown in Recently Updated panel
 	InboxActivityLimit     int  `json:"inbox_activity_limit"`     // max entries shown in Activity feed
 	SidebarCollapseDefault bool `json:"sidebar_collapse_default"` // if true, tree starts fully collapsed on load
+
+	// Due-date notifications
+	DueDateNotify     bool     `json:"due_date_notify"`
+	DueDateThresholds []string `json:"due_date_thresholds"` // ["24h", "1h", "0", "overdue"]
+	DueDateChannels   string   `json:"due_date_channels"`   // "in-app,system"
 }
 
 // DefaultPreferences returns sensible defaults.
@@ -32,6 +37,9 @@ func DefaultPreferences() Preferences {
 		DefaultCategoryName:   "Ideas",
 		InboxRecentCardsLimit: 21,
 		InboxActivityLimit:    25,
+		DueDateNotify:         true,
+		DueDateThresholds:     []string{"24h", "1h", "0"},
+		DueDateChannels:       "in-app,system",
 	}
 }
 

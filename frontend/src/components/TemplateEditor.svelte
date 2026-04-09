@@ -4,7 +4,7 @@
   import { showConfirm } from '../lib/confirm.svelte'
   import { focusTrap, portal } from '../lib/actions'
   import { draggable } from '../lib/draggable'
-  import { GripVertical, Plus, Trash2, Type, ListChecks, List, Film, Link, Minus, X } from 'lucide-svelte'
+  import { GripVertical, Plus, Trash2, Type, ListChecks, List, Film, Link, Minus, X, ChevronDown, Hash, Calendar, Star } from 'lucide-svelte'
   import EditableChecklist from './EditableChecklist.svelte'
   import EditableList from './EditableList.svelte'
   import type { CardTemplate, Block, BlockMeta, ChecklistItem, ListItem } from '../lib/types'
@@ -22,17 +22,21 @@
   let saving = $state(false)
 
   const BLOCK_OPTIONS = [
-    { type: 'text',      label: 'Text',      icon: 'Type' },
-    { type: 'checklist', label: 'Checklist', icon: 'ListChecks' },
-    { type: 'list',      label: 'List',      icon: 'List' },
-    { type: 'media',     label: 'Media',     icon: 'Film' },
-    { type: 'url',       label: 'Link',      icon: 'Link' },
-    { type: 'divider',   label: 'Divider',   icon: 'Minus' },
+    { type: 'text',      label: t('block.text'),      icon: 'Type' },
+    { type: 'checklist', label: t('block.checklist'), icon: 'ListChecks' },
+    { type: 'list',      label: t('block.list'),      icon: 'List' },
+    { type: 'media',     label: t('block.media'),     icon: 'Film' },
+    { type: 'url',       label: t('block.url'),       icon: 'Link' },
+    { type: 'divider',   label: t('block.divider'),   icon: 'Minus' },
+    { type: 'select',    label: t('block.select'),    icon: 'ChevronDown' },
+    { type: 'number',    label: t('block.number'),    icon: 'Hash' },
+    { type: 'date',      label: t('block.date'),      icon: 'Calendar' },
+    { type: 'rating',    label: t('block.rating'),    icon: 'Star' },
   ] as const
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const BLOCK_ICON_MAP: Record<string, any> = {
-    Type, ListChecks, List, Film, Link, Minus,
+    Type, ListChecks, List, Film, Link, Minus, ChevronDown, Hash, Calendar, Star,
   }
 
   function labelToKey(label: string): string {
@@ -40,7 +44,7 @@
   }
 
   // Pre-populate: track which blocks have their value editor open
-  const PREPOPULABLE_TYPES = ['text', 'checklist', 'list'] as const
+  const PREPOPULABLE_TYPES = ['text', 'checklist', 'list', 'select', 'number', 'rating'] as const
   function canPrepopulate(type: string): boolean {
     return (PREPOPULABLE_TYPES as readonly string[]).includes(type)
   }
@@ -53,6 +57,9 @@
           if (b.type === 'text') return typeof b.value === 'string' && b.value.length > 0
           if (b.type === 'checklist') return Array.isArray(b.value) && b.value.length > 0
           if (b.type === 'list') return Array.isArray(b.value) && b.value.length > 0
+          if (b.type === 'select') return (b.meta?.options?.length ?? 0) > 0 || b.meta?.multi
+          if (b.type === 'number') return b.meta?.min != null || b.meta?.max != null || b.meta?.suffix
+          if (b.type === 'rating') return b.meta?.max != null && b.meta.max !== 5
           return false
         })
         .map(b => [b.id, true])
@@ -68,6 +75,9 @@
         if (blockType === 'text') return { ...b, value: '' }
         if (blockType === 'checklist') return { ...b, value: [] }
         if (blockType === 'list') return { ...b, value: [] }
+        if (blockType === 'select') return { ...b, meta: { ...b.meta, options: [], multi: undefined } }
+        if (blockType === 'number') return { ...b, meta: { ...b.meta, min: undefined, max: undefined, suffix: undefined } }
+        if (blockType === 'rating') return { ...b, meta: { ...b.meta, max: 5 } }
         return b
       })
     }
@@ -75,6 +85,30 @@
 
   function updateBlockValue(blockId: string, value: Block['value']) {
     blocks = blocks.map(b => b.id === blockId ? { ...b, value } : b)
+  }
+
+  function updateBlockMeta(blockId: string, meta: BlockMeta) {
+    blocks = blocks.map(b => b.id === blockId ? { ...b, meta: { ...b.meta, ...meta } } : b)
+  }
+
+  // Select options management for template editor
+  let newSelectOptions = $state<Record<string, string>>({})
+
+  function addSelectOption(blockId: string) {
+    const text = (newSelectOptions[blockId] || '').trim()
+    if (!text) return
+    const block = blocks.find(b => b.id === blockId)
+    if (!block) return
+    const opts = [...(block.meta?.options || []), text]
+    updateBlockMeta(blockId, { options: opts })
+    newSelectOptions = { ...newSelectOptions, [blockId]: '' }
+  }
+
+  function removeSelectOption(blockId: string, idx: number) {
+    const block = blocks.find(b => b.id === blockId)
+    if (!block) return
+    const opts = (block.meta?.options || []).filter((_: string, i: number) => i !== idx)
+    updateBlockMeta(blockId, { options: opts })
   }
 
   let showBlockPicker = $state(false)
@@ -108,6 +142,10 @@
     else if (blockType === 'list') value = []
     else if (blockType === 'media') value = []
     else if (blockType === 'divider') value = null
+    else if (blockType === 'select') { value = ''; meta = { options: ['Option 1', 'Option 2', 'Option 3'] } }
+    else if (blockType === 'number') value = 0
+    else if (blockType === 'date') value = ''
+    else if (blockType === 'rating') { value = 0; meta = { max: 5 } }
     blocks = [...blocks, { id, type: blockType as Block['type'], label, key: labelToKey(label), value, meta }]
   }
 
@@ -319,6 +357,85 @@
                         placeholder={t('template_editor.prepopulate_list_placeholder')}
                         onUpdate={(updated) => updateBlockValue(block.id, updated)}
                       />
+                    {:else if block.type === 'select'}
+                      <div class="config-fields">
+                        <label class="config-toggle">
+                          <input
+                            type="checkbox"
+                            checked={!!block.meta?.multi}
+                            onchange={() => updateBlockMeta(block.id, { multi: !block.meta?.multi })}
+                          />
+                          <span>{t('block.multi_select')}</span>
+                        </label>
+                        <div class="config-options-list">
+                          {#each (block.meta?.options || []) as opt, i}
+                            <div class="config-option-row">
+                              <span class="config-option-text">{opt}</span>
+                              <button class="config-option-remove" onclick={() => removeSelectOption(block.id, i)} title={t('block.remove_option')}>
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          {/each}
+                          <div class="config-option-add">
+                            <input
+                              type="text"
+                              class="config-option-input"
+                              placeholder={t('block.option_placeholder')}
+                              value={newSelectOptions[block.id] || ''}
+                              oninput={(e) => { newSelectOptions = { ...newSelectOptions, [block.id]: (e.target as HTMLInputElement).value } }}
+                              onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSelectOption(block.id) } }}
+                            />
+                            <button class="config-option-add-btn" onclick={() => addSelectOption(block.id)}>
+                              <Plus size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    {:else if block.type === 'number'}
+                      <div class="config-fields">
+                        <div class="config-row">
+                          <span class="config-label">{t('block.min_value')}</span>
+                          <input
+                            type="number"
+                            class="config-input-sm"
+                            value={block.meta?.min ?? ''}
+                            oninput={(e) => { const v = (e.target as HTMLInputElement).valueAsNumber; updateBlockMeta(block.id, { min: isNaN(v) ? undefined : v }) }}
+                          />
+                        </div>
+                        <div class="config-row">
+                          <span class="config-label">{t('block.max_value')}</span>
+                          <input
+                            type="number"
+                            class="config-input-sm"
+                            value={block.meta?.max ?? ''}
+                            oninput={(e) => { const v = (e.target as HTMLInputElement).valueAsNumber; updateBlockMeta(block.id, { max: isNaN(v) ? undefined : v }) }}
+                          />
+                        </div>
+                        <div class="config-row">
+                          <span class="config-label">{t('block.suffix')}</span>
+                          <input
+                            type="text"
+                            class="config-input-sm"
+                            value={block.meta?.suffix ?? ''}
+                            oninput={(e) => updateBlockMeta(block.id, { suffix: (e.target as HTMLInputElement).value || undefined })}
+                            placeholder="%, kg, etc."
+                          />
+                        </div>
+                      </div>
+                    {:else if block.type === 'rating'}
+                      <div class="config-fields">
+                        <div class="config-row">
+                          <span class="config-label">{t('block.max_stars')}</span>
+                          <input
+                            type="number"
+                            class="config-input-sm"
+                            value={block.meta?.max ?? 5}
+                            min={1}
+                            max={10}
+                            oninput={(e) => { const v = (e.target as HTMLInputElement).valueAsNumber; updateBlockMeta(block.id, { max: isNaN(v) || v < 1 ? 5 : v }) }}
+                          />
+                        </div>
+                      </div>
                     {/if}
                   </div>
                 {/if}
@@ -575,4 +692,27 @@
     cursor: pointer;
   }
   .btn-secondary:hover { background: var(--bg-hover); }
+
+  .config-fields { display: flex; flex-direction: column; gap: 6px; }
+  .config-row { display: flex; align-items: center; gap: 8px; }
+  .config-label { font-size: 0.75rem; color: var(--text-muted); min-width: 40px; }
+  .config-input-sm {
+    width: 80px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px;
+    background: var(--bg-elevated); color: var(--text-primary); font-size: 0.8rem;
+  }
+  .config-input-sm:focus { outline: none; border-color: var(--accent); }
+  .config-toggle { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--text-muted); cursor: pointer; }
+  .config-toggle input[type="checkbox"] { margin: 0; cursor: pointer; }
+  .config-options-list { display: flex; flex-direction: column; gap: 3px; }
+  .config-option-row { display: flex; align-items: center; gap: 4px; padding: 2px 0; }
+  .config-option-text { flex: 1; font-size: 0.8rem; color: var(--text-primary); }
+  .config-option-remove { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 0; line-height: 1; }
+  .config-option-remove:hover { color: var(--danger); }
+  .config-option-add { display: flex; gap: 4px; }
+  .config-option-input {
+    flex: 1; padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px;
+    background: var(--bg-elevated); color: var(--text-primary); font-size: 0.8rem;
+  }
+  .config-option-input:focus { outline: none; border-color: var(--accent); }
+  .config-option-add-btn { background: none; border: none; color: var(--accent); cursor: pointer; padding: 0; line-height: 1; }
 </style>

@@ -11,7 +11,7 @@
 
   let agents = $state<AgentSummary[]>([])
   let runs = $state<AgentRunEntry[]>([])
-  let analytics = $state<AgentAnalytics>({ total_agents: 0, enabled_agents: 0, total_runs: 0, success_runs: 0, failed_runs: 0, total_tokens: 0 })
+  let analytics = $state<AgentAnalytics>({ total_agents: 0, enabled_agents: 0, total_runs: 0, success_runs: 0, failed_runs: 0, total_tokens: 0, total_cost: 0, cost_today: 0, cost_7d: 0, cost_by_model: {} })
   let schedulerPaused = $state(false)
   let loading = $state(true)
   let activeSection = $state<'overview' | 'history'>('overview')
@@ -223,6 +223,11 @@
         <div class="stat-value">{formatTokens(analytics.total_tokens)}</div>
         <div class="stat-label">{t('agents_page.stat_tokens')}</div>
       </div>
+      <div class="stat-card">
+        <div class="stat-value">${analytics.total_cost.toFixed(2)}</div>
+        <div class="stat-label">{t('agents_page.stat_cost')}</div>
+        <div class="stat-sub">{t('agents_page.cost_today')}: ${analytics.cost_today.toFixed(2)} | {t('agents_page.cost_7d')}: ${analytics.cost_7d.toFixed(2)}</div>
+      </div>
     </div>
 
     <!-- Section tabs + controls -->
@@ -289,7 +294,11 @@
                       <span class="agent-goal">{truncate(agent.goal, 60)}</span>
                     {/if}
                   </span>
-                  <span class="col-schedule">{agent.schedule || '-'}</span>
+                  <span class="col-schedule">
+                  {agent.schedule || '-'}
+                  {#if agent.one_shot}<span class="schedule-badge badge-oneshot">1x</span>{/if}
+                  {#if agent.start_date || agent.end_date}<span class="schedule-badge badge-dated">&#128197;</span>{/if}
+                </span>
                   <span class="col-last-run">
                     {#if agent.last_run_status}
                       <span class="run-status-icon" style="color: {statusColor(agent.last_run_status === 'success' ? 'idle' : agent.last_run_status === 'failure' ? 'failed' : 'disabled')}">
@@ -393,6 +402,28 @@
                 </div>
               {/if}
             </div>
+
+            <!-- Cost by model breakdown -->
+            <div class="chart-card chart-card-wide">
+              <h3 class="chart-title">{t('agents_page.cost_by_model')}</h3>
+              {#if Object.keys(analytics.cost_by_model).length === 0}
+                <p class="chart-empty">{t('agents_page.no_token_data')}</p>
+              {:else}
+                {@const costEntries = Object.entries(analytics.cost_by_model).sort((a, b) => b[1] - a[1])}
+                {@const maxCost = Math.max(1, ...costEntries.map(e => e[1]))}
+                <div class="breakdown-list">
+                  {#each costEntries as [model, cost]}
+                    <div class="breakdown-row">
+                      <span class="breakdown-title">{model}</span>
+                      <div class="breakdown-bar-wrap">
+                        <div class="breakdown-bar breakdown-bar-cost" style="width: {(cost / maxCost) * 100}%"></div>
+                      </div>
+                      <span class="breakdown-tokens">${cost.toFixed(4)}</span>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </div>
           </div>
         </div>
       </div>
@@ -413,6 +444,7 @@
               <span class="rh-duration">{t('agents_page.col_duration')}</span>
               <span class="rh-tools">{t('agents_page.col_tools')}</span>
               <span class="rh-tokens">{t('agents_page.col_tokens')}</span>
+              <span class="rh-cost">{t('agents_page.col_cost')}</span>
               <span class="rh-summary">{t('agent.run_summary')}</span>
             </div>
             {#each runs as run}
@@ -428,6 +460,12 @@
                 <span class="rh-duration">{run.duration_secs != null ? `${run.duration_secs}s` : '-'}</span>
                 <span class="rh-tools">{run.tool_count}</span>
                 <span class="rh-tokens">{run.tokens_used ? run.tokens_used.toLocaleString() : '-'}</span>
+                <span class="rh-cost">
+                  <span>${run.estimated_cost?.toFixed(4) || '0.0000'}</span>
+                  {#if run.model_used}
+                    <span class="rh-model">{run.model_used}</span>
+                  {/if}
+                </span>
                 <span class="rh-summary">{run.error || run.summary || ''}</span>
               </div>
             {/each}
@@ -493,6 +531,11 @@
     letter-spacing: 0.04em;
     color: var(--text-faint);
     margin-top: 0.15rem;
+  }
+  .stat-sub {
+    font-size: 0.62rem;
+    color: var(--text-muted);
+    margin-top: 0.1rem;
   }
   .tab-bar-right {
     display: flex;
@@ -656,7 +699,26 @@
   .col-title { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
   .agent-title { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .agent-goal { font-size: 0.68rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .col-schedule { font-size: 0.72rem; color: var(--text-muted); font-family: monospace; }
+  .col-schedule { font-size: 0.72rem; color: var(--text-muted); font-family: monospace; display: flex; align-items: center; gap: 0.25rem; flex-wrap: wrap; }
+  .schedule-badge {
+    font-size: 0.55rem;
+    font-weight: 700;
+    padding: 0.05rem 0.3rem;
+    border-radius: 999px;
+    line-height: 1.3;
+    font-family: sans-serif;
+  }
+  .badge-oneshot {
+    background: color-mix(in srgb, var(--accent) 15%, var(--bg-elevated));
+    color: var(--accent);
+    border: 1px solid var(--accent);
+  }
+  .badge-dated {
+    background: color-mix(in srgb, var(--color-success, #22c55e) 12%, var(--bg-elevated));
+    color: var(--color-success, #22c55e);
+    border: 1px solid var(--color-success, #22c55e);
+    font-size: 0.6rem;
+  }
   .col-last-run, .col-next-run { display: flex; align-items: center; gap: 0.25rem; font-size: 0.72rem; color: var(--text-muted); }
   .run-status-icon { display: flex; align-items: center; flex-shrink: 0; }
   .col-tokens { font-size: 0.72rem; color: var(--text-muted); font-family: monospace; }
@@ -698,7 +760,7 @@
   }
   .run-header, .run-row {
     display: grid;
-    grid-template-columns: 24px 1fr 90px 65px 55px 85px 2fr;
+    grid-template-columns: 24px 1fr 90px 65px 55px 85px 90px 2fr;
     gap: 0.5rem;
     padding: 0.4rem 0.5rem;
     align-items: center;
@@ -731,6 +793,8 @@
   .rh-duration { font-size: 0.72rem; color: var(--text-faint); font-family: monospace; white-space: nowrap; text-align: right; }
   .rh-tools { font-size: 0.72rem; color: var(--text-faint); white-space: nowrap; text-align: right; }
   .rh-tokens { font-size: 0.72rem; color: var(--text-muted); font-family: monospace; white-space: nowrap; text-align: right; }
+  .rh-cost { font-size: 0.72rem; color: var(--text-muted); font-family: monospace; white-space: nowrap; text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 0.05rem; }
+  .rh-model { font-size: 0.6rem; color: var(--text-faint); font-family: sans-serif; }
   .rh-summary { font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
   /* Analytics */
@@ -866,6 +930,9 @@
     background: var(--accent);
     border-radius: 3px;
     transition: width 0.3s ease;
+  }
+  .breakdown-bar-cost {
+    background: var(--color-success, #22c55e);
   }
   .breakdown-tokens {
     font-size: 0.75rem;

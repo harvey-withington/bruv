@@ -2,7 +2,7 @@
   import { X, Eye, EyeOff, Search, Bell } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
-  import { GetPreferences, SetPreferences, GetLLMConfig, SetLLMConfig, GetNotifyConfig, SetNotifyConfig, GetLLMAccounts, SaveLLMAccounts, TestSystemNotification } from '../lib/api'
+  import { GetPreferences, SetPreferences, GetLLMConfig, SetLLMConfig, GetNotifyConfig, SetNotifyConfig, GetLLMAccounts, SaveLLMAccounts, TestSystemNotification, GetDueDateSettings, SaveDueDateSettings } from '../lib/api'
   import LLMAccountsManager from './LLMAccountsManager.svelte'
   import type { LLMAccount } from '../lib/types'
   import { theme, setTheme } from '../lib/theme.svelte'
@@ -60,17 +60,32 @@
   let showSmtpPassword = $state(false)
   let testingSystem = $state(false)
 
+  // --- Due-date notifications ---
+  let dueDateEnabled = $state(true)
+  let dueDateThresholds = $state<Record<string, boolean>>({
+    '24h': true,
+    '1h': true,
+    '0': true,
+    'overdue': false,
+  })
+  let dueDateChannels = $state<Record<string, boolean>>({
+    system: true,
+    email: false,
+    webhook: false,
+  })
+
   let loaded = $state(false)
 
   $effect(() => { loadAll() })
 
   async function loadAll() {
     try {
-      const [p, c, nc, accts] = await Promise.all([
+      const [p, c, nc, accts, dd] = await Promise.all([
         GetPreferences(),
         GetLLMConfig(),
         GetNotifyConfig(),
         GetLLMAccounts(),
+        GetDueDateSettings(),
       ])
       llmAccounts = accts || []
       if (p) {
@@ -107,17 +122,27 @@
         notifCfg.webhook_url = nc.webhook_url || ''
         notifCfg.webhook_auth_header = nc.webhook_auth_header || ''
       }
+      if (dd) {
+        dueDateEnabled = dd.enabled ?? true
+        const ts = dd.thresholds || []
+        dueDateThresholds = { '24h': ts.includes('24h'), '1h': ts.includes('1h'), '0': ts.includes('0'), 'overdue': ts.includes('overdue') }
+        const ch = (dd.channels || 'in-app,system').split(',').map((s: string) => s.trim())
+        dueDateChannels = { system: ch.includes('system'), email: ch.includes('email'), webhook: ch.includes('webhook') }
+      }
     } catch { /* use defaults */ }
     loaded = true
   }
 
   async function save() {
     try {
+      const ddThresholds = Object.entries(dueDateThresholds).filter(([, v]) => v).map(([k]) => k)
+      const ddChannelStr = ['in-app', ...Object.entries(dueDateChannels).filter(([, v]) => v).map(([k]) => k)].join(',')
       await Promise.all([
         SetPreferences(prefs),
         SetLLMConfig(llm),
         SetNotifyConfig(notifCfg),
         SaveLLMAccounts(llmAccounts),
+        SaveDueDateSettings(dueDateEnabled, ddThresholds, ddChannelStr),
       ])
       setTheme(prefs.theme as 'dark' | 'light')
       setLocale(prefs.locale)
@@ -165,6 +190,7 @@
     { tab: 'notifications', key: 'smtp_host', label: 'email smtp host server' },
     { tab: 'notifications', key: 'smtp_to', label: 'email smtp recipient to address' },
     { tab: 'notifications', key: 'webhook_url', label: 'webhook url post' },
+    { tab: 'notifications', key: 'due_date', label: 'due date notifications reminder overdue' },
   ]
 
   let matchingKeys = $derived.by(() => {
@@ -474,6 +500,36 @@
             <label class="field-label">{t('notifications.webhook_auth')}</label>
             <div class="field-value"><input type="text" class="field-input" bind:value={notifCfg.webhook_auth_header} placeholder="Bearer token..." /></div>
           </div>
+
+          <!-- Due Date Notifications -->
+          {#if fieldVisible('due_date')}
+            <div class="field-section-label">{t('prefs.due_date_title')}</div>
+            <div class="field-row">
+              <label class="field-label">{t('prefs.due_date_enabled')}</label>
+              <div class="field-value"><input type="checkbox" bind:checked={dueDateEnabled} /></div>
+            </div>
+            {#if dueDateEnabled}
+              <div class="field-row">
+                <label class="field-label">{t('prefs.due_date_thresholds')}</label>
+                <div class="field-value checkbox-group">
+                  <label class="toggle"><input type="checkbox" bind:checked={dueDateThresholds['24h']} /> {t('prefs.due_date_24h')}</label>
+                  <label class="toggle"><input type="checkbox" bind:checked={dueDateThresholds['1h']} /> {t('prefs.due_date_1h')}</label>
+                  <label class="toggle"><input type="checkbox" bind:checked={dueDateThresholds['0']} /> {t('prefs.due_date_at_due')}</label>
+                  <label class="toggle"><input type="checkbox" bind:checked={dueDateThresholds['overdue']} /> {t('prefs.due_date_overdue')}</label>
+                </div>
+              </div>
+              <div class="field-row">
+                <label class="field-label">{t('prefs.due_date_channels')}</label>
+                <div class="field-value checkbox-group">
+                  <label class="toggle"><input type="checkbox" checked disabled /> {t('agent.channel_inapp')}</label>
+                  <label class="toggle"><input type="checkbox" bind:checked={dueDateChannels['system']} /> {t('agent.channel_system')}</label>
+                  <label class="toggle"><input type="checkbox" bind:checked={dueDateChannels['email']} /> {t('agent.channel_email')}</label>
+                  <label class="toggle"><input type="checkbox" bind:checked={dueDateChannels['webhook']} /> {t('agent.channel_webhook')}</label>
+                  <span class="field-hint">{t('notifications.channels_hint')}</span>
+                </div>
+              </div>
+            {/if}
+          {/if}
         {/if}
 
       </div>
@@ -760,4 +816,59 @@
   .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
   .btn-outline:disabled { opacity: 0.5; cursor: default; }
   .btn-sm { padding: 0.3rem 0.65rem; font-size: 0.8rem; }
+
+  .field-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+  }
+  .field-row > .field-label {
+    min-width: 120px;
+    flex-shrink: 0;
+  }
+  .field-value {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .field-input {
+    padding: 0.45rem 0.6rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    font-family: inherit;
+    outline: none;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .field-input:focus { border-color: var(--accent); }
+
+  .toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+
+  .checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .btn-icon {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.25rem;
+    display: flex;
+    align-items: center;
+  }
+  .btn-icon:hover { color: var(--text-primary); }
 </style>

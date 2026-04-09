@@ -176,6 +176,20 @@ func (r *Repository) UpdateProjectDescription(brandSlug, streamSlug, projectSlug
 	return project, nil
 }
 
+// UpdateProjectIcon sets or clears the icon on a Project.
+func (r *Repository) UpdateProjectIcon(brandSlug, streamSlug, projectSlug, icon string) (*model.Project, error) {
+	project, err := r.GetProject(brandSlug, streamSlug, projectSlug)
+	if err != nil {
+		return nil, err
+	}
+	project.Icon = icon
+	project.UpdatedAt = time.Now().UTC()
+	if err := writeJSON(r.projectFilePath(brandSlug, streamSlug, projectSlug), project); err != nil {
+		return nil, fmt.Errorf("write project: %w", err)
+	}
+	return project, nil
+}
+
 // DeleteProject removes a Project and all its contents.
 func (r *Repository) DeleteProject(brandSlug, streamSlug, projectSlug string) error {
 	projectDir := r.projectPath(brandSlug, streamSlug, projectSlug)

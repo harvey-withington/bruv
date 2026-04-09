@@ -1,10 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { nav, board, loadBoard } from '../lib/store.svelte'
-  import { CloseRepository, CreateBrand, RenameBrand, UpdateBrandDescription, CreateStream, RenameStream, UpdateStreamDescription, CreateProject, RenameProject, UpdateProjectDescription, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, GetCard, GetCardPins, ListOrphanedCardIDs, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject, GetPreferences, GetRepoDescription, UpdateRepoDescription } from '../lib/api'
-  import { LogOut, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox, Timer, ChevronsUpDown, ChevronsDownUp } from 'lucide-svelte'
+  import { CloseRepository, CreateBrand, RenameBrand, UpdateBrandDescription, UpdateBrandIcon, CreateStream, RenameStream, UpdateStreamDescription, UpdateStreamIcon, CreateProject, RenameProject, UpdateProjectDescription, UpdateProjectIcon, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, GetCard, GetCardPins, ListOrphanedCardIDs, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject, GetPreferences, GetRepoDescription, UpdateRepoDescription } from '../lib/api'
+  import { LogOut, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox, Timer, ChevronsUpDown, ChevronsDownUp, Smile } from 'lucide-svelte'
   import ThemeToggle from './ThemeToggle.svelte'
   import BruvIcon from './BruvIcon.svelte'
+  import DynamicIcon from './DynamicIcon.svelte'
+  import IconPicker from './IconPicker.svelte'
   import { t } from '../lib/i18n.svelte'
   import { renderInline } from '../lib/markdown'
   import { showConfirm } from '../lib/confirm.svelte'
@@ -35,9 +37,9 @@
     expandedStreams = new Set()
   }
 
-  type Brand = { id: string; name: string; slug: string; description?: string }
-  type Stream = { id: string; name: string; slug: string; description?: string }
-  type Project = { id: string; name: string; slug: string; description?: string }
+  type Brand = { id: string; name: string; slug: string; description?: string; icon?: string }
+  type Stream = { id: string; name: string; slug: string; description?: string; icon?: string }
+  type Project = { id: string; name: string; slug: string; description?: string; icon?: string }
 
   let brands = $state<Brand[]>([])
   let expandedBrands = $state<Set<string>>(new Set())
@@ -48,6 +50,15 @@
   let repoDescription = $state('')
   let editingRepoDesc = $state(false)
   let repoDescDraft = $state('')
+
+  // Icon picker state
+  let iconPickerTarget = $state<{
+    type: 'brand' | 'stream' | 'project'
+    brandSlug: string
+    streamSlug: string
+    projectSlug: string
+    currentIcon: string
+  } | null>(null)
 
   // Inline rename state — unified for brand/stream/project
   let renaming = $state<{
@@ -480,6 +491,41 @@
     setTimeout(() => { const el = document.querySelector('.rename-input') as HTMLInputElement; el?.focus(); el?.select() }, 0)
   }
 
+  // --- Icon picker handlers ---
+
+  function openIconPicker(e: MouseEvent, type: 'brand' | 'stream' | 'project', brandSlug: string, streamSlug: string, projectSlug: string, currentIcon: string) {
+    e.stopPropagation()
+    iconPickerTarget = { type, brandSlug, streamSlug, projectSlug, currentIcon }
+  }
+
+  async function handleIconSelect(icon: string) {
+    if (!iconPickerTarget) return
+    const { type, brandSlug, streamSlug, projectSlug } = iconPickerTarget
+    try {
+      if (type === 'brand') {
+        await UpdateBrandIcon(brandSlug, icon)
+        const brand = brands.find(b => b.slug === brandSlug)
+        if (brand) brand.icon = icon
+        brands = [...brands]
+      } else if (type === 'stream') {
+        await UpdateStreamIcon(brandSlug, streamSlug, icon)
+        const streams = streamsByBrand[brandSlug] || []
+        const stream = streams.find(s => s.slug === streamSlug)
+        if (stream) stream.icon = icon
+        streamsByBrand[brandSlug] = [...streams]
+      } else {
+        await UpdateProjectIcon(brandSlug, streamSlug, projectSlug, icon)
+        const key = `${brandSlug}/${streamSlug}`
+        const projects = projectsByStream[key] || []
+        const project = projects.find(p => p.slug === projectSlug)
+        if (project) project.icon = icon
+        projectsByStream[key] = [...projects]
+      }
+    } catch (e) {
+      showToast(t('error.save_failed'), 'error')
+    }
+  }
+
   // --- Delete handlers ---
 
   async function handleDeleteBrand(e: MouseEvent, slug: string) {
@@ -765,10 +811,14 @@
             {:else}
               <button class="tree-item brand-item" onclick={() => toggleBrand(brand.slug)}>
                 <span class="chevron">{#if expandedBrands.has(brand.slug)}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</span>
+                {#if brand.icon}
+                  <DynamicIcon name={brand.icon} size={14} className="tree-icon" />
+                {/if}
                 <span class="label-group">
                   <span class="label" title={brand.description ? `${brand.name} — ${brand.description}` : brand.name}>{@html renderInline(brand.name)}</span>
                 </span>
               </button>
+              <button class="row-action action-reveal action-reveal--icon" onclick={(e) => openIconPicker(e, 'brand', brand.slug, '', '', brand.icon || '')} title={t('icon.pick')}><Smile size={12} /></button>
               <button class="row-action action-reveal action-reveal--edit" onclick={(e) => startEdit(e, 'brand', brand.slug, brand.name, brand.slug, '', '', brand.description)} title={t('tooltip.rename_brand')}><Pencil size={12} /></button>
               <button class="row-action action-reveal action-reveal--danger" onclick={(e) => handleDeleteBrand(e, brand.slug)} title={t('tooltip.delete_brand')}><Trash2 size={12} /></button>
             {/if}
@@ -808,10 +858,14 @@
                     {:else}
                       <button class="tree-item stream-item" onclick={() => toggleStream(brand.slug, stream.slug)}>
                         <span class="chevron">{#if expandedStreams.has(`${brand.slug}/${stream.slug}`)}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</span>
+                        {#if stream.icon}
+                          <DynamicIcon name={stream.icon} size={14} className="tree-icon" />
+                        {/if}
                         <span class="label-group">
                           <span class="label" title={stream.description ? `${stream.name} — ${stream.description}` : stream.name}>{@html renderInline(stream.name)}</span>
                         </span>
                       </button>
+                      <button class="row-action action-reveal action-reveal--icon" onclick={(e) => openIconPicker(e, 'stream', brand.slug, stream.slug, '', stream.icon || '')} title={t('icon.pick')}><Smile size={12} /></button>
                       <button class="row-action action-reveal action-reveal--edit" onclick={(e) => startEdit(e, 'stream', `${brand.slug}/${stream.slug}`, stream.name, brand.slug, stream.slug, '', stream.description)} title={t('tooltip.rename_stream')}><Pencil size={12} /></button>
                       <button class="row-action action-reveal action-reveal--danger" onclick={(e) => handleDeleteStream(e, brand.slug, stream.slug)} title={t('tooltip.delete_stream')}><Trash2 size={12} /></button>
                     {/if}
@@ -853,10 +907,14 @@
                               class:selected={isSelected(brand.slug, stream.slug, project.slug)}
                               onclick={() => selectProject(brand.slug, stream.slug, project.slug)}
                             >
+                              {#if project.icon}
+                                <DynamicIcon name={project.icon} size={14} className="tree-icon" />
+                              {/if}
                               <span class="label-group">
                                 <span class="label" title={project.description ? `${project.name} — ${project.description}` : project.name}>{@html renderInline(project.name)}</span>
                               </span>
                             </button>
+                            <button class="row-action action-reveal action-reveal--icon" onclick={(e) => openIconPicker(e, 'project', brand.slug, stream.slug, project.slug, project.icon || '')} title={t('icon.pick')}><Smile size={12} /></button>
                             <button class="row-action action-reveal action-reveal--edit" onclick={(e) => startEdit(e, 'project', `${brand.slug}/${stream.slug}/${project.slug}`, project.name, brand.slug, stream.slug, project.slug, project.description)} title={t('tooltip.rename_project')}><Pencil size={12} /></button>
                             <button class="row-action action-reveal action-reveal--danger" onclick={(e) => handleDeleteProject(e, brand.slug, stream.slug, project.slug)} title={t('tooltip.delete_project')}><Trash2 size={12} /></button>
                           {/if}
@@ -923,6 +981,14 @@
     </div>
   {/if}
 </aside>
+
+{#if iconPickerTarget}
+  <IconPicker
+    value={iconPickerTarget.currentIcon}
+    onSelect={handleIconSelect}
+    onClose={() => iconPickerTarget = null}
+  />
+{/if}
 
 <style>
   .sidebar {
@@ -1202,6 +1268,9 @@
   }
   .row-action + .row-action {
     right: 1.6rem;
+  }
+  .row-action + .row-action + .row-action {
+    right: 2.95rem;
   }
   .tree-row:hover .row-action {
     background: var(--bg-elevated);

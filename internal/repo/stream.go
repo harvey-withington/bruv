@@ -171,6 +171,20 @@ func (r *Repository) UpdateStreamDescription(brandSlug, streamSlug, description 
 	return stream, nil
 }
 
+// UpdateStreamIcon sets or clears the icon on a Stream.
+func (r *Repository) UpdateStreamIcon(brandSlug, streamSlug, icon string) (*model.Stream, error) {
+	stream, err := r.GetStream(brandSlug, streamSlug)
+	if err != nil {
+		return nil, err
+	}
+	stream.Icon = icon
+	stream.UpdatedAt = time.Now().UTC()
+	if err := writeJSON(r.streamFilePath(brandSlug, streamSlug), stream); err != nil {
+		return nil, fmt.Errorf("write stream: %w", err)
+	}
+	return stream, nil
+}
+
 // DeleteStream removes a Stream and all its contents.
 func (r *Repository) DeleteStream(brandSlug, streamSlug string) error {
 	streamDir := r.streamPath(brandSlug, streamSlug)

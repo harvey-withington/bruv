@@ -3,8 +3,10 @@
   import { showToast } from '../lib/toast.svelte'
   import { focusTrap, portal, floatingDropdown } from '../lib/actions'
   import { draggable } from '../lib/draggable'
-  import { X, Pencil, ChevronDown } from 'lucide-svelte'
+  import { X, Pencil, ChevronDown, Smile } from 'lucide-svelte'
   import TemplateEditor from './TemplateEditor.svelte'
+  import DynamicIcon from './DynamicIcon.svelte'
+  import IconPicker from './IconPicker.svelte'
   import type { CardTypeInfo, UserCardType, CardTemplate } from '../lib/types'
 
   let { type, templates, allTypes, onSave, onClose }: {
@@ -23,10 +25,12 @@
 
   let label = $state(type?.label ?? '')
   let color = $state(type?.color ?? TYPE_PALETTE[0])
+  let icon = $state(type?.icon ?? '')
   let description = $state(type?.description ?? '')
   let aiHint = $state(type?.ai_hint ?? '')
   let selectedTemplateId = $state(type?.template_id ?? '')
   let saving = $state(false)
+  let showIconPicker = $state(false)
   const isBuiltin = type?.builtin ?? false
 
   let slugPreview = $derived(
@@ -71,6 +75,7 @@
           id: type?.id ?? '',
           label: label.trim(),
           color,
+          icon: icon || undefined,
           description: description.trim(),
           ai_hint: aiHint.trim() || undefined,
           template_id: selectedTemplateId || undefined,
@@ -85,6 +90,7 @@
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
       if (showTemplateEditor) return
+      if (showIconPicker) return
       if (showTemplatePicker) { showTemplatePicker = false; return }
       onClose()
     }
@@ -162,7 +168,25 @@
           {/each}
         </div>
         <div class="color-preview">
-          <span class="type-badge-preview" style:background={color}>{label || t('card_type_editor.label_placeholder')}</span>
+          <span class="type-badge-preview" style:background={color}>
+            {#if icon}<DynamicIcon name={icon} size={12} className="badge-icon" />{/if}
+            {label || t('card_type_editor.label_placeholder')}
+          </span>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <span class="field-label">{t('icon.pick')}</span>
+        <div class="icon-picker-row">
+          <button class="icon-picker-btn" onclick={() => showIconPicker = true}>
+            {#if icon}
+              <DynamicIcon name={icon} size={16} />
+              <span class="icon-name">{icon}</span>
+            {:else}
+              <Smile size={16} />
+              <span class="icon-name muted">{t('icon.none')}</span>
+            {/if}
+          </button>
         </div>
       </div>
 
@@ -240,6 +264,14 @@
       {allTypes}
       onSave={handleTemplateSave}
       onClose={() => showTemplateEditor = false}
+    />
+  {/if}
+
+  {#if showIconPicker}
+    <IconPicker
+      value={icon}
+      onSelect={(i) => { icon = i; showIconPicker = false }}
+      onClose={() => showIconPicker = false}
     />
   {/if}
 </div>
@@ -322,6 +354,24 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+
+  .icon-picker-row { display: flex; align-items: center; }
+  .icon-picker-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  .icon-picker-btn:hover { border-color: var(--accent); }
+  .icon-name { font-size: 0.8rem; }
+  .icon-name.muted { color: var(--text-muted); }
+  :global(.badge-icon) { margin-right: 2px; }
 
   .template-row { display: flex; gap: 6px; align-items: center; }
 

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import { nav, board, loadBoard } from '../lib/store.svelte'
   import { CloseRepository, CreateBrand, RenameBrand, UpdateBrandDescription, CreateStream, RenameStream, UpdateStreamDescription, CreateProject, RenameProject, UpdateProjectDescription, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, GetCard, GetCardPins, ListOrphanedCardIDs, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject, GetPreferences, GetRepoDescription, UpdateRepoDescription } from '../lib/api'
-  import { LogOut, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox, ChevronsUpDown, ChevronsDownUp } from 'lucide-svelte'
+  import { LogOut, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox, Timer, ChevronsUpDown, ChevronsDownUp } from 'lucide-svelte'
   import ThemeToggle from './ThemeToggle.svelte'
   import BruvIcon from './BruvIcon.svelte'
   import { t } from '../lib/i18n.svelte'
@@ -150,6 +150,7 @@
 
   async function selectInbox() {
     nav.inboxMode = true
+    nav.agentsMode = false
     nav.brandSlug = null
     nav.streamSlug = null
     nav.projectSlug = null
@@ -185,6 +186,18 @@
       board.categories = []
     }
     board.loading = false
+  }
+
+  function selectAgents() {
+    nav.agentsMode = true
+    nav.inboxMode = false
+    nav.brandSlug = null
+    nav.streamSlug = null
+    nav.projectSlug = null
+    nav.brandName = ''
+    nav.streamName = ''
+    nav.projectName = ''
+    localStorage.removeItem('bruv-last-nav')
   }
 
   async function expandAll() {
@@ -245,6 +258,7 @@
 
   async function selectProject(brandSlug: string, streamSlug: string, projectSlug: string) {
     nav.inboxMode = false
+    nav.agentsMode = false
     nav.brandSlug = brandSlug
     nav.streamSlug = streamSlug
     nav.projectSlug = projectSlug
@@ -703,6 +717,12 @@
           {#if inboxCount > 0}<span class="inbox-badge">{inboxCount}</span>{/if}
         </button>
       </div>
+      <div class="tree-row" role="treeitem" tabindex="-1" aria-selected={nav.agentsMode}>
+        <button class="tree-item inbox-item" class:selected={nav.agentsMode} onclick={selectAgents}>
+          <Timer size={14} />
+          <span class="label">{t('sidebar.agents')}</span>
+        </button>
+      </div>
       <div class="tree-ctrl-group">
         <button class="tree-ctrl-btn" onclick={expandAll} title={t('sidebar.expandAll')}><ChevronsUpDown size={12} /></button>
         <button class="tree-ctrl-btn" onclick={collapseAll} title={t('sidebar.collapseAll')}><ChevronsDownUp size={12} /></button>
@@ -1112,10 +1132,7 @@
 
   .inbox-item {
     gap: 0.5rem;
-    margin-bottom: 0.25rem;
-    border-bottom: 1px solid var(--border-muted);
     border-radius: 0;
-    padding-bottom: 0.5rem;
   }
 
   .inbox-badge {

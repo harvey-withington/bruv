@@ -734,6 +734,140 @@ func (a *App) GetAllAgents() ([]map[string]any, error) {
 	return agents, nil
 }
 
+// GetAllAgentRuns returns a unified run history across all agents, most recent first.
+func (a *App) GetAllAgentRuns(limit int) ([]map[string]any, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	cardsDir := filepath.Join(a.repo.Root, "cards")
+	entries, err := os.ReadDir(cardsDir)
+	if err != nil {
+		return nil, nil
+	}
+
+	// Collect all runs with card context
+	type runWithContext struct {
+		run       model.AgentRun
+		cardTitle string
+	}
+	var allRuns []runWithContext
+
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".agent.json") {
+			continue
+		}
+		cardID := strings.TrimSuffix(name, ".agent.json")
+		af, err := a.repo.GetAgentConfig(cardID)
+		if err != nil || len(af.Runs) == 0 {
+			continue
+		}
+		cardTitle := cardID
+		if c, err := a.repo.GetCard(cardID); err == nil {
+			cardTitle = c.Title
+		}
+		for _, r := range af.Runs {
+			r.CardID = cardID
+			allRuns = append(allRuns, runWithContext{run: r, cardTitle: cardTitle})
+		}
+	}
+
+	// Sort by started_at descending (most recent first)
+	for i := 0; i < len(allRuns)-1; i++ {
+		for j := i + 1; j < len(allRuns); j++ {
+			if allRuns[j].run.StartedAt.After(allRuns[i].run.StartedAt) {
+				allRuns[i], allRuns[j] = allRuns[j], allRuns[i]
+			}
+		}
+	}
+
+	// Limit
+	if len(allRuns) > limit {
+		allRuns = allRuns[:limit]
+	}
+
+	var result []map[string]any
+	for _, rc := range allRuns {
+		r := rc.run
+		entry := map[string]any{
+			"id":          r.ID,
+			"card_id":     r.CardID,
+			"card_title":  rc.cardTitle,
+			"started_at":  r.StartedAt.Format(time.RFC3339),
+			"status":      r.Status,
+			"tokens_used": r.TokensUsed,
+			"tool_count":  len(r.ToolCalls),
+		}
+		if r.FinishedAt != nil {
+			entry["finished_at"] = r.FinishedAt.Format(time.RFC3339)
+			entry["duration_secs"] = int(r.FinishedAt.Sub(r.StartedAt).Seconds())
+		}
+		if r.Summary != "" {
+			entry["summary"] = r.Summary
+		}
+		if r.Error != "" {
+			entry["error"] = r.Error
+		}
+		result = append(result, entry)
+	}
+	return result, nil
+}
+
+// GetAgentAnalytics returns aggregate statistics across all agents.
+func (a *App) GetAgentAnalytics() (map[string]any, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	cardsDir := filepath.Join(a.repo.Root, "cards")
+	entries, err := os.ReadDir(cardsDir)
+	if err != nil {
+		return nil, nil
+	}
+
+	var totalAgents, enabledAgents, totalRuns, successRuns, failedRuns, totalTokens int
+
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".agent.json") {
+			continue
+		}
+		cardID := strings.TrimSuffix(name, ".agent.json")
+		af, err := a.repo.GetAgentConfig(cardID)
+		if err != nil {
+			continue
+		}
+		cfg := af.Config
+		if !cfg.Enabled && cfg.Goal == "" && cfg.Schedule == "" && len(af.Runs) == 0 {
+			continue
+		}
+		totalAgents++
+		if cfg.Enabled {
+			enabledAgents++
+		}
+		for _, r := range af.Runs {
+			totalRuns++
+			totalTokens += r.TokensUsed
+			if r.Status == "success" {
+				successRuns++
+			} else if r.Status == "failure" {
+				failedRuns++
+			}
+		}
+	}
+
+	return map[string]any{
+		"total_agents":   totalAgents,
+		"enabled_agents": enabledAgents,
+		"total_runs":     totalRuns,
+		"success_runs":   successRuns,
+		"failed_runs":    failedRuns,
+		"total_tokens":   totalTokens,
+	}, nil
+}
+
 // ForceQuit actually terminates the app (bypasses hide-to-tray).
 func (a *App) ForceQuit() {
 	a.forceQuit = true

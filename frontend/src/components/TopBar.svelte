@@ -7,14 +7,14 @@
   import { notifications } from '../lib/notifications.svelte'
   import { t } from '../lib/i18n.svelte'
 
-  let { onSelectCard, onOpenTagEditor, onOpenProjectSettings, onToggleProjectChat, projectChatActive, onToggleAgentDashboard, agentDashboardActive, agentsRunning }: {
+  let { onSelectCard, onOpenTagEditor, onOpenProjectSettings, onToggleProjectChat, projectChatActive, onNavigateAgents, agentsActive, agentsRunning }: {
     onSelectCard?: (cardId: string) => void
     onOpenTagEditor?: () => void
     onOpenProjectSettings?: () => void
     onToggleProjectChat?: () => void
     projectChatActive?: boolean
-    onToggleAgentDashboard?: () => void
-    agentDashboardActive?: boolean
+    onNavigateAgents?: () => void
+    agentsActive?: boolean
     agentsRunning?: boolean
   } = $props()
 
@@ -147,7 +147,7 @@
     {#if nav.projectSlug}
       <button class="icon-btn" onclick={onOpenTagEditor} title={t('toolbar.tags')}><Tags size={16} /></button>
     {/if}
-    <button class="icon-btn" class:active={agentDashboardActive} class:agents-running={agentsRunning} onclick={onToggleAgentDashboard} title={t('toolbar.agents')}><Timer size={16} /></button>
+    <button class="icon-btn" class:active={agentsActive} class:agents-running={agentsRunning} onclick={onNavigateAgents} title={t('toolbar.agents')}><Timer size={16} /></button>
     {#if nav.projectSlug}
       <button class="icon-btn" class:active={projectChatActive} onclick={onToggleProjectChat} title={t('toolbar.project_chat')}><BotMessageSquare size={16} /></button>
       <button class="icon-btn" onclick={onOpenProjectSettings} title={t('toolbar.project_settings')}><SlidersHorizontal size={16} /></button>

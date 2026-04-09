@@ -13,7 +13,6 @@
   import CardDetail from './components/CardDetail.svelte'
   import SettingsDialog from './components/SettingsDialog.svelte'
   import ProjectSettingsDialog from './components/ProjectSettingsDialog.svelte'
-  import AgentDashboard from './components/AgentDashboard.svelte'
   import KeyboardShortcuts from './components/KeyboardShortcuts.svelte'
   import UserProfile from './components/UserProfile.svelte'
   import TagEditor from './components/TagEditor.svelte'
@@ -59,7 +58,6 @@
   let showProfile = $state(false)
   let showTagEditor = $state(false)
   let showProjectChat = $state(false)
-  let showAgentDashboard = $state(false)
   let showKeyboardShortcuts = $state(false)
 
   function handleSearchSelectCard(cardId: string, tab?: 'details' | 'agent') {
@@ -213,8 +211,8 @@
         onOpenProjectSettings={() => showProjectSettings = true}
         onToggleProjectChat={() => showProjectChat = !showProjectChat}
         projectChatActive={showProjectChat}
-        onToggleAgentDashboard={() => showAgentDashboard = !showAgentDashboard}
-        agentDashboardActive={showAgentDashboard}
+        onNavigateAgents={() => { nav.agentsMode = true; nav.inboxMode = false; nav.brandSlug = null; nav.streamSlug = null; nav.projectSlug = null }}
+        agentsActive={nav.agentsMode}
         agentsRunning={Object.keys(board.runningAgentIds).length > 0}
       />
       <div class="board-row">
@@ -260,12 +258,6 @@
     <TagEditor onClose={() => showTagEditor = false} />
   {/if}
 
-  {#if showAgentDashboard}
-    <AgentDashboard
-      onClose={() => showAgentDashboard = false}
-      onOpenCard={(cardId) => { showAgentDashboard = false; handleSearchSelectCard(cardId, 'agent') }}
-    />
-  {/if}
 {:else}
   <WelcomeScreen />
 {/if}

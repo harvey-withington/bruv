@@ -19,6 +19,9 @@ export const nav = $state({
   // Inbox mode (showing orphaned cards)
   inboxMode: false,
 
+  // Agents page mode
+  agentsMode: false,
+
   // Sidebar collapsed state
   sidebarCollapsed: false,
   sidebarWidth: 260,

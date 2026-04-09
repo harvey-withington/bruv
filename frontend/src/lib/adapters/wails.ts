@@ -69,6 +69,10 @@ import {
   // @ts-ignore — generated after `wails generate` with updated Go code
   GetAllAgents,
   // @ts-ignore — generated after `wails generate` with updated Go code
+  GetAllAgentRuns,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  GetAgentAnalytics,
+  // @ts-ignore — generated after `wails generate` with updated Go code
   ForceQuit,
   LoadChatHistory, SendChatMessage,
   // @ts-ignore — generated after `wails generate` with updated Go code
@@ -242,6 +246,8 @@ export const wailsAdapter: BackendAdapter = {
   ResumeAllAgents,
   GetAgentSchedulerStatus: GetAgentSchedulerStatus as unknown as BackendAdapter['GetAgentSchedulerStatus'],
   GetAllAgents: GetAllAgents as unknown as BackendAdapter['GetAllAgents'],
+  GetAllAgentRuns: GetAllAgentRuns as unknown as BackendAdapter['GetAllAgentRuns'],
+  GetAgentAnalytics: GetAgentAnalytics as unknown as BackendAdapter['GetAgentAnalytics'],
   ForceQuit,
 
   LoadChatHistory,

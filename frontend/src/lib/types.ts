@@ -212,6 +212,29 @@ export type AgentSummary = {
   last_run_error: string | null
 }
 
+export type AgentRunEntry = {
+  id: string
+  card_id: string
+  card_title: string
+  started_at: string
+  finished_at: string | null
+  duration_secs: number | null
+  status: string
+  summary: string | null
+  error: string | null
+  tokens_used: number
+  tool_count: number
+}
+
+export type AgentAnalytics = {
+  total_agents: number
+  enabled_agents: number
+  total_runs: number
+  success_runs: number
+  failed_runs: number
+  total_tokens: number
+}
+
 // --- Notifications ---
 
 export type AppNotification = {
@@ -448,6 +471,8 @@ export interface BackendAdapter {
   ResumeAllAgents(): Promise<void>
   GetAgentSchedulerStatus(): Promise<{ active: boolean; paused: boolean; runningCount: number }>
   GetAllAgents(): Promise<AgentSummary[]>
+  GetAllAgentRuns(limit: number): Promise<AgentRunEntry[]>
+  GetAgentAnalytics(): Promise<AgentAnalytics>
   ForceQuit(): Promise<void>
 
   // Chat

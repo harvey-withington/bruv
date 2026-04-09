@@ -173,6 +173,8 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     ResumeAllAgents: async () => {},
     GetAgentSchedulerStatus: async () => ({ active: false, paused: false, runningCount: 0 }),
     GetAllAgents: async () => [],
+    GetAllAgentRuns: async () => [],
+    GetAgentAnalytics: async () => ({ total_agents: 0, enabled_agents: 0, total_runs: 0, success_runs: 0, failed_runs: 0, total_tokens: 0 }),
     ForceQuit: async () => {},
 
     LoadChatHistory: async () => ({ card_id: '', messages: [] }),

@@ -3,6 +3,7 @@
   import Column from './Column.svelte'
   import CardDetail from './CardDetail.svelte'
   import InboxView from './InboxView.svelte'
+  import AgentsPage from './AgentsPage.svelte'
   import { board, nav, dnd, boardSearch, boardSearchFilters, loadBoard } from '../lib/store.svelte'
   import { CreateCard, PinCard, CreateCategory, RenameCategory, GetCard, MoveCardInCategory, MoveCardToCategory, ReorderCategories, DeleteCategory, DeleteCard, MoveCategoryCards, DuplicateCard, CopyCategory } from '../lib/api'
   import { t } from '../lib/i18n.svelte'
@@ -401,6 +402,9 @@
 
   {:else if nav.inboxMode}
     <InboxView onNewIdea={handleNewIdea} onCardClick={handleCardClick} />
+
+  {:else if nav.agentsMode}
+    <AgentsPage onCardClick={handleCardClick} />
 
   {:else if !nav.projectSlug}
     <div class="empty-board">

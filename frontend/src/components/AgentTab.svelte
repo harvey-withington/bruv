@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { GetAgentConfig, SaveAgentConfig, TriggerAgent, CancelAgent, ClearAgentRuns, IsLLMConfigured, ListAgentCardIDs, GetLLMAccounts, ValidateSchedulePreview } from '../lib/api'
+  import { GetAgentConfig, SaveAgentConfig, TriggerAgent, CancelAgent, IsLLMConfigured, ListAgentCardIDs, GetLLMAccounts } from '../lib/api'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
   import { board } from '../lib/store.svelte'
-  import type { AgentConfig, AgentRun, LLMAccount } from '../lib/types'
-  import { Timer, Clock, CircleCheck, CircleX, TriangleAlert, Play, Square, Trash2 } from 'lucide-svelte'
+  import type { AgentConfig, LLMAccount } from '../lib/types'
+  import { Timer, Play, Square } from 'lucide-svelte'
   import LLMAccountSelect from './LLMAccountSelect.svelte'
   import { onMount, onDestroy } from 'svelte'
   import { EventsOn } from '../../wailsjs/runtime/runtime'
@@ -16,9 +16,10 @@
   let saving = $state(false)
   let triggering = $state(false)
   let dirty = $state(false)
-  let runs = $state<AgentRun[]>([])
-  let expandedRun = $state<string | null>(null)
   let nextRunAt = $state<string | null>(null)
+
+  // Wizard step
+  let agentStep = $state<1 | 2 | 3>(1)
 
   // Config fields
   let enabled = $state(false)
@@ -43,8 +44,6 @@
   let activeWindowEnd = $state('')
   let oneShot = $state(false)
   let timezone = $state('')
-  let schedulePreview = $state<string[]>([])
-
   const COMMON_TIMEZONES = [
     '', 'UTC',
     'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
@@ -88,13 +87,6 @@
     { label: '30m', value: '30m' },
   ]
 
-  async function loadPreview() {
-    if (!schedule) { schedulePreview = []; return }
-    try {
-      schedulePreview = await ValidateSchedulePreview(schedule, startDate, endDate, timezone, 5) || []
-    } catch { schedulePreview = [] }
-  }
-
   async function loadConfig() {
     loading = true
     try {
@@ -124,10 +116,8 @@
       activeWindowEnd = af.config.active_window_end || ''
       oneShot = af.config.one_shot || false
       timezone = af.config.timezone || ''
-      runs = af.runs || []
       nextRunAt = af.config.next_run_at
       dirty = false
-      loadPreview()
     } catch (e) {
       console.error('Failed to load agent config:', e)
     } finally {
@@ -198,7 +188,6 @@
       } catch { /* ignore */ }
       showToast(t('agent.saved'), 'success')
       dirty = false
-      loadPreview()
     } catch (e) {
       showToast(t('agent.save_failed'), 'error')
       console.error('Failed to save agent config:', e)
@@ -234,17 +223,6 @@
     dirty = true
   }
 
-  async function clearRuns() {
-    try {
-      await ClearAgentRuns(cardId)
-      runs = []
-      expandedRun = null
-      showToast(t('agent.runs_cleared'), 'success')
-    } catch {
-      showToast(t('error.delete_failed'), 'error')
-    }
-  }
-
   async function resetCost() {
     costSpentUSD = 0
     dirty = true
@@ -259,29 +237,6 @@
       case 'failed': return 'var(--color-error, #ef4444)'
       default: return 'var(--color-muted, #94a3b8)'
     }
-  }
-
-  function runStatusIcon(s: string) {
-    switch (s) {
-      case 'success': return CircleCheck
-      case 'failure': return CircleX
-      case 'timeout': return TriangleAlert
-      case 'cancelled': return Square
-      default: return Clock
-    }
-  }
-
-  function formatRunTime(iso: string): string {
-    const d = new Date(iso)
-    const diff = Date.now() - d.getTime()
-    const mins = Math.floor(diff / 60000)
-    if (mins < 1) return 'just now'
-    if (mins < 60) return `${mins}m ago`
-    const hours = Math.floor(mins / 60)
-    if (hours < 24) return `${hours}h ago`
-    const days = Math.floor(hours / 24)
-    if (days < 7) return `${days}d ago`
-    return d.toLocaleDateString()
   }
 
   function formatNextRun(iso: string | null): string {
@@ -336,7 +291,7 @@
       </div>
     {/if}
 
-    <!-- Header bar -->
+    <!-- Header: Enable + Status + Actions -->
     <div class="agent-header">
       <label class="toggle-row">
         <input type="checkbox" bind:checked={enabled} onchange={() => { markDirty(); save() }} />
@@ -369,36 +324,52 @@
       </div>
     </div>
 
-    <!-- Full-width config sections -->
-    <div class="agent-config">
-      <!-- Goal -->
-      <div class="config-card">
-        <div class="config-label">{t('agent.goal')}</div>
-        <textarea
-          class="agent-textarea"
-          rows="3"
-          placeholder={t('agent.goal_placeholder')}
-          bind:value={goal}
-          oninput={markDirty}
-        ></textarea>
-      </div>
+    <!-- Step indicators -->
+    <div class="step-nav">
+      <button class="step-pill" class:active={agentStep === 1} onclick={() => agentStep = 1}>
+        <span class="step-num">1</span>
+        <span class="step-label">{t('agent.step_setup')}</span>
+      </button>
+      <button class="step-pill" class:active={agentStep === 2} onclick={() => agentStep = 2}>
+        <span class="step-num">2</span>
+        <span class="step-label">{t('agent.step_schedule')}</span>
+      </button>
+      <button class="step-pill" class:active={agentStep === 3} onclick={() => agentStep = 3}>
+        <span class="step-num">3</span>
+        <span class="step-label">{t('agent.step_permissions')}</span>
+      </button>
+    </div>
 
-      <!-- AI Model override -->
-      {#if llmAccounts.length > 0}
+    <!-- Step content -->
+    <div class="step-content">
+      {#if agentStep === 1}
+        <!-- STEP 1: Goal & Model -->
         <div class="config-card">
-          <div class="config-label">{t('agent.llm_account')}</div>
-          <LLMAccountSelect
-            accounts={llmAccounts}
-            bind:selectedAccountId={llmAccountId}
-            bind:selectedModel={llmModel}
-            onchange={() => markDirty()}
-          />
+          <div class="config-label">{t('agent.goal')}</div>
+          <textarea
+            class="agent-textarea"
+            rows="8"
+            placeholder={t('agent.goal_placeholder')}
+            bind:value={goal}
+            oninput={markDirty}
+          ></textarea>
         </div>
-      {/if}
 
-      <!-- Schedule + Notifications side by side -->
-      <div class="config-row">
-        <div class="config-card config-card-flex">
+        {#if llmAccounts.length > 0}
+          <div class="config-card">
+            <div class="config-label">{t('agent.llm_account')}</div>
+            <LLMAccountSelect
+              accounts={llmAccounts}
+              bind:selectedAccountId={llmAccountId}
+              bind:selectedModel={llmModel}
+              onchange={() => markDirty()}
+            />
+          </div>
+        {/if}
+
+      {:else if agentStep === 2}
+        <!-- STEP 2: Schedule & Notifications -->
+        <div class="config-card">
           <div class="config-label">{t('agent.schedule')}</div>
           <input
             type="text"
@@ -416,66 +387,135 @@
               >{preset.label}</button>
             {/each}
           </div>
+        </div>
 
-          <!-- Date range -->
-          <div class="schedule-row">
-            <label class="schedule-field">
-              <span class="schedule-field-label">{t('agent.start_date')}</span>
-              <input type="datetime-local" class="agent-input agent-input-sm-wide" bind:value={startDate} oninput={markDirty} />
-            </label>
-            <label class="schedule-field">
-              <span class="schedule-field-label">{t('agent.end_date')}</span>
-              <input type="datetime-local" class="agent-input agent-input-sm-wide" bind:value={endDate} oninput={markDirty} />
-            </label>
+        <div class="config-row">
+          <div class="config-card">
+            <div class="config-label">{t('agent.start_date')}</div>
+            <input type="datetime-local" class="agent-input" bind:value={startDate} oninput={markDirty} />
           </div>
-
-          <!-- Active window -->
-          <div class="schedule-row">
-            <label class="schedule-field">
-              <span class="schedule-field-label">{t('agent.active_window_start')}</span>
-              <input type="time" class="agent-input agent-input-sm" bind:value={activeWindowStart} oninput={markDirty} />
-            </label>
-            <label class="schedule-field">
-              <span class="schedule-field-label">{t('agent.active_window_end')}</span>
-              <input type="time" class="agent-input agent-input-sm" bind:value={activeWindowEnd} oninput={markDirty} />
-            </label>
+          <div class="config-card">
+            <div class="config-label">{t('agent.end_date')}</div>
+            <input type="datetime-local" class="agent-input" bind:value={endDate} oninput={markDirty} />
           </div>
+        </div>
 
-          <!-- One-shot + Timezone -->
-          <div class="schedule-row">
-            <label class="toggle-row">
+        <div class="config-row">
+          <div class="config-card">
+            <div class="config-label">{t('agent.active_window_start')}</div>
+            <input type="time" class="agent-input" bind:value={activeWindowStart} oninput={markDirty} />
+          </div>
+          <div class="config-card">
+            <div class="config-label">{t('agent.active_window_end')}</div>
+            <input type="time" class="agent-input" bind:value={activeWindowEnd} oninput={markDirty} />
+          </div>
+        </div>
+
+        <div class="config-row">
+          <div class="config-card">
+            <label class="toggle-row toggle-row-sm">
               <input type="checkbox" bind:checked={oneShot} onchange={markDirty} />
               <span class="schedule-field-label">{t('agent.one_shot')}</span>
             </label>
-            <label class="schedule-field">
-              <span class="schedule-field-label">{t('agent.timezone')}</span>
-              <select class="agent-input agent-input-sm-wide" bind:value={timezone} onchange={markDirty}>
-                {#each COMMON_TIMEZONES as tz}
-                  <option value={tz}>{tz || t('agent.timezone_local')}</option>
-                {/each}
-              </select>
-            </label>
           </div>
-
-          <!-- Schedule preview -->
-          {#if schedulePreview.length > 0}
-            <div class="schedule-preview">
-              <span class="schedule-preview-label">{t('agent.schedule_preview')}</span>
-              <ul class="schedule-preview-list">
-                {#each schedulePreview as dt}
-                  <li>{new Date(dt).toLocaleString()}</li>
-                {/each}
-              </ul>
-            </div>
-          {:else if schedule}
-            <div class="schedule-preview">
-              <span class="schedule-preview-label">{t('agent.schedule_preview')}</span>
-              <span class="schedule-preview-empty">{t('agent.no_upcoming')}</span>
-            </div>
-          {/if}
+          <div class="config-card">
+            <div class="config-label">{t('agent.timezone')}</div>
+            <select class="agent-input" bind:value={timezone} onchange={markDirty}>
+              {#each COMMON_TIMEZONES as tz}
+                <option value={tz}>{tz || t('agent.timezone_local')}</option>
+              {/each}
+            </select>
+          </div>
         </div>
 
-        <div class="config-card config-card-flex">
+      {:else}
+        <!-- STEP 3: Permissions — Tools & Safety side by side, Notifications below -->
+        <div class="config-row">
+          <div class="config-card perm-column">
+            <div class="config-label">{t('agent.tools')}</div>
+            <div class="perm-scroll">
+              <div class="tools-list">
+                {#each TOOL_GROUPS as group}
+                  {@const groupIds = group.tools.map(t => t.id)}
+                  {@const allChecked = groupIds.every(id => allowedTools.includes(id))}
+                  {@const someChecked = groupIds.some(id => allowedTools.includes(id)) && !allChecked}
+                  <div class="tool-group">
+                    <label class="tool-group-header">
+                      <input
+                        type="checkbox"
+                        checked={allChecked}
+                        indeterminate={someChecked}
+                        onchange={() => {
+                          if (allChecked) {
+                            allowedTools = allowedTools.filter(id => !groupIds.includes(id))
+                          } else {
+                            allowedTools = [...new Set([...allowedTools, ...groupIds])]
+                          }
+                          dirty = true
+                        }}
+                      />
+                      <span class="tool-group-title">{t(group.titleKey)}</span>
+                    </label>
+                    {#each group.tools as tool}
+                      <label class="tool-item">
+                        <input
+                          type="checkbox"
+                          checked={allowedTools.includes(tool.id)}
+                          onchange={() => toggleTool(tool.id)}
+                        />
+                        <div class="tool-info">
+                          <span class="tool-name">{t(tool.labelKey)}</span>
+                          <span class="tool-desc">{t(tool.descKey)}</span>
+                        </div>
+                      </label>
+                    {/each}
+                  </div>
+                {/each}
+              </div>
+            </div>
+          </div>
+
+          <div class="config-card perm-column">
+            <div class="config-label">{t('agent.safety')}</div>
+            <div class="perm-scroll">
+              <div class="safety-stack">
+                <label class="safety-field">
+                  <span class="safety-label">{t('agent.token_budget')}</span>
+                  <input type="number" class="agent-input" placeholder={t('agent.token_budget_placeholder')} bind:value={maxTokensBudget} oninput={markDirty} min="0" step="1000" />
+                  <span class="safety-hint">{t('agent.token_budget_hint')}</span>
+                </label>
+                <label class="safety-field">
+                  <span class="safety-label">{t('agent.min_interval')}</span>
+                  <input type="number" class="agent-input" placeholder={t('agent.min_interval_placeholder')} bind:value={minIntervalMins} oninput={markDirty} min="0" />
+                  <span class="safety-hint">{t('agent.min_interval_hint')}</span>
+                </label>
+                <label class="safety-field">
+                  <span class="safety-label">{t('agent.max_retries')}</span>
+                  <input type="number" class="agent-input" placeholder={t('agent.max_retries_placeholder')} bind:value={maxRetries} oninput={markDirty} min="0" max="10" />
+                  <span class="safety-hint">{t('agent.max_retries_hint')}</span>
+                </label>
+                <label class="safety-field">
+                  <span class="safety-label">{t('agent.retry_backoff')}</span>
+                  <input type="number" class="agent-input" placeholder={t('agent.retry_backoff_placeholder')} bind:value={retryBackoffMins} oninput={markDirty} min="0" />
+                  <span class="safety-hint">{t('agent.retry_backoff_hint')}</span>
+                </label>
+                <label class="safety-field">
+                  <span class="safety-label">{t('agent.cost_budget')}</span>
+                  <input type="number" class="agent-input" placeholder={t('agent.cost_budget_placeholder')} bind:value={costBudgetUSD} oninput={markDirty} min="0" step="0.01" />
+                  <span class="safety-hint">{t('agent.cost_budget_hint')}</span>
+                  {#if costSpentUSD > 0}
+                    <span class="cost-spent-row">
+                      <span class="cost-spent-label">{t('agent.cost_spent')}: ${costSpentUSD.toFixed(4)}</span>
+                      <button type="button" class="cost-reset-btn" onclick={resetCost}>{t('agent.cost_reset')}</button>
+                    </span>
+                  {/if}
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="config-card">
           <div class="config-label">{t('agent.notifications')}</div>
           <div class="notify-row">
             <span class="notify-label">{t('agent.notify_channel')}</span>
@@ -493,196 +533,7 @@
             </div>
           </div>
         </div>
-      </div>
-
-      <!-- Safety & Limits -->
-      <div class="config-card">
-        <div class="config-label">{t('agent.safety')}</div>
-        <div class="safety-grid">
-          <label class="safety-field">
-            <span class="safety-label">{t('agent.token_budget')}</span>
-            <input
-              type="number"
-              class="agent-input agent-input-sm"
-              placeholder={t('agent.token_budget_placeholder')}
-              bind:value={maxTokensBudget}
-              oninput={markDirty}
-              min="0"
-              step="1000"
-            />
-            <span class="safety-hint">{t('agent.token_budget_hint')}</span>
-          </label>
-          <label class="safety-field">
-            <span class="safety-label">{t('agent.min_interval')}</span>
-            <input
-              type="number"
-              class="agent-input agent-input-sm"
-              placeholder={t('agent.min_interval_placeholder')}
-              bind:value={minIntervalMins}
-              oninput={markDirty}
-              min="0"
-            />
-            <span class="safety-hint">{t('agent.min_interval_hint')}</span>
-          </label>
-          <label class="safety-field">
-            <span class="safety-label">{t('agent.max_retries')}</span>
-            <input
-              type="number"
-              class="agent-input agent-input-sm"
-              placeholder={t('agent.max_retries_placeholder')}
-              bind:value={maxRetries}
-              oninput={markDirty}
-              min="0"
-              max="10"
-            />
-            <span class="safety-hint">{t('agent.max_retries_hint')}</span>
-          </label>
-          <label class="safety-field">
-            <span class="safety-label">{t('agent.retry_backoff')}</span>
-            <input
-              type="number"
-              class="agent-input agent-input-sm"
-              placeholder={t('agent.retry_backoff_placeholder')}
-              bind:value={retryBackoffMins}
-              oninput={markDirty}
-              min="0"
-            />
-            <span class="safety-hint">{t('agent.retry_backoff_hint')}</span>
-          </label>
-          <label class="safety-field">
-            <span class="safety-label">{t('agent.cost_budget')}</span>
-            <input
-              type="number"
-              class="agent-input agent-input-sm"
-              placeholder={t('agent.cost_budget_placeholder')}
-              bind:value={costBudgetUSD}
-              oninput={markDirty}
-              min="0"
-              step="0.01"
-            />
-            <span class="safety-hint">{t('agent.cost_budget_hint')}</span>
-            {#if costSpentUSD > 0}
-              <span class="cost-spent-row">
-                <span class="cost-spent-label">{t('agent.cost_spent')}: ${costSpentUSD.toFixed(4)}</span>
-                <button type="button" class="cost-reset-btn" onclick={resetCost}>{t('agent.cost_reset')}</button>
-              </span>
-            {/if}
-          </label>
-        </div>
-      </div>
-    </div>
-
-    <!-- Two-column panels: Tools + Run History -->
-    <div class="agent-panels">
-      <div class="panel">
-        <div class="panel-header">
-          {t('agent.tools')}
-          {#if allowedTools.length > 0}
-            <span class="header-badge">{allowedTools.length}</span>
-          {/if}
-        </div>
-        <div class="panel-body panel-scroll">
-          {#each TOOL_GROUPS as group}
-            {@const groupIds = group.tools.map(t => t.id)}
-            {@const allChecked = groupIds.every(id => allowedTools.includes(id))}
-            {@const someChecked = groupIds.some(id => allowedTools.includes(id)) && !allChecked}
-            <div class="tool-group">
-              <label class="tool-group-header">
-                <input
-                  type="checkbox"
-                  checked={allChecked}
-                  indeterminate={someChecked}
-                  onchange={() => {
-                    if (allChecked) {
-                      allowedTools = allowedTools.filter(id => !groupIds.includes(id))
-                    } else {
-                      allowedTools = [...new Set([...allowedTools, ...groupIds])]
-                    }
-                    dirty = true
-                  }}
-                />
-                <span class="tool-group-title">{t(group.titleKey)}</span>
-              </label>
-              {#each group.tools as tool}
-                <label class="tool-item">
-                  <input
-                    type="checkbox"
-                    checked={allowedTools.includes(tool.id)}
-                    onchange={() => toggleTool(tool.id)}
-                  />
-                  <div class="tool-info">
-                    <span class="tool-name">{t(tool.labelKey)}</span>
-                    <span class="tool-desc">{t(tool.descKey)}</span>
-                  </div>
-                </label>
-              {/each}
-            </div>
-          {/each}
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-header">
-          {t('agent.runs')}
-          {#if runs.length > 0}
-            <span class="header-stats">
-              <span class="stat-success">{runs.filter(r => r.status === 'success').length}</span> / <span class="stat-fail">{runs.filter(r => r.status === 'failure' || r.status === 'cancelled').length}</span>
-            </span>
-            <button class="clear-runs-btn" onclick={clearRuns} title={t('agent.clear_runs')}>
-              <Trash2 size={12} />
-            </button>
-          {/if}
-        </div>
-        <div class="panel-body panel-scroll">
-          {#if runs.length === 0}
-            <p class="runs-empty">{t('agent.runs_empty')}</p>
-          {:else}
-            {#each runs as run}
-              <button class="run-entry" class:expanded={expandedRun === run.id} onclick={() => expandedRun = expandedRun === run.id ? null : run.id}>
-                <span class="run-status-icon" style="color: {statusColor(run.status === 'success' ? 'idle' : run.status === 'failure' ? 'failed' : 'disabled')}">
-                  {#each [runStatusIcon(run.status)] as RunIcon}
-                    <RunIcon size={13} />
-                  {/each}
-                </span>
-                <span class="run-time">{formatRunTime(run.started_at)}</span>
-                <span class="run-tools-badge">{run.tool_calls?.length ?? '?'} tools</span>
-                {#if run.tokens_used}
-                  <span class="run-tokens-badge">{run.tokens_used.toLocaleString()} tok</span>
-                {/if}
-                <span class="run-summary-preview">{run.error || run.summary || t('agent.run_no_summary')}</span>
-              </button>
-              {#if expandedRun === run.id}
-                <div class="run-detail">
-                  {#if run.summary}
-                    <div class="run-field">
-                      <span class="run-field-label">{t('agent.run_summary')}</span>
-                      <span>{run.summary}</span>
-                    </div>
-                  {/if}
-                  {#if run.error}
-                    <div class="run-field run-error">
-                      <span class="run-field-label">{t('agent.run_error')}</span>
-                      <span>{run.error}</span>
-                    </div>
-                  {/if}
-                  {#if run.tokens_used}
-                    <div class="run-field">
-                      <span class="run-field-label">{t('agent.run_tokens')}</span>
-                      <span>{run.tokens_used.toLocaleString()}</span>
-                    </div>
-                  {/if}
-                  {#if run.tool_calls?.length}
-                    <div class="run-field">
-                      <span class="run-field-label">{t('agent.run_tools_used')}</span>
-                      <span class="run-tools-list">{run.tool_calls.map(tc => tc.tool).join(', ')}</span>
-                    </div>
-                  {/if}
-                </div>
-              {/if}
-            {/each}
-          {/if}
-        </div>
-      </div>
+      {/if}
     </div>
   </div>
 {/if}
@@ -703,8 +554,6 @@
     flex-direction: column;
     gap: 0.75rem;
     padding: 1rem 1.25rem;
-    overflow: hidden;
-    height: 100%;
   }
 
   /* ── AI not configured banner ── */
@@ -738,6 +587,13 @@
     align-items: center;
     gap: 0.5rem;
     cursor: pointer;
+  }
+  .toggle-row-sm {
+    font-size: 0.75rem;
+  }
+  .toggle-row-sm input[type="checkbox"] {
+    width: 13px;
+    height: 13px;
   }
   .toggle-label {
     font-weight: 500;
@@ -824,13 +680,60 @@
   .save-btn:hover { filter: brightness(1.15); }
   .save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-  /* ── Config area (full-width cards) ── */
-  .agent-config {
+  /* ── Step nav ── */
+  .step-nav {
+    display: flex;
+    gap: 0.25rem;
+    padding: 0;
+  }
+  .step-pill {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.3rem 0.75rem;
+    border: 1px solid var(--border-muted);
+    border-radius: 6px;
+    background: none;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.15s;
+    flex: 1;
+    justify-content: center;
+  }
+  .step-pill:hover { border-color: var(--accent); color: var(--text-primary); }
+  .step-pill.active {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .step-num {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--border-muted);
+    color: var(--text-muted);
+    font-size: 0.65rem;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .step-pill.active .step-num {
+    background: var(--accent);
+    color: white;
+  }
+  .step-label { white-space: nowrap; }
+
+  /* ── Step content ── */
+  .step-content {
     display: flex;
     flex-direction: column;
     gap: 0.6rem;
   }
 
+  /* ── Config cards ── */
   .config-card {
     border: 1px solid var(--border-muted);
     border-radius: 6px;
@@ -849,8 +752,6 @@
     grid-template-columns: 1fr 1fr;
     gap: 0.6rem;
   }
-
-  .config-card-flex { min-width: 0; }
 
   .config-label {
     font-size: 0.7rem;
@@ -873,21 +774,121 @@
     font-family: inherit;
     resize: vertical;
     transition: border-color 0.15s;
+    color-scheme: dark light;
   }
+  :global([data-theme="dark"]) .agent-input { color-scheme: dark; }
+  :global([data-theme="light"]) .agent-input { color-scheme: light; }
   .agent-textarea:focus, .agent-input:focus {
     outline: none;
     border-color: var(--accent);
   }
 
-  .agent-input-sm {
-    max-width: 120px;
+  /* ── Schedule presets ── */
+  .preset-chips {
+    display: flex;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+    margin-top: 0.2rem;
+  }
+  .preset-chip {
+    padding: 0.15rem 0.5rem;
+    border: 1px solid var(--border-muted);
+    border-radius: 999px;
+    background: var(--bg-surface);
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    cursor: pointer;
+    font-family: monospace;
+    transition: border-color 0.1s, color 0.1s, background 0.1s;
+  }
+  .preset-chip:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .preset-chip.active {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
   }
 
-  /* ── Safety grid ── */
-  .safety-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr 1fr;
+  /* ── Notifications ── */
+  .notify-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .notify-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    min-width: 4.5rem;
+    flex-shrink: 0;
+  }
+  .notify-checks {
+    display: flex;
     gap: 0.6rem;
+  }
+  .notify-checks label {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+    color: var(--text-body);
+  }
+
+  /* ── Tools ── */
+  .perm-column {
+    min-width: 0;
+  }
+  .perm-scroll {
+    max-height: 30vh;
+    overflow-y: auto;
+  }
+
+  .tools-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .tool-group {
+    margin-bottom: 0.4rem;
+  }
+  .tool-group-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.2rem 0.4rem;
+    cursor: pointer;
+  }
+  .tool-group-title {
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
+  }
+  .tool-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-left: 0.6rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.1s;
+    flex-shrink: 0;
+  }
+  .tool-item:hover { background: var(--bg-hover); }
+  .tool-item input { margin-top: 0.15rem; }
+  .tool-info { display: flex; flex-direction: column; }
+  .tool-name { font-size: 0.8rem; font-weight: 500; color: var(--text-body); }
+  .tool-desc { font-size: 0.7rem; color: var(--text-muted); }
+
+  /* ── Safety stack (vertical) ── */
+  .safety-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
   }
   .safety-field {
     display: flex;
@@ -927,310 +928,5 @@
   }
   .cost-reset-btn:hover {
     border-color: var(--accent);
-  }
-
-  /* ── Schedule presets ── */
-  .preset-chips {
-    display: flex;
-    gap: 0.3rem;
-    flex-wrap: wrap;
-    margin-top: 0.2rem;
-  }
-  .preset-chip {
-    padding: 0.15rem 0.5rem;
-    border: 1px solid var(--border-muted);
-    border-radius: 999px;
-    background: var(--bg-surface);
-    color: var(--text-muted);
-    font-size: 0.7rem;
-    cursor: pointer;
-    font-family: monospace;
-    transition: border-color 0.1s, color 0.1s, background 0.1s;
-  }
-  .preset-chip:hover {
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-  .preset-chip.active {
-    background: var(--accent);
-    color: white;
-    border-color: var(--accent);
-  }
-
-  /* ── Schedule extras ── */
-  .schedule-row {
-    display: flex;
-    gap: 0.6rem;
-    align-items: flex-end;
-    margin-top: 0.3rem;
-  }
-  .schedule-field {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-  }
-  .schedule-field-label {
-    font-size: 0.68rem;
-    color: var(--text-muted);
-  }
-  .agent-input-sm-wide {
-    max-width: 180px;
-  }
-
-  .schedule-preview {
-    margin-top: 0.35rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-  }
-  .schedule-preview-label {
-    font-size: 0.65rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--text-faint);
-  }
-  .schedule-preview-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
-  }
-  .schedule-preview-list li {
-    font-size: 0.72rem;
-    color: var(--text-muted);
-    font-family: monospace;
-  }
-  .schedule-preview-empty {
-    font-size: 0.72rem;
-    color: var(--text-faint);
-    font-style: italic;
-  }
-
-  /* ── Notifications ── */
-  .notify-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .notify-label {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    min-width: 4.5rem;
-    flex-shrink: 0;
-  }
-  .notify-checks {
-    display: flex;
-    gap: 0.6rem;
-  }
-  .notify-checks label {
-    display: flex;
-    align-items: center;
-    gap: 0.2rem;
-    font-size: 0.75rem;
-    cursor: pointer;
-    color: var(--text-body);
-  }
-
-  /* ── Two-column panels ── */
-  .agent-panels {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.6rem;
-    min-height: 0;
-    flex: 1;
-    overflow: hidden;
-  }
-
-  .panel {
-    border: 1px solid var(--border-muted);
-    border-radius: 6px;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    min-height: 0;
-  }
-
-  .panel-header {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    font-size: 0.7rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-secondary);
-    padding: 0.45rem 0.75rem;
-    border-bottom: 1px solid var(--border-muted);
-    background: var(--bg-elevated);
-    flex-shrink: 0;
-  }
-  .header-badge {
-    font-size: 0.6rem;
-    font-weight: 700;
-    background: var(--accent);
-    color: white;
-    padding: 0 0.35rem;
-    border-radius: 999px;
-    line-height: 1.4;
-  }
-  .header-stats {
-    font-size: 0.65rem;
-    font-weight: 500;
-    margin-left: auto;
-    color: var(--text-muted);
-    text-transform: none;
-    letter-spacing: 0;
-  }
-  .clear-runs-btn {
-    display: flex;
-    align-items: center;
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    padding: 0.1rem;
-    border-radius: 3px;
-    transition: color 0.1s;
-  }
-  .clear-runs-btn:hover { color: var(--danger, #ef4444); }
-  .stat-success { color: #22c55e; }
-  .stat-fail { color: #ef4444; }
-
-  .panel-body {
-    padding: 0.35rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-  }
-
-  .panel-scroll {
-    overflow-y: auto;
-    flex: 1;
-    min-height: 0;
-  }
-
-  /* ── Tools ── */
-  .tool-group {
-    margin-bottom: 0.4rem;
-  }
-  .tool-group-header {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.2rem 0.4rem;
-    cursor: pointer;
-  }
-  .tool-group-title {
-    font-size: 0.68rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--text-faint);
-  }
-  .tool-item {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.5rem;
-    margin-left: 0.6rem;
-    padding: 0.3rem 0.5rem;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background 0.1s;
-    flex-shrink: 0;
-  }
-  .tool-item:hover { background: var(--bg-hover); }
-  .tool-item input { margin-top: 0.15rem; }
-  .tool-info { display: flex; flex-direction: column; }
-  .tool-name { font-size: 0.8rem; font-weight: 500; color: var(--text-body); }
-  .tool-desc { font-size: 0.7rem; color: var(--text-muted); }
-
-  /* ── Run history ── */
-  .runs-empty {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    font-style: italic;
-    padding: 0.5rem;
-  }
-  .run-entry {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.3rem 0.5rem;
-    width: 100%;
-    background: none;
-    border: none;
-    color: var(--text-body);
-    cursor: pointer;
-    font-size: 0.75rem;
-    text-align: left;
-    transition: background 0.1s;
-    flex-shrink: 0;
-  }
-  .run-entry:hover { background: var(--bg-hover); }
-  .run-entry + .run-entry { border-top: 1px solid var(--border-muted); }
-  .run-entry + .run-detail + .run-entry { border-top: 1px solid var(--border-muted); }
-  .run-time {
-    font-size: 0.7rem;
-    color: var(--text-muted);
-    flex-shrink: 0;
-    min-width: 3.5rem;
-  }
-  .run-tools-badge {
-    font-size: 0.6rem;
-    padding: 0.05rem 0.3rem;
-    border-radius: 3px;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-muted);
-    color: var(--text-muted);
-    flex-shrink: 0;
-    white-space: nowrap;
-  }
-  .run-tokens-badge {
-    font-size: 0.6rem;
-    padding: 0.05rem 0.3rem;
-    border-radius: 3px;
-    background: color-mix(in srgb, var(--accent) 10%, var(--bg-elevated));
-    border: 1px solid var(--border-muted);
-    color: var(--text-muted);
-    flex-shrink: 0;
-    white-space: nowrap;
-  }
-  .run-summary-preview {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 0.72rem;
-    color: var(--text-secondary);
-  }
-  .run-detail {
-    padding: 0.5rem 0.75rem;
-    border-top: 1px solid var(--border-muted);
-    background: var(--bg-elevated);
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-    font-size: 0.75rem;
-  }
-  .run-field {
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
-  }
-  .run-field-label {
-    font-size: 0.65rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    color: var(--text-secondary);
-  }
-  .run-error { color: #eb5a46; }
-  .run-tools-list {
-    font-size: 0.72rem;
-    color: var(--text-muted);
-    font-family: monospace;
   }
 </style>

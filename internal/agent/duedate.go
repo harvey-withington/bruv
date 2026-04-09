@@ -24,17 +24,19 @@ type DueDateScanner struct {
 	channels   string          // notification channels
 	enabled    bool
 
-	notifyFn func(cardID, cardTitle string, threshold time.Duration, overdue bool)
+	notifyFn          func(cardID, cardTitle string, threshold time.Duration, overdue bool)
+	markAlarmFiredFn  func(cardID, blockID string)
 }
 
 // NewDueDateScanner creates a new scanner.
-func NewDueDateScanner(cardsDir string, configDir string, notifyFn func(cardID, cardTitle string, threshold time.Duration, overdue bool)) *DueDateScanner {
+func NewDueDateScanner(cardsDir string, configDir string, notifyFn func(cardID, cardTitle string, threshold time.Duration, overdue bool), markAlarmFiredFn func(cardID, blockID string)) *DueDateScanner {
 	s := &DueDateScanner{
-		cardsDir:     cardsDir,
-		notifiedPath: filepath.Join(configDir, "due_notified.json"),
-		notified:     make(map[string]time.Time),
-		notifyFn:     notifyFn,
-		stopCh:       make(chan struct{}),
+		cardsDir:         cardsDir,
+		notifiedPath:     filepath.Join(configDir, "due_notified.json"),
+		notified:         make(map[string]time.Time),
+		notifyFn:         notifyFn,
+		markAlarmFiredFn: markAlarmFiredFn,
+		stopCh:           make(chan struct{}),
 	}
 	s.loadNotified()
 	return s
@@ -136,8 +138,57 @@ func (s *DueDateScanner) scan() {
 			ID      string     `json:"id"`
 			Title   string     `json:"title"`
 			DueDate *time.Time `json:"due_date"`
+			Blocks  []struct {
+				ID    string         `json:"id"`
+				Type  string         `json:"type"`
+				Label string         `json:"label"`
+				Meta  map[string]any `json:"meta,omitempty"`
+			} `json:"blocks"`
 		}
-		if err := json.Unmarshal(data, &card); err != nil || card.DueDate == nil {
+		if err := json.Unmarshal(data, &card); err != nil {
+			continue
+		}
+
+		// --- Alarm block scanning ---
+		for _, blk := range card.Blocks {
+			if blk.Type != "alarm" {
+				continue
+			}
+			// Check if already fired
+			if fired, ok := blk.Meta["alarm_fired"].(bool); ok && fired {
+				continue
+			}
+			rawTime, ok := blk.Meta["alarm_time"].(string)
+			if !ok || rawTime == "" {
+				continue
+			}
+			alarmTime, err := time.Parse(time.RFC3339, rawTime)
+			if err != nil {
+				continue
+			}
+
+			alarmKey := fmt.Sprintf("%s:alarm:%s", card.ID, blk.ID)
+			s.mu.Lock()
+			_, alreadyNotified := s.notified[alarmKey]
+			s.mu.Unlock()
+			if alreadyNotified {
+				continue
+			}
+
+			if now.After(alarmTime) || alarmTime.Sub(now) <= time.Minute {
+				// Use -2 as sentinel for alarm threshold
+				s.notifyFn(card.ID, card.Title, -2, false)
+				s.mu.Lock()
+				s.notified[alarmKey] = now
+				s.mu.Unlock()
+				changed = true
+				if s.markAlarmFiredFn != nil {
+					s.markAlarmFiredFn(card.ID, blk.ID)
+				}
+			}
+		}
+
+		if card.DueDate == nil {
 			continue
 		}
 

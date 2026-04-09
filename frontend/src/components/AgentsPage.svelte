@@ -460,12 +460,7 @@
                 <span class="rh-duration">{run.duration_secs != null ? `${run.duration_secs}s` : '-'}</span>
                 <span class="rh-tools">{run.tool_count}</span>
                 <span class="rh-tokens">{run.tokens_used ? run.tokens_used.toLocaleString() : '-'}</span>
-                <span class="rh-cost">
-                  <span>${run.estimated_cost?.toFixed(4) || '0.0000'}</span>
-                  {#if run.model_used}
-                    <span class="rh-model">{run.model_used}</span>
-                  {/if}
-                </span>
+                <span class="rh-cost">${run.estimated_cost?.toFixed(4) || '0.0000'}{#if run.model_used} <span class="rh-model">{run.model_used}</span>{/if}</span>
                 <span class="rh-summary">{run.error || run.summary || ''}</span>
               </div>
             {/each}
@@ -790,10 +785,10 @@
   .rh-card { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .run-card-title { font-weight: 500; }
   .rh-time { font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; }
-  .rh-duration { font-size: 0.72rem; color: var(--text-faint); font-family: monospace; white-space: nowrap; text-align: right; }
-  .rh-tools { font-size: 0.72rem; color: var(--text-faint); white-space: nowrap; text-align: right; }
-  .rh-tokens { font-size: 0.72rem; color: var(--text-muted); font-family: monospace; white-space: nowrap; text-align: right; }
-  .rh-cost { font-size: 0.72rem; color: var(--text-muted); font-family: monospace; white-space: nowrap; text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 0.05rem; }
+  .rh-duration { font-size: 0.72rem; color: var(--text-faint); font-family: monospace; white-space: nowrap; }
+  .rh-tools { font-size: 0.72rem; color: var(--text-faint); white-space: nowrap; }
+  .rh-tokens { font-size: 0.72rem; color: var(--text-muted); font-family: monospace; white-space: nowrap; }
+  .rh-cost { font-size: 0.72rem; color: var(--text-muted); font-family: monospace; white-space: nowrap; min-width: 5.5rem; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; }
   .rh-model { font-size: 0.6rem; color: var(--text-faint); font-family: sans-serif; }
   .rh-summary { font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 

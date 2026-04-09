@@ -4,7 +4,7 @@
   import { showConfirm } from '../lib/confirm.svelte'
   import { focusTrap, portal } from '../lib/actions'
   import { draggable } from '../lib/draggable'
-  import { GripVertical, Plus, Trash2, Type, ListChecks, List, Film, Link, Minus, X, ChevronDown, Hash, Calendar, Star } from 'lucide-svelte'
+  import { GripVertical, Plus, Trash2, Type, ListChecks, List, Film, Link, Minus, X, ChevronDown, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell } from 'lucide-svelte'
   import EditableChecklist from './EditableChecklist.svelte'
   import EditableList from './EditableList.svelte'
   import type { CardTemplate, Block, BlockMeta, ChecklistItem, ListItem } from '../lib/types'
@@ -32,11 +32,17 @@
     { type: 'number',    label: t('block.number'),    icon: 'Hash' },
     { type: 'date',      label: t('block.date'),      icon: 'Calendar' },
     { type: 'rating',    label: t('block.rating'),    icon: 'Star' },
+    { type: 'checkbox',       label: t('block.checkbox'),       icon: 'ToggleLeft' },
+    { type: 'radio',          label: t('block.radio'),          icon: 'CircleDot' },
+    { type: 'checkbox_group', label: t('block.checkbox_group'), icon: 'ListChecks' },
+    { type: 'image',          label: t('block.image'),          icon: 'ImageIcon' },
+    { type: 'progress',       label: t('block.progress'),       icon: 'ChartColumn' },
+    { type: 'alarm',          label: t('block.alarm'),          icon: 'Bell' },
   ] as const
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const BLOCK_ICON_MAP: Record<string, any> = {
-    Type, ListChecks, List, Film, Link, Minus, ChevronDown, Hash, Calendar, Star,
+    Type, ListChecks, List, Film, Link, Minus, ChevronDown, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell,
   }
 
   function labelToKey(label: string): string {
@@ -44,7 +50,7 @@
   }
 
   // Pre-populate: track which blocks have their value editor open
-  const PREPOPULABLE_TYPES = ['text', 'checklist', 'list', 'select', 'number', 'rating'] as const
+  const PREPOPULABLE_TYPES = ['text', 'checklist', 'list', 'select', 'number', 'rating', 'radio', 'checkbox_group'] as const
   function canPrepopulate(type: string): boolean {
     return (PREPOPULABLE_TYPES as readonly string[]).includes(type)
   }
@@ -60,6 +66,8 @@
           if (b.type === 'select') return (b.meta?.options?.length ?? 0) > 0 || b.meta?.multi
           if (b.type === 'number') return b.meta?.min != null || b.meta?.max != null || b.meta?.suffix
           if (b.type === 'rating') return b.meta?.max != null && b.meta.max !== 5
+          if (b.type === 'radio') return (b.meta?.options?.length ?? 0) > 0
+          if (b.type === 'checkbox_group') return (b.meta?.options?.length ?? 0) > 0
           return false
         })
         .map(b => [b.id, true])
@@ -78,6 +86,8 @@
         if (blockType === 'select') return { ...b, meta: { ...b.meta, options: [], multi: undefined } }
         if (blockType === 'number') return { ...b, meta: { ...b.meta, min: undefined, max: undefined, suffix: undefined } }
         if (blockType === 'rating') return { ...b, meta: { ...b.meta, max: 5 } }
+        if (blockType === 'radio') return { ...b, meta: { ...b.meta, options: [] } }
+        if (blockType === 'checkbox_group') return { ...b, meta: { ...b.meta, options: [] } }
         return b
       })
     }
@@ -146,6 +156,12 @@
     else if (blockType === 'number') value = 0
     else if (blockType === 'date') value = ''
     else if (blockType === 'rating') { value = 0; meta = { max: 5 } }
+    else if (blockType === 'checkbox') value = false
+    else if (blockType === 'radio') { value = ''; meta = { options: ['Option 1', 'Option 2', 'Option 3'] } }
+    else if (blockType === 'checkbox_group') { value = []; meta = { options: ['Option 1', 'Option 2', 'Option 3'] } }
+    else if (blockType === 'image') value = null
+    else if (blockType === 'progress') value = 0
+    else if (blockType === 'alarm') { value = null; meta = { alarm_channels: 'in-app,system' } }
     blocks = [...blocks, { id, type: blockType as Block['type'], label, key: labelToKey(label), value, meta }]
   }
 
@@ -367,6 +383,32 @@
                           />
                           <span>{t('block.multi_select')}</span>
                         </label>
+                        <div class="config-options-list">
+                          {#each (block.meta?.options || []) as opt, i}
+                            <div class="config-option-row">
+                              <span class="config-option-text">{opt}</span>
+                              <button class="config-option-remove" onclick={() => removeSelectOption(block.id, i)} title={t('block.remove_option')}>
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          {/each}
+                          <div class="config-option-add">
+                            <input
+                              type="text"
+                              class="config-option-input"
+                              placeholder={t('block.option_placeholder')}
+                              value={newSelectOptions[block.id] || ''}
+                              oninput={(e) => { newSelectOptions = { ...newSelectOptions, [block.id]: (e.target as HTMLInputElement).value } }}
+                              onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSelectOption(block.id) } }}
+                            />
+                            <button class="config-option-add-btn" onclick={() => addSelectOption(block.id)}>
+                              <Plus size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    {:else if block.type === 'radio' || block.type === 'checkbox_group'}
+                      <div class="config-fields">
                         <div class="config-options-list">
                           {#each (block.meta?.options || []) as opt, i}
                             <div class="config-option-row">

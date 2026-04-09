@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from '../lib/i18n.svelte'
-  import { ChevronDown, X, Plus, Trash2 } from 'lucide-svelte'
+  import { ChevronDown, X } from 'lucide-svelte'
   import { floatingDropdown } from '../lib/actions'
   import type { BlockMeta } from '../lib/types'
 
@@ -8,17 +8,13 @@
     value,
     meta = { options: [] },
     onUpdate,
-    editingOptions = $bindable(false),
   }: {
     value: string | string[]
     meta: BlockMeta
     onUpdate: (value: string | string[], meta?: BlockMeta) => void
-    editing?: boolean
-    editingOptions?: boolean
   } = $props()
 
   let showOptions = $state(false)
-  let newOption = $state('')
   let triggerEl = $state<HTMLElement>(null!)
 
   const options = $derived(meta?.options || [])
@@ -42,18 +38,6 @@
     }
   }
 
-  function addOption() {
-    if (!newOption.trim()) return
-    const opts = [...options, newOption.trim()]
-    newOption = ''
-    onUpdate(value, { ...meta, options: opts })
-  }
-
-  function removeOption(idx: number) {
-    const opts = options.filter((_: string, i: number) => i !== idx)
-    onUpdate(value, { ...meta, options: opts })
-  }
-
   function handleClickOutside(e: MouseEvent) {
     const target = e.target as HTMLElement
     if (!target.closest('.select-dropdown') && !triggerEl?.contains(target)) {
@@ -69,75 +53,49 @@
   })
 </script>
 
-{#if editingOptions}
-  <div class="options-editor">
-    {#each options as opt, i}
-      <div class="option-row">
-        <span class="option-text">{opt}</span>
-        <button class="option-remove" onclick={() => removeOption(i)} title={t('block.remove_option')}>
-          <Trash2 size={14} />
+<div class="select-wrapper">
+  {#if isMulti}
+    <div class="multi-chips">
+      {#each (Array.isArray(selected) ? selected : []) as sel}
+        <span class="chip">
+          {sel}
+          <button class="chip-remove" onclick={() => selectOption(sel)}><X size={12} /></button>
+        </span>
+      {/each}
+    </div>
+  {/if}
+  <div class="select-control" role="button" tabindex="0" bind:this={triggerEl} onclick={() => showOptions = !showOptions} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showOptions = !showOptions } }}>
+    <span class="select-value">
+      {#if !isMulti && selected}
+        {selected}
+      {:else if !isMulti}
+        <span class="placeholder">{t('block.select_placeholder')}</span>
+      {/if}
+    </span>
+    <span class="select-controls">
+      {#if (!isMulti && selected) || (isMulti && Array.isArray(selected) && selected.length > 0)}
+        <button class="select-clear" onclick={(e) => { e.stopPropagation(); onUpdate(isMulti ? [] : '') }} title={t('common.cancel')}>
+          <X size={14} />
         </button>
-      </div>
-    {/each}
-    <div class="option-add-row">
-      <input
-        type="text"
-        class="option-input"
-        placeholder={t('block.option_placeholder')}
-        bind:value={newOption}
-        onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addOption() } }}
-      />
-      <button class="option-add-btn" onclick={addOption}>
-        <Plus size={14} />
-      </button>
-    </div>
-    <button class="done-btn" onclick={() => editingOptions = false}>{t('common.save')}</button>
+      {/if}
+      <ChevronDown size={16} />
+    </span>
   </div>
-{:else}
-  <div class="select-wrapper">
-    {#if isMulti}
-      <div class="multi-chips">
-        {#each (Array.isArray(selected) ? selected : []) as sel}
-          <span class="chip">
-            {sel}
-            <button class="chip-remove" onclick={() => selectOption(sel)}><X size={12} /></button>
-          </span>
-        {/each}
-      </div>
-    {/if}
-    <div class="select-control" role="button" tabindex="0" bind:this={triggerEl} onclick={() => showOptions = !showOptions} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showOptions = !showOptions } }}>
-      <span class="select-value">
-        {#if !isMulti && selected}
-          {selected}
-        {:else if !isMulti}
-          <span class="placeholder">{t('block.select_placeholder')}</span>
-        {/if}
-      </span>
-      <span class="select-controls">
-        {#if (!isMulti && selected) || (isMulti && Array.isArray(selected) && selected.length > 0)}
-          <button class="select-clear" onclick={(e) => { e.stopPropagation(); onUpdate(isMulti ? [] : '') }} title={t('common.cancel')}>
-            <X size={14} />
-          </button>
-        {/if}
-        <ChevronDown size={16} />
-      </span>
+  {#if showOptions && triggerEl}
+    <div class="select-dropdown" use:floatingDropdown={{ trigger: triggerEl, matchWidth: true }}>
+      {#each options as opt}
+        <button
+          class="select-option"
+          class:selected={isMulti ? (Array.isArray(selected) && selected.includes(opt)) : selected === opt}
+          onclick={() => selectOption(opt)}
+        >{opt}</button>
+      {/each}
+      {#if options.length === 0}
+        <div class="select-empty">{t('block.no_options')}</div>
+      {/if}
     </div>
-    {#if showOptions && triggerEl}
-      <div class="select-dropdown" use:floatingDropdown={{ trigger: triggerEl, matchWidth: true }}>
-        {#each options as opt}
-          <button
-            class="select-option"
-            class:selected={isMulti ? (Array.isArray(selected) && selected.includes(opt)) : selected === opt}
-            onclick={() => selectOption(opt)}
-          >{opt}</button>
-        {/each}
-        {#if options.length === 0}
-          <div class="select-empty">{t('block.no_options')}</div>
-        {/if}
-      </div>
-    {/if}
-  </div>
-{/if}
+  {/if}
+</div>
 
 <style>
   .select-wrapper { display: flex; flex-direction: column; }
@@ -156,7 +114,6 @@
     padding: 2px; border-radius: 3px;
   }
   .select-clear:hover { color: var(--text-primary); background: var(--bg-hover); }
-  /* Portaled to document.body by floatingDropdown action — no position/z-index needed here */
   :global(.select-dropdown) {
     background: var(--bg-surface); border: 1px solid var(--border);
     border-radius: 6px; max-height: 200px; overflow-y: auto;
@@ -175,19 +132,4 @@
     background: var(--accent-bg); color: var(--accent); border-radius: 12px; font-size: 0.85em;
   }
   .chip-remove { background: none; border: none; color: var(--accent); cursor: pointer; padding: 0; }
-  .options-editor { display: flex; flex-direction: column; gap: 4px; }
-  .option-row { display: flex; align-items: center; gap: 4px; padding: 4px 0; }
-  .option-text { flex: 1; }
-  .option-remove { background: none; border: none; color: var(--text-muted); cursor: pointer; }
-  .option-remove:hover { color: var(--danger); }
-  .option-add-row { display: flex; gap: 4px; }
-  .option-input {
-    flex: 1; padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px;
-    background: var(--bg-surface); color: var(--text-primary);
-  }
-  .option-add-btn { background: none; border: none; color: var(--accent); cursor: pointer; }
-  .done-btn {
-    align-self: flex-end; padding: 4px 12px; border-radius: 4px;
-    background: var(--accent); color: white; border: none; cursor: pointer;
-  }
 </style>

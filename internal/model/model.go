@@ -111,17 +111,19 @@ const (
 	BlockMedia     = "media"
 	BlockURL       = "url"
 	BlockDivider   = "divider"
-
-	BlockSelect = "select"
-	BlockNumber = "number"
-	BlockDate   = "date"
-	BlockRating = "rating"
+	BlockSelect    = "select"
+	BlockNumber    = "number"
+	BlockDate      = "date"
+	BlockRating    = "rating"
+	BlockCheckbox  = "checkbox"
+	BlockRadio     = "radio"
+	BlockCheckboxGroup = "checkbox_group"
+	BlockImage     = "image"
+	BlockProgress  = "progress"
+	BlockAlarm     = "alarm"
 
 	// Legacy block types — kept for migration compatibility.
-	BlockCheckbox = "checkbox"
-	BlockRadio    = "radio"
-	BlockImage    = "image"
-	BlockVideo    = "video"
+	BlockVideo = "video"
 )
 
 // FileAttachment is a file attached to a card (card-level, not per-block).

@@ -141,30 +141,65 @@ func (a *App) startDueDateScanner() {
 		configDir,
 		func(cardID, cardTitle string, threshold time.Duration, overdue bool) {
 			notifier := a.makeNotifier()
-			var title, body string
-			if overdue {
+			var title, body, source string
+			if threshold == -2 {
+				// Alarm block fired
+				title = fmt.Sprintf("Alarm: %s", cardTitle)
+				body = "An alarm on this card has fired."
+				source = "alarm"
+			} else if overdue {
 				title = fmt.Sprintf("Overdue: %s", cardTitle)
 				body = "This card is past its due date."
+				source = "due_date"
 			} else if threshold == 0 {
 				title = fmt.Sprintf("Due now: %s", cardTitle)
 				body = "This card is due now."
+				source = "due_date"
 			} else {
 				title = fmt.Sprintf("Due in %s: %s", formatDuration(threshold), cardTitle)
 				body = fmt.Sprintf("This card is due in %s.", formatDuration(threshold))
+				source = "due_date"
 			}
 			channels := notify.ParseChannels(prefs.DueDateChannels)
 			notifier.Send(notify.Request{
 				Title:     title,
 				Body:      body,
-				Source:    "due_date",
+				Source:    source,
 				CardID:    cardID,
 				CardTitle: cardTitle,
 				Channels:  channels,
 			})
 		},
+		func(cardID, blockID string) {
+			a.markAlarmBlockFired(cardID, blockID)
+		},
 	)
 	a.dueDateScanner.Configure(prefs.DueDateNotify, prefs.DueDateThresholds, prefs.DueDateChannels)
 	a.dueDateScanner.Start()
+}
+
+// markAlarmBlockFired loads a card, sets alarm_fired=true on the specified block, and saves it back.
+func (a *App) markAlarmBlockFired(cardID, blockID string) {
+	if a.repo == nil {
+		return
+	}
+	card, err := a.repo.GetCard(cardID)
+	if err != nil {
+		log.Printf("alarm: failed to load card %s: %v", cardID, err)
+		return
+	}
+	for i := range card.Blocks {
+		if card.Blocks[i].ID == blockID {
+			if card.Blocks[i].Meta == nil {
+				card.Blocks[i].Meta = make(map[string]any)
+			}
+			card.Blocks[i].Meta["alarm_fired"] = true
+			break
+		}
+	}
+	if _, err := a.repo.UpdateCardBlocks(cardID, card.Blocks); err != nil {
+		log.Printf("alarm: failed to save card %s: %v", cardID, err)
+	}
 }
 
 // stopDueDateScanner stops the due-date scanner if running.

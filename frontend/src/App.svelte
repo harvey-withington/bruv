@@ -18,6 +18,7 @@
   import TagEditor from './components/TagEditor.svelte'
   import Toast from './components/Toast.svelte'
   import ConfirmDialog from './components/ConfirmDialog.svelte'
+  import OptionsEditorDialog from './components/OptionsEditorDialog.svelte'
 
   import { GetPreferences, ListRecentRepos, OpenRepository, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory } from './lib/api'
 
@@ -265,6 +266,7 @@
 
 <Toast />
 <ConfirmDialog />
+<OptionsEditorDialog />
 
 <style>
   .app-shell {

@@ -2,21 +2,29 @@
   import { GetCard, UpdateCardTitle, UpdateCardType, RefreshTypeBlocks, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
     DeleteCard, CreateCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, AddProjectLabel, GetProjectLabels, GetProjectLocation, GetCategoryAcceptedTypes, GetAgentConfig } from '../lib/api'
   import { projectTags, nav, getTagColor, cardTypes } from '../lib/store.svelte'
-  import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, GripVertical, Pencil, MapPin, MapPinOff, MoveRight, BotMessageSquare, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, Maximize2, ArrowLeftRight, Hash, Calendar, Star, ListTree } from 'lucide-svelte'
+  import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, GripVertical, Pencil, MapPin, MapPinOff, MoveRight, BotMessageSquare, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, Maximize2, ArrowLeftRight, Hash, Calendar, Star, ListTree, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell } from 'lucide-svelte'
   import { renderMarkdown, renderInline } from '../lib/markdown'
   import { t } from '../lib/i18n.svelte'
   import MentionPicker from './MentionPicker.svelte'
   import PinPicker from './PinPicker.svelte'
   import ChatSection from './ChatSection.svelte'
   import AgentTab from './AgentTab.svelte'
+  import AgentRunsTab from './AgentRunsTab.svelte'
   import EditableChecklist from './EditableChecklist.svelte'
   import EditableList from './EditableList.svelte'
   import MediaBlock from './MediaBlock.svelte'
   import CardAttachments from './CardAttachments.svelte'
+  import { showOptionsEditor } from '../lib/optionsEditor.svelte'
   import SelectBlock from './SelectBlock.svelte'
   import NumberBlock from './NumberBlock.svelte'
   import DateBlock from './DateBlock.svelte'
   import RatingBlock from './RatingBlock.svelte'
+  import CheckboxBlock from './CheckboxBlock.svelte'
+  import RadioBlock from './RadioBlock.svelte'
+  import CheckboxGroupBlock from './CheckboxGroupBlock.svelte'
+  import ImageBlock from './ImageBlock.svelte'
+  import ProgressBlock from './ProgressBlock.svelte'
+  import AlarmBlock from './AlarmBlock.svelte'
   import SaveIndicator from './SaveIndicator.svelte'
   import { draggable } from '../lib/draggable'
   import { getCardTypeColor, getCardTypeTextColor } from '../lib/cardTypes'
@@ -50,7 +58,7 @@
   let showOtherPins = $state(false)
   const CHAT_VISIBLE_KEY = 'bruv:chatPanelVisible'
   let showChat = $state(localStorage.getItem(CHAT_VISIBLE_KEY) === 'true')
-  let activeTab = $state<'details' | 'agent'>(initialTab ?? 'details')
+  let activeTab = $state<'details' | 'agent' | 'runs'>(initialTab ?? 'details')
   $effect(() => { localStorage.setItem(CHAT_VISIBLE_KEY, String(showChat)) })
 
   // Splitter: redistributes space between main and chat when chat is open
@@ -99,8 +107,48 @@
   // Block label editing
   let editingBlockLabelId = $state<string | null>(null)
   let blockLabelDraft = $state('')
-  // Select block options editing
-  let editingSelectOptionsId = $state<string | null>(null)
+  // Options editor dialog for select/radio/checkbox_group blocks
+  async function openOptionsEditor(block: Block) {
+    const blockType = block.type as 'select' | 'radio' | 'checkbox_group'
+    const result = await showOptionsEditor(
+      block.label || block.key || block.type,
+      blockType,
+      block.meta?.options || [],
+      block.meta || {},
+    )
+    if (result && card) {
+      block.meta = { ...block.meta, ...result.meta, options: result.options }
+      await tracked(UpdateCardBlocks(cardId, card.blocks))
+      onUpdated?.()
+    }
+  }
+
+  function getEmptyValue(type: string): Block['value'] {
+    switch (type) {
+      case 'checklist': case 'list': case 'media': return []
+      case 'checkbox_group': return []
+      case 'number': case 'rating': case 'progress': return 0
+      case 'checkbox': return false
+      case 'divider': return null
+      default: return ''
+    }
+  }
+
+  function isBlockEmpty(block: Block): boolean {
+    const v = block.value
+    if (v === null || v === undefined) return true
+    if (v === '' || v === 0 || v === false) return true
+    if (Array.isArray(v) && v.length === 0) return true
+    return false
+  }
+
+  async function clearBlockValue(block: Block) {
+    if (!card) return
+    block.value = getEmptyValue(block.type)
+    if (block.type === 'alarm') block.meta = { ...block.meta, alarm_time: undefined, alarm_fired: false }
+    await tracked(UpdateCardBlocks(cardId, card.blocks))
+    onUpdated?.()
+  }
 
   // Block editing state: keyed by block ID (stable across reorders)
   let editingBlockId = $state<string | null>(null)
@@ -231,6 +279,12 @@
     { type: 'number',    label: t('block.number'),    icon: 'Hash' },
     { type: 'date',      label: t('block.date'),      icon: 'Calendar' },
     { type: 'rating',    label: t('block.rating'),    icon: 'Star' },
+    { type: 'checkbox',       label: t('block.checkbox'),       icon: 'ToggleLeft' },
+    { type: 'radio',          label: t('block.radio'),          icon: 'CircleDot' },
+    { type: 'checkbox_group', label: t('block.checkbox_group'), icon: 'ListChecks' },
+    { type: 'image',          label: t('block.image'),          icon: 'ImageIcon' },
+    { type: 'progress',       label: t('block.progress'),       icon: 'ChartColumn' },
+    { type: 'alarm',          label: t('block.alarm'),          icon: 'Bell' },
   ] as const
 
   function labelToKey(label: string): string {
@@ -239,7 +293,7 @@
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const BLOCK_ICON_MAP: Record<string, any> = {
-    Type, ListChecks, List, Film, Link, Minus, ChevronDown, Hash, Calendar, Star,
+    Type, ListChecks, List, Film, Link, Minus, ChevronDown, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell,
   }
 
   // --- Block collapse/expand ---
@@ -353,6 +407,12 @@
     else if (blockType === 'number') value = 0
     else if (blockType === 'date') value = ''
     else if (blockType === 'rating') { value = 0; meta = { max: 5 } }
+    else if (blockType === 'checkbox') value = false
+    else if (blockType === 'radio') { value = ''; meta = { options: ['Option 1', 'Option 2', 'Option 3'] } }
+    else if (blockType === 'checkbox_group') { value = []; meta = { options: ['Option 1', 'Option 2', 'Option 3'] } }
+    else if (blockType === 'image') value = null
+    else if (blockType === 'progress') value = 0
+    else if (blockType === 'alarm') { value = null; meta = { alarm_channels: 'in-app,system' } }
 
     const newBlock: Block = { id, type: blockType as Block['type'], label, key: labelToKey(label), value, meta }
     const blocks = [...card.blocks, newBlock]
@@ -942,7 +1002,7 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div class="modal-backdrop" role="presentation" onclick={handleBackdropClick}>
-  <div class="modal" class:chat-open={showChat} class:splitter-dragging={splitterDragging} use:draggable={{ handle: '.modal-header' }} use:focusTrap>
+  <div class="modal" class:chat-open={showChat} class:agent-tab-active={activeTab === 'agent' || activeTab === 'runs'} class:splitter-dragging={splitterDragging} use:draggable={{ handle: '.modal-header' }} use:focusTrap>
    <div class="modal-main" style={showChat ? `width: ${mainWidth}px;` : ''}>
     {#if loading}
       <div class="modal-loading">{t('app.loading')}</div>
@@ -1067,10 +1127,19 @@
             <span class="agent-dot"></span>
           {/if}
         </button>
+        <button class="card-tab" class:active={activeTab === 'runs'} onclick={() => activeTab = 'runs'}>
+          {t('card.tab_runs')}
+        </button>
       </div>
 
       {#if activeTab === 'agent'}
-        <AgentTab {cardId} />
+        <div class="modal-body">
+          <AgentTab {cardId} />
+        </div>
+      {:else if activeTab === 'runs'}
+        <div class="modal-body">
+          <AgentRunsTab {cardId} />
+        </div>
       {:else}
       <div class="modal-body">
         <!-- Standard fields: compact 2-column grid + FAB in third column -->
@@ -1212,8 +1281,11 @@
                         {/if}
                       {/if}
                       <span class="block-actions">
-                        {#if block.type === 'select'}
-                          <button class="block-action-btn action-reveal action-reveal--edit" onclick={(e) => { e.stopPropagation(); editingSelectOptionsId = editingSelectOptionsId === block.id ? null : block.id }} title={t('block.edit_options')}><ListTree size={11} /></button>
+                        {#if block.type === 'select' || block.type === 'radio' || block.type === 'checkbox_group'}
+                          <button class="block-action-btn action-reveal action-reveal--edit" onclick={(e) => { e.stopPropagation(); openOptionsEditor(block) }} title={t('block.edit_options')}><ListTree size={11} /></button>
+                        {/if}
+                        {#if block.type !== 'divider' && !isBlockEmpty(block)}
+                          <button class="block-action-btn action-reveal" onclick={(e) => { e.stopPropagation(); clearBlockValue(block) }} title={t('tooltip.clear_block')}><X size={11} /></button>
                         {/if}
                         <button class="block-action-btn action-reveal action-reveal--edit" onclick={(e) => { e.stopPropagation(); editingBlockLabelId = block.id; blockLabelDraft = block.label || '' }} title={t('tooltip.rename_block')}><Pencil size={11} /></button>
                         <button class="block-action-btn action-reveal action-reveal--danger" onclick={(e) => { e.stopPropagation(); deleteBlock(block.id) }} title={t('tooltip.delete_block')}><Trash2 size={11} /></button>
@@ -1333,10 +1405,6 @@
                         <SelectBlock
                           value={block.value as string | string[]}
                           meta={block.meta || { options: [] }}
-                          editingOptions={{
-                            get: () => editingSelectOptionsId === block.id,
-                            set: (v: boolean) => { editingSelectOptionsId = v ? block.id : null }
-                          }}
                           onUpdate={(val, newMeta) => {
                             if (!card) return
                             block.value = val
@@ -1373,6 +1441,71 @@
                           onUpdate={(val) => {
                             if (!card) return
                             block.value = val
+                            tracked(UpdateCardBlocks(cardId, card.blocks))
+                            onUpdated?.()
+                          }}
+                        />
+
+                      {:else if block.type === 'checkbox'}
+                        <CheckboxBlock
+                          value={!!block.value}
+                          onUpdate={(val) => {
+                            if (!card) return
+                            block.value = val
+                            tracked(UpdateCardBlocks(cardId, card.blocks))
+                            onUpdated?.()
+                          }}
+                        />
+                      {:else if block.type === 'radio'}
+                        <RadioBlock
+                          value={(block.value as string) || ''}
+                          meta={block.meta || { options: [] }}
+                          onUpdate={(val) => {
+                            if (!card) return
+                            block.value = val
+                            tracked(UpdateCardBlocks(cardId, card.blocks))
+                            onUpdated?.()
+                          }}
+                        />
+                      {:else if block.type === 'checkbox_group'}
+                        <CheckboxGroupBlock
+                          value={(block.value as string[]) || []}
+                          meta={block.meta || { options: [] }}
+                          onUpdate={(val) => {
+                            if (!card) return
+                            block.value = val
+                            tracked(UpdateCardBlocks(cardId, card.blocks))
+                            onUpdated?.()
+                          }}
+                        />
+                      {:else if block.type === 'image'}
+                        <ImageBlock
+                          value={block.value as string | { url: string; caption?: string } | null}
+                          onUpdate={(val) => {
+                            if (!card) return
+                            block.value = val
+                            tracked(UpdateCardBlocks(cardId, card.blocks))
+                            onUpdated?.()
+                          }}
+                        />
+                      {:else if block.type === 'progress'}
+                        <ProgressBlock
+                          value={(block.value as number) || 0}
+                          onUpdate={(val) => {
+                            if (!card) return
+                            block.value = val
+                            tracked(UpdateCardBlocks(cardId, card.blocks))
+                            onUpdated?.()
+                          }}
+                        />
+                      {:else if block.type === 'alarm'}
+                        <AlarmBlock
+                          value={block.value as string | null}
+                          meta={block.meta || {}}
+                          onUpdate={(val, newMeta) => {
+                            if (!card) return
+                            block.value = val
+                            if (newMeta) block.meta = { ...block.meta, ...newMeta }
                             tracked(UpdateCardBlocks(cardId, card.blocks))
                             onUpdated?.()
                           }}
@@ -1422,6 +1555,7 @@
           onCardUpdated={handleAttachmentUpdate}
         />
       </div>
+      {/if}
 
       <div class="modal-footer">
         <button class="btn-delete" onclick={handleDelete} title={t('tooltip.delete_card')}><Trash2 size={14} /> {t('card.delete')}</button>
@@ -1430,7 +1564,6 @@
           <span class="meta">{t('card.created')} {card.created_at?.slice(0, 10) || '—'}</span>
         </span>
       </div>
-      {/if}
     {/if}
     {#if showChat}
       <button class="chat-toggle-btn chat-toggle-docked active" onclick={() => showChat = !showChat} title={t('tooltip.toggle_chat')}><BotMessageSquare size={16} /></button>
@@ -1514,6 +1647,9 @@
     overflow: hidden;
     box-shadow: 0 8px 32px var(--shadow-lg);
     position: relative;
+  }
+  .modal.agent-tab-active {
+    width: 880px;
   }
   .modal.chat-open {
     width: auto;
@@ -2069,9 +2205,9 @@
 
   .block-toolbar-divider {
     position: relative;
-    height: 1px;
-    background: var(--border-muted);
-    margin: 0.5rem 0;
+    height: 0;
+    border-top: 1px solid var(--border-muted);
+    margin: 0.75rem 0;
   }
   .block-toolbar-group {
     position: absolute;

@@ -11,7 +11,7 @@ export type ListItem = {
   text: string
 }
 
-export type BlockType = 'text' | 'checklist' | 'list' | 'media' | 'url' | 'divider' | 'select' | 'number' | 'date' | 'rating'
+export type BlockType = 'text' | 'checklist' | 'list' | 'media' | 'url' | 'divider' | 'select' | 'number' | 'date' | 'rating' | 'checkbox' | 'radio' | 'checkbox_group' | 'image' | 'progress' | 'alarm'
 
 export type MediaItem = {
   id: string
@@ -27,6 +27,11 @@ export type BlockMeta = {
   max?: number
   suffix?: string
   multi?: boolean
+  orientation?: 'vertical' | 'horizontal'
+  // Alarm-specific
+  alarm_time?: string      // ISO 8601 datetime for the alarm
+  alarm_channels?: string  // notification channels: "in-app,system"
+  alarm_fired?: boolean    // whether the alarm has already fired
 }
 
 export type Block = {
@@ -34,7 +39,7 @@ export type Block = {
   type: BlockType
   label: string
   key: string
-  value: string | number | boolean | string[] | ChecklistItem[] | ListItem[] | MediaItem[] | null
+  value: string | number | boolean | string[] | ChecklistItem[] | ListItem[] | MediaItem[] | { url: string; caption?: string } | null
   meta?: BlockMeta
 }
 

@@ -30,9 +30,12 @@
 <style>
   .date-block { display: flex; align-items: center; gap: 8px; }
   .date-input {
-    padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;
-    background: var(--bg-surface); color: var(--text-primary); font-size: 0.95em;
+    padding: 0.4rem 0.6rem; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg-elevated); color: var(--text-primary); font-size: 0.85rem;
+    outline: none; color-scheme: dark light;
   }
-  .date-input:focus { border-color: var(--accent); outline: none; }
+  :global([data-theme="dark"]) .date-input { color-scheme: dark; }
+  :global([data-theme="light"]) .date-input { color-scheme: light; }
+  .date-input:focus { border-color: var(--accent); }
   .date-hint { color: var(--text-muted); font-size: 0.85em; font-style: italic; }
 </style>

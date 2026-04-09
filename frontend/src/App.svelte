@@ -211,9 +211,6 @@
         onOpenProjectSettings={() => showProjectSettings = true}
         onToggleProjectChat={() => showProjectChat = !showProjectChat}
         projectChatActive={showProjectChat}
-        onNavigateAgents={() => { nav.agentsMode = true; nav.inboxMode = false; nav.brandSlug = null; nav.streamSlug = null; nav.projectSlug = null }}
-        agentsActive={nav.agentsMode}
-        agentsRunning={Object.keys(board.runningAgentIds).length > 0}
       />
       <div class="board-row">
         <Board />

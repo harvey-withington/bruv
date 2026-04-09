@@ -718,9 +718,9 @@ func (a *App) GetAllAgents() ([]map[string]any, error) {
 			entry["next_run_at"] = af.Config.NextRunAt.Format(time.RFC3339)
 		}
 
-		// Include last run info if available
+		// Include last run info if available (runs are newest-first)
 		if len(af.Runs) > 0 {
-			lastRun := af.Runs[len(af.Runs)-1]
+			lastRun := af.Runs[0]
 			entry["last_run_status"] = lastRun.Status
 			entry["last_run_summary"] = lastRun.Summary
 			entry["last_run_tokens"] = lastRun.TokensUsed

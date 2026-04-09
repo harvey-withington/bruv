@@ -7,15 +7,12 @@
   import { notifications } from '../lib/notifications.svelte'
   import { t } from '../lib/i18n.svelte'
 
-  let { onSelectCard, onOpenTagEditor, onOpenProjectSettings, onToggleProjectChat, projectChatActive, onNavigateAgents, agentsActive, agentsRunning }: {
+  let { onSelectCard, onOpenTagEditor, onOpenProjectSettings, onToggleProjectChat, projectChatActive }: {
     onSelectCard?: (cardId: string) => void
     onOpenTagEditor?: () => void
     onOpenProjectSettings?: () => void
     onToggleProjectChat?: () => void
     projectChatActive?: boolean
-    onNavigateAgents?: () => void
-    agentsActive?: boolean
-    agentsRunning?: boolean
   } = $props()
 
   let showCardTypes = $state(false)
@@ -26,6 +23,8 @@
   <div class="breadcrumb">
     {#if nav.inboxMode}
       <span class="crumb active inbox-crumb"><Inbox size={14} /> {t('sidebar.inbox')}</span>
+    {:else if nav.agentsMode}
+      <span class="crumb active inbox-crumb"><Timer size={14} /> {t('sidebar.agents')}</span>
     {:else if nav.brandSlug}
       <span class="crumb">{nav.brandName || nav.brandSlug}</span>
       {#if nav.streamSlug}
@@ -126,7 +125,7 @@
           </button>
         </div>
       </div>
-    {:else}
+    {:else if !nav.agentsMode}
       <SearchBar {onSelectCard} />
     {/if}
   </div>
@@ -147,7 +146,6 @@
     {#if nav.projectSlug}
       <button class="icon-btn" onclick={onOpenTagEditor} title={t('toolbar.tags')}><Tags size={16} /></button>
     {/if}
-    <button class="icon-btn" class:active={agentsActive} class:agents-running={agentsRunning} onclick={onNavigateAgents} title={t('toolbar.agents')}><Timer size={16} /></button>
     {#if nav.projectSlug}
       <button class="icon-btn" class:active={projectChatActive} onclick={onToggleProjectChat} title={t('toolbar.project_chat')}><BotMessageSquare size={16} /></button>
       <button class="icon-btn" onclick={onOpenProjectSettings} title={t('toolbar.project_settings')}><SlidersHorizontal size={16} /></button>
@@ -165,6 +163,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 0.5rem 1rem;
+    min-height: 46px;
     background: var(--bg-base);
     border-bottom: 1px solid var(--border-muted);
     flex-shrink: 0;
@@ -290,20 +289,6 @@
   .icon-btn.active {
     color: var(--accent);
     background: color-mix(in srgb, var(--accent) 12%, var(--bg-base));
-  }
-
-  .icon-btn.agents-running {
-    background: linear-gradient(135deg, #6366f1, #06b6d4, #a855f7, #6366f1);
-    background-size: 300% 300%;
-    animation: agent-neon 2s ease infinite;
-    color: white;
-    box-shadow: 0 0 6px rgba(99, 102, 241, 0.5), 0 0 12px rgba(168, 85, 247, 0.3);
-    border-radius: 6px;
-  }
-  @keyframes agent-neon {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
   }
 
   .notif-wrapper {

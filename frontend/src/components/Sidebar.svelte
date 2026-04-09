@@ -1061,12 +1061,16 @@
 
   .inbox-node {
     position: relative;
+    padding-top: 0.4rem;
+    padding-bottom: 0.4rem;
+    margin-bottom: 0.25rem;
+    border-bottom: 1px solid var(--border-muted);
   }
   .tree-ctrl-group {
     position: absolute;
     bottom: 0;
     right: 0.5rem;
-    transform: translateY(calc(50% - 5px));
+    transform: translateY(50%);
     display: flex;
     gap: 0.15rem;
     z-index: 1;

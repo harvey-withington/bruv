@@ -1,8 +1,8 @@
 <script lang="ts">
   import { GetCard, UpdateCardTitle, UpdateCardType, RefreshTypeBlocks, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
-    DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, AddProjectLabel, GetProjectLabels, GetProjectLocation, GetCategoryAcceptedTypes, GetAgentConfig } from '../lib/api'
+    DeleteCard, CreateCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, AddProjectLabel, GetProjectLabels, GetProjectLocation, GetCategoryAcceptedTypes, GetAgentConfig } from '../lib/api'
   import { projectTags, nav, getTagColor, cardTypes } from '../lib/store.svelte'
-  import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, GripVertical, Pencil, MapPin, MapPinOff, MoveRight, BotMessageSquare, ChevronDown, ChevronRight, Maximize2, RefreshCw } from 'lucide-svelte'
+  import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, GripVertical, Pencil, MapPin, MapPinOff, MoveRight, BotMessageSquare, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, Maximize2, ArrowLeftRight } from 'lucide-svelte'
   import { renderMarkdown, renderInline } from '../lib/markdown'
   import { t } from '../lib/i18n.svelte'
   import MentionPicker from './MentionPicker.svelte'
@@ -952,7 +952,7 @@
             style="background: {getCardTypeColor(card.type, cardTypes.list)}; color: {getCardTypeTextColor(card.type)}"
             onclick={openTypePicker}
             title={t('tooltip.change_card_type')}
-          >{cardTypes.list.find(t => t.id === card.type)?.label || card.type || t('card.type_none')}</button>
+          >{cardTypes.list.find(t => t.id === card.type)?.label || card.type || t('card.type_none')}{#if card.type}<span class="refresh-type-btn" role="button" tabindex="-1" onclick={(e) => { e.stopPropagation(); refreshType() }} title={t('tooltip.refresh_type')}><ArrowLeftRight size={10} /></span>{/if}<ChevronDown size={10} class="type-chevron" /></button>
           {#if showTypePicker && typeBadgeBtnEl}
             {@const filteredTypes = acceptedTypes?.length
               ? cardTypes.list.filter(ct => acceptedTypes!.includes(ct.id))
@@ -977,11 +977,6 @@
             </div>
           {/if}
         </div>
-        {#if card.type}
-          <button class="refresh-type-btn" onclick={refreshType} title={t('tooltip.refresh_type')}>
-            <RefreshCw size={12} />
-          </button>
-        {/if}
 
         {#if editingTitle}
           <input
@@ -1148,15 +1143,17 @@
           {/if}
         </section>
 
-        <!-- Block toolbar: expand/collapse all -->
+        <!-- Block toolbar: expand/collapse all — overlaid on divider line -->
         {#if (card.blocks || []).filter(b => b.key !== 'description' && b.type !== 'divider').length > 1}
-          <div class="block-toolbar">
-            <button class="block-toolbar-btn" onclick={expandAllBlocks} title={t('block.expand_all')}>
-              <ChevronDown size={13} />
-            </button>
-            <button class="block-toolbar-btn" onclick={collapseAllBlocks} title={t('block.collapse_all')}>
-              <ChevronRight size={13} />
-            </button>
+          <div class="block-toolbar-divider">
+            <div class="block-toolbar-group">
+              <button class="block-toolbar-btn" onclick={expandAllBlocks} title={t('block.expand_all')}>
+                <ChevronsUpDown size={12} />
+              </button>
+              <button class="block-toolbar-btn" onclick={collapseAllBlocks} title={t('block.collapse_all')}>
+                <ChevronsDownUp size={12} />
+              </button>
+            </div>
           </div>
         {/if}
 
@@ -1292,6 +1289,16 @@
                               onUpdated?.()
                             } catch (e) { showToast(t('error.save_failed'), 'error') }
                           }}
+                          onPromote={async (text) => {
+                            try {
+                              const newCard = await CreateCard(card?.type || 'task', text)
+                              if (newCard && currentCategoryId) {
+                                await PinCard(newCard.id, currentCategoryId, currentCategoryId)
+                              }
+                              showToast(t('card.promoted_to_card', { title: text }), 'success')
+                              onUpdated?.()
+                            } catch (e) { showToast(t('error.save_failed'), 'error') }
+                          }}
                         />
 
                       {:else if block.type === 'list'}
@@ -1367,6 +1374,9 @@
       </div>
       {/if}
     {/if}
+    {#if showChat}
+      <button class="chat-toggle-btn chat-toggle-docked active" onclick={() => showChat = !showChat} title={t('tooltip.toggle_chat')}><BotMessageSquare size={16} /></button>
+    {/if}
    </div>
 
     {#if !loading && card}
@@ -1374,7 +1384,9 @@
     {/if}
 
     <div class="modal-actions">
-      <button class="chat-toggle-btn" class:active={showChat} onclick={() => showChat = !showChat} title={t('tooltip.toggle_chat')}><BotMessageSquare size={16} /></button>
+      {#if !showChat}
+        <button class="chat-toggle-btn" onclick={() => showChat = !showChat} title={t('tooltip.toggle_chat')}><BotMessageSquare size={16} /></button>
+      {/if}
       <button class="close-btn" onclick={() => onClose()} title={t('tooltip.close_card')}><X size={18} /></button>
     </div>
   </div>
@@ -1458,6 +1470,7 @@
     flex-direction: column;
     overflow: hidden;
     min-width: 350px;
+    position: relative;
   }
 
   .modal-loading {
@@ -1661,11 +1674,14 @@
   }
 
   .type-badge {
-    font-size: 0.65rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.7rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    padding: 0.15rem 0.5rem;
+    padding: 0.2rem 0.55rem;
     border-radius: 3px;
     color: #fff;
     flex-shrink: 0;
@@ -1682,21 +1698,27 @@
   }
 
   .refresh-type-btn {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 2px;
+    padding: 0.1rem 0.2rem;
+    margin: -0.1rem 0;
     border: none;
-    background: none;
-    color: var(--text-faint);
+    background: transparent;
+    color: rgba(255, 255, 255, 0.75);
     cursor: pointer;
-    border-radius: 3px;
+    border-radius: 2px;
     transition: color 0.15s, background 0.15s;
     flex-shrink: 0;
   }
   .refresh-type-btn:hover {
-    color: var(--text-primary);
-    background: var(--bg-subtle-hover);
+    color: #fff;
+    background: rgba(255, 255, 255, 0.2);
+  }
+  :global(.type-chevron) {
+    color: rgba(255, 255, 255, 0.5);
+    margin-left: -0.1rem;
+    flex-shrink: 0;
   }
 
   .type-picker-dropdown {
@@ -1762,7 +1784,7 @@
 
   .modal-actions {
     position: absolute;
-    top: 0.75rem;
+    top: 0.55rem;
     right: 0.75rem;
     display: flex;
     align-items: center;
@@ -1780,6 +1802,13 @@
   }
   .chat-toggle-btn:hover { color: var(--text-primary); }
   .chat-toggle-btn.active { color: var(--accent); }
+
+  .chat-toggle-docked {
+    position: absolute;
+    top: 0.55rem;
+    right: 0.5rem;
+    z-index: 6;
+  }
 
   .close-btn {
     background: none;
@@ -1980,31 +2009,41 @@
   }
   .block-link:hover { text-decoration: underline; }
 
-  .block-toolbar {
+  .block-toolbar-divider {
+    position: relative;
+    height: 1px;
+    background: var(--border-muted);
+    margin: 0.5rem 0;
+  }
+  .block-toolbar-group {
+    position: absolute;
+    right: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
     display: flex;
     align-items: center;
-    justify-content: flex-end;
-    gap: 0.25rem;
-    padding: 0.25rem 0;
+    gap: 0.15rem;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-muted);
+    border-radius: 4px;
+    padding: 0 0.1rem;
   }
-
   .block-toolbar-btn {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    border: 1px solid var(--border);
-    background: var(--bg-surface);
+    padding: 0.1rem;
+    border: none;
+    width: 18px;
+    height: 18px;
+    background: none;
     color: var(--text-muted);
     cursor: pointer;
-    transition: background 0.15s, color 0.15s;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+    transition: color 0.12s, background 0.12s;
   }
   .block-toolbar-btn:hover {
+    color: var(--text-strong);
     background: var(--bg-elevated);
-    color: var(--text-primary);
   }
 
   .fab-add-block {

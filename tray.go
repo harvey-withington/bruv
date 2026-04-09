@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bruv/internal/config"
 	_ "embed"
+	"fmt"
 	"runtime"
 
 	"github.com/energye/systray"
@@ -10,6 +12,32 @@ import (
 
 //go:embed build/windows/icon.ico
 var trayIconData []byte
+
+// refreshTrayTooltip updates the tray tooltip to show unread notification count.
+func (a *App) refreshTrayTooltip() {
+	notifications, err := config.LoadNotifications()
+	if err != nil {
+		return
+	}
+	unread := 0
+	for _, n := range notifications {
+		if !n.Read {
+			unread++
+		}
+	}
+	if unread > 0 {
+		systray.SetTooltip(fmt.Sprintf("BRUV — %d unread notification%s", unread, pluralS(unread)))
+	} else {
+		systray.SetTooltip("BRUV — Your most organised best bud")
+	}
+}
+
+func pluralS(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
 
 // showWindow brings the main window to the foreground.
 func (a *App) showWindow() {

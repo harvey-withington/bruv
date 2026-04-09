@@ -2398,15 +2398,27 @@ func (a *App) GetNotifications() ([]config.Notification, error) {
 }
 
 func (a *App) MarkNotificationRead(id string) error {
-	return config.MarkNotificationRead(id)
+	err := config.MarkNotificationRead(id)
+	if err == nil {
+		go a.refreshTrayTooltip()
+	}
+	return err
 }
 
 func (a *App) MarkAllNotificationsRead() error {
-	return config.MarkAllNotificationsRead()
+	err := config.MarkAllNotificationsRead()
+	if err == nil {
+		go a.refreshTrayTooltip()
+	}
+	return err
 }
 
 func (a *App) ClearAllNotifications() error {
-	return config.ClearAllNotifications()
+	err := config.ClearAllNotifications()
+	if err == nil {
+		go a.refreshTrayTooltip()
+	}
+	return err
 }
 
 // --- Agent ---
@@ -2491,6 +2503,27 @@ func (a *App) LoadProjectChatHistory(brandSlug, streamSlug, projectSlug string) 
 		return nil, err
 	}
 	return a.repo.LoadChat(projectChatID(project.ID))
+}
+
+// ClearProjectChatHistory deletes all messages in a project's AI chat.
+func (a *App) ClearProjectChatHistory(brandSlug, streamSlug, projectSlug string) error {
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
+	project, err := a.repo.GetProject(brandSlug, streamSlug, projectSlug)
+	if err != nil {
+		return err
+	}
+	chatID := projectChatID(project.ID)
+	return a.repo.SaveChat(&model.ChatFile{CardID: chatID, Messages: []model.ChatMessage{}})
+}
+
+// ClearCardChatHistory deletes all messages in a card's AI chat.
+func (a *App) ClearCardChatHistory(cardID string) error {
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
+	return a.repo.SaveChat(&model.ChatFile{CardID: cardID, Messages: []model.ChatMessage{}})
 }
 
 // SendProjectChatMessage sends a message in the project-level AI chat.

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Square, CheckSquare, Trash2 } from 'lucide-svelte'
+  import { Square, CheckSquare, Trash2, ArrowUpRight } from 'lucide-svelte'
   import EditableText from './EditableText.svelte'
   import { t } from '../lib/i18n.svelte'
 
@@ -9,10 +9,12 @@
     items = [],
     placeholder = '',
     onUpdate,
+    onPromote,
   }: {
     items?: ChecklistItem[]
     placeholder?: string
     onUpdate?: (items: ChecklistItem[]) => void
+    onPromote?: (text: string) => void
   } = $props()
 
   let newText = $state('')
@@ -40,6 +42,14 @@
   function saveItemText(id: string, text: string) {
     if (!text) return
     emit(items.map(item => item.id === id ? { ...item, text } : item))
+  }
+
+  function promoteItem(id: string) {
+    const item = items.find(i => i.id === id)
+    if (!item || !onPromote) return
+    onPromote(item.text)
+    // Mark as done after promotion
+    emit(items.map(i => i.id === id ? { ...i, done: true } : i))
   }
 
   function focusDeleteButton(itemId: string) {
@@ -78,6 +88,9 @@
         onSave={(text) => saveItemText(item.id, text)}
         onTab={() => focusDeleteButton(item.id)}
       />
+      {#if onPromote}
+        <button class="action-reveal cl-promote" onclick={() => promoteItem(item.id)} title={t('tooltip.promote_to_card')}><ArrowUpRight size={12} /></button>
+      {/if}
       <button class="action-reveal action-reveal--danger cl-remove" onclick={() => removeItem(item.id)} title={t('tooltip.remove_checklist_item')}><Trash2 size={12} /></button>
     </div>
   {/each}
@@ -137,6 +150,11 @@
     flex: 1;
     font-size: 0.85rem;
     color: var(--text-body);
+  }
+
+  .cl-promote {
+    font-size: 0.75rem;
+    color: var(--accent);
   }
 
   .cl-remove {

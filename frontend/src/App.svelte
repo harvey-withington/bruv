@@ -14,12 +14,13 @@
   import SettingsDialog from './components/SettingsDialog.svelte'
   import ProjectSettingsDialog from './components/ProjectSettingsDialog.svelte'
   import AgentDashboard from './components/AgentDashboard.svelte'
+  import KeyboardShortcuts from './components/KeyboardShortcuts.svelte'
   import UserProfile from './components/UserProfile.svelte'
   import TagEditor from './components/TagEditor.svelte'
   import Toast from './components/Toast.svelte'
   import ConfirmDialog from './components/ConfirmDialog.svelte'
 
-  import { GetPreferences, ListRecentRepos, OpenRepository, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage } from './lib/api'
+  import { GetPreferences, ListRecentRepos, OpenRepository, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory } from './lib/api'
 
   // Restore persisted preferences
   loadTheme()
@@ -59,6 +60,7 @@
   let showTagEditor = $state(false)
   let showProjectChat = $state(false)
   let showAgentDashboard = $state(false)
+  let showKeyboardShortcuts = $state(false)
 
   function handleSearchSelectCard(cardId: string, tab?: 'details' | 'agent') {
     searchCardInitialTab = tab
@@ -121,6 +123,32 @@
     }
     document.addEventListener('bruv:navigate', handleBruvNav)
     return () => document.removeEventListener('bruv:navigate', handleBruvNav)
+  })
+
+  // Global keyboard shortcuts (only when no input/textarea focused)
+  function isInputFocused(): boolean {
+    const el = document.activeElement
+    if (!el) return false
+    const tag = el.tagName.toLowerCase()
+    return tag === 'input' || tag === 'textarea' || (el as HTMLElement).isContentEditable
+  }
+
+  onMount(() => {
+    function handleGlobalKeydown(e: KeyboardEvent) {
+      if (isInputFocused()) return
+      if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault()
+        showKeyboardShortcuts = !showKeyboardShortcuts
+      } else if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault()
+        document.querySelector<HTMLInputElement>('.search-box input, .search-input')?.focus()
+      } else if (e.key === 'p' && !e.ctrlKey && !e.metaKey && nav.projectSlug) {
+        e.preventDefault()
+        showProjectChat = !showProjectChat
+      }
+    }
+    window.addEventListener('keydown', handleGlobalKeydown)
+    return () => window.removeEventListener('keydown', handleGlobalKeydown)
   })
 
   // Notification system (Wails events + persistent store)
@@ -199,6 +227,7 @@
             reloadKey={nav.projectSlug}
             loadFn={() => LoadProjectChatHistory(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!)}
             sendFn={(text) => SendProjectChatMessage(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, text)}
+            clearFn={() => ClearProjectChatHistory(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!)}
           />
         {/if}
       </div>
@@ -239,6 +268,10 @@
   {/if}
 {:else}
   <WelcomeScreen />
+{/if}
+
+{#if showKeyboardShortcuts}
+  <KeyboardShortcuts onClose={() => showKeyboardShortcuts = false} />
 {/if}
 
 <Toast />

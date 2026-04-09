@@ -36,15 +36,34 @@
   let maxRetries = $state(0)
   let retryBackoffMins = $state(0)
 
-  const AVAILABLE_TOOLS = [
-    { id: 'web_fetch', labelKey: 'agent.tool_web_fetch', descKey: 'agent.tool_web_fetch_desc' },
-    { id: 'web_search', labelKey: 'agent.tool_web_search', descKey: 'agent.tool_web_search_desc' },
-    { id: 'notify', labelKey: 'agent.tool_notify', descKey: 'agent.tool_notify_desc' },
-    { id: 'update_self', labelKey: 'agent.tool_update_self', descKey: 'agent.tool_update_self_desc' },
-    { id: 'create_card', labelKey: 'agent.tool_create_card', descKey: 'agent.tool_create_card_desc' },
-    { id: 'read_card', labelKey: 'agent.tool_read_card', descKey: 'agent.tool_read_card_desc' },
-    { id: 'http_request', labelKey: 'agent.tool_http_request', descKey: 'agent.tool_http_request_desc' },
-  ] as const
+  type ToolDef = { id: string; labelKey: string; descKey: string }
+  type ToolGroup = { titleKey: string; tools: ToolDef[] }
+
+  const TOOL_GROUPS: ToolGroup[] = [
+    {
+      titleKey: 'agent.tool_group_web',
+      tools: [
+        { id: 'web_fetch', labelKey: 'agent.tool_web_fetch', descKey: 'agent.tool_web_fetch_desc' },
+        { id: 'web_search', labelKey: 'agent.tool_web_search', descKey: 'agent.tool_web_search_desc' },
+        { id: 'http_request', labelKey: 'agent.tool_http_request', descKey: 'agent.tool_http_request_desc' },
+      ],
+    },
+    {
+      titleKey: 'agent.tool_group_card',
+      tools: [
+        { id: 'update_self', labelKey: 'agent.tool_update_self', descKey: 'agent.tool_update_self_desc' },
+        { id: 'read_card', labelKey: 'agent.tool_read_card', descKey: 'agent.tool_read_card_desc' },
+        { id: 'create_card', labelKey: 'agent.tool_create_card', descKey: 'agent.tool_create_card_desc' },
+      ],
+    },
+    {
+      titleKey: 'agent.tool_group_system',
+      tools: [
+        { id: 'notify', labelKey: 'agent.tool_notify', descKey: 'agent.tool_notify_desc' },
+      ],
+    },
+  ]
+
 
   const SCHEDULE_PRESETS = [
     { label: '@hourly', value: '@hourly' },
@@ -277,7 +296,7 @@
         <input type="checkbox" bind:checked={enabled} onchange={() => { markDirty(); save() }} />
         <span class="toggle-label">{t('agent.enable')}</span>
       </label>
-      <span class="status-badge" class:status-running={status === 'running'} style="background: {status === 'running' ? '' : statusColor(enabled ? (status === 'disabled' ? 'idle' : status) : 'disabled')}">
+      <span class="status-badge" class:status-running={status === 'running'} style={status === 'running' ? '' : `background: ${statusColor(enabled ? (status === 'disabled' ? 'idle' : status) : 'disabled')}`}>
         {t(`agent.status_${enabled ? (status === 'disabled' ? 'idle' : status) : 'disabled'}`)}
       </span>
       <div class="agent-actions-row">
@@ -288,7 +307,7 @@
           </button>
         {/if}
         {#if status === 'running'}
-          <button class="cancel-btn agent-neon-btn" onclick={cancelNow}>
+          <button class="cancel-btn" onclick={cancelNow}>
             <Square size={12} />
             {t('agent.cancel')}
           </button>
@@ -441,18 +460,41 @@
           {/if}
         </div>
         <div class="panel-body panel-scroll">
-          {#each AVAILABLE_TOOLS as tool}
-            <label class="tool-item">
-              <input
-                type="checkbox"
-                checked={allowedTools.includes(tool.id)}
-                onchange={() => toggleTool(tool.id)}
-              />
-              <div class="tool-info">
-                <span class="tool-name">{t(tool.labelKey)}</span>
-                <span class="tool-desc">{t(tool.descKey)}</span>
-              </div>
-            </label>
+          {#each TOOL_GROUPS as group}
+            {@const groupIds = group.tools.map(t => t.id)}
+            {@const allChecked = groupIds.every(id => allowedTools.includes(id))}
+            {@const someChecked = groupIds.some(id => allowedTools.includes(id)) && !allChecked}
+            <div class="tool-group">
+              <label class="tool-group-header">
+                <input
+                  type="checkbox"
+                  checked={allChecked}
+                  indeterminate={someChecked}
+                  onchange={() => {
+                    if (allChecked) {
+                      allowedTools = allowedTools.filter(id => !groupIds.includes(id))
+                    } else {
+                      allowedTools = [...new Set([...allowedTools, ...groupIds])]
+                    }
+                    dirty = true
+                  }}
+                />
+                <span class="tool-group-title">{t(group.titleKey)}</span>
+              </label>
+              {#each group.tools as tool}
+                <label class="tool-item">
+                  <input
+                    type="checkbox"
+                    checked={allowedTools.includes(tool.id)}
+                    onchange={() => toggleTool(tool.id)}
+                  />
+                  <div class="tool-info">
+                    <span class="tool-name">{t(tool.labelKey)}</span>
+                    <span class="tool-desc">{t(tool.descKey)}</span>
+                  </div>
+                </label>
+              {/each}
+            </div>
           {/each}
         </div>
       </div>
@@ -616,14 +658,16 @@
     align-items: center;
     gap: 0.25rem;
     padding: 0.2rem 0.55rem;
-    background: #eb5a46;
+    background: linear-gradient(135deg, #6366f1, #06b6d4, #a855f7, #6366f1);
+    background-size: 300% 300%;
+    animation: agent-neon 2s ease infinite;
     color: white;
+    box-shadow: 0 0 6px rgba(99, 102, 241, 0.5), 0 0 12px rgba(168, 85, 247, 0.3);
     border: none;
     border-radius: 5px;
     font-size: 0.73rem;
     font-weight: 500;
     cursor: pointer;
-    transition: filter 0.1s;
   }
   .cancel-btn:hover { filter: brightness(1.15); }
   .next-run-text {
@@ -632,15 +676,8 @@
   }
 
   /* Neon gradient animation for running agents */
-  .agent-neon-btn {
-    background: linear-gradient(135deg, #6366f1, #06b6d4, #a855f7, #6366f1) !important;
-    background-size: 300% 300%;
-    animation: agent-neon 2s ease infinite;
-    color: white;
-    box-shadow: 0 0 6px rgba(99, 102, 241, 0.5), 0 0 12px rgba(168, 85, 247, 0.3);
-  }
   .status-badge.status-running {
-    background: linear-gradient(135deg, #6366f1, #06b6d4, #a855f7, #6366f1) !important;
+    background: linear-gradient(135deg, #6366f1, #06b6d4, #a855f7, #6366f1);
     background-size: 300% 300%;
     animation: agent-neon 2s ease infinite;
     box-shadow: 0 0 4px rgba(99, 102, 241, 0.4), 0 0 8px rgba(168, 85, 247, 0.2);
@@ -878,10 +915,28 @@
   }
 
   /* ── Tools ── */
+  .tool-group {
+    margin-bottom: 0.4rem;
+  }
+  .tool-group-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.2rem 0.4rem;
+    cursor: pointer;
+  }
+  .tool-group-title {
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
+  }
   .tool-item {
     display: flex;
     align-items: flex-start;
     gap: 0.5rem;
+    margin-left: 0.6rem;
     padding: 0.3rem 0.5rem;
     border-radius: 4px;
     cursor: pointer;

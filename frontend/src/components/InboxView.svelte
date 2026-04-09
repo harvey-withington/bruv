@@ -147,6 +147,16 @@
 </script>
 
 <div class="inbox-view">
+  {#if search.query}
+    <div class="filter-bar">
+      <span class="filter-summary">
+        {t('inbox.filter_showing', { cards: String(filteredRecent.length), totalCards: String(recentCards.length), activity: String(filteredActivity.length), totalActivity: String(activityEntries.length) })}
+      </span>
+      <button class="filter-clear" onclick={() => { search.query = '' }}>
+        {t('inbox.filter_clear')}
+      </button>
+    </div>
+  {/if}
   <div class="inbox-columns">
     <!-- Column 1: Orphaned cards -->
     <section class="inbox-col" aria-label={t('board.inbox_orphaned')}>
@@ -193,6 +203,11 @@
       <h2 class="col-heading">{t('board.inbox_recent')}</h2>
       {#if recentLoading}
         <p class="col-loading">{t('app.loading')}</p>
+      {:else if filteredRecent.length === 0 && search.query}
+        <div class="col-empty-filtered">
+          <p>{t('inbox.no_recent_match', { query: search.query })}</p>
+          <button class="clear-search-btn" onclick={() => { search.query = '' }}>{t('inbox.filter_clear')}</button>
+        </div>
       {:else}
         <InboxRecentCards cards={filteredRecent} onCardClick={onCardClick} />
       {/if}
@@ -203,6 +218,11 @@
       <h2 class="col-heading">{t('board.inbox_activity')}</h2>
       {#if activityLoading}
         <p class="col-loading">{t('app.loading')}</p>
+      {:else if filteredActivity.length === 0 && search.query}
+        <div class="col-empty-filtered">
+          <p>{t('inbox.no_activity_match', { query: search.query })}</p>
+          <button class="clear-search-btn" onclick={() => { search.query = '' }}>{t('inbox.filter_clear')}</button>
+        </div>
       {:else}
         <InboxActivity entries={filteredActivity} onCardClick={onCardClick} />
       {/if}
@@ -220,23 +240,82 @@
     position: relative;
     height: 100%;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 1rem;
+    background: color-mix(in srgb, var(--accent) 8%, var(--bg-elevated));
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border-muted));
+    flex-shrink: 0;
+  }
+  .filter-summary {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+  .filter-clear {
+    font-size: 0.72rem;
+    padding: 0.1rem 0.5rem;
+    border: 1px solid var(--border-muted);
+    border-radius: 4px;
+    background: var(--bg-surface);
+    color: var(--accent);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .filter-clear:hover {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+
+  .col-empty-filtered {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 1.5rem 0.5rem;
+    text-align: center;
+  }
+  .col-empty-filtered p {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin: 0;
+  }
+  .clear-search-btn {
+    font-size: 0.72rem;
+    padding: 0.2rem 0.6rem;
+    border: 1px solid var(--border-muted);
+    border-radius: 4px;
+    background: var(--bg-surface);
+    color: var(--accent);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .clear-search-btn:hover {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
   }
 
   .inbox-columns {
     display: grid;
     grid-template-columns: 1fr 3fr 1fr;
-    gap: 1.5rem;
-    height: 100%;
+    gap: 0.75rem;
+    flex: 1;
     overflow: hidden;
   }
 
   .inbox-col {
     display: flex;
     flex-direction: column;
-    gap: 0.6rem;
     overflow-y: auto;
     overflow-x: hidden;
-    padding-right: 0.75rem;
+    padding-right: 0.35rem;
     min-width: 0;
     padding-bottom: 1rem;
   }

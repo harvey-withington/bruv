@@ -76,6 +76,10 @@ import {
   // @ts-ignore — generated after `wails generate` with updated Go code
   SendProjectChatMessage,
   // @ts-ignore — generated after `wails generate` with updated Go code
+  ClearProjectChatHistory,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  ClearCardChatHistory,
+  // @ts-ignore — generated after `wails generate` with updated Go code
   GetLLMAccounts,
   // @ts-ignore — generated after `wails generate` with updated Go code
   SaveLLMAccounts,
@@ -244,6 +248,8 @@ export const wailsAdapter: BackendAdapter = {
   SendChatMessage,
   LoadProjectChatHistory: LoadProjectChatHistory as unknown as BackendAdapter['LoadProjectChatHistory'],
   SendProjectChatMessage: SendProjectChatMessage as unknown as BackendAdapter['SendProjectChatMessage'],
+  ClearProjectChatHistory,
+  ClearCardChatHistory,
   GetLLMAccounts: GetLLMAccounts as unknown as BackendAdapter['GetLLMAccounts'],
   SaveLLMAccounts,
   TestLLMAccountConnection,

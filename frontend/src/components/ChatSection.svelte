@@ -1,7 +1,8 @@
 <script lang="ts">
   import { tick } from 'svelte'
-  import { Send, MapPin, Check, X, Wrench, ChevronUp, ChevronDown, MessageCircle, PencilLine, ListChecks } from 'lucide-svelte'
-  import { LoadChatHistory, SendChatMessage, IsLLMConfigured, AcceptPinSuggestion, RejectPinSuggestion, GetLLMConfig, SetLLMConfig, ApplyPendingEdits } from '../lib/api'
+  import { Send, MapPin, Check, X, Wrench, ChevronUp, ChevronDown, MessageCircle, PencilLine, ListChecks, Trash2 } from 'lucide-svelte'
+  import { LoadChatHistory, SendChatMessage, IsLLMConfigured, AcceptPinSuggestion, RejectPinSuggestion, GetLLMConfig, SetLLMConfig, ApplyPendingEdits, ClearCardChatHistory } from '../lib/api'
+  import { showConfirm } from '../lib/confirm.svelte'
   import { renderMarkdown } from '../lib/markdown'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
@@ -35,6 +36,7 @@
     loadFn,
     sendFn,
     reloadKey,
+    clearFn,
   }: {
     cardId: string
     visible: boolean
@@ -45,6 +47,7 @@
     loadFn?: () => Promise<{ messages: ChatMessage[] }>
     sendFn?: (text: string) => Promise<{ messages: ChatMessage[] }>
     reloadKey?: string
+    clearFn?: () => Promise<void>
   } = $props()
 
   // Resizable chat width (splitter between main and chat)
@@ -178,9 +181,11 @@
     loading = true
     try {
       if (projectMode && loadFn) {
-        const [result, isConfigured] = await Promise.all([loadFn(), IsLLMConfigured()])
+        const [result, isConfigured, llmCfg] = await Promise.all([loadFn(), IsLLMConfigured(), GetLLMConfig()])
         messages = result?.messages || []
         configured = isConfigured
+        const mode = llmCfg?.ai_mode
+        aiMode = (mode === 'chat' || mode === 'suggest') ? mode : 'edit'
       } else {
         const [result, isConfigured, llmCfg] = await Promise.all([
           LoadChatHistory(cardId),
@@ -330,6 +335,22 @@
     document.dispatchEvent(new CustomEvent('bruv:navigate', { detail: { type: 'card', id: cardId } }))
   }
 
+  async function clearChat() {
+    const confirmed = await showConfirm(t('chat.clear_confirm'))
+    if (!confirmed) return
+    try {
+      if (clearFn) {
+        await clearFn()
+      } else {
+        await ClearCardChatHistory(cardId)
+      }
+      messages = []
+      showToast(t('chat.cleared'), 'success')
+    } catch (e) {
+      showToast(t('error.delete_failed'), 'error')
+    }
+  }
+
   function scrollToBottom() {
     if (messagesContainerEl) messagesContainerEl.scrollTop = messagesContainerEl.scrollHeight
   }
@@ -405,7 +426,7 @@
 {#if visible}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div class="chat-panel" class:resizing style="width: {chatWidth}px;">
-    {#if !projectMode}<div class="chat-resize-handle left" class:active={resizing} role="separator" tabindex="-1" onmousedown={onSplitterDown}></div>{/if}
+    <div class="chat-resize-handle left" class:active={resizing} role="separator" tabindex="-1" onmousedown={onSplitterDown}></div>
     <div class="chat-header">
       <span class="chat-title">{projectMode ? t('chat.project_title') : t('chat.title')}{messages.length > 0 ? ` (${messages.length})` : ''}</span>
     </div>
@@ -543,6 +564,11 @@
         <button class="chat-nav-btn" onclick={scrollToNextQuestion} title={t('chat.next_question')}>
           <ChevronDown size={14} />
         </button>
+        {#if messages.length > 0}
+          <button class="chat-nav-btn chat-nav-clear" onclick={clearChat} title={t('chat.clear')}>
+            <Trash2 size={12} />
+          </button>
+        {/if}
       </div>
 
       <div class="chat-input-row">
@@ -556,7 +582,6 @@
           rows="2"
         ></textarea>
         <div class="chat-actions-col">
-        {#if !projectMode}
         <button
           class="mode-btn"
           class:mode-chat={aiMode === 'chat'}
@@ -576,7 +601,6 @@
             {t('chat.mode_chat')}
           {/if}
         </button>
-        {/if}
         <button class="chat-send-btn" onclick={send} disabled={!inputText.trim() || sending}>
           <Send size={14} />
           {t('chat.send')}
@@ -628,7 +652,6 @@
     align-items: center;
     gap: 0.5rem;
   }
-
   .chat-title {
     font-size: 0.8rem;
     font-weight: 600;
@@ -1029,6 +1052,10 @@
   .chat-nav-btn:hover {
     color: var(--text-primary);
     border-color: var(--accent);
+  }
+  .chat-nav-clear:hover {
+    color: var(--color-error, #ef4444);
+    border-color: var(--color-error, #ef4444);
   }
 
   .chat-input-row {

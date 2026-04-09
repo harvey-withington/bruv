@@ -104,6 +104,9 @@ func (a *App) makeNotifier() *notify.Dispatcher {
 	cfg, _ := config.LoadNotifyConfig()
 	return notify.NewDispatcher(cfg, func(name string, data any) {
 		wailsRuntime.EventsEmit(a.ctx, name, data)
+		if name == "notification:new" {
+			go a.refreshTrayTooltip()
+		}
 	})
 }
 

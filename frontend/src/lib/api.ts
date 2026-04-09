@@ -183,6 +183,8 @@ export const SendChatMessage = (...args: Parameters<ReturnType<typeof getBackend
 // Project chat
 export const LoadProjectChatHistory = (...args: Parameters<ReturnType<typeof getBackend>['LoadProjectChatHistory']>) => getBackend().LoadProjectChatHistory(...args)
 export const SendProjectChatMessage = (...args: Parameters<ReturnType<typeof getBackend>['SendProjectChatMessage']>) => getBackend().SendProjectChatMessage(...args)
+export const ClearProjectChatHistory = (...args: Parameters<ReturnType<typeof getBackend>['ClearProjectChatHistory']>) => getBackend().ClearProjectChatHistory(...args)
+export const ClearCardChatHistory = (...args: Parameters<ReturnType<typeof getBackend>['ClearCardChatHistory']>) => getBackend().ClearCardChatHistory(...args)
 
 // LLM accounts
 export const GetLLMAccounts = () => getBackend().GetLLMAccounts()

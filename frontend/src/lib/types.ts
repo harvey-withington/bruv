@@ -457,6 +457,8 @@ export interface BackendAdapter {
   // Project chat
   LoadProjectChatHistory(brandSlug: string, streamSlug: string, projectSlug: string): Promise<any>
   SendProjectChatMessage(brandSlug: string, streamSlug: string, projectSlug: string, userMessage: string): Promise<any>
+  ClearProjectChatHistory(brandSlug: string, streamSlug: string, projectSlug: string): Promise<void>
+  ClearCardChatHistory(cardID: string): Promise<void>
 
   // LLM accounts
   GetLLMAccounts(): Promise<LLMAccount[]>

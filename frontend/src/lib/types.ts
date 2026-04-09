@@ -171,6 +171,11 @@ export type AgentConfig = {
   last_run_at: string | null
   next_run_at: string | null
   max_tokens_budget: number
+  run_started_at: string | null
+  min_interval_minutes: number
+  max_retries: number
+  retry_count: number
+  retry_backoff_minutes: number
 }
 
 export type AgentRun = {
@@ -189,6 +194,22 @@ export type AgentFile = {
   card_id: string
   config: AgentConfig
   runs: AgentRun[]
+}
+
+export type AgentSummary = {
+  card_id: string
+  card_title: string
+  enabled: boolean
+  status: string
+  schedule: string
+  goal: string
+  is_running: boolean
+  last_run_at: string | null
+  next_run_at: string | null
+  last_run_status: string | null
+  last_run_summary: string | null
+  last_run_tokens: number | null
+  last_run_error: string | null
 }
 
 // --- Notifications ---
@@ -426,6 +447,7 @@ export interface BackendAdapter {
   PauseAllAgents(): Promise<void>
   ResumeAllAgents(): Promise<void>
   GetAgentSchedulerStatus(): Promise<{ active: boolean; paused: boolean; runningCount: number }>
+  GetAllAgents(): Promise<AgentSummary[]>
   ForceQuit(): Promise<void>
 
   // Chat

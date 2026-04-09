@@ -97,7 +97,9 @@ func (p *ollamaProvider) ChatCompletion(ctx context.Context, req ChatRequest) (*
 				} `json:"function"`
 			} `json:"tool_calls"`
 		} `json:"message"`
-		Model string `json:"model"`
+		Model           string `json:"model"`
+		PromptEvalCount int    `json:"prompt_eval_count"`
+		EvalCount       int    `json:"eval_count"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
@@ -106,6 +108,14 @@ func (p *ollamaProvider) ChatCompletion(ctx context.Context, req ChatRequest) (*
 	cr := &ChatResponse{
 		Content: result.Message.Content,
 		Model:   result.Model,
+	}
+	if result.PromptEvalCount > 0 || result.EvalCount > 0 {
+		total := result.PromptEvalCount + result.EvalCount
+		cr.Usage = &Usage{
+			PromptTokens:     result.PromptEvalCount,
+			CompletionTokens: result.EvalCount,
+			TotalTokens:      total,
+		}
 	}
 	for i, tc := range result.Message.ToolCalls {
 		cr.ToolCalls = append(cr.ToolCalls, ToolCall{

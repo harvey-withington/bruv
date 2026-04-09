@@ -8,6 +8,7 @@ import (
 	"bruv/internal/notify"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -58,9 +59,29 @@ func (a *App) queryDueAgentsFromDisk() ([]agent.DueAgent, error) {
 			continue
 		}
 		if af.Config.Status == model.AgentStatusRunning {
-			continue // already running (or stuck — will be caught by cancel)
+			// Check if genuinely running (has active cancel func)
+			if _, active := a.agentCancels.Load(cardID); active {
+				continue
+			}
+			// No active goroutine — check if stuck for >10 min
+			stuckThreshold := 10 * time.Minute
+			if af.Config.RunStartedAt != nil && time.Since(*af.Config.RunStartedAt) > stuckThreshold {
+				log.Printf("agent scheduler: resetting stuck agent %s (running since %s)", cardID, af.Config.RunStartedAt.Format(time.RFC3339))
+				af.Config.Status = model.AgentStatusIdle
+				af.Config.RunStartedAt = nil
+				_ = a.repo.SaveAgentConfig(cardID, af.Config)
+			}
+			continue
 		}
 		if af.Config.NextRunAt == nil {
+			continue
+		}
+		// Rate limiting: enforce minimum interval between runs
+		minInterval := af.Config.MinIntervalMins
+		if minInterval == 0 {
+			minInterval = 5 // default 5 minutes
+		}
+		if af.Config.LastRunAt != nil && time.Since(*af.Config.LastRunAt) < time.Duration(minInterval)*time.Minute {
 			continue
 		}
 		if af.Config.NextRunAt.Before(now) || af.Config.NextRunAt.Equal(now) {
@@ -103,7 +124,9 @@ func (a *App) executeAgent(ctx context.Context, cardID string) error {
 	}
 
 	// 2. Set status to running
+	now := time.Now().UTC()
 	af.Config.Status = model.AgentStatusRunning
+	af.Config.RunStartedAt = &now
 	_ = a.repo.SaveAgentConfig(cardID, af.Config)
 	if a.idx != nil {
 		_ = a.idx.UpdateAgentIndex(cardID, true, string(model.AgentStatusRunning), "")
@@ -137,16 +160,34 @@ func (a *App) executeAgent(ctx context.Context, cardID string) error {
 
 	// Defer: finalize run, update status, calculate next run
 	defer func() {
-		now := time.Now().UTC()
-		run.FinishedAt = &now
+		finishedAt := time.Now().UTC()
+		run.FinishedAt = &finishedAt
 
 		// Calculate next run
 		finalStatus := model.AgentStatusIdle
 		if run.Status == "failure" {
 			finalStatus = model.AgentStatusFailed
 		}
+
+		// Retry logic for failed runs
+		if run.Status == "failure" && af.Config.MaxRetries > 0 {
+			af.Config.RetryCount++
+			if af.Config.RetryCount <= af.Config.MaxRetries {
+				backoff := af.Config.RetryBackoffMins
+				if backoff == 0 {
+					backoff = 5
+				}
+				retryAt := finishedAt.Add(time.Duration(backoff*af.Config.RetryCount) * time.Minute)
+				af.Config.NextRunAt = &retryAt
+				finalStatus = model.AgentStatusIdle // allow re-scheduling
+			}
+		} else if run.Status != "failure" {
+			af.Config.RetryCount = 0 // reset on success
+		}
+
 		af.Config.Status = finalStatus
-		af.Config.LastRunAt = &now
+		af.Config.RunStartedAt = nil // clear stuck-detection timestamp
+		af.Config.LastRunAt = &finishedAt
 
 		if af.Config.Schedule != "" {
 			if next, err := agent.NextRunTime(af.Config.Schedule, now); err == nil {
@@ -238,12 +279,20 @@ func (a *App) executeAgent(ctx context.Context, cardID string) error {
 	defer runCancel()
 
 	var allToolActions []model.ToolAction
+	var tokensUsed int
+
+	budget := af.Config.MaxTokensBudget
+	if budget == 0 {
+		budget = 50000
+	}
 
 	resultCf, err := a.runChatLoop(runCtx, provider, modelName, cf, chatLoopConfig{
 		chatID:       "__agent__" + cardID,
 		systemPrompt: systemPrompt,
 		tools:        toolDefs,
 		maxIter:      10,
+		tokenBudget:     budget,
+		totalTokensUsed: &tokensUsed,
 		executeTool: func(tc llm.ToolCall) (string, *model.ToolAction, *model.PinSuggestion) {
 			result, action := a.executeAgentToolCall(cardID, card, tc)
 			if action != nil {
@@ -253,6 +302,8 @@ func (a *App) executeAgent(ctx context.Context, cardID string) error {
 		},
 		fallbackContent: "Agent run completed.",
 	})
+
+	run.TokensUsed = tokensUsed
 
 	// Always record tool actions, even on failure (partial runs)
 	run.ToolCalls = allToolActions
@@ -582,6 +633,10 @@ func (a *App) PauseAllAgents() error {
 	if a.scheduler != nil {
 		a.scheduler.Pause()
 	}
+	if a.trayPauseItem != nil && !a.trayPauseItem.Checked() {
+		a.trayPauseItem.Check()
+	}
+	wailsRuntime.EventsEmit(a.ctx, "scheduler:paused", map[string]any{"paused": true})
 	return nil
 }
 
@@ -590,6 +645,10 @@ func (a *App) ResumeAllAgents() error {
 	if a.scheduler != nil {
 		a.scheduler.Resume()
 	}
+	if a.trayPauseItem != nil && a.trayPauseItem.Checked() {
+		a.trayPauseItem.Uncheck()
+	}
+	wailsRuntime.EventsEmit(a.ctx, "scheduler:paused", map[string]any{"paused": false})
 	return nil
 }
 
@@ -603,6 +662,73 @@ func (a *App) GetAgentSchedulerStatus() map[string]any {
 		"paused":       a.scheduler.IsPaused(),
 		"runningCount": a.scheduler.RunningCount(),
 	}
+}
+
+// GetAllAgents returns a summary of every agent across all cards.
+func (a *App) GetAllAgents() ([]map[string]any, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	cardsDir := filepath.Join(a.repo.Root, "cards")
+	entries, err := os.ReadDir(cardsDir)
+	if err != nil {
+		return nil, nil
+	}
+	var agents []map[string]any
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".agent.json") {
+			continue
+		}
+		cardID := strings.TrimSuffix(name, ".agent.json")
+		af, err := a.repo.GetAgentConfig(cardID)
+		if err != nil {
+			continue
+		}
+
+		// Skip cards with no meaningful agent configuration
+		cfg := af.Config
+		if !cfg.Enabled && cfg.Goal == "" && cfg.Schedule == "" && len(af.Runs) == 0 {
+			continue
+		}
+
+		cardTitle := cardID
+		if c, err := a.repo.GetCard(cardID); err == nil {
+			cardTitle = c.Title
+		}
+
+		_, isRunning := a.agentCancels.Load(cardID)
+
+		entry := map[string]any{
+			"card_id":    cardID,
+			"card_title": cardTitle,
+			"enabled":    af.Config.Enabled,
+			"status":     string(af.Config.Status),
+			"schedule":   af.Config.Schedule,
+			"goal":       af.Config.Goal,
+			"is_running": isRunning,
+		}
+		if af.Config.LastRunAt != nil {
+			entry["last_run_at"] = af.Config.LastRunAt.Format(time.RFC3339)
+		}
+		if af.Config.NextRunAt != nil {
+			entry["next_run_at"] = af.Config.NextRunAt.Format(time.RFC3339)
+		}
+
+		// Include last run info if available
+		if len(af.Runs) > 0 {
+			lastRun := af.Runs[len(af.Runs)-1]
+			entry["last_run_status"] = lastRun.Status
+			entry["last_run_summary"] = lastRun.Summary
+			entry["last_run_tokens"] = lastRun.TokensUsed
+			if lastRun.Error != "" {
+				entry["last_run_error"] = lastRun.Error
+			}
+		}
+
+		agents = append(agents, entry)
+	}
+	return agents, nil
 }
 
 // ForceQuit actually terminates the app (bypasses hide-to-tray).

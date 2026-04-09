@@ -4,7 +4,7 @@
   import { showToast } from '../lib/toast.svelte'
   import { board } from '../lib/store.svelte'
   import type { AgentConfig, AgentRun, LLMAccount } from '../lib/types'
-  import { Bot, Clock, CircleCheck, CircleX, TriangleAlert, Play, Square, Trash2 } from 'lucide-svelte'
+  import { Timer, Clock, CircleCheck, CircleX, TriangleAlert, Play, Square, Trash2 } from 'lucide-svelte'
   import LLMAccountSelect from './LLMAccountSelect.svelte'
   import { onMount, onDestroy } from 'svelte'
   import { EventsOn } from '../../wailsjs/runtime/runtime'
@@ -31,6 +31,10 @@
   let llmAccountId = $state('')
   let llmModel = $state('')
   let llmAccounts = $state<LLMAccount[]>([])
+  let maxTokensBudget = $state(0)
+  let minIntervalMins = $state(0)
+  let maxRetries = $state(0)
+  let retryBackoffMins = $state(0)
 
   const AVAILABLE_TOOLS = [
     { id: 'web_fetch', labelKey: 'agent.tool_web_fetch', descKey: 'agent.tool_web_fetch_desc' },
@@ -66,6 +70,10 @@
       notifyChannels = rawChannels
       llmAccountId = af.config.llm_account_id || ''
       llmModel = af.config.llm_model || ''
+      maxTokensBudget = af.config.max_tokens_budget || 0
+      minIntervalMins = af.config.min_interval_minutes || 0
+      maxRetries = af.config.max_retries || 0
+      retryBackoffMins = af.config.retry_backoff_minutes || 0
       runs = af.runs || []
       nextRunAt = af.config.next_run_at
       dirty = false
@@ -114,7 +122,12 @@
         llm_model: llmModel,
         last_run_at: null,
         next_run_at: null,
-        max_tokens_budget: 0,
+        max_tokens_budget: maxTokensBudget,
+        run_started_at: null,
+        min_interval_minutes: minIntervalMins,
+        max_retries: maxRetries,
+        retry_count: 0,
+        retry_backoff_minutes: retryBackoffMins,
       }
       await SaveAgentConfig(cardId, config)
       // Refresh board's agent card IDs so indicators update
@@ -247,7 +260,7 @@
 
 {#if loading}
   <div class="agent-loading">
-    <Bot size={24} strokeWidth={1.5} />
+    <Timer size={24} strokeWidth={1.5} />
     <span>{t('app.loading')}</span>
   </div>
 {:else}
@@ -264,7 +277,7 @@
         <input type="checkbox" bind:checked={enabled} onchange={() => { markDirty(); save() }} />
         <span class="toggle-label">{t('agent.enable')}</span>
       </label>
-      <span class="status-badge" style="background: {statusColor(enabled ? (status === 'disabled' ? 'idle' : status) : 'disabled')}">
+      <span class="status-badge" class:status-running={status === 'running'} style="background: {status === 'running' ? '' : statusColor(enabled ? (status === 'disabled' ? 'idle' : status) : 'disabled')}">
         {t(`agent.status_${enabled ? (status === 'disabled' ? 'idle' : status) : 'disabled'}`)}
       </span>
       <div class="agent-actions-row">
@@ -275,11 +288,10 @@
           </button>
         {/if}
         {#if status === 'running'}
-          <button class="cancel-btn" onclick={cancelNow}>
+          <button class="cancel-btn agent-neon-btn" onclick={cancelNow}>
             <Square size={12} />
             {t('agent.cancel')}
           </button>
-          <span class="running-indicator">{t('agent.running')}</span>
         {/if}
         {#if enabled && nextRunAt && status !== 'running'}
           <span class="next-run-text">{formatNextRun(nextRunAt)}</span>
@@ -360,6 +372,63 @@
           </div>
         </div>
       </div>
+
+      <!-- Safety & Limits -->
+      <div class="config-card">
+        <div class="config-label">{t('agent.safety')}</div>
+        <div class="safety-grid">
+          <label class="safety-field">
+            <span class="safety-label">{t('agent.token_budget')}</span>
+            <input
+              type="number"
+              class="agent-input agent-input-sm"
+              placeholder={t('agent.token_budget_placeholder')}
+              bind:value={maxTokensBudget}
+              oninput={markDirty}
+              min="0"
+              step="1000"
+            />
+            <span class="safety-hint">{t('agent.token_budget_hint')}</span>
+          </label>
+          <label class="safety-field">
+            <span class="safety-label">{t('agent.min_interval')}</span>
+            <input
+              type="number"
+              class="agent-input agent-input-sm"
+              placeholder={t('agent.min_interval_placeholder')}
+              bind:value={minIntervalMins}
+              oninput={markDirty}
+              min="0"
+            />
+            <span class="safety-hint">{t('agent.min_interval_hint')}</span>
+          </label>
+          <label class="safety-field">
+            <span class="safety-label">{t('agent.max_retries')}</span>
+            <input
+              type="number"
+              class="agent-input agent-input-sm"
+              placeholder={t('agent.max_retries_placeholder')}
+              bind:value={maxRetries}
+              oninput={markDirty}
+              min="0"
+              max="10"
+            />
+            <span class="safety-hint">{t('agent.max_retries_hint')}</span>
+          </label>
+          <label class="safety-field">
+            <span class="safety-label">{t('agent.retry_backoff')}</span>
+            <input
+              type="number"
+              class="agent-input agent-input-sm"
+              placeholder={t('agent.retry_backoff_placeholder')}
+              bind:value={retryBackoffMins}
+              oninput={markDirty}
+              min="0"
+            />
+            <span class="safety-hint">{t('agent.retry_backoff_hint')}</span>
+          </label>
+        </div>
+      </div>
     </div>
 
     <!-- Two-column panels: Tools + Run History -->
@@ -413,6 +482,9 @@
                 </span>
                 <span class="run-time">{formatRunTime(run.started_at)}</span>
                 <span class="run-tools-badge">{run.tool_calls?.length ?? '?'} tools</span>
+                {#if run.tokens_used}
+                  <span class="run-tokens-badge">{run.tokens_used.toLocaleString()} tok</span>
+                {/if}
                 <span class="run-summary-preview">{run.error || run.summary || t('agent.run_no_summary')}</span>
               </button>
               {#if expandedRun === run.id}
@@ -558,11 +630,27 @@
     font-size: 0.73rem;
     color: var(--text-muted);
   }
-  .running-indicator {
-    font-size: 0.73rem;
-    color: var(--accent);
-    font-weight: 500;
+
+  /* Neon gradient animation for running agents */
+  .agent-neon-btn {
+    background: linear-gradient(135deg, #6366f1, #06b6d4, #a855f7, #6366f1) !important;
+    background-size: 300% 300%;
+    animation: agent-neon 2s ease infinite;
+    color: white;
+    box-shadow: 0 0 6px rgba(99, 102, 241, 0.5), 0 0 12px rgba(168, 85, 247, 0.3);
   }
+  .status-badge.status-running {
+    background: linear-gradient(135deg, #6366f1, #06b6d4, #a855f7, #6366f1) !important;
+    background-size: 300% 300%;
+    animation: agent-neon 2s ease infinite;
+    box-shadow: 0 0 4px rgba(99, 102, 241, 0.4), 0 0 8px rgba(168, 85, 247, 0.2);
+  }
+  @keyframes agent-neon {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
   .save-btn {
     padding: 0.2rem 0.75rem;
     background: var(--accent);
@@ -630,6 +718,32 @@
   .agent-textarea:focus, .agent-input:focus {
     outline: none;
     border-color: var(--accent);
+  }
+
+  .agent-input-sm {
+    max-width: 120px;
+  }
+
+  /* ── Safety grid ── */
+  .safety-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 0.6rem;
+  }
+  .safety-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  .safety-label {
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: var(--text-body);
+  }
+  .safety-hint {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    line-height: 1.3;
   }
 
   /* ── Schedule presets ── */
@@ -816,6 +930,16 @@
     padding: 0.05rem 0.3rem;
     border-radius: 3px;
     background: var(--bg-elevated);
+    border: 1px solid var(--border-muted);
+    color: var(--text-muted);
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .run-tokens-badge {
+    font-size: 0.6rem;
+    padding: 0.05rem 0.3rem;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-elevated));
     border: 1px solid var(--border-muted);
     color: var(--text-muted);
     flex-shrink: 0;

@@ -43,6 +43,7 @@ type App struct {
 	scheduler    *agent.Scheduler
 	agentCancels sync.Map // cardID → context.CancelFunc
 	forceQuit    bool
+	trayPauseItem interface{ Check(); Uncheck(); Checked() bool } // system tray "Pause Agents" menu item
 }
 
 // NewApp creates a new App application struct
@@ -2527,6 +2528,11 @@ type chatLoopConfig struct {
 
 	// fallbackContent is the assistant message if max iterations are reached.
 	fallbackContent string
+
+	// tokenBudget is the maximum total tokens allowed across all iterations (0 = unlimited).
+	tokenBudget int
+	// totalTokensUsed is written back with the cumulative token count after the loop finishes.
+	totalTokensUsed *int
 }
 
 // runChatLoop runs the shared LLM tool-calling loop for both card and project chat.
@@ -2542,6 +2548,7 @@ func (a *App) runChatLoop(ctx context.Context, provider llm.Provider, modelName 
 	var allToolActions []model.ToolAction
 	var pinSuggestion *model.PinSuggestion
 	var allPendingEdits []model.PendingEdit
+	var cumulativeTokens int
 	toolDefs := lc.tools
 
 	for iteration := 0; iteration < lc.maxIter; iteration++ {
@@ -2559,7 +2566,30 @@ func (a *App) runChatLoop(ctx context.Context, provider llm.Provider, modelName 
 				Timestamp: time.Now().UTC(),
 			}
 			cf, _ = a.repo.AppendMessage(lc.chatID, errMsg)
+			if lc.totalTokensUsed != nil {
+				*lc.totalTokensUsed = cumulativeTokens
+			}
 			return cf, nil
+		}
+
+		// Accumulate token usage
+		if resp.Usage != nil {
+			cumulativeTokens += resp.Usage.TotalTokens
+		}
+
+		// Check token budget
+		if lc.tokenBudget > 0 && cumulativeTokens > lc.tokenBudget {
+			budgetMsg := model.ChatMessage{
+				ID:        uuid.New().String(),
+				Role:      model.RoleSystem,
+				Content:   fmt.Sprintf("Token budget exceeded (%d / %d). Stopping.", cumulativeTokens, lc.tokenBudget),
+				Timestamp: time.Now().UTC(),
+			}
+			cf, _ = a.repo.AppendMessage(lc.chatID, budgetMsg)
+			if lc.totalTokensUsed != nil {
+				*lc.totalTokensUsed = cumulativeTokens
+			}
+			return cf, fmt.Errorf("token budget exceeded (%d / %d)", cumulativeTokens, lc.tokenBudget)
 		}
 
 		// No tool calls — final text response
@@ -2574,6 +2604,9 @@ func (a *App) runChatLoop(ctx context.Context, provider llm.Provider, modelName 
 				PendingEdits:  allPendingEdits,
 			}
 			cf, _ = a.repo.AppendMessage(lc.chatID, assistantMsg)
+			if lc.totalTokensUsed != nil {
+				*lc.totalTokensUsed = cumulativeTokens
+			}
 			return cf, nil
 		}
 
@@ -2640,6 +2673,9 @@ func (a *App) runChatLoop(ctx context.Context, provider llm.Provider, modelName 
 		PendingEdits:  allPendingEdits,
 	}
 	cf, _ = a.repo.AppendMessage(lc.chatID, assistantMsg)
+	if lc.totalTokensUsed != nil {
+		*lc.totalTokensUsed = cumulativeTokens
+	}
 	return cf, nil
 }
 
@@ -4241,7 +4277,15 @@ func (a *App) IsLLMConfigured() bool {
 	if err != nil {
 		return false
 	}
-	return cfg.Provider != ""
+	if cfg.Provider != "" {
+		return true
+	}
+	// Check multi-account setup
+	accounts, err := config.LoadLLMAccounts()
+	if err != nil {
+		return false
+	}
+	return len(accounts) > 0
 }
 
 func (a *App) TestLLMConnection() (string, error) {

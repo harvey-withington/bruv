@@ -2,7 +2,7 @@
 
 import { getBackend } from './adapters'
 
-export type { UserProfile, AuthInfo, LLMConfig, LLMAccount, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard, AgentConfig, AgentRun, AgentFile, AgentStatus, AppNotification, NotifyConfig } from './types'
+export type { UserProfile, AuthInfo, LLMConfig, LLMAccount, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard, AgentConfig, AgentRun, AgentFile, AgentStatus, AgentSummary, AppNotification, NotifyConfig } from './types'
 
 // Capabilities
 export const getCapabilities = () => getBackend().getCapabilities()
@@ -173,6 +173,7 @@ export const ClearAgentRuns = (...args: Parameters<ReturnType<typeof getBackend>
 export const PauseAllAgents = () => getBackend().PauseAllAgents()
 export const ResumeAllAgents = () => getBackend().ResumeAllAgents()
 export const GetAgentSchedulerStatus = () => getBackend().GetAgentSchedulerStatus()
+export const GetAllAgents = () => getBackend().GetAllAgents()
 export const ForceQuit = () => getBackend().ForceQuit()
 
 // Chat

@@ -239,6 +239,11 @@ type AgentConfig struct {
 	LastRunAt       *time.Time  `json:"last_run_at,omitempty"`
 	NextRunAt       *time.Time  `json:"next_run_at,omitempty"`
 	MaxTokensBudget int         `json:"max_tokens_budget,omitempty"` // 0 = default (50000)
+	RunStartedAt    *time.Time  `json:"run_started_at,omitempty"`   // set when entering running state; used for stuck detection
+	MinIntervalMins int         `json:"min_interval_minutes,omitempty"` // 0 = default (5); minimum minutes between runs
+	MaxRetries      int         `json:"max_retries,omitempty"`      // 0 = no retry
+	RetryCount      int         `json:"retry_count,omitempty"`      // current consecutive failure count
+	RetryBackoffMins int        `json:"retry_backoff_minutes,omitempty"` // 0 = default (5)
 }
 
 // AgentRun records a single execution of a card's agent.

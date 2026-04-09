@@ -127,6 +127,11 @@ func (p *openaiProvider) ChatCompletion(ctx context.Context, req ChatRequest) (*
 			} `json:"message"`
 		} `json:"choices"`
 		Model string `json:"model"`
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+			TotalTokens      int `json:"total_tokens"`
+		} `json:"usage"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
@@ -139,6 +144,13 @@ func (p *openaiProvider) ChatCompletion(ctx context.Context, req ChatRequest) (*
 	cr := &ChatResponse{
 		Content: choice.Message.Content,
 		Model:   result.Model,
+	}
+	if result.Usage.TotalTokens > 0 {
+		cr.Usage = &Usage{
+			PromptTokens:     result.Usage.PromptTokens,
+			CompletionTokens: result.Usage.CompletionTokens,
+			TotalTokens:      result.Usage.TotalTokens,
+		}
 	}
 
 	for _, tc := range choice.Message.ToolCalls {

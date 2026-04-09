@@ -5,7 +5,7 @@
   import { getCardTypeColor, getCardTypeTextColor } from '../lib/cardTypes'
   import { TriggerAgent, CancelAgent } from '../lib/api'
   import { showToast } from '../lib/toast.svelte'
-  import { Bot, Play, Square } from 'lucide-svelte'
+  import { Timer, Play, Square } from 'lucide-svelte'
 
   type CardData = {
     id: string
@@ -81,7 +81,7 @@
       {#if isRunning}
         <Square size={10} />
       {:else}
-        <Bot size={14} class="icon-bot" />
+        <Timer size={14} class="icon-bot" />
         <Play size={12} class="icon-play" />
       {/if}
     </span>

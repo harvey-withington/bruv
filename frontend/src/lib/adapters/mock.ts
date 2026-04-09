@@ -163,7 +163,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     MarkAllNotificationsRead: async () => {},
     ClearAllNotifications: async () => {},
     GetCategoryAcceptedTypes: async () => null,
-    GetAgentConfig: async () => ({ card_id: '', config: { enabled: false, goal: '', schedule: '', allowed_tools: [], status: 'disabled' as const, notify_on: [], notify_channel: '', llm_account_id: '', llm_model: '', last_run_at: null, next_run_at: null, max_tokens_budget: 0 }, runs: [] }),
+    GetAgentConfig: async () => ({ card_id: '', config: { enabled: false, goal: '', schedule: '', allowed_tools: [], status: 'disabled' as const, notify_on: [], notify_channel: '', llm_account_id: '', llm_model: '', last_run_at: null, next_run_at: null, max_tokens_budget: 0, run_started_at: null, min_interval_minutes: 0, max_retries: 0, retry_count: 0, retry_backoff_minutes: 0 }, runs: [] }),
     SaveAgentConfig: async () => {},
     GetAgentRuns: async () => [],
     TriggerAgent: async () => {},
@@ -172,6 +172,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     PauseAllAgents: async () => {},
     ResumeAllAgents: async () => {},
     GetAgentSchedulerStatus: async () => ({ active: false, paused: false, runningCount: 0 }),
+    GetAllAgents: async () => [],
     ForceQuit: async () => {},
 
     LoadChatHistory: async () => ({ card_id: '', messages: [] }),

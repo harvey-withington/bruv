@@ -15,6 +15,10 @@ import (
 	"github.com/google/uuid"
 )
 
+func init() {
+	beeep.AppName = "BRUV"
+}
+
 // Channel identifies a notification delivery method.
 type Channel string
 

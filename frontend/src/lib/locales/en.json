@@ -478,6 +478,7 @@
   "agent.tool_http_request_desc": "Make an HTTP request to an external API",
 
   "toolbar.notifications": "Notifications",
+  "toolbar.agents": "All Agents",
   "prefs.tab_notifications": "Notifications",
   "notifications.title": "Notifications",
   "notifications.mark_all_read": "Mark all read",
@@ -526,5 +527,34 @@
   "agent.llm_account_default": "Default ({label})",
   "agent.llm_account_none": "No accounts configured",
   "agent.llm_model_placeholder": "Account default",
-  "agent.channel_hint": "In-app is always on"
+  "agent.channel_hint": "In-app is always on",
+
+  "dashboard.title": "All Agents",
+  "dashboard.enabled": "enabled",
+  "dashboard.running": "running",
+  "dashboard.failed": "failed",
+  "dashboard.pause": "Pause All",
+  "dashboard.resume": "Resume All",
+  "dashboard.paused": "All agents paused",
+  "dashboard.resumed": "All agents resumed",
+  "dashboard.toggle_failed": "Failed to toggle scheduler",
+  "dashboard.empty": "No agents configured yet. Create a card and enable its agent to get started.",
+  "dashboard.col_card": "Card",
+  "dashboard.col_last_run": "Last Run",
+  "dashboard.col_next_run": "Next Run",
+
+  "agent.safety": "Safety & Limits",
+  "agent.token_budget": "Token Budget",
+  "agent.token_budget_placeholder": "50000",
+  "agent.token_budget_hint": "Max tokens per run (0 = default 50k)",
+  "agent.min_interval": "Min Interval (mins)",
+  "agent.min_interval_placeholder": "5",
+  "agent.min_interval_hint": "Minimum minutes between runs (0 = default 5)",
+  "agent.max_retries": "Max Retries",
+  "agent.max_retries_placeholder": "0",
+  "agent.max_retries_hint": "Auto-retry failed runs (0 = no retry)",
+  "agent.retry_backoff": "Retry Backoff (mins)",
+  "agent.retry_backoff_placeholder": "5",
+  "agent.retry_backoff_hint": "Minutes between retries, multiplied by attempt",
+  "agent.run_retry": "Retry {n}/{max}"
 }

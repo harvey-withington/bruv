@@ -36,11 +36,19 @@ type ChatRequest struct {
 	Tools        []ToolDef // optional; empty = no tool calling
 }
 
+// Usage reports token consumption for a single LLM call.
+type Usage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}
+
 // ChatResponse is returned from the provider.
 type ChatResponse struct {
 	Content   string
 	Model     string
 	ToolCalls []ToolCall // non-empty when the LLM wants to call tools
+	Usage     *Usage     // token usage; nil if provider doesn't report it
 }
 
 // Provider is the interface all LLM backends implement.

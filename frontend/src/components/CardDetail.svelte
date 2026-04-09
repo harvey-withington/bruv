@@ -2,7 +2,7 @@
   import { GetCard, UpdateCardTitle, UpdateCardType, RefreshTypeBlocks, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
     DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, AddProjectLabel, GetProjectLabels, GetProjectLocation, GetCategoryAcceptedTypes, GetAgentConfig } from '../lib/api'
   import { projectTags, nav, getTagColor, cardTypes } from '../lib/store.svelte'
-  import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, GripVertical, Pencil, MapPin, MapPinOff, MoveRight, Bot, ChevronDown, ChevronRight, Maximize2, RefreshCw } from 'lucide-svelte'
+  import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, GripVertical, Pencil, MapPin, MapPinOff, MoveRight, BotMessageSquare, ChevronDown, ChevronRight, Maximize2, RefreshCw } from 'lucide-svelte'
   import { renderMarkdown, renderInline } from '../lib/markdown'
   import { t } from '../lib/i18n.svelte'
   import MentionPicker from './MentionPicker.svelte'
@@ -22,7 +22,7 @@
   import type { Card, Block, BlockMeta, CardPin, ChecklistItem, ListItem, MediaItem } from '../lib/types'
 
 
-  let { cardId, currentCategoryId, currentCategoryName, categoryAcceptedTypes, onClose, onUpdated, onPin, autoEditTitle }: {
+  let { cardId, currentCategoryId, currentCategoryName, categoryAcceptedTypes, onClose, onUpdated, onPin, autoEditTitle, initialTab }: {
     cardId: string
     currentCategoryId?: string | null
     currentCategoryName?: string | null
@@ -31,6 +31,7 @@
     onUpdated?: () => void
     onPin?: () => void
     autoEditTitle?: boolean
+    initialTab?: 'details' | 'agent'
   } = $props()
 
   let card = $state<Card | null>(null)
@@ -45,7 +46,7 @@
   let showOtherPins = $state(false)
   const CHAT_VISIBLE_KEY = 'bruv:chatPanelVisible'
   let showChat = $state(localStorage.getItem(CHAT_VISIBLE_KEY) === 'true')
-  let activeTab = $state<'details' | 'agent'>('details')
+  let activeTab = $state<'details' | 'agent'>(initialTab ?? 'details')
   $effect(() => { localStorage.setItem(CHAT_VISIBLE_KEY, String(showChat)) })
 
   // Splitter: redistributes space between main and chat when chat is open
@@ -1373,7 +1374,7 @@
     {/if}
 
     <div class="modal-actions">
-      <button class="chat-toggle-btn" class:active={showChat} onclick={() => showChat = !showChat} title={t('tooltip.toggle_chat')}><Bot size={16} /></button>
+      <button class="chat-toggle-btn" class:active={showChat} onclick={() => showChat = !showChat} title={t('tooltip.toggle_chat')}><BotMessageSquare size={16} /></button>
       <button class="close-btn" onclick={() => onClose()} title={t('tooltip.close_card')}><X size={18} /></button>
     </div>
   </div>

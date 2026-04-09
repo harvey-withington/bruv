@@ -46,15 +46,14 @@ func (a *App) setupTray() {
 			systray.AddSeparator()
 
 			mPause := systray.AddMenuItem("Pause Agents", "Pause all scheduled agents")
+			a.trayPauseItem = mPause
 			mPause.Click(func() {
 				go func() {
 					if mPause.Checked() {
 						mPause.Uncheck()
-						mPause.SetTitle("Pause Agents")
 						a.ResumeAllAgents()
 					} else {
 						mPause.Check()
-						mPause.SetTitle("Resume Agents")
 						a.PauseAllAgents()
 					}
 				}()

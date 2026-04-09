@@ -13,6 +13,7 @@
   import CardDetail from './components/CardDetail.svelte'
   import SettingsDialog from './components/SettingsDialog.svelte'
   import ProjectSettingsDialog from './components/ProjectSettingsDialog.svelte'
+  import AgentDashboard from './components/AgentDashboard.svelte'
   import UserProfile from './components/UserProfile.svelte'
   import TagEditor from './components/TagEditor.svelte'
   import Toast from './components/Toast.svelte'
@@ -50,14 +51,17 @@
   loadGlobalTagColors()
 
   let searchCardId = $state<string | null>(null)
+  let searchCardInitialTab = $state<'details' | 'agent' | undefined>(undefined)
   let resizing = $state(false)
   let showSettings = $state(false)
   let showProjectSettings = $state(false)
   let showProfile = $state(false)
   let showTagEditor = $state(false)
   let showProjectChat = $state(false)
+  let showAgentDashboard = $state(false)
 
-  function handleSearchSelectCard(cardId: string) {
+  function handleSearchSelectCard(cardId: string, tab?: 'details' | 'agent') {
+    searchCardInitialTab = tab
     searchCardId = cardId
   }
 
@@ -181,6 +185,9 @@
         onOpenProjectSettings={() => showProjectSettings = true}
         onToggleProjectChat={() => showProjectChat = !showProjectChat}
         projectChatActive={showProjectChat}
+        onToggleAgentDashboard={() => showAgentDashboard = !showAgentDashboard}
+        agentDashboardActive={showAgentDashboard}
+        agentsRunning={Object.keys(board.runningAgentIds).length > 0}
       />
       <div class="board-row">
         <Board />
@@ -203,7 +210,8 @@
       cardId={searchCardId}
       currentCategoryId={searchCategoryId}
       currentCategoryName={searchCategoryName}
-      onClose={() => { searchCardId = null; searchCategoryId = null; searchCategoryName = null }}
+      initialTab={searchCardInitialTab}
+      onClose={() => { searchCardId = null; searchCategoryId = null; searchCategoryName = null; searchCardInitialTab = undefined }}
     />
   {/if}
 
@@ -221,6 +229,13 @@
 
   {#if showTagEditor}
     <TagEditor onClose={() => showTagEditor = false} />
+  {/if}
+
+  {#if showAgentDashboard}
+    <AgentDashboard
+      onClose={() => showAgentDashboard = false}
+      onOpenCard={(cardId) => { showAgentDashboard = false; handleSearchSelectCard(cardId, 'agent') }}
+    />
   {/if}
 {:else}
   <WelcomeScreen />

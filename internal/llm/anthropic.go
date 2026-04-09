@@ -128,12 +128,24 @@ func (p *anthropicProvider) ChatCompletion(ctx context.Context, req ChatRequest)
 			Input map[string]any `json:"input"`
 		} `json:"content"`
 		Model string `json:"model"`
+		Usage struct {
+			InputTokens  int `json:"input_tokens"`
+			OutputTokens int `json:"output_tokens"`
+		} `json:"usage"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 
 	cr := &ChatResponse{Model: result.Model}
+	if result.Usage.InputTokens > 0 || result.Usage.OutputTokens > 0 {
+		total := result.Usage.InputTokens + result.Usage.OutputTokens
+		cr.Usage = &Usage{
+			PromptTokens:     result.Usage.InputTokens,
+			CompletionTokens: result.Usage.OutputTokens,
+			TotalTokens:      total,
+		}
+	}
 	for _, block := range result.Content {
 		switch block.Type {
 		case "text":

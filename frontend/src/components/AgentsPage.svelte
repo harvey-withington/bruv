@@ -477,7 +477,6 @@
     flex-direction: column;
     height: 100%;
     overflow: hidden;
-    padding: 1rem 1.25rem;
     gap: 0.75rem;
   }
 

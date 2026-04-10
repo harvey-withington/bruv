@@ -199,7 +199,9 @@ func (a *App) markAlarmBlockFired(cardID, blockID string) {
 	}
 	if _, err := a.repo.UpdateCardBlocks(cardID, card.Blocks); err != nil {
 		log.Printf("alarm: failed to save card %s: %v", cardID, err)
+		return
 	}
+	a.emitCardUpdated(cardID)
 }
 
 // stopDueDateScanner stops the due-date scanner if running.
@@ -218,6 +220,18 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%d hour(s)", int(d.Hours()))
 	}
 	return fmt.Sprintf("%d minutes", int(d.Minutes()))
+}
+
+// emitCardUpdated tells the frontend that a card's persisted state has
+// changed out-of-band (i.e. not from a user action in the UI). Card detail
+// views listen for this so they can re-fetch when an agent run, alarm, or
+// other background process mutates a card while it's open. Safe to call
+// from any goroutine.
+func (a *App) emitCardUpdated(cardID string) {
+	if a.ctx == nil || cardID == "" {
+		return
+	}
+	wailsRuntime.EventsEmit(a.ctx, "card:updated", map[string]any{"cardID": cardID})
 }
 
 // makeNotifier creates a notification dispatcher using the current config.
@@ -615,6 +629,8 @@ func (a *App) executeAgentToolCall(cardID string, card *model.Card, tc llm.ToolC
 		if a.idx != nil {
 			_, _ = a.idx.IncrementalRefresh(a.repo.Root)
 		}
+		// Notify any open card detail view so it re-fetches the new content.
+		a.emitCardUpdated(cardID)
 		action.Result = "card updated"
 		return "Card blocks updated successfully.", action
 

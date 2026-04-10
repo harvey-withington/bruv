@@ -1,6 +1,7 @@
 <script lang="ts">
   import { GetCard, UpdateCardTitle, UpdateCardType, RefreshTypeBlocks, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
     DeleteCard, CreateCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, AddProjectLabel, GetProjectLabels, GetProjectLocation, GetCategoryAcceptedTypes, GetAgentConfig } from '../lib/api'
+  import { EventsOn } from '../../wailsjs/runtime/runtime'
   import { projectTags, nav, getTagColor, getTagIcon, cardTypes } from '../lib/store.svelte'
   import DynamicIcon from './DynamicIcon.svelte'
   import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, GripVertical, Pencil, MapPin, MapPinOff, MoveRight, BotMessageSquare, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, Maximize2, ArrowLeftRight, Hash, Calendar, Star, ListTree, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell } from 'lucide-svelte'
@@ -435,6 +436,25 @@
 
   $effect(() => {
     loadCard()
+  })
+
+  // Reload the open card when the backend signals it was modified out-of-band
+  // (agent run, alarm fire, etc). The effect re-binds whenever `cardId` changes
+  // so the listener is always scoped to the currently-displayed card.
+  //
+  // We avoid clobbering active edits by skipping the reload while the user is
+  // mid-edit on the title, description, or any block — they'll pick up the
+  // change when they finish editing or navigate away.
+  $effect(() => {
+    const watchedCardId = cardId
+    const unsubscribe = EventsOn('card:updated', (data: { cardID?: string } | undefined) => {
+      if (!data || data.cardID !== watchedCardId) return
+      if (editingTitle || editingDescription || editingBlockId !== null || editingBlockLabelId !== null) return
+      loadCard()
+    })
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe()
+    }
   })
 
   async function loadCard() {

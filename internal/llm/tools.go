@@ -242,8 +242,11 @@ func ProjectTools(cardTypes []string, categories []map[string]string) []ToolDef 
 					},
 					"category_id": map[string]any{
 						"type":        "string",
-						"enum":        catIDs,
-						"description": "Category to pin the card to (optional, from categories in this project)",
+						"description": "ID of the category to pin the card to (optional). Use the IDs listed in the system prompt.",
+					},
+					"category_name": map[string]any{
+						"type":        "string",
+						"description": "Name of the category to pin to (optional). Use this instead of `category_id` when referring to a category you've just created in the same conversation — its ID won't be known yet.",
 					},
 					"tags": map[string]any{
 						"type":        "array",
@@ -280,7 +283,7 @@ func ProjectTools(cardTypes []string, categories []map[string]string) []ToolDef 
 		},
 		{
 			Name:        "move_card",
-			Description: "Move a card from one category to another within this project.",
+			Description: "Move a card to a different category within this project. Identify the destination by `to_category_id` (preferred) or `to_category_name` (use this when moving into a category you just created in the same conversation — its ID won't be known yet). The source is auto-detected from the card's current pin and does not need to be supplied.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -288,18 +291,20 @@ func ProjectTools(cardTypes []string, categories []map[string]string) []ToolDef 
 						"type":        "string",
 						"description": "ID of the card to move",
 					},
-					"from_category_id": map[string]any{
-						"type":        "string",
-						"enum":        catIDs,
-						"description": "Current category",
-					},
 					"to_category_id": map[string]any{
 						"type":        "string",
-						"enum":        catIDs,
-						"description": "Destination category",
+						"description": "ID of the destination category (preferred)",
+					},
+					"to_category_name": map[string]any{
+						"type":        "string",
+						"description": "Name of the destination category — fallback for when `to_category_id` is unknown (e.g. you just staged its creation)",
+					},
+					"from_category_id": map[string]any{
+						"type":        "string",
+						"description": "Optional. Source category ID. If omitted, the card's current category in this project is used.",
 					},
 				},
-				"required": []string{"card_id", "from_category_id", "to_category_id"},
+				"required": []string{"card_id"},
 			},
 		},
 		{
@@ -468,14 +473,17 @@ func ProjectTools(cardTypes []string, categories []map[string]string) []ToolDef 
 		},
 		{
 			Name:        "update_category",
-			Description: "Update a category's name, description, icon, or accepted card types. All update fields optional.",
+			Description: "Update a category's name, description, icon, or accepted card types. Identify by `category_id` (preferred) or `category_name`. All update fields optional.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"category_id": map[string]any{
 						"type":        "string",
-						"enum":        catIDs,
-						"description": "ID of the category to update",
+						"description": "ID of the category to update (preferred)",
+					},
+					"category_name": map[string]any{
+						"type":        "string",
+						"description": "Name of the category — fallback for when `category_id` is unknown (e.g. you just staged its creation)",
 					},
 					"name": map[string]any{
 						"type":        "string",
@@ -495,22 +503,23 @@ func ProjectTools(cardTypes []string, categories []map[string]string) []ToolDef 
 						"description": "Restrict the category to these card types. Empty array means accept all types. (optional)",
 					},
 				},
-				"required": []string{"category_id"},
 			},
 		},
 		{
 			Name:        "delete_category",
-			Description: "Delete a category. Cards pinned to this category will be unpinned (moved to the inbox). The project must have at least one category remaining.",
+			Description: "Delete a category. Cards pinned to this category will be unpinned (moved to the inbox). The project must have at least one category remaining. Identify by `category_id` (preferred) or `category_name`.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"category_id": map[string]any{
 						"type":        "string",
-						"enum":        catIDs,
-						"description": "ID of the category to delete",
+						"description": "ID of the category to delete (preferred)",
+					},
+					"category_name": map[string]any{
+						"type":        "string",
+						"description": "Name of the category — fallback for when `category_id` is unknown",
 					},
 				},
-				"required": []string{"category_id"},
 			},
 		},
 	}

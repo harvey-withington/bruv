@@ -3109,7 +3109,10 @@ func (a *App) buildProjectSystemPrompt(brandSlug, streamSlug, projectSlug string
 	sb.WriteString("- `update_project_tag` — rename, recolor, or set an icon for an existing tag. Identify by `tag_id` or `tag_name`.\n")
 	sb.WriteString("- `delete_project_tag` — remove a tag from the project's vocabulary. The tag list above shows usage counts; tags marked UNUSED can usually be deleted directly.\n\n")
 	sb.WriteString("Categories (columns):\n")
-	sb.WriteString("- `create_category` / `update_category` / `delete_category` — manage the columns. update_category can set name, description, icon, and accepted_types.\n\n")
+	sb.WriteString("- `create_category` / `update_category` / `delete_category` — manage the columns. update_category can set name, description, icon, and accepted_types.\n")
+	sb.WriteString("- `update_category` and `delete_category` accept either `category_id` (preferred) or `category_name`. Use the name when referring to a category you just created in the same conversation, since its ID won't be known yet.\n")
+	sb.WriteString("- When chaining `create_category` with `move_card` or `create_card` in the same turn, use the destination's NAME (`to_category_name` / `category_name`) — the apply phase resolves the name after the create runs.\n")
+	sb.WriteString("- `move_card` only requires `card_id` and the destination. The source (`from_category_id`) is auto-detected from the card's current pin in this project, so you usually don't need to supply it.\n\n")
 	sb.WriteString("When creating cards, always pin them to the most appropriate category.\n")
 	return sb.String()
 }
@@ -4086,10 +4089,19 @@ func (a *App) executeProjectToolCall(tc llm.ToolCall, scope projectChatScope) (s
 			return "error: " + err.Error(), nil
 		}
 		cardID := card.ID
-		// Pin to category if specified
+		// Pin to category if specified. Accept either category_id or
+		// category_name — the latter lets the LLM chain create_card after
+		// create_category in the same conversation, since the new category
+		// won't have a known ID until apply time.
 		categoryID, _ := tc.Arguments["category_id"].(string)
-		if categoryID != "" {
-			_ = a.PinCard(cardID, categoryID, categoryID)
+		categoryName, _ := tc.Arguments["category_name"].(string)
+		if categoryID != "" || categoryName != "" {
+			resolvedID, err := a.resolveCategoryID(scope, categoryID, categoryName)
+			if err != nil {
+				return "error: " + err.Error(), nil
+			}
+			_ = a.PinCard(cardID, resolvedID, resolvedID)
+			categoryID = resolvedID
 		}
 		// Add tags if specified
 		if tagsRaw, ok := tc.Arguments["tags"].([]any); ok && len(tagsRaw) > 0 {
@@ -4179,13 +4191,34 @@ func (a *App) executeProjectToolCall(tc llm.ToolCall, scope projectChatScope) (s
 
 	case "move_card":
 		cardID, _ := tc.Arguments["card_id"].(string)
-		fromCat, _ := tc.Arguments["from_category_id"].(string)
-		toCat, _ := tc.Arguments["to_category_id"].(string)
-		if cardID == "" || fromCat == "" || toCat == "" {
-			return "error: card_id, from_category_id, and to_category_id are required", nil
+		if cardID == "" {
+			return "error: card_id is required", nil
 		}
-		err := a.MoveCardToCategory(cardID, fromCat, fromCat, toCat, 0)
+		// Destination: accept ID or name. Name lets the LLM chain after a
+		// just-staged create_category — apply order ensures the category
+		// exists by the time this resolves.
+		toCatID, _ := tc.Arguments["to_category_id"].(string)
+		toCatName, _ := tc.Arguments["to_category_name"].(string)
+		if toCatID == "" && toCatName == "" {
+			return "error: to_category_id or to_category_name is required", nil
+		}
+		toCat, err := a.resolveCategoryID(scope, toCatID, toCatName)
 		if err != nil {
+			return "error: " + err.Error(), nil
+		}
+		// Source: optional. Auto-detect from the card's current pin if missing.
+		fromCat, _ := tc.Arguments["from_category_id"].(string)
+		if fromCat == "" {
+			detected, err := a.findCardCurrentCategory(scope, cardID)
+			if err != nil {
+				return "error: " + err.Error(), nil
+			}
+			fromCat = detected
+		}
+		if fromCat == toCat {
+			return "error: source and destination categories are the same", nil
+		}
+		if err := a.MoveCardToCategory(cardID, fromCat, fromCat, toCat, 0); err != nil {
 			return "error: " + err.Error(), nil
 		}
 		result := "Card moved to new category"
@@ -4440,9 +4473,12 @@ func (a *App) executeProjectToolCall(tc llm.ToolCall, scope projectChatScope) (s
 
 	case "update_category":
 		catID, _ := tc.Arguments["category_id"].(string)
-		if catID == "" {
-			return "error: category_id is required", nil
+		catName, _ := tc.Arguments["category_name"].(string)
+		resolvedID, err := a.resolveCategoryID(scope, catID, catName)
+		if err != nil {
+			return "error: " + err.Error(), nil
 		}
+		catID = resolvedID
 		// Find the category's slug — the existing app methods all key by slug.
 		catSlug, err := a.findCategorySlug(scope, catID)
 		if err != nil {
@@ -4489,9 +4525,12 @@ func (a *App) executeProjectToolCall(tc llm.ToolCall, scope projectChatScope) (s
 
 	case "delete_category":
 		catID, _ := tc.Arguments["category_id"].(string)
-		if catID == "" {
-			return "error: category_id is required", nil
+		catName, _ := tc.Arguments["category_name"].(string)
+		resolvedID, err := a.resolveCategoryID(scope, catID, catName)
+		if err != nil {
+			return "error: " + err.Error(), nil
 		}
+		catID = resolvedID
 		catSlug, err := a.findCategorySlug(scope, catID)
 		if err != nil {
 			return "error: " + err.Error(), nil
@@ -4541,6 +4580,67 @@ func (a *App) findCategorySlug(scope projectChatScope, catID string) (string, er
 		}
 	}
 	return "", fmt.Errorf("category %s not found in current project", catID)
+}
+
+// resolveCategoryID resolves either an ID or a name (case-insensitive) into a
+// canonical category ID for the current project. Used by tools that accept
+// `category_id` and `category_name` as alternatives — this lets the LLM refer
+// to a category it just created in the same conversation by name, since the ID
+// won't be known until apply time.
+//
+// If both `id` and `name` are supplied, ID takes precedence. Returns an error
+// if neither resolves to a category in this project.
+func (a *App) resolveCategoryID(scope projectChatScope, id, name string) (string, error) {
+	cats, err := a.repo.ListCategories(scope.brandSlug, scope.streamSlug, scope.projectSlug)
+	if err != nil {
+		return "", err
+	}
+	if id != "" {
+		for _, c := range cats {
+			if c.ID == id {
+				return c.ID, nil
+			}
+		}
+		// ID supplied but not in this project — fall through to try name lookup
+		// in case the LLM mixed them up.
+	}
+	if name != "" {
+		for _, c := range cats {
+			if strings.EqualFold(c.Name, name) {
+				return c.ID, nil
+			}
+		}
+	}
+	if id == "" && name == "" {
+		return "", fmt.Errorf("category_id or category_name is required")
+	}
+	if id != "" && name == "" {
+		return "", fmt.Errorf("category %s not found in current project", id)
+	}
+	return "", fmt.Errorf("no category named %q in current project", name)
+}
+
+// findCardCurrentCategory returns the category ID a card is currently pinned
+// to within the given project. Used by `move_card` to auto-detect the source
+// category when the LLM doesn't supply `from_category_id`.
+//
+// Walks the project's categories looking for a pin matching the card. If the
+// card is pinned to multiple categories in this project (rare), returns the
+// first one found. Returns an error if the card isn't pinned anywhere here.
+func (a *App) findCardCurrentCategory(scope projectChatScope, cardID string) (string, error) {
+	cats, err := a.repo.ListCategories(scope.brandSlug, scope.streamSlug, scope.projectSlug)
+	if err != nil {
+		return "", err
+	}
+	for _, cat := range cats {
+		pins, _ := a.repo.ListCardsInCategory(cat.ID, cat.ID)
+		for _, p := range pins {
+			if p.CardID == cardID {
+				return cat.ID, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("card %s is not pinned to any category in this project", cardID)
 }
 
 // applyCardUpdate applies a partial update to a single card. Used by both
@@ -5019,8 +5119,16 @@ func (a *App) stageProjectToolCall(tc llm.ToolCall, scope projectChatScope) (str
 		}
 		label := "Create card: " + title
 		detail := fmt.Sprintf("Type: %s", cardType)
-		if catID, _ := tc.Arguments["category_id"].(string); catID != "" {
-			detail += fmt.Sprintf("\nPin to category: %s", catID)
+		// Pin destination — prefer name (more meaningful in the row), fall
+		// back to resolving the ID to a name, finally raw ID.
+		catName, _ := tc.Arguments["category_name"].(string)
+		catID, _ := tc.Arguments["category_id"].(string)
+		pinDisplay := catName
+		if pinDisplay == "" && catID != "" {
+			pinDisplay = a.categoryDisplayName(scope, catID)
+		}
+		if pinDisplay != "" {
+			detail += "\nPin to category: " + pinDisplay
 		}
 		if desc, _ := tc.Arguments["description"].(string); desc != "" {
 			detail += "\n\n" + desc
@@ -5117,12 +5225,22 @@ func (a *App) stageProjectToolCall(tc llm.ToolCall, scope projectChatScope) (str
 		if !inScope(cardID) {
 			return "error: card " + cardID + " is not in the current project.", nil
 		}
-		toCat, _ := tc.Arguments["to_category_id"].(string)
-		fromCat, _ := tc.Arguments["from_category_id"].(string)
+		// Display the destination by name when one is provided. The actual
+		// resolution (id-or-name → id) happens at apply time, by which point
+		// any just-staged create_category will have been applied first.
+		toCatName, _ := tc.Arguments["to_category_name"].(string)
+		toCatID, _ := tc.Arguments["to_category_id"].(string)
+		toDisplay := toCatName
+		if toDisplay == "" && toCatID != "" {
+			toDisplay = a.categoryDisplayName(scope, toCatID)
+		}
+		if toDisplay == "" {
+			toDisplay = "(unspecified)"
+		}
 		return "Move staged", []model.PendingEdit{{
 			ID: uuid.New().String(), Tool: tc.Name, Input: tc.Arguments,
 			Label: a.cardDisplayLabel(cardID) + " — move",
-			Detail: fmt.Sprintf("From category: %s\nTo category: %s", fromCat, toCat),
+			Detail: "To category: " + toDisplay,
 			Status: "pending",
 		}}
 
@@ -5288,13 +5406,37 @@ func (a *App) stageProjectToolCall(tc llm.ToolCall, scope projectChatScope) (str
 
 	case "update_category":
 		catID, _ := tc.Arguments["category_id"].(string)
-		catLabel := a.categoryDisplayName(scope, catID)
+		catName, _ := tc.Arguments["category_name"].(string)
+		// Use the supplied name if present so the row label is meaningful even
+		// when the LLM only provided category_name (a category that doesn't
+		// exist yet at staging time). Apply will resolve the actual ID.
+		catLabel := catName
+		if catLabel == "" && catID != "" {
+			catLabel = a.categoryDisplayName(scope, catID)
+		}
+		if catLabel == "" {
+			catLabel = "category"
+		}
+		// Lookup keys preserved on each per-field PendingEdit so apply can
+		// resolve the right category whichever form the LLM used.
+		lookup := map[string]any{}
+		if catID != "" {
+			lookup["category_id"] = catID
+		}
+		if catName != "" {
+			lookup["category_name"] = catName
+		}
 		var edits []model.PendingEdit
 		mk := func(field string, fieldArg any, detail string) {
+			input := map[string]any{}
+			for k, v := range lookup {
+				input[k] = v
+			}
+			input[field] = fieldArg
 			edits = append(edits, model.PendingEdit{
 				ID:    uuid.New().String(),
 				Tool:  "update_category",
-				Input: map[string]any{"category_id": catID, field: fieldArg},
+				Input: input,
 				Label: catLabel + " — " + field,
 				Detail: detail,
 				Status: "pending",
@@ -5334,7 +5476,14 @@ func (a *App) stageProjectToolCall(tc llm.ToolCall, scope projectChatScope) (str
 
 	case "delete_category":
 		catID, _ := tc.Arguments["category_id"].(string)
-		catLabel := a.categoryDisplayName(scope, catID)
+		catName, _ := tc.Arguments["category_name"].(string)
+		catLabel := catName
+		if catLabel == "" && catID != "" {
+			catLabel = a.categoryDisplayName(scope, catID)
+		}
+		if catLabel == "" {
+			catLabel = "category"
+		}
 		return "Category deletion staged", []model.PendingEdit{{
 			ID: uuid.New().String(), Tool: "delete_category", Input: tc.Arguments,
 			Label: "Delete category — " + catLabel, Detail: "Cards will be unpinned to inbox", Status: "pending",

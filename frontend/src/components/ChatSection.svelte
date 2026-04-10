@@ -37,6 +37,7 @@
     sendFn,
     reloadKey,
     clearFn,
+    applyFn,
   }: {
     cardId: string
     visible: boolean
@@ -45,10 +46,30 @@
     onCardChanged?: () => void
     projectMode?: boolean
     loadFn?: () => Promise<{ messages: ChatMessage[] }>
-    sendFn?: (text: string) => Promise<{ messages: ChatMessage[] }>
+    /** sendFn is called when the user submits a message. In projectMode it
+     *  receives the current contextLevel selection so the parent's closure
+     *  can forward it to SendProjectChatMessage. */
+    sendFn?: (text: string, contextLevel?: string) => Promise<{ messages: ChatMessage[] }>
     reloadKey?: string
     clearFn?: () => Promise<void>
+    /** applyFn applies a subset of pending edits in projectMode. Mirrors the
+     *  card chat's ApplyPendingEdits flow but routes through the project
+     *  apply endpoint so the right tool executor runs. */
+    applyFn?: (msgID: string, acceptIDs: string[]) => Promise<{ messages: ChatMessage[] }>
   } = $props()
+
+  // --- Project chat: context level (persisted globally in localStorage) ---
+  // Three levels: 'all' (full card detail) | 'metadata' (titles only) | 'none'.
+  // Defaults to 'all' to preserve current behaviour.
+  type ProjectContextLevel = 'all' | 'metadata' | 'none'
+  const PROJECT_CONTEXT_KEY = 'bruv:projectChatContextLevel'
+  let projectContextLevel = $state<ProjectContextLevel>(
+    (localStorage.getItem(PROJECT_CONTEXT_KEY) as ProjectContextLevel | null) ?? 'all'
+  )
+  function setProjectContextLevel(level: ProjectContextLevel) {
+    projectContextLevel = level
+    localStorage.setItem(PROJECT_CONTEXT_KEY, level)
+  }
 
   // Resizable chat width (splitter between main and chat)
   const CHAT_WIDTH_KEY = 'bruv:chatPanelWidth'
@@ -125,6 +146,28 @@
     return msg.pending_edits?.filter(e => e.status === 'pending') ?? []
   }
 
+  // Inline preview for a pending edit's value. Cropped to ~60 chars and
+  // collapsed to a single line so the row stays compact. Full value is
+  // available on hover via the existing fixed-position tooltip.
+  function previewEditValue(detail: string | undefined): string {
+    if (!detail) return ''
+    const oneLine = detail.replace(/\s+/g, ' ').trim()
+    if (oneLine.length <= 60) return oneLine
+    return oneLine.slice(0, 60) + '…'
+  }
+
+  // Count distinct cards touched by a message's pending edits. Cards are
+  // identified by `input.card_id`. Falls back to 0 when edits don't carry
+  // card identifiers (e.g. card-chat tools).
+  function distinctCardCount(msg: ChatMessage): number {
+    const ids = new Set<string>()
+    for (const e of msg.pending_edits ?? []) {
+      const cid = (e.input as Record<string, unknown>)?.card_id
+      if (typeof cid === 'string' && cid !== '') ids.add(cid)
+    }
+    return ids.size
+  }
+
   function allChecked(msg: ChatMessage): boolean {
     const pending = pendingEditsOf(msg)
     return pending.length > 0 && pending.every(e => checkedEdits[msg.id]?.[e.id])
@@ -151,12 +194,30 @@
     const acceptIDs = pendingEditsOf(msg!).filter(e => checked[e.id]).map(e => e.id)
     const hasPinEdit = msg?.pending_edits?.some(e => e.tool === 'suggest_pin' && checked[e.id] && e.status === 'pending')
     try {
-      const result = await ApplyPendingEdits(cardId, msgId, acceptIDs)
+      const result = projectMode && applyFn
+        ? await applyFn(msgId, acceptIDs)
+        : await ApplyPendingEdits(cardId, msgId, acceptIDs)
       messages = result?.messages || []
-      onCardChanged?.()
-      if (hasPinEdit) {
+      if (projectMode) {
+        // Project edits may have created/updated/moved cards anywhere in the board.
+        document.dispatchEvent(new CustomEvent('bruv:board-changed'))
         document.dispatchEvent(new CustomEvent('bruv:sidebar-changed'))
         document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
+        // Backend leaves failed edits in `pending` status with the error in
+        // their `detail` field — surface a toast so the user notices.
+        const updatedMsg = messages.find(m => m.id === msgId)
+        const failed = updatedMsg?.pending_edits?.filter(e =>
+          acceptIDs.includes(e.id) && e.status === 'pending' && e.detail.startsWith('error:')
+        ) ?? []
+        if (failed.length > 0) {
+          showToast(t('error.edit_apply_some_failed').replace('{count}', String(failed.length)), 'error')
+        }
+      } else {
+        onCardChanged?.()
+        if (hasPinEdit) {
+          document.dispatchEvent(new CustomEvent('bruv:sidebar-changed'))
+          document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
+        }
       }
     } catch (e) {
       showToast(t('error.edit_apply_failed'), 'error')
@@ -229,7 +290,7 @@
     scrollToBottom()
     try {
       const result = projectMode && sendFn
-        ? await sendFn(text)
+        ? await sendFn(text, projectContextLevel)
         : await SendChatMessage(cardId, text)
       messages = result?.messages || []
       if (projectMode) {
@@ -429,6 +490,31 @@
     <div class="chat-resize-handle left" class:active={resizing} role="separator" tabindex="-1" onmousedown={onSplitterDown}></div>
     <div class="chat-header">
       <span class="chat-title">{projectMode ? t('chat.project_title') : t('chat.title')}{messages.length > 0 ? ` (${messages.length})` : ''}</span>
+      {#if projectMode}
+        <div class="ctx-selector" role="group" aria-label={t('chat.context_label')}>
+          <span class="ctx-selector-label">{t('chat.context_label')}</span>
+          <div class="ctx-segments">
+            <button
+              class="ctx-segment"
+              class:active={projectContextLevel === 'all'}
+              onclick={() => setProjectContextLevel('all')}
+              title={t('chat.context_all_hint')}
+            >{t('chat.context_all')}</button>
+            <button
+              class="ctx-segment"
+              class:active={projectContextLevel === 'metadata'}
+              onclick={() => setProjectContextLevel('metadata')}
+              title={t('chat.context_metadata_hint')}
+            >{t('chat.context_metadata')}</button>
+            <button
+              class="ctx-segment"
+              class:active={projectContextLevel === 'none'}
+              onclick={() => setProjectContextLevel('none')}
+              title={t('chat.context_none_hint')}
+            >{t('chat.context_none')}</button>
+          </div>
+        </div>
+      {/if}
     </div>
 
     {#if !configured}
@@ -463,7 +549,7 @@
               </div>
             {/if}
 
-            {#if !projectMode && msg.pending_edits?.length}
+            {#if msg.pending_edits?.length}
               <div class="pending-edits">
                 <div class="pending-edits-header">
                   {#if hasPendingEdits(msg)}
@@ -479,6 +565,12 @@
                     <ListChecks size={12} class="resolved-icon" />
                   {/if}
                   <span class="pending-edits-title">{t('chat.suggest_edits_review')}</span>
+                  {#if projectMode && hasPendingEdits(msg)}
+                    {@const cardCount = distinctCardCount(msg)}
+                    {#if cardCount > 0}
+                      <span class="pending-edits-count">{cardCount === 1 ? t('chat.suggest_one_card') : t('chat.suggest_n_cards').replace('{count}', String(cardCount))}</span>
+                    {/if}
+                  {/if}
                   {#if hasPendingEdits(msg)}
                     <button class="apply-btn" onclick={() => applyEdits(msg.id)} disabled={!someChecked(msg)}>
                       {t('chat.apply')}
@@ -491,6 +583,7 @@
                     class="pending-edit-row"
                     class:edit-accepted={edit.status === 'accepted'}
                     class:edit-rejected={edit.status === 'rejected'}
+                    class:edit-error={edit.status === 'pending' && edit.detail?.startsWith('error:')}
                   >
                     {#if edit.status === 'pending'}
                       <input
@@ -511,7 +604,7 @@
                         role="tooltip"
                         onmouseenter={(e) => showEditTooltip(e, edit.detail)}
                         onmouseleave={hideEditTooltip}
-                      >{edit.detail}</span>
+                      >{previewEditValue(edit.detail)}</span>
                     {/if}
                   </div>
                 {/each}
@@ -658,6 +751,49 @@
     color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.05em;
+  }
+
+  /* Project chat: context level segmented control */
+  .ctx-selector {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .ctx-selector-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .ctx-segments {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--bg-main);
+  }
+  .ctx-segment {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    font-weight: 500;
+    padding: 3px 8px;
+    cursor: pointer;
+    border-right: 1px solid var(--border);
+    transition: background 0.12s, color 0.12s;
+  }
+  .ctx-segment:last-child {
+    border-right: none;
+  }
+  .ctx-segment:hover:not(.active) {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+  }
+  .ctx-segment.active {
+    background: var(--accent);
+    color: #fff;
   }
 
   .chat-actions-col {
@@ -898,6 +1034,12 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
+  .pending-edits-count {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-weight: 500;
+    margin-right: 4px;
+  }
 
   :global(.resolved-icon) {
     flex-shrink: 0;
@@ -952,6 +1094,16 @@
     opacity: 0.6;
   }
 
+  .pending-edit-row.edit-error {
+    background: color-mix(in srgb, var(--danger, #ef4444) 8%, transparent);
+    border-radius: 4px;
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+  .pending-edit-row.edit-error .edit-preview {
+    color: var(--danger, #ef4444);
+  }
+
   :global(.edit-resolved-icon) {
     flex-shrink: 0;
   }
@@ -964,18 +1116,27 @@
   }
 
   .edit-label {
-    flex-shrink: 0;
+    /* Takes the remaining space and truncates with ellipsis when too long.
+       min-width: 0 is required for text-overflow to kick in inside a flex
+       child instead of overflowing the row. */
+    flex: 1 1 auto;
+    min-width: 0;
     font-size: 0.78rem;
     font-weight: 500;
     color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .edit-preview {
-    flex: 1;
+    /* Sized to its content, capped so a long preview also truncates instead
+       of squeezing the label. Hover always reveals the full value via the
+       fixed-position tooltip. */
+    flex: 0 1 auto;
+    max-width: 40%;
     font-size: 0.72rem;
     color: var(--text-muted);
-    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

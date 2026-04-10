@@ -276,6 +276,77 @@
     } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()
       applyAndClose()
+    } else if (activeTab === 'icon' && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      handleGridArrow(e)
+    }
+  }
+
+  /**
+   * Move keyboard focus through the icon grid using arrow keys.
+   *
+   * The grid uses CSS `auto-fill` so column count is dynamic. Rather than
+   * computing it, we use `document.elementFromPoint()` to find the cell
+   * visually adjacent to the currently-focused one. This naturally handles
+   * non-uniform layouts (e.g. crossing category boundaries with different
+   * trailing-row widths).
+   *
+   * Triggered from the search field too: pressing Down from the search input
+   * focuses the first cell in the grid, so users can flow from typing to
+   * picking without reaching for the mouse.
+   */
+  function handleGridArrow(e: KeyboardEvent) {
+    const active = document.activeElement as HTMLElement | null
+    const isSearch = active?.classList.contains('ip-search')
+    const isCell = active?.classList.contains('ip-icon-cell')
+    if (!isSearch && !isCell) return
+
+    // Down from search → focus first visible cell.
+    if (isSearch) {
+      if (e.key !== 'ArrowDown') return
+      const first = document.querySelector('.ip-icon-cell') as HTMLButtonElement | null
+      if (!first) return
+      e.preventDefault()
+      first.focus()
+      first.scrollIntoView({ block: 'nearest' })
+      return
+    }
+
+    // From a cell — find the visually adjacent cell.
+    e.preventDefault()
+    const cells = Array.from(document.querySelectorAll('.ip-icon-cell')) as HTMLButtonElement[]
+    if (cells.length === 0) return
+    const idx = cells.indexOf(active as HTMLButtonElement)
+    if (idx === -1) return
+
+    let next: HTMLButtonElement | null = null
+    if (e.key === 'ArrowLeft') {
+      next = cells[Math.max(0, idx - 1)]
+    } else if (e.key === 'ArrowRight') {
+      next = cells[Math.min(cells.length - 1, idx + 1)]
+    } else {
+      // Up / Down — probe geometrically with elementFromPoint.
+      const rect = active!.getBoundingClientRect()
+      const probeX = rect.left + rect.width / 2
+      const probeY = e.key === 'ArrowDown'
+        ? rect.bottom + rect.height / 2
+        : rect.top - rect.height / 2
+      const hit = document.elementFromPoint(probeX, probeY)
+      const cell = hit?.closest('.ip-icon-cell') as HTMLButtonElement | null
+      if (cell) {
+        next = cell
+      } else if (e.key === 'ArrowDown') {
+        // Fell off the bottom of the grid — just go to last cell.
+        next = cells[cells.length - 1]
+      } else {
+        // Fell off the top — go back to search input.
+        const search = document.querySelector('.ip-search') as HTMLInputElement | null
+        search?.focus()
+        return
+      }
+    }
+    if (next && next !== active) {
+      next.focus()
+      next.scrollIntoView({ block: 'nearest' })
     }
   }
 </script>

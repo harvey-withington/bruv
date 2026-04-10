@@ -221,6 +221,7 @@ export const RejectPendingEdit = (...args: Parameters<ReturnType<typeof getBacke
 export const AcceptAllPendingEdits = (...args: Parameters<ReturnType<typeof getBackend>['AcceptAllPendingEdits']>) => getBackend().AcceptAllPendingEdits(...args)
 export const RejectAllPendingEdits = (...args: Parameters<ReturnType<typeof getBackend>['RejectAllPendingEdits']>) => getBackend().RejectAllPendingEdits(...args)
 export const ApplyPendingEdits = (...args: Parameters<ReturnType<typeof getBackend>['ApplyPendingEdits']>) => getBackend().ApplyPendingEdits(...args)
+export const ApplyProjectPendingEdits = (...args: Parameters<ReturnType<typeof getBackend>['ApplyProjectPendingEdits']>) => getBackend().ApplyProjectPendingEdits(...args)
 
 // Attachments
 export const AddCardAttachment = (...args: Parameters<ReturnType<typeof getBackend>['AddCardAttachment']>) => getBackend().AddCardAttachment(...args)

@@ -83,7 +83,7 @@ export function getTagColor(tagName: string): string {
   return globalTagColors.map[tagName] || globalTagColors.map[lower] || 'var(--border)'
 }
 
-// Resolve a tag name to its icon (project label icon only — no global fallback).
+// Resolve a tag name to its icon (project tag icon only — no global fallback).
 // Returns '' when the tag has no icon assigned.
 export function getTagIcon(tagName: string): string {
   const lower = tagName.toLowerCase()

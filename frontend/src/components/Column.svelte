@@ -297,14 +297,17 @@
         use:inlineEdit={{ onCommit: () => onCommitRename?.(), onCancel: () => onCancelRename?.() }}
       />
     {:else}
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <h3
-        class="column-title"
-        class:editable={!isReadonly}
-        role={!isReadonly ? 'button' : undefined}
-        tabindex={!isReadonly ? 0 : undefined}
-        onclick={() => { if (!isReadonly) onStartRename?.(category.slug, category.name) }}
-      >{@html renderInline(category.name)}</h3>
+      <h3 class="column-title">
+        {#if isReadonly}
+          <span class="column-title-text">{@html renderInline(category.name)}</span>
+        {:else}
+          <button
+            type="button"
+            class="column-title-btn"
+            onclick={(e: MouseEvent) => { e.stopPropagation(); onStartRename?.(category.slug, category.name) }}
+          >{@html renderInline(category.name)}</button>
+        {/if}
+      </h3>
       <span class="card-count">{category.cards.length}</span>
       {#if !isReadonly}
         <div class="col-actions">
@@ -497,19 +500,38 @@
     color: var(--text-strong);
     flex: 1;
     min-width: 0;
+    display: flex;
+    align-items: center;
+  }
+  .column-title-text {
+    flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-
-  .column-title.editable {
+  .column-title-btn {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+    background: none;
+    border: none;
+    padding: 0.05rem 0.2rem;
+    margin: 0;
+    color: inherit;
+    font: inherit;
     cursor: pointer;
     border-radius: 3px;
-    padding: 0.05rem 0.2rem;
   }
-
-  .column-title.editable:hover {
+  .column-title-btn:hover {
     color: var(--accent);
+  }
+  .column-title-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
   }
 
   .card-count {

@@ -1158,7 +1158,11 @@
             <span class="field-label">{t('card.tags')}</span>
             <div class="tags-list">
               {#each (card.tags || []) as tag}
+                {@const icon = getTagIcon(tag)}
                 <span class="tag-chip" style:background={getTagColor(tag)}>
+                  {#if icon}
+                    <span class="tag-chip-icon"><DynamicIcon name={icon} size={11} /></span>
+                  {/if}
                   <span class="tag-label">{tag}</span>
                   <button class="tag-remove" onclick={() => removeTag(tag)} title={t('tooltip.remove_tag')}><X size={12} /></button>
                 </span>
@@ -2113,6 +2117,12 @@
     display: flex;
     align-items: center;
     gap: 0.3rem;
+  }
+
+  .tag-chip-icon {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
   }
 
   .tag-label {

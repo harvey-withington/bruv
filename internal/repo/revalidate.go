@@ -101,6 +101,10 @@ func (r *Repository) repairOrphanedPinDirs(stats *RevalidateStats) {
 }
 
 // repairOrphanedChatFiles removes .messages.json files for cards that no longer exist.
+//
+// Project-level chat files use a synthetic ID prefix `__project__` (see
+// projectChatID in app.go) and have no backing card on disk by design.
+// They must be skipped here or every revalidation pass would wipe them.
 func (r *Repository) repairOrphanedChatFiles(stats *RevalidateStats) {
 	entries, err := os.ReadDir(r.cardsPath())
 	if err != nil {
@@ -109,6 +113,10 @@ func (r *Repository) repairOrphanedChatFiles(stats *RevalidateStats) {
 
 	for _, e := range entries {
 		name := e.Name()
+		// Skip synthetic chat files that aren't tied to a real card.
+		if strings.HasPrefix(name, "__project__") {
+			continue
+		}
 		if strings.HasSuffix(name, ".messages.json") {
 			cardID := strings.TrimSuffix(name, ".messages.json")
 			if !fileExists(r.cardFilePath(cardID)) {

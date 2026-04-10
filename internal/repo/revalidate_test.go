@@ -123,6 +123,29 @@ func TestRevalidateRemovesOrphanedChatFiles(t *testing.T) {
 	}
 }
 
+// Project-level chat files use the synthetic prefix `__project__` and have no
+// backing card on disk by design. The revalidator must NOT delete them.
+func TestRevalidatePreservesProjectChatFiles(t *testing.T) {
+	r := setupTestRepo(t)
+
+	projectChatFile := filepath.Join(r.Root, "cards", "__project__some-project-id.messages.json")
+	writeJSON(projectChatFile, &model.ChatFile{
+		CardID:   "__project__some-project-id",
+		Messages: []model.ChatMessage{{ID: "m1", Role: "user", Content: "test"}},
+	})
+
+	stats, err := r.Revalidate()
+	if err != nil {
+		t.Fatalf("Revalidate: %v", err)
+	}
+	if stats.OrphanedChatFiles != 0 {
+		t.Errorf("OrphanedChatFiles = %d, want 0 (project chat files must be preserved)", stats.OrphanedChatFiles)
+	}
+	if !fileExists(projectChatFile) {
+		t.Error("project chat file must NOT be removed by revalidate")
+	}
+}
+
 func TestRevalidatePreservesValidPins(t *testing.T) {
 	r := setupTestRepo(t)
 	r.CreateBrand("Brand")

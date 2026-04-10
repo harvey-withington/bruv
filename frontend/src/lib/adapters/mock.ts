@@ -205,6 +205,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     AcceptAllPendingEdits: async () => ({}),
     RejectAllPendingEdits: async () => ({}),
     ApplyPendingEdits: async () => ({}),
+    ApplyProjectPendingEdits: async () => ({}),
 
     AddCardAttachment: async () => ({} as any),
     RemoveCardAttachment: async () => ({} as any),

@@ -111,6 +111,8 @@ import {
   AcceptPinSuggestion, RejectPinSuggestion,
   AcceptPendingEdit, RejectPendingEdit, AcceptAllPendingEdits, RejectAllPendingEdits, ApplyPendingEdits,
   // @ts-ignore — generated after `wails generate` with updated Go code
+  ApplyProjectPendingEdits,
+  // @ts-ignore — generated after `wails generate` with updated Go code
   AddCardAttachment,
   // @ts-ignore — generated after `wails generate` with updated Go code
   RemoveCardAttachment,
@@ -298,6 +300,7 @@ export const wailsAdapter: BackendAdapter = {
   AcceptAllPendingEdits,
   RejectAllPendingEdits,
   ApplyPendingEdits,
+  ApplyProjectPendingEdits,
 
   AddCardAttachment: AddCardAttachment as unknown as BackendAdapter['AddCardAttachment'],
   RemoveCardAttachment: RemoveCardAttachment as unknown as BackendAdapter['RemoveCardAttachment'],

@@ -20,7 +20,7 @@
   import ConfirmDialog from './components/ConfirmDialog.svelte'
   import OptionsEditorDialog from './components/OptionsEditorDialog.svelte'
 
-  import { GetPreferences, ListRecentRepos, OpenRepository, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory } from './lib/api'
+  import { GetPreferences, ListRecentRepos, OpenRepository, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits } from './lib/api'
 
   // Restore persisted preferences
   loadTheme()
@@ -222,8 +222,9 @@
             projectMode={true}
             reloadKey={nav.projectSlug}
             loadFn={() => LoadProjectChatHistory(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!)}
-            sendFn={(text) => SendProjectChatMessage(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, text)}
+            sendFn={(text, contextLevel) => SendProjectChatMessage(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, text, contextLevel ?? 'all')}
             clearFn={() => ClearProjectChatHistory(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!)}
+            applyFn={(msgID, acceptIDs) => ApplyProjectPendingEdits(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, msgID, acceptIDs)}
           />
         {/if}
       </div>

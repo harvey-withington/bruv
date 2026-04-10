@@ -304,33 +304,285 @@ func ProjectTools(cardTypes []string, categories []map[string]string) []ToolDef 
 		},
 		{
 			Name:        "update_card",
-			Description: "Update a card's title, type, or tags.",
+			Description: "Update one card's title, type, tags, due date, description, or blocks. All fields are optional — only the supplied ones change. Use `update_cards` instead when changing multiple cards.",
+			Parameters:  cardUpdateParameters(typeEnum, false),
+		},
+		{
+			Name:        "update_cards",
+			Description: "Update many cards in a single call. Each entry is a partial update for one card. All fields per entry are optional except `card_id`. Prefer this over many `update_card` calls when editing several cards at once.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"updates": map[string]any{
+						"type":        "array",
+						"description": "List of per-card updates",
+						"items":       cardUpdateParameters(typeEnum, true),
+					},
+				},
+				"required": []string{"updates"},
+			},
+		},
+		{
+			Name:        "configure_agent",
+			Description: "Configure or update the agent attached to a card. Sets schedule (cron), goal, enabled state, or tool whitelist. Omit any field to leave it unchanged.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"card_id": map[string]any{
 						"type":        "string",
-						"description": "ID of the card to update",
+						"description": "ID of the card whose agent to configure",
 					},
-					"title": map[string]any{
+					"enabled": map[string]any{
+						"type":        "boolean",
+						"description": "Enable or disable the agent (optional)",
+					},
+					"schedule": map[string]any{
 						"type":        "string",
-						"description": "New title (optional)",
+						"description": "Cron expression or shorthand (`@hourly`, `@daily`, `@weekly`). Empty string clears the schedule. (optional)",
 					},
-					"card_type": map[string]any{
+					"goal": map[string]any{
 						"type":        "string",
-						"enum":        typeEnum,
-						"description": "New card type (optional)",
+						"description": "Plain-language description of what the agent should do on each run (optional)",
 					},
-					"tags": map[string]any{
+					"allowed_tools": map[string]any{
 						"type":        "array",
 						"items":       map[string]any{"type": "string"},
-						"description": "Tags to add (appended to existing, optional)",
+						"description": "Whitelist of tool names the agent may use (optional)",
 					},
 				},
 				"required": []string{"card_id"},
 			},
 		},
+
+		// --- Project metadata ---
+		{
+			Name:        "update_project",
+			Description: "Update the current project's name, description, or icon. All fields optional — only the supplied ones change. Cannot change which brand/stream the project belongs to.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"name": map[string]any{
+						"type":        "string",
+						"description": "New project name (optional)",
+					},
+					"description": map[string]any{
+						"type":        "string",
+						"description": "New project description (optional)",
+					},
+					"icon": map[string]any{
+						"type":        "string",
+						"description": "Icon identifier — Lucide icon name, or a `data:image/...;base64,...` data URL for a custom image, optionally prefixed with `c:#rrggbb:` to colorize. Empty string clears the icon. (optional)",
+					},
+				},
+			},
+		},
+
+		// --- Project tags (the project's tag vocabulary) ---
+		{
+			Name:        "create_project_tag",
+			Description: "Define a new tag in this project's tag vocabulary. The name is also the string used on cards. Color is auto-assigned from the palette unless specified.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"name": map[string]any{
+						"type":        "string",
+						"description": "Tag name (also the string used on cards)",
+					},
+					"color": map[string]any{
+						"type":        "string",
+						"description": "Hex color (e.g. `#61bd4f`). Optional — auto-assigned from palette if omitted.",
+					},
+					"icon": map[string]any{
+						"type":        "string",
+						"description": "Icon identifier (Lucide name or data URL). Optional.",
+					},
+				},
+				"required": []string{"name"},
+			},
+		},
+		{
+			Name:        "update_project_tag",
+			Description: "Rename a tag, change its color, or set its icon. Identify the tag by either `tag_id` (preferred) or `tag_name`. All update fields optional.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"tag_id": map[string]any{
+						"type":        "string",
+						"description": "ID of the tag to update (preferred)",
+					},
+					"tag_name": map[string]any{
+						"type":        "string",
+						"description": "Name of the tag to update — used as a fallback when `tag_id` is unknown",
+					},
+					"name": map[string]any{
+						"type":        "string",
+						"description": "New name (optional). Renaming a tag here does NOT rename the tag string on existing cards.",
+					},
+					"color": map[string]any{
+						"type":        "string",
+						"description": "New hex color (optional)",
+					},
+					"icon": map[string]any{
+						"type":        "string",
+						"description": "New icon, or empty string to clear (optional)",
+					},
+				},
+			},
+		},
+		{
+			Name:        "delete_project_tag",
+			Description: "Delete a tag from this project's tag vocabulary. Use this for removing unused tags. Identify by `tag_id` (preferred) or `tag_name`. This does NOT remove the tag string from any cards still using it — use `update_cards` with `tags_to_remove` first if needed.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"tag_id": map[string]any{
+						"type":        "string",
+						"description": "ID of the tag to delete (preferred)",
+					},
+					"tag_name": map[string]any{
+						"type":        "string",
+						"description": "Name of the tag to delete — used as a fallback when `tag_id` is unknown",
+					},
+				},
+			},
+		},
+
+		// --- Categories ---
+		{
+			Name:        "create_category",
+			Description: "Create a new category (column) in the project. Position defaults to the end. After creation, you can immediately use `update_category` to set description, icon, or accepted_types.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"name": map[string]any{
+						"type":        "string",
+						"description": "Category name",
+					},
+					"position": map[string]any{
+						"type":        "integer",
+						"description": "Zero-based position (optional, defaults to end)",
+					},
+				},
+				"required": []string{"name"},
+			},
+		},
+		{
+			Name:        "update_category",
+			Description: "Update a category's name, description, icon, or accepted card types. All update fields optional.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"category_id": map[string]any{
+						"type":        "string",
+						"enum":        catIDs,
+						"description": "ID of the category to update",
+					},
+					"name": map[string]any{
+						"type":        "string",
+						"description": "New name (optional)",
+					},
+					"description": map[string]any{
+						"type":        "string",
+						"description": "New description (optional)",
+					},
+					"icon": map[string]any{
+						"type":        "string",
+						"description": "New icon, or empty string to clear (optional)",
+					},
+					"accepted_types": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string", "enum": typeEnum},
+						"description": "Restrict the category to these card types. Empty array means accept all types. (optional)",
+					},
+				},
+				"required": []string{"category_id"},
+			},
+		},
+		{
+			Name:        "delete_category",
+			Description: "Delete a category. Cards pinned to this category will be unpinned (moved to the inbox). The project must have at least one category remaining.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"category_id": map[string]any{
+						"type":        "string",
+						"enum":        catIDs,
+						"description": "ID of the category to delete",
+					},
+				},
+				"required": []string{"category_id"},
+			},
+		},
 	}
 
 	return tools
+}
+
+// cardUpdateParameters returns the JSON-schema parameter shape for a card
+// update operation. Used by both `update_card` (single) and `update_cards`
+// (plural) so the field set stays in sync.
+//
+// When `forArrayItem` is true, the schema doesn't carry the outer "type:object"
+// wrapper at the top level — the caller embeds this inside an `items` field.
+func cardUpdateParameters(typeEnum []any, forArrayItem bool) map[string]any {
+	props := map[string]any{
+		"card_id": map[string]any{
+			"type":        "string",
+			"description": "ID of the card to update",
+		},
+		"title": map[string]any{
+			"type":        "string",
+			"description": "New title (optional)",
+		},
+		"card_type": map[string]any{
+			"type":        "string",
+			"enum":        typeEnum,
+			"description": "New card type (optional)",
+		},
+		"tags": map[string]any{
+			"type":        "array",
+			"items":       map[string]any{"type": "string"},
+			"description": "Replace the card's tags with this list (optional). Use `tags_to_add` instead to append.",
+		},
+		"tags_to_add": map[string]any{
+			"type":        "array",
+			"items":       map[string]any{"type": "string"},
+			"description": "Tags to append to the card's existing tags (optional)",
+		},
+		"tags_to_remove": map[string]any{
+			"type":        "array",
+			"items":       map[string]any{"type": "string"},
+			"description": "Tags to remove from the card's existing tags (optional). Use this when the user asks to remove specific tags — do NOT clear all tags by passing an empty `tags` array unless they explicitly ask for that.",
+		},
+		"due_date": map[string]any{
+			"type":        "string",
+			"description": "ISO 8601 date or datetime (e.g. `2026-04-15` or `2026-04-15T18:00:00Z`). Empty string clears the due date. (optional)",
+		},
+		"description": map[string]any{
+			"type":        "string",
+			"description": "Replace the card's description (the first text block, or the `description` field). (optional)",
+		},
+		"blocks": map[string]any{
+			"type":        "array",
+			"description": "Replace the card's blocks entirely. Each block is `{type, label, value, key?}`. Use only when restructuring the card; for simple text edits use `description`. (optional)",
+			"items": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"type":  map[string]any{"type": "string"},
+					"label": map[string]any{"type": "string"},
+					"value": map[string]any{},
+					"key":   map[string]any{"type": "string"},
+				},
+				"required": []string{"type", "value"},
+			},
+		},
+	}
+
+	schema := map[string]any{
+		"type":       "object",
+		"properties": props,
+		"required":   []string{"card_id"},
+	}
+	_ = forArrayItem // both call sites use the same shape; param kept for future divergence
+	return schema
 }

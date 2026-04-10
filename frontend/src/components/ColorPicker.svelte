@@ -30,8 +30,37 @@
     ['#831843', '#be185d', '#db2777', '#ec4899', '#f472b6', '#f9a8d4', '#fbcfe8', '#fce7f3'],
   ]
 
+  // svelte-ignore state_referenced_locally
   let current = $state(normalizeHex(initial) ?? '#ffffff')
+  // svelte-ignore state_referenced_locally
   let hexInput = $state(current)
+
+  // Recent colours: persisted in localStorage, capped at MAX_RECENT, MRU order.
+  // Updated whenever a colour is committed via Apply or double-click.
+  const RECENTS_KEY = 'bruv:colorPickerRecents'
+  const MAX_RECENT = 10
+  let recents = $state<string[]>(loadRecents())
+
+  function loadRecents(): string[] {
+    try {
+      const raw = localStorage.getItem(RECENTS_KEY)
+      if (!raw) return []
+      const parsed = JSON.parse(raw)
+      if (!Array.isArray(parsed)) return []
+      return parsed.filter((v): v is string => typeof v === 'string' && normalizeHex(v) !== null).slice(0, MAX_RECENT)
+    } catch {
+      return []
+    }
+  }
+
+  function pushRecent(color: string) {
+    const norm = normalizeHex(color)
+    if (!norm) return
+    // De-dup, then unshift to front.
+    const next = [norm, ...recents.filter(c => c !== norm)].slice(0, MAX_RECENT)
+    recents = next
+    try { localStorage.setItem(RECENTS_KEY, JSON.stringify(next)) } catch { /* quota — fine to drop */ }
+  }
 
   function normalizeHex(v: string): string | null {
     const m = /^#?([0-9a-f]{6})$/i.exec(v.trim())
@@ -44,6 +73,7 @@
   }
 
   function applyAndClose(color: string) {
+    pushRecent(color)
     onApply(color)
     onClose()
   }
@@ -98,6 +128,24 @@
           use:focusOnMount
         />
       </div>
+
+      {#if recents.length > 0}
+        <div class="cp-recents" role="group" aria-label={t('color.recents')}>
+          <div class="cp-section-label">{t('color.recents')}</div>
+          <div class="cp-recents-row">
+            {#each recents as color}
+              <button
+                class="cp-swatch cp-recent-swatch"
+                class:selected={color === current}
+                style="background:{color}"
+                title={color}
+                onclick={() => pickSwatch(color)}
+                ondblclick={() => applyAndClose(color)}
+              ></button>
+            {/each}
+          </div>
+        </div>
+      {/if}
 
       <div class="cp-palette" role="grid" aria-label={t('color.palette')}>
         {#each PALETTE as row}
@@ -200,6 +248,28 @@
   }
   .cp-hex:focus {
     border-color: var(--accent);
+  }
+  .cp-recents {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .cp-section-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .cp-recents-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .cp-recent-swatch {
+    flex: 0 0 auto;
+    width: 22px;
+    height: 22px;
+    aspect-ratio: auto;
   }
   .cp-palette {
     display: flex;

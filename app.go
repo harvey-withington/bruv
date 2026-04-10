@@ -2855,7 +2855,7 @@ func (a *App) runChatLoop(ctx context.Context, provider llm.Provider, modelName 
 
 // --- Project chat ---
 
-func (a *App) SendProjectChatMessage(brandSlug, streamSlug, projectSlug, userMessage string) (*model.ChatFile, error) {
+func (a *App) SendProjectChatMessage(brandSlug, streamSlug, projectSlug, userMessage, contextLevel string) (*model.ChatFile, error) {
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
@@ -2882,7 +2882,7 @@ func (a *App) SendProjectChatMessage(brandSlug, streamSlug, projectSlug, userMes
 	categories, _ := a.repo.ListCategories(brandSlug, streamSlug, projectSlug)
 	brand, _ := a.repo.GetBrand(brandSlug)
 	stream, _ := a.repo.GetStream(brandSlug, streamSlug)
-	systemPrompt := a.buildProjectSystemPrompt(brand, stream, project, categories, cfg)
+	systemPrompt := a.buildProjectSystemPrompt(brandSlug, streamSlug, projectSlug, brand, stream, project, categories, cfg, model.ProjectChatContextLevel(contextLevel))
 
 	// Build tool definitions
 	var catMaps []map[string]string
@@ -2892,6 +2892,23 @@ func (a *App) SendProjectChatMessage(brandSlug, streamSlug, projectSlug, userMes
 	cardTypes := a.listCardTypeIDs()
 	toolDefs := llm.ProjectTools(cardTypes, catMaps)
 
+	// Build the per-call scope for tool callbacks. Both staging and execute
+	// callbacks use the cardIDs set to reject IDs the LLM hallucinated or
+	// copied from a different project; the slugs let project-metadata tools
+	// (update_project, *_label, *_category) target the right project.
+	scope := projectChatScope{
+		brandSlug:   brandSlug,
+		streamSlug:  streamSlug,
+		projectSlug: projectSlug,
+		cardIDs:     make(map[string]bool),
+	}
+	for _, cat := range categories {
+		pins, _ := a.repo.ListCardsInCategory(cat.ID, cat.ID)
+		for _, p := range pins {
+			scope.cardIDs[p.CardID] = true
+		}
+	}
+
 	modelName := cfg.Model
 	if modelName == "" {
 		modelName = defaultModelForProvider(cfg.Provider)
@@ -2899,6 +2916,7 @@ func (a *App) SendProjectChatMessage(brandSlug, streamSlug, projectSlug, userMes
 	ctx, cancel := context.WithTimeout(a.ctx, 120*time.Second)
 	defer cancel()
 
+	suggestMode := cfg.AIMode == "suggest"
 	return a.runChatLoop(ctx, provider, modelName, cf, chatLoopConfig{
 		chatID:             chatID,
 		systemPrompt:       systemPrompt,
@@ -2906,19 +2924,30 @@ func (a *App) SendProjectChatMessage(brandSlug, streamSlug, projectSlug, userMes
 		maxIter:            5,
 		allowDuplicateTool: map[string]bool{"create_card": true},
 		executeTool: func(tc llm.ToolCall) (string, *model.ToolAction, *model.PinSuggestion) {
-			result, action := a.executeProjectToolCall(tc)
+			result, action := a.executeProjectToolCall(tc, scope)
 			return result, action, nil
 		},
+		stageTool: func(tc llm.ToolCall) (string, []model.PendingEdit) {
+			return a.stageProjectToolCall(tc, scope)
+		},
+		suggestMode:     suggestMode,
 		fallbackContent: "I've made the requested changes to your project.",
 	})
 }
 
 // buildProjectSystemPrompt builds the system prompt for project-level chat.
-func (a *App) buildProjectSystemPrompt(brand *model.Brand, stream *model.Stream, project *model.Project, categories []model.Category, cfg config.LLMConfig) string {
+// Slugs are passed so the prompt can fetch project-scoped data (labels) and
+// reference the project unambiguously to the LLM.
+func (a *App) buildProjectSystemPrompt(brandSlug, streamSlug, projectSlug string, brand *model.Brand, stream *model.Stream, project *model.Project, categories []model.Category, cfg config.LLMConfig, level model.ProjectChatContextLevel) string {
+	// Default to full context if empty/unrecognised.
+	if level != model.ProjectChatContextMetadata && level != model.ProjectChatContextNone {
+		level = model.ProjectChatContextAll
+	}
+
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("You are BRUV AI, a project assistant. Today is %s.\n\n", time.Now().Format("2006-01-02 (Monday)")))
 
-	// Hierarchy context
+	// Hierarchy context (always included — this is small and gives the LLM its bearings)
 	if a.repo != nil && a.repo.Manifest.Description != "" {
 		sb.WriteString(fmt.Sprintf("## Repository: %s\n%s\n\n", a.repo.Manifest.Name, a.repo.Manifest.Description))
 	}
@@ -2944,83 +2973,262 @@ func (a *App) buildProjectSystemPrompt(brand *model.Brand, stream *model.Stream,
 	if project.Description != "" {
 		sb.WriteString(project.Description + "\n")
 	}
+	if project.Icon != "" {
+		sb.WriteString(fmt.Sprintf("Icon: `%s`\n", project.Icon))
+	}
+	sb.WriteString(fmt.Sprintf("project_id: `%s`\n", project.ID))
 	sb.WriteString("\n")
 
 	if cfg.Context != "" {
 		sb.WriteString("## User context\n" + cfg.Context + "\n\n")
 	}
 
-	// Enumerate all cards grouped by category
-	totalCards := 0
-	seenCards := make(map[string]bool)
-	if len(categories) > 0 {
-		sb.WriteString("## Categories and cards\n\n")
-		for _, cat := range categories {
-			sb.WriteString(fmt.Sprintf("### %s (category_id: %s)\n", cat.Name, cat.ID))
-			if cat.Description != "" {
-				sb.WriteString(cat.Description + "\n")
-			}
-			pins, _ := a.repo.ListCardsInCategory(cat.ID, cat.ID)
-			if len(pins) == 0 {
-				sb.WriteString("  (empty)\n\n")
-				continue
-			}
-			for _, pin := range pins {
-				if seenCards[pin.CardID] {
-					continue
+	// Project tag vocabulary. Each line includes the tag's name, current
+	// color, optional icon, ID, and a usage count computed by walking
+	// ListCardIDsByTag — this is what lets the LLM answer "find unused tags"
+	// without needing a dedicated tool. (The underlying Go type is named
+	// `model.Label` for historical reasons; user-facing terminology is "tag".)
+	if a.repo != nil {
+		labels, _ := a.repo.GetProjectLabels(brandSlug, streamSlug, projectSlug)
+		if len(labels) > 0 {
+			sb.WriteString("## Project tags (the tag vocabulary)\n")
+			sb.WriteString("These are the tags defined for this project. Each line shows usage count.\n")
+			for _, l := range labels {
+				count := 0
+				if ids, err := a.ListCardIDsByTag(l.Name); err == nil {
+					count = len(ids)
 				}
-				seenCards[pin.CardID] = true
-				card, err := a.repo.GetCard(pin.CardID)
-				if err != nil {
-					continue
+				line := fmt.Sprintf("- `%s` (id: `%s`, color: %s", l.Name, l.ID, l.Color)
+				if l.Icon != "" {
+					line += ", icon: `" + l.Icon + "`"
 				}
-				totalCards++
-				line := fmt.Sprintf("- **%s** (id: `%s`, type: %s", card.Title, card.ID, card.Type)
-				if len(card.Tags) > 0 {
-					line += ", tags: " + strings.Join(card.Tags, ", ")
+				line += fmt.Sprintf(", used by %d card", count)
+				if count != 1 {
+					line += "s"
 				}
-				if card.DueDate != nil {
-					line += ", due: " + card.DueDate.Format("2006-01-02")
+				if count == 0 {
+					line += " — UNUSED"
 				}
 				line += ")"
-				// Include description from intrinsic fields
-				if desc, ok := card.Fields["description"].(string); ok && desc != "" {
-					if len(desc) > 200 {
-						desc = desc[:200] + "…"
-					}
-					line += "\n  > " + strings.ReplaceAll(desc, "\n", "\n  > ")
-				}
-				// Include first text block content if no description field
-				if _, hasDesc := card.Fields["description"]; !hasDesc {
-					for _, b := range card.Blocks {
-						if b.Type == "text" {
-							if s, ok := b.Value.(string); ok && s != "" {
-								if len(s) > 200 {
-									s = s[:200] + "…"
-								}
-								line += "\n  > " + strings.ReplaceAll(s, "\n", "\n  > ")
-							}
-							break
-						}
-					}
-				}
 				sb.WriteString(line + "\n")
 			}
 			sb.WriteString("\n")
 		}
-	} else {
-		sb.WriteString("This project has no categories yet.\n\n")
 	}
 
-	if totalCards == 0 && len(categories) > 0 {
-		sb.WriteString("All categories are empty — no cards yet.\n\n")
+	// Card enumeration is gated by the context level.
+	switch level {
+	case model.ProjectChatContextNone:
+		sb.WriteString("_Card details are hidden for this conversation. Use tools to query cards if needed._\n\n")
+
+	case model.ProjectChatContextMetadata:
+		// Titles + types only — no tags, descriptions, or due dates.
+		totalCards := 0
+		seenCards := make(map[string]bool)
+		if len(categories) > 0 {
+			sb.WriteString("## Categories and cards (titles only)\n\n")
+			for _, cat := range categories {
+				sb.WriteString(renderCategoryHeader(cat))
+				pins, _ := a.repo.ListCardsInCategory(cat.ID, cat.ID)
+				if len(pins) == 0 {
+					sb.WriteString("  (empty)\n\n")
+					continue
+				}
+				for _, pin := range pins {
+					if seenCards[pin.CardID] {
+						continue
+					}
+					seenCards[pin.CardID] = true
+					card, err := a.repo.GetCard(pin.CardID)
+					if err != nil {
+						continue
+					}
+					totalCards++
+					sb.WriteString(fmt.Sprintf("- **%s** (id: `%s`, type: %s)\n", card.Title, card.ID, card.Type))
+				}
+				sb.WriteString("\n")
+			}
+			if totalCards == 0 {
+				sb.WriteString("All categories are empty — no cards yet.\n\n")
+			}
+		} else {
+			sb.WriteString("This project has no categories yet.\n\n")
+		}
+
+	case model.ProjectChatContextAll:
+		fallthrough
+	default:
+		// Full enumeration: titles, types, tags, due dates, content snippet, agent config.
+		totalCards := 0
+		seenCards := make(map[string]bool)
+		if len(categories) > 0 {
+			sb.WriteString("## Categories and cards\n\n")
+			for _, cat := range categories {
+				sb.WriteString(renderCategoryHeader(cat))
+				pins, _ := a.repo.ListCardsInCategory(cat.ID, cat.ID)
+				if len(pins) == 0 {
+					sb.WriteString("  (empty)\n\n")
+					continue
+				}
+				for _, pin := range pins {
+					if seenCards[pin.CardID] {
+						continue
+					}
+					seenCards[pin.CardID] = true
+					card, err := a.repo.GetCard(pin.CardID)
+					if err != nil {
+						continue
+					}
+					totalCards++
+					sb.WriteString(serializeCardForProjectPrompt(a, card))
+				}
+				sb.WriteString("\n")
+			}
+		} else {
+			sb.WriteString("This project has no categories yet.\n\n")
+		}
+		if totalCards == 0 && len(categories) > 0 {
+			sb.WriteString("All categories are empty — no cards yet.\n\n")
+		}
 	}
 
 	sb.WriteString("## Your capabilities\n")
-	sb.WriteString("You can answer questions about the project's cards and structure. ")
-	sb.WriteString("You have tools to **create cards**, **add tags to cards**, **move cards between categories**, and **update cards**. ")
-	sb.WriteString("When the user asks you to create a card or make changes, USE THE TOOLS — do not just describe what to do. ")
+	sb.WriteString("You can read and modify any property of this project, its cards, its categories, and its tag vocabulary. ")
+	sb.WriteString("USE THE TOOLS to make changes — do not just describe what would be done.\n\n")
+	sb.WriteString("Cards:\n")
+	sb.WriteString("- `create_card` — create a new card and optionally pin it to a category.\n")
+	sb.WriteString("- `update_card` / `update_cards` — change title, type, tags, due date, description, blocks. Prefer the plural for bulk edits.\n")
+	sb.WriteString("- For tags: use `tags_to_add` to append, `tags_to_remove` to drop specific tags, and `tags` only when the user explicitly wants to replace the whole tag list.\n")
+	sb.WriteString("- `add_tags_to_cards` — bulk-tag many cards in one call.\n")
+	sb.WriteString("- `move_card` — move a card between categories.\n")
+	sb.WriteString("- `configure_agent` — set a card's agent schedule, goal, enabled state, or tool whitelist.\n\n")
+	sb.WriteString("Project metadata:\n")
+	sb.WriteString("- `update_project` — change the project's name, description, or icon.\n\n")
+	sb.WriteString("Project tags (the tag vocabulary, listed above):\n")
+	sb.WriteString("- `create_project_tag` — define a new tag.\n")
+	sb.WriteString("- `update_project_tag` — rename, recolor, or set an icon for an existing tag. Identify by `tag_id` or `tag_name`.\n")
+	sb.WriteString("- `delete_project_tag` — remove a tag from the project's vocabulary. The tag list above shows usage counts; tags marked UNUSED can usually be deleted directly.\n\n")
+	sb.WriteString("Categories (columns):\n")
+	sb.WriteString("- `create_category` / `update_category` / `delete_category` — manage the columns. update_category can set name, description, icon, and accepted_types.\n\n")
 	sb.WriteString("When creating cards, always pin them to the most appropriate category.\n")
+	return sb.String()
+}
+
+// renderCategoryHeader produces the markdown header line(s) for a category in
+// the project chat system prompt. Includes name + ID, optional description,
+// optional icon, and accepted_types restriction (if any).
+func renderCategoryHeader(cat model.Category) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("### %s (category_id: %s)\n", cat.Name, cat.ID))
+	if cat.Icon != "" {
+		sb.WriteString(fmt.Sprintf("Icon: `%s`\n", cat.Icon))
+	}
+	if cat.Description != "" {
+		sb.WriteString(cat.Description + "\n")
+	}
+	if len(cat.AcceptedTypes) > 0 {
+		sb.WriteString("Accepted card types: " + strings.Join(cat.AcceptedTypes, ", ") + "\n")
+	}
+	return sb.String()
+}
+
+// serializeCardForProjectPrompt renders one card into the markdown form used by
+// the project chat system prompt. Includes title, id, type, tags, due date,
+// description / block content snippets, and agent config when present.
+//
+// Total content per card is bounded so a project with hundreds of cards
+// doesn't blow the context window:
+//   - Description / block snippets are capped at ~500 chars combined.
+//   - Agent goal is capped at ~200 chars.
+//   - Each text/markdown block is included in order, separated by spaces.
+func serializeCardForProjectPrompt(a *App, card *model.Card) string {
+	const maxContentChars = 500
+	const maxAgentGoalChars = 200
+
+	var sb strings.Builder
+	line := fmt.Sprintf("- **%s** (id: `%s`, type: %s", card.Title, card.ID, card.Type)
+	if len(card.Tags) > 0 {
+		line += ", tags: " + strings.Join(card.Tags, ", ")
+	}
+	if card.DueDate != nil {
+		line += ", due: " + card.DueDate.Format("2006-01-02")
+	}
+	line += ")"
+	sb.WriteString(line + "\n")
+
+	// Aggregate text content from description field + every text/markdown block,
+	// in document order, capped at maxContentChars overall.
+	var content strings.Builder
+	if desc, ok := card.Fields["description"].(string); ok && desc != "" {
+		content.WriteString(desc)
+	}
+	for _, b := range card.Blocks {
+		if b.Type != "text" && b.Type != "markdown" {
+			continue
+		}
+		s, ok := b.Value.(string)
+		if !ok || s == "" {
+			continue
+		}
+		if content.Len() > 0 {
+			content.WriteString(" \n")
+		}
+		content.WriteString(s)
+		if content.Len() >= maxContentChars {
+			break
+		}
+	}
+	if content.Len() > 0 {
+		snippet := content.String()
+		if len(snippet) > maxContentChars {
+			snippet = snippet[:maxContentChars] + "…"
+		}
+		sb.WriteString("  > " + strings.ReplaceAll(snippet, "\n", "\n  > ") + "\n")
+	}
+
+	// Agent config — only show if there's anything meaningful configured.
+	if a.repo != nil {
+		af, err := a.repo.GetAgentConfig(card.ID)
+		if err == nil && af != nil {
+			cfg := af.Config
+			hasConfig := cfg.Enabled || cfg.Schedule != "" || cfg.Goal != "" || cfg.Status != "" || cfg.LastRunAt != nil || cfg.NextRunAt != nil
+			if hasConfig {
+				sb.WriteString("  agent:")
+				sb.WriteString(fmt.Sprintf(" enabled=%t", cfg.Enabled))
+				if cfg.Schedule != "" {
+					sb.WriteString(", schedule=`" + cfg.Schedule + "`")
+				}
+				if cfg.Status != "" {
+					sb.WriteString(", status=" + string(cfg.Status))
+				}
+				if cfg.LastRunAt != nil {
+					sb.WriteString(", last_run=" + cfg.LastRunAt.Format("2006-01-02 15:04"))
+				}
+				if cfg.NextRunAt != nil {
+					sb.WriteString(", next_run=" + cfg.NextRunAt.Format("2006-01-02 15:04"))
+				}
+				sb.WriteString("\n")
+				if cfg.Goal != "" {
+					goal := cfg.Goal
+					if len(goal) > maxAgentGoalChars {
+						goal = goal[:maxAgentGoalChars] + "…"
+					}
+					sb.WriteString("  agent goal: " + strings.ReplaceAll(goal, "\n", " ") + "\n")
+				}
+				// Surface the most recent failed run's error so the LLM can help debug.
+				if len(af.Runs) > 0 {
+					last := af.Runs[len(af.Runs)-1]
+					if last.Status == "failed" && last.Error != "" {
+						errMsg := last.Error
+						if len(errMsg) > 200 {
+							errMsg = errMsg[:200] + "…"
+						}
+						sb.WriteString("  agent last error: " + strings.ReplaceAll(errMsg, "\n", " ") + "\n")
+					}
+				}
+			}
+		}
+	}
 	return sb.String()
 }
 
@@ -3814,8 +4022,55 @@ func (a *App) executeToolCall(cardID string, card *model.Card, tc llm.ToolCall, 
 	}
 }
 
+// projectChatScope bundles the per-call context that project chat tool
+// callbacks need: which project we're scoped to, plus the set of card IDs that
+// legitimately belong to it. The struct lets executeProjectToolCall and
+// stageProjectToolCall share a single parameter without growing a long
+// argument list each time we add a tool that needs project context.
+type projectChatScope struct {
+	brandSlug, streamSlug, projectSlug string
+	cardIDs                            map[string]bool
+}
+
 // executeProjectToolCall runs a single project-level tool and returns (result, action).
-func (a *App) executeProjectToolCall(tc llm.ToolCall) (string, *model.ToolAction) {
+//
+// When `scope.cardIDs` is non-nil, any tool call referencing a card_id outside
+// the set is rejected with a clear error so the LLM can correct itself. Pass
+// a nil cardIDs map to disable scope checking (e.g. for ApplyProjectPendingEdits
+// where we recompute scope at apply time).
+func (a *App) executeProjectToolCall(tc llm.ToolCall, scope projectChatScope) (string, *model.ToolAction) {
+	// Validate every card_id mentioned in the call against the project scope.
+	// Single id, plural ids, and per-update entries are all checked.
+	if scope.cardIDs != nil {
+		var bad []string
+		check := func(id string) {
+			if id != "" && !scope.cardIDs[id] {
+				bad = append(bad, id)
+			}
+		}
+		if id, ok := tc.Arguments["card_id"].(string); ok {
+			check(id)
+		}
+		if raw, ok := tc.Arguments["card_ids"].([]any); ok {
+			for _, v := range raw {
+				if s, ok := v.(string); ok {
+					check(s)
+				}
+			}
+		}
+		if raw, ok := tc.Arguments["updates"].([]any); ok {
+			for _, item := range raw {
+				if m, ok := item.(map[string]any); ok {
+					if s, ok := m["card_id"].(string); ok {
+						check(s)
+					}
+				}
+			}
+		}
+		if len(bad) > 0 {
+			return "error: card(s) not in current project: " + strings.Join(bad, ", "), nil
+		}
+	}
 	switch tc.Name {
 	case "create_card":
 		title, _ := tc.Arguments["title"].(string)
@@ -3942,34 +4197,9 @@ func (a *App) executeProjectToolCall(tc llm.ToolCall) (string, *model.ToolAction
 		if cardID == "" {
 			return "error: card_id is required", nil
 		}
-		var changes []string
-		if title, ok := tc.Arguments["title"].(string); ok && title != "" {
-			if _, err := a.UpdateCardTitle(cardID, title); err == nil {
-				changes = append(changes, "title")
-			}
-		}
-		if cardType, ok := tc.Arguments["card_type"].(string); ok && cardType != "" {
-			if _, err := a.UpdateCardType(cardID, cardType); err == nil {
-				changes = append(changes, "type")
-			}
-		}
-		if tagsRaw, ok := tc.Arguments["tags"].([]any); ok && len(tagsRaw) > 0 {
-			c, err := a.repo.GetCard(cardID)
-			if err == nil {
-				existing := make(map[string]bool)
-				for _, t := range c.Tags {
-					existing[strings.ToLower(t)] = true
-				}
-				merged := c.Tags
-				for _, raw := range tagsRaw {
-					if s, ok := raw.(string); ok && s != "" && !existing[strings.ToLower(s)] {
-						merged = append(merged, s)
-						existing[strings.ToLower(s)] = true
-					}
-				}
-				a.UpdateCardTags(cardID, merged)
-				changes = append(changes, "tags")
-			}
+		changes, err := a.applyCardUpdate(cardID, tc.Arguments)
+		if err != nil {
+			return "error: " + err.Error(), nil
 		}
 		if len(changes) == 0 {
 			return "No changes applied", nil
@@ -3978,9 +4208,515 @@ func (a *App) executeProjectToolCall(tc llm.ToolCall) (string, *model.ToolAction
 		action := &model.ToolAction{Tool: "update_card", Input: tc.Arguments, Result: result}
 		return result, action
 
+	case "update_cards":
+		updatesRaw, _ := tc.Arguments["updates"].([]any)
+		if len(updatesRaw) == 0 {
+			return "error: updates array is required", nil
+		}
+		type cardResult struct {
+			cardID  string
+			changes []string
+			err     error
+		}
+		var results []cardResult
+		var totalChanges int
+		var failures int
+		for _, raw := range updatesRaw {
+			entry, ok := raw.(map[string]any)
+			if !ok {
+				failures++
+				continue
+			}
+			cardID, _ := entry["card_id"].(string)
+			if cardID == "" {
+				failures++
+				continue
+			}
+			changes, err := a.applyCardUpdate(cardID, entry)
+			results = append(results, cardResult{cardID: cardID, changes: changes, err: err})
+			if err != nil {
+				failures++
+			} else {
+				totalChanges += len(changes)
+			}
+		}
+		var summary strings.Builder
+		successes := len(results) - failures
+		summary.WriteString(fmt.Sprintf("Updated %d cards (%d field changes total)", successes, totalChanges))
+		if failures > 0 {
+			summary.WriteString(fmt.Sprintf("; %d failed", failures))
+		}
+		action := &model.ToolAction{Tool: "update_cards", Input: tc.Arguments, Result: summary.String()}
+		return summary.String(), action
+
+	case "configure_agent":
+		cardID, _ := tc.Arguments["card_id"].(string)
+		if cardID == "" {
+			return "error: card_id is required", nil
+		}
+		af, err := a.repo.GetAgentConfig(cardID)
+		if err != nil {
+			return "error: " + err.Error(), nil
+		}
+		var changes []string
+		if v, ok := tc.Arguments["enabled"].(bool); ok {
+			af.Config.Enabled = v
+			changes = append(changes, fmt.Sprintf("enabled=%t", v))
+		}
+		if v, ok := tc.Arguments["schedule"].(string); ok {
+			af.Config.Schedule = v
+			if v == "" {
+				changes = append(changes, "schedule=cleared")
+			} else {
+				changes = append(changes, "schedule="+v)
+			}
+		}
+		if v, ok := tc.Arguments["goal"].(string); ok {
+			af.Config.Goal = v
+			changes = append(changes, "goal")
+		}
+		if raw, ok := tc.Arguments["allowed_tools"].([]any); ok {
+			tools := make([]string, 0, len(raw))
+			for _, t := range raw {
+				if s, ok := t.(string); ok && s != "" {
+					tools = append(tools, s)
+				}
+			}
+			af.Config.AllowedTools = tools
+			changes = append(changes, "allowed_tools")
+		}
+		if len(changes) == 0 {
+			return "No changes applied", nil
+		}
+		if err := a.repo.SaveAgentConfig(cardID, af.Config); err != nil {
+			return "error: " + err.Error(), nil
+		}
+		result := "Configured agent: " + strings.Join(changes, ", ")
+		action := &model.ToolAction{Tool: "configure_agent", Input: tc.Arguments, Result: result}
+		return result, action
+
+	// --- Project metadata ---
+	case "update_project":
+		var changes []string
+		if name, ok := tc.Arguments["name"].(string); ok && name != "" {
+			if _, err := a.RenameProject(scope.brandSlug, scope.streamSlug, scope.projectSlug, name); err != nil {
+				return "error: " + err.Error(), nil
+			}
+			changes = append(changes, "name")
+			// Slug may have changed after rename — refresh it for subsequent calls.
+			if p, err := a.repo.GetProject(scope.brandSlug, scope.streamSlug, name); err == nil {
+				scope.projectSlug = p.Slug
+			}
+		}
+		if v, ok := tc.Arguments["description"].(string); ok {
+			if _, err := a.UpdateProjectDescription(scope.brandSlug, scope.streamSlug, scope.projectSlug, v); err == nil {
+				changes = append(changes, "description")
+			}
+		}
+		if v, ok := tc.Arguments["icon"].(string); ok {
+			if _, err := a.UpdateProjectIcon(scope.brandSlug, scope.streamSlug, scope.projectSlug, v); err == nil {
+				changes = append(changes, "icon")
+			}
+		}
+		if len(changes) == 0 {
+			return "No changes applied", nil
+		}
+		result := "Updated project: " + strings.Join(changes, ", ")
+		action := &model.ToolAction{Tool: "update_project", Input: tc.Arguments, Result: result}
+		return result, action
+
+	// --- Project tags ---
+	case "create_project_tag":
+		name, _ := tc.Arguments["name"].(string)
+		if name == "" {
+			return "error: name is required", nil
+		}
+		color, _ := tc.Arguments["color"].(string)
+		// Underlying type is model.Label / AddProjectLabel — that's just the
+		// historical persistence name. The user-facing concept is "tag".
+		labels, err := a.AddProjectLabel(scope.brandSlug, scope.streamSlug, scope.projectSlug, name, color)
+		if err != nil {
+			return "error: " + err.Error(), nil
+		}
+		// Optional icon — set in a follow-up call once we know the new ID.
+		if icon, ok := tc.Arguments["icon"].(string); ok && icon != "" {
+			for _, l := range labels {
+				if strings.EqualFold(l.Name, name) {
+					_, _ = a.SetProjectLabelIcon(scope.brandSlug, scope.streamSlug, scope.projectSlug, l.ID, icon)
+					break
+				}
+			}
+		}
+		result := "Created tag: " + name
+		action := &model.ToolAction{Tool: "create_project_tag", Input: tc.Arguments, Result: result}
+		return result, action
+
+	case "update_project_tag":
+		tagID, _ := tc.Arguments["tag_id"].(string)
+		if tagID == "" {
+			tagName, _ := tc.Arguments["tag_name"].(string)
+			if tagName == "" {
+				return "error: tag_id or tag_name is required", nil
+			}
+			id, err := a.findProjectTagID(scope, tagName)
+			if err != nil {
+				return "error: " + err.Error(), nil
+			}
+			tagID = id
+		}
+		var changes []string
+		// Name + color go through UpdateProjectLabel together. Empty strings
+		// preserve the existing value (per repo.UpdateProjectLabel semantics).
+		newName, hasName := tc.Arguments["name"].(string)
+		newColor, hasColor := tc.Arguments["color"].(string)
+		if hasName || hasColor {
+			passName := ""
+			if hasName {
+				passName = newName
+			}
+			passColor := ""
+			if hasColor {
+				passColor = newColor
+			}
+			if _, err := a.UpdateProjectLabel(scope.brandSlug, scope.streamSlug, scope.projectSlug, tagID, passName, passColor); err != nil {
+				return "error: " + err.Error(), nil
+			}
+			if hasName {
+				changes = append(changes, "name")
+			}
+			if hasColor {
+				changes = append(changes, "color")
+			}
+		}
+		if v, ok := tc.Arguments["icon"].(string); ok {
+			if _, err := a.SetProjectLabelIcon(scope.brandSlug, scope.streamSlug, scope.projectSlug, tagID, v); err == nil {
+				changes = append(changes, "icon")
+			}
+		}
+		if len(changes) == 0 {
+			return "No changes applied", nil
+		}
+		result := "Updated tag: " + strings.Join(changes, ", ")
+		action := &model.ToolAction{Tool: "update_project_tag", Input: tc.Arguments, Result: result}
+		return result, action
+
+	case "delete_project_tag":
+		tagID, _ := tc.Arguments["tag_id"].(string)
+		if tagID == "" {
+			tagName, _ := tc.Arguments["tag_name"].(string)
+			if tagName == "" {
+				return "error: tag_id or tag_name is required", nil
+			}
+			id, err := a.findProjectTagID(scope, tagName)
+			if err != nil {
+				return "error: " + err.Error(), nil
+			}
+			tagID = id
+		}
+		if _, err := a.RemoveProjectLabel(scope.brandSlug, scope.streamSlug, scope.projectSlug, tagID); err != nil {
+			return "error: " + err.Error(), nil
+		}
+		result := "Deleted tag"
+		action := &model.ToolAction{Tool: "delete_project_tag", Input: tc.Arguments, Result: result}
+		return result, action
+
+	// --- Categories ---
+	case "create_category":
+		name, _ := tc.Arguments["name"].(string)
+		if name == "" {
+			return "error: name is required", nil
+		}
+		position := 0
+		if v, ok := tc.Arguments["position"].(float64); ok {
+			position = int(v)
+		}
+		cat, err := a.CreateCategory(scope.brandSlug, scope.streamSlug, scope.projectSlug, name, position)
+		if err != nil {
+			return "error: " + err.Error(), nil
+		}
+		result := fmt.Sprintf("Created category '%s' (id: %s)", name, cat.ID)
+		action := &model.ToolAction{Tool: "create_category", Input: tc.Arguments, Result: result}
+		return result, action
+
+	case "update_category":
+		catID, _ := tc.Arguments["category_id"].(string)
+		if catID == "" {
+			return "error: category_id is required", nil
+		}
+		// Find the category's slug — the existing app methods all key by slug.
+		catSlug, err := a.findCategorySlug(scope, catID)
+		if err != nil {
+			return "error: " + err.Error(), nil
+		}
+		var changes []string
+		if name, ok := tc.Arguments["name"].(string); ok && name != "" {
+			if _, err := a.RenameCategory(scope.brandSlug, scope.streamSlug, scope.projectSlug, catSlug, name); err != nil {
+				return "error: " + err.Error(), nil
+			}
+			changes = append(changes, "name")
+			// Slug may have changed after rename.
+			if newSlug, err := a.findCategorySlug(scope, catID); err == nil {
+				catSlug = newSlug
+			}
+		}
+		if v, ok := tc.Arguments["description"].(string); ok {
+			if _, err := a.UpdateCategoryDescription(scope.brandSlug, scope.streamSlug, scope.projectSlug, catSlug, v); err == nil {
+				changes = append(changes, "description")
+			}
+		}
+		if v, ok := tc.Arguments["icon"].(string); ok {
+			if _, err := a.UpdateCategoryIcon(scope.brandSlug, scope.streamSlug, scope.projectSlug, catSlug, v); err == nil {
+				changes = append(changes, "icon")
+			}
+		}
+		if raw, ok := tc.Arguments["accepted_types"].([]any); ok {
+			types := make([]string, 0, len(raw))
+			for _, t := range raw {
+				if s, ok := t.(string); ok {
+					types = append(types, s)
+				}
+			}
+			if _, err := a.UpdateCategoryAcceptedTypes(scope.brandSlug, scope.streamSlug, scope.projectSlug, catSlug, types); err == nil {
+				changes = append(changes, "accepted_types")
+			}
+		}
+		if len(changes) == 0 {
+			return "No changes applied", nil
+		}
+		result := "Updated category: " + strings.Join(changes, ", ")
+		action := &model.ToolAction{Tool: "update_category", Input: tc.Arguments, Result: result}
+		return result, action
+
+	case "delete_category":
+		catID, _ := tc.Arguments["category_id"].(string)
+		if catID == "" {
+			return "error: category_id is required", nil
+		}
+		catSlug, err := a.findCategorySlug(scope, catID)
+		if err != nil {
+			return "error: " + err.Error(), nil
+		}
+		if err := a.DeleteCategory(scope.brandSlug, scope.streamSlug, scope.projectSlug, catSlug); err != nil {
+			return "error: " + err.Error(), nil
+		}
+		result := "Deleted category"
+		action := &model.ToolAction{Tool: "delete_category", Input: tc.Arguments, Result: result}
+		return result, action
+
 	default:
 		return "error: unknown tool " + tc.Name, nil
 	}
+}
+
+// findProjectTagID looks up a tag by name (case-insensitive) within the
+// current project and returns its ID. Used by the tag tools when they accept
+// `tag_name` as a fallback to `tag_id`.
+//
+// (Underlying repo type is `model.Label` for historical persistence reasons,
+// but the user-facing concept is "tag" — see also feedback_tags_not_labels.)
+func (a *App) findProjectTagID(scope projectChatScope, name string) (string, error) {
+	labels, err := a.GetProjectLabels(scope.brandSlug, scope.streamSlug, scope.projectSlug)
+	if err != nil {
+		return "", err
+	}
+	for _, l := range labels {
+		if strings.EqualFold(l.Name, name) {
+			return l.ID, nil
+		}
+	}
+	return "", fmt.Errorf("no tag named %q in this project", name)
+}
+
+// findCategorySlug looks up a category's slug by its ID within the current
+// project. The existing repo methods key categories by slug rather than ID,
+// so this bridges the gap when tools accept category_id.
+func (a *App) findCategorySlug(scope projectChatScope, catID string) (string, error) {
+	cats, err := a.repo.ListCategories(scope.brandSlug, scope.streamSlug, scope.projectSlug)
+	if err != nil {
+		return "", err
+	}
+	for _, c := range cats {
+		if c.ID == catID {
+			return c.Slug, nil
+		}
+	}
+	return "", fmt.Errorf("category %s not found in current project", catID)
+}
+
+// applyCardUpdate applies a partial update to a single card. Used by both
+// update_card (single) and update_cards (plural). Returns the list of fields
+// that actually changed (used to build the tool-action result string).
+//
+// Supported keys in args:
+//   - title (string)
+//   - card_type (string)
+//   - tags ([]string)              — REPLACE the card's tags
+//   - tags_to_add ([]string)       — APPEND to existing tags (deduped)
+//   - due_date (string)            — ISO 8601 date or datetime; "" clears
+//   - description (string)         — replaces the first text block, or creates one
+//   - blocks ([]map)               — REPLACE the card's blocks entirely
+//
+// Unknown keys are ignored.
+func (a *App) applyCardUpdate(cardID string, args map[string]any) ([]string, error) {
+	var changes []string
+
+	if title, ok := args["title"].(string); ok && title != "" {
+		if _, err := a.UpdateCardTitle(cardID, title); err == nil {
+			changes = append(changes, "title")
+		}
+	}
+	if cardType, ok := args["card_type"].(string); ok && cardType != "" {
+		if _, err := a.UpdateCardType(cardID, cardType); err == nil {
+			changes = append(changes, "type")
+		}
+	}
+
+	// Tag handling: `tags` REPLACES, `tags_to_add` APPENDS. Both can be present.
+	if tagsRaw, ok := args["tags"].([]any); ok {
+		var newTags []string
+		for _, raw := range tagsRaw {
+			if s, ok := raw.(string); ok && s != "" {
+				newTags = append(newTags, s)
+			}
+		}
+		if _, err := a.UpdateCardTags(cardID, newTags); err == nil {
+			changes = append(changes, "tags")
+		}
+	}
+	if tagsRaw, ok := args["tags_to_add"].([]any); ok && len(tagsRaw) > 0 {
+		c, err := a.repo.GetCard(cardID)
+		if err == nil {
+			existing := make(map[string]bool)
+			for _, t := range c.Tags {
+				existing[strings.ToLower(t)] = true
+			}
+			merged := c.Tags
+			added := false
+			for _, raw := range tagsRaw {
+				if s, ok := raw.(string); ok && s != "" && !existing[strings.ToLower(s)] {
+					merged = append(merged, s)
+					existing[strings.ToLower(s)] = true
+					added = true
+				}
+			}
+			if added {
+				a.UpdateCardTags(cardID, merged)
+				if !contains(changes, "tags") {
+					changes = append(changes, "tags")
+				}
+			}
+		}
+	}
+	if tagsRaw, ok := args["tags_to_remove"].([]any); ok && len(tagsRaw) > 0 {
+		c, err := a.repo.GetCard(cardID)
+		if err == nil {
+			remove := make(map[string]bool, len(tagsRaw))
+			for _, raw := range tagsRaw {
+				if s, ok := raw.(string); ok && s != "" {
+					remove[strings.ToLower(s)] = true
+				}
+			}
+			filtered := make([]string, 0, len(c.Tags))
+			removed := false
+			for _, t := range c.Tags {
+				if remove[strings.ToLower(t)] {
+					removed = true
+					continue
+				}
+				filtered = append(filtered, t)
+			}
+			if removed {
+				a.UpdateCardTags(cardID, filtered)
+				if !contains(changes, "tags") {
+					changes = append(changes, "tags")
+				}
+			}
+		}
+	}
+
+	// Due date: empty string clears, non-empty parses as ISO date or datetime.
+	if v, ok := args["due_date"].(string); ok {
+		if v == "" {
+			if _, err := a.UpdateCardDueDate(cardID, ""); err == nil {
+				changes = append(changes, "due_date")
+			}
+		} else {
+			if _, err := a.UpdateCardDueDate(cardID, v); err == nil {
+				changes = append(changes, "due_date")
+			}
+		}
+	}
+
+	// Description shorthand: replace the first text/markdown block, or create one.
+	if desc, ok := args["description"].(string); ok {
+		c, err := a.repo.GetCard(cardID)
+		if err == nil {
+			found := false
+			for i, b := range c.Blocks {
+				if b.Type == "text" || b.Type == "markdown" {
+					c.Blocks[i].Value = desc
+					found = true
+					break
+				}
+			}
+			if !found {
+				c.Blocks = append(c.Blocks, model.Block{
+					ID:    fmt.Sprintf("blk-%s", uuid.New().String()[:8]),
+					Type:  "text",
+					Label: "Description",
+					Key:   "description",
+					Value: desc,
+				})
+			}
+			if _, err := a.UpdateCardBlocks(cardID, c.Blocks); err == nil {
+				changes = append(changes, "description")
+			}
+		}
+	}
+
+	// Block-level replacement (full restructure).
+	if raw, ok := args["blocks"].([]any); ok {
+		blocks := make([]model.Block, 0, len(raw))
+		for _, item := range raw {
+			m, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			b := model.Block{
+				Type:  asString(m["type"]),
+				Label: asString(m["label"]),
+				Key:   asString(m["key"]),
+				Value: m["value"],
+			}
+			if id := asString(m["id"]); id != "" {
+				b.ID = id
+			} else {
+				b.ID = fmt.Sprintf("blk-%s", uuid.New().String()[:8])
+			}
+			blocks = append(blocks, b)
+		}
+		if _, err := a.UpdateCardBlocks(cardID, blocks); err == nil {
+			changes = append(changes, "blocks")
+		}
+	}
+
+	return changes, nil
+}
+
+func contains(haystack []string, needle string) bool {
+	for _, s := range haystack {
+		if s == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func asString(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
 }
 
 // resolveOrCreateHierarchy finds or creates brand/stream/project/category by name.
@@ -4249,6 +4985,597 @@ func (a *App) stageToolCall(tc llm.ToolCall, allCats []CategoryPath) (string, []
 	default:
 		return "Staged unknown tool " + tc.Name, nil
 	}
+}
+
+// stageProjectToolCall builds PendingEdit records for project chat in suggest mode.
+//
+// Strategy: each "logical edit" gets its own PendingEdit so the user can
+// approve or reject them individually. For tools that touch multiple cards or
+// fields, we expand them into one edit per (card, field) pair. This is what
+// gives the review UI a flat list of "this card, this field, this preview"
+// rows that the user can mouse-hover for full detail.
+//
+// `scope.cardIDs` is the set of valid card IDs for the current project.
+// Any card_id outside the set is dropped from staging and reported back to
+// the LLM via the result string so it can correct itself on the next turn.
+// Pass a nil cardIDs map to disable scope checking.
+//
+// The result string fed back to the LLM acknowledges the staging (and lists
+// any rejected IDs) so the conversation continues naturally without the LLM
+// thinking the call silently failed.
+func (a *App) stageProjectToolCall(tc llm.ToolCall, scope projectChatScope) (string, []model.PendingEdit) {
+	inScope := func(id string) bool {
+		if scope.cardIDs == nil {
+			return true
+		}
+		return scope.cardIDs[id]
+	}
+	switch tc.Name {
+	case "create_card":
+		title, _ := tc.Arguments["title"].(string)
+		cardType, _ := tc.Arguments["card_type"].(string)
+		if cardType == "" {
+			cardType = "idea"
+		}
+		label := "Create card: " + title
+		detail := fmt.Sprintf("Type: %s", cardType)
+		if catID, _ := tc.Arguments["category_id"].(string); catID != "" {
+			detail += fmt.Sprintf("\nPin to category: %s", catID)
+		}
+		if desc, _ := tc.Arguments["description"].(string); desc != "" {
+			detail += "\n\n" + desc
+		}
+		return "Card creation staged", []model.PendingEdit{{
+			ID: uuid.New().String(), Tool: tc.Name, Input: tc.Arguments,
+			Label: label, Detail: detail, Status: "pending",
+		}}
+
+	case "update_card":
+		cardID, _ := tc.Arguments["card_id"].(string)
+		if !inScope(cardID) {
+			return "error: card " + cardID + " is not in the current project. Use only the card IDs listed in the system prompt.", nil
+		}
+		return formatStageResult(tc.Name), a.stageProjectCardUpdates(cardID, tc.Arguments)
+
+	case "update_cards":
+		updatesRaw, _ := tc.Arguments["updates"].([]any)
+		var allEdits []model.PendingEdit
+		var rejected []string
+		for _, raw := range updatesRaw {
+			entry, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			cardID, _ := entry["card_id"].(string)
+			if cardID == "" {
+				continue
+			}
+			if !inScope(cardID) {
+				rejected = append(rejected, cardID)
+				continue
+			}
+			// Stage as singular update_card edits regardless of which tool the
+			// LLM called. The plural-vs-singular distinction only matters at
+			// LLM-call time; on apply, each pending edit is one card / one
+			// field, so the singular executor branch is the right path.
+			edits := a.stageProjectCardUpdates(cardID, entry)
+			allEdits = append(allEdits, edits...)
+		}
+		if len(rejected) > 0 && len(allEdits) == 0 {
+			return "error: none of the supplied card_ids belong to the current project: " + strings.Join(rejected, ", ") + ". Use only the card IDs listed in the system prompt.", nil
+		}
+		summary := fmt.Sprintf("Staged %d edits across %d cards", len(allEdits), len(updatesRaw)-len(rejected))
+		if len(rejected) > 0 {
+			summary += fmt.Sprintf(" (skipped %d out-of-project: %s)", len(rejected), strings.Join(rejected, ", "))
+		}
+		return summary, allEdits
+
+	case "add_tags_to_cards":
+		cardIDsRaw, _ := tc.Arguments["card_ids"].([]any)
+		tagsRaw, _ := tc.Arguments["tags"].([]any)
+		var tags []string
+		for _, t := range tagsRaw {
+			if s, ok := t.(string); ok && s != "" {
+				tags = append(tags, s)
+			}
+		}
+		var edits []model.PendingEdit
+		var rejected []string
+		for _, raw := range cardIDsRaw {
+			cid, ok := raw.(string)
+			if !ok || cid == "" {
+				continue
+			}
+			if !inScope(cid) {
+				rejected = append(rejected, cid)
+				continue
+			}
+			cardLabel := a.cardDisplayLabel(cid)
+			// Stage one edit per card so each can be approved individually,
+			// but keep the `card_ids` (plural) shape so the executor matches
+			// the original tool contract — it loops the array even when len=1.
+			edits = append(edits, model.PendingEdit{
+				ID:    uuid.New().String(),
+				Tool:  tc.Name,
+				Input: map[string]any{"card_ids": []any{cid}, "tags": tagsRaw},
+				Label: cardLabel + " — add tags",
+				Detail: "+" + strings.Join(tags, ", +"),
+				Status: "pending",
+			})
+		}
+		if len(rejected) > 0 && len(edits) == 0 {
+			return "error: none of the supplied card_ids belong to the current project: " + strings.Join(rejected, ", "), nil
+		}
+		summary := fmt.Sprintf("Tag additions staged for %d cards", len(edits))
+		if len(rejected) > 0 {
+			summary += fmt.Sprintf(" (skipped %d out-of-project: %s)", len(rejected), strings.Join(rejected, ", "))
+		}
+		return summary, edits
+
+	case "move_card":
+		cardID, _ := tc.Arguments["card_id"].(string)
+		if !inScope(cardID) {
+			return "error: card " + cardID + " is not in the current project.", nil
+		}
+		toCat, _ := tc.Arguments["to_category_id"].(string)
+		fromCat, _ := tc.Arguments["from_category_id"].(string)
+		return "Move staged", []model.PendingEdit{{
+			ID: uuid.New().String(), Tool: tc.Name, Input: tc.Arguments,
+			Label: a.cardDisplayLabel(cardID) + " — move",
+			Detail: fmt.Sprintf("From category: %s\nTo category: %s", fromCat, toCat),
+			Status: "pending",
+		}}
+
+	case "configure_agent":
+		cardID, _ := tc.Arguments["card_id"].(string)
+		if !inScope(cardID) {
+			return "error: card " + cardID + " is not in the current project.", nil
+		}
+		cardLabel := a.cardDisplayLabel(cardID)
+		var edits []model.PendingEdit
+		if v, ok := tc.Arguments["enabled"].(bool); ok {
+			edits = append(edits, model.PendingEdit{
+				ID:    uuid.New().String(), Tool: tc.Name,
+				Input: map[string]any{"card_id": cardID, "enabled": v},
+				Label: cardLabel + " — agent enabled",
+				Detail: fmt.Sprintf("Set agent enabled to %t", v),
+				Status: "pending",
+			})
+		}
+		if v, ok := tc.Arguments["schedule"].(string); ok {
+			detail := "Schedule: " + v
+			if v == "" {
+				detail = "Clear schedule"
+			}
+			edits = append(edits, model.PendingEdit{
+				ID:    uuid.New().String(), Tool: tc.Name,
+				Input: map[string]any{"card_id": cardID, "schedule": v},
+				Label: cardLabel + " — agent schedule",
+				Detail: detail,
+				Status: "pending",
+			})
+		}
+		if v, ok := tc.Arguments["goal"].(string); ok {
+			edits = append(edits, model.PendingEdit{
+				ID:    uuid.New().String(), Tool: tc.Name,
+				Input: map[string]any{"card_id": cardID, "goal": v},
+				Label: cardLabel + " — agent goal",
+				Detail: v,
+				Status: "pending",
+			})
+		}
+		if raw, ok := tc.Arguments["allowed_tools"].([]any); ok {
+			var tools []string
+			for _, t := range raw {
+				if s, ok := t.(string); ok {
+					tools = append(tools, s)
+				}
+			}
+			edits = append(edits, model.PendingEdit{
+				ID:    uuid.New().String(), Tool: tc.Name,
+				Input: map[string]any{"card_id": cardID, "allowed_tools": raw},
+				Label: cardLabel + " — agent tools",
+				Detail: strings.Join(tools, ", "),
+				Status: "pending",
+			})
+		}
+		return "Agent configuration staged", edits
+
+	// --- Project metadata ---
+	case "update_project":
+		var edits []model.PendingEdit
+		mk := func(field string, fieldArg any, detail string) {
+			edits = append(edits, model.PendingEdit{
+				ID:    uuid.New().String(),
+				Tool:  "update_project",
+				Input: map[string]any{field: fieldArg},
+				Label: "Project — " + field,
+				Detail: detail,
+				Status: "pending",
+			})
+		}
+		if v, ok := tc.Arguments["name"].(string); ok && v != "" {
+			mk("name", v, v)
+		}
+		if v, ok := tc.Arguments["description"].(string); ok {
+			detail := v
+			if v == "" {
+				detail = "Clear description"
+			}
+			mk("description", v, detail)
+		}
+		if v, ok := tc.Arguments["icon"].(string); ok {
+			detail := v
+			if v == "" {
+				detail = "Clear icon"
+			}
+			mk("icon", v, detail)
+		}
+		return "Project update staged", edits
+
+	// --- Project tags ---
+	case "create_project_tag":
+		name, _ := tc.Arguments["name"].(string)
+		var detailParts []string
+		if c, _ := tc.Arguments["color"].(string); c != "" {
+			detailParts = append(detailParts, "color "+c)
+		}
+		if i, _ := tc.Arguments["icon"].(string); i != "" {
+			detailParts = append(detailParts, "icon "+i)
+		}
+		detail := name
+		if len(detailParts) > 0 {
+			detail += " (" + strings.Join(detailParts, ", ") + ")"
+		}
+		return "Tag creation staged", []model.PendingEdit{{
+			ID: uuid.New().String(), Tool: "create_project_tag", Input: tc.Arguments,
+			Label: "Create tag — " + name, Detail: detail, Status: "pending",
+		}}
+
+	case "update_project_tag":
+		// Resolve tag name for the row label so the user knows what's changing.
+		tagLabel := "tag"
+		if id, _ := tc.Arguments["tag_id"].(string); id != "" {
+			tagLabel = a.tagDisplayName(scope, id, "")
+		} else if name, _ := tc.Arguments["tag_name"].(string); name != "" {
+			tagLabel = name
+		}
+		var edits []model.PendingEdit
+		mk := func(field string, detail string) {
+			edits = append(edits, model.PendingEdit{
+				ID:    uuid.New().String(),
+				Tool:  "update_project_tag",
+				Input: shallowCopyArgs(tc.Arguments, []string{"tag_id", "tag_name"}, field),
+				Label: tagLabel + " — " + field,
+				Detail: detail,
+				Status: "pending",
+			})
+		}
+		if v, ok := tc.Arguments["name"].(string); ok {
+			mk("name", v)
+		}
+		if v, ok := tc.Arguments["color"].(string); ok {
+			mk("color", v)
+		}
+		if v, ok := tc.Arguments["icon"].(string); ok {
+			detail := v
+			if v == "" {
+				detail = "Clear icon"
+			}
+			mk("icon", detail)
+		}
+		return "Tag update staged", edits
+
+	case "delete_project_tag":
+		tagLabel := "tag"
+		if id, _ := tc.Arguments["tag_id"].(string); id != "" {
+			tagLabel = a.tagDisplayName(scope, id, "")
+		} else if name, _ := tc.Arguments["tag_name"].(string); name != "" {
+			tagLabel = name
+		}
+		return "Tag deletion staged", []model.PendingEdit{{
+			ID: uuid.New().String(), Tool: "delete_project_tag", Input: tc.Arguments,
+			Label: "Delete tag — " + tagLabel, Detail: "Delete from project", Status: "pending",
+		}}
+
+	// --- Categories ---
+	case "create_category":
+		name, _ := tc.Arguments["name"].(string)
+		return "Category creation staged", []model.PendingEdit{{
+			ID: uuid.New().String(), Tool: "create_category", Input: tc.Arguments,
+			Label: "Create category — " + name, Detail: name, Status: "pending",
+		}}
+
+	case "update_category":
+		catID, _ := tc.Arguments["category_id"].(string)
+		catLabel := a.categoryDisplayName(scope, catID)
+		var edits []model.PendingEdit
+		mk := func(field string, fieldArg any, detail string) {
+			edits = append(edits, model.PendingEdit{
+				ID:    uuid.New().String(),
+				Tool:  "update_category",
+				Input: map[string]any{"category_id": catID, field: fieldArg},
+				Label: catLabel + " — " + field,
+				Detail: detail,
+				Status: "pending",
+			})
+		}
+		if v, ok := tc.Arguments["name"].(string); ok && v != "" {
+			mk("name", v, v)
+		}
+		if v, ok := tc.Arguments["description"].(string); ok {
+			detail := v
+			if v == "" {
+				detail = "Clear description"
+			}
+			mk("description", v, detail)
+		}
+		if v, ok := tc.Arguments["icon"].(string); ok {
+			detail := v
+			if v == "" {
+				detail = "Clear icon"
+			}
+			mk("icon", v, detail)
+		}
+		if raw, ok := tc.Arguments["accepted_types"].([]any); ok {
+			var types []string
+			for _, t := range raw {
+				if s, ok := t.(string); ok {
+					types = append(types, s)
+				}
+			}
+			detail := "Accept: " + strings.Join(types, ", ")
+			if len(types) == 0 {
+				detail = "Accept all card types"
+			}
+			mk("accepted_types", raw, detail)
+		}
+		return "Category update staged", edits
+
+	case "delete_category":
+		catID, _ := tc.Arguments["category_id"].(string)
+		catLabel := a.categoryDisplayName(scope, catID)
+		return "Category deletion staged", []model.PendingEdit{{
+			ID: uuid.New().String(), Tool: "delete_category", Input: tc.Arguments,
+			Label: "Delete category — " + catLabel, Detail: "Cards will be unpinned to inbox", Status: "pending",
+		}}
+
+	default:
+		return "Staged unknown tool " + tc.Name, nil
+	}
+}
+
+// tagDisplayName returns a human-friendly name for a project tag, given
+// either an ID or a name. Used in pending-edit row labels for the tag tools.
+// Falls back to whichever value was provided if lookup fails.
+func (a *App) tagDisplayName(scope projectChatScope, tagID, tagName string) string {
+	if tagName != "" {
+		return tagName
+	}
+	if tagID == "" {
+		return "tag"
+	}
+	labels, err := a.GetProjectLabels(scope.brandSlug, scope.streamSlug, scope.projectSlug)
+	if err != nil {
+		return tagID
+	}
+	for _, l := range labels {
+		if l.ID == tagID {
+			return l.Name
+		}
+	}
+	return tagID
+}
+
+// categoryDisplayName returns the human name of a category by ID, falling back
+// to the ID itself if the lookup fails.
+func (a *App) categoryDisplayName(scope projectChatScope, catID string) string {
+	if catID == "" {
+		return "category"
+	}
+	cats, err := a.repo.ListCategories(scope.brandSlug, scope.streamSlug, scope.projectSlug)
+	if err != nil {
+		return catID
+	}
+	for _, c := range cats {
+		if c.ID == catID {
+			return c.Name
+		}
+	}
+	return catID
+}
+
+// shallowCopyArgs builds a new map containing the listed lookup keys from src
+// (e.g. tag_id, tag_name for the tag tools) plus a single named field. Used
+// when staging multi-field updates so each PendingEdit's Input contains only
+// the lookup info plus the one field that edit applies.
+func shallowCopyArgs(src map[string]any, lookupKeys []string, field string) map[string]any {
+	out := make(map[string]any, len(lookupKeys)+1)
+	for _, k := range lookupKeys {
+		if v, ok := src[k]; ok {
+			out[k] = v
+		}
+	}
+	if v, ok := src[field]; ok {
+		out[field] = v
+	}
+	return out
+}
+
+// stageProjectCardUpdates expands a single-card update into one PendingEdit
+// per field. Each edit is staged with `Tool: "update_card"` (the singular
+// executor) regardless of whether the original LLM call was update_card or
+// update_cards — see the call site comment for why.
+func (a *App) stageProjectCardUpdates(cardID string, args map[string]any) []model.PendingEdit {
+	cardLabel := a.cardDisplayLabel(cardID)
+	var edits []model.PendingEdit
+	mkEdit := func(field string, fieldArg any, detail string) {
+		edits = append(edits, model.PendingEdit{
+			ID:    uuid.New().String(),
+			Tool:  "update_card",
+			Input: map[string]any{"card_id": cardID, field: fieldArg},
+			Label: cardLabel + " — " + field,
+			Detail: detail,
+			Status: "pending",
+		})
+	}
+	if v, ok := args["title"].(string); ok && v != "" {
+		mkEdit("title", v, v)
+	}
+	if v, ok := args["card_type"].(string); ok && v != "" {
+		mkEdit("card_type", v, v)
+	}
+	if raw, ok := args["tags"].([]any); ok {
+		var tags []string
+		for _, t := range raw {
+			if s, ok := t.(string); ok {
+				tags = append(tags, s)
+			}
+		}
+		detail := "Replace with: " + strings.Join(tags, ", ")
+		if len(tags) == 0 {
+			detail = "Remove all tags"
+		}
+		mkEdit("tags", raw, detail)
+	}
+	if raw, ok := args["tags_to_add"].([]any); ok {
+		var tags []string
+		for _, t := range raw {
+			if s, ok := t.(string); ok {
+				tags = append(tags, "+"+s)
+			}
+		}
+		mkEdit("tags_to_add", raw, strings.Join(tags, ", "))
+	}
+	if raw, ok := args["tags_to_remove"].([]any); ok {
+		var tags []string
+		for _, t := range raw {
+			if s, ok := t.(string); ok {
+				tags = append(tags, "−"+s)
+			}
+		}
+		mkEdit("tags_to_remove", raw, strings.Join(tags, ", "))
+	}
+	if v, ok := args["due_date"].(string); ok {
+		detail := v
+		if v == "" {
+			detail = "Clear due date"
+		}
+		mkEdit("due_date", v, detail)
+	}
+	if v, ok := args["description"].(string); ok {
+		mkEdit("description", v, v)
+	}
+	if raw, ok := args["blocks"].([]any); ok {
+		mkEdit("blocks", raw, fmt.Sprintf("Replace with %d blocks", len(raw)))
+	}
+	return edits
+}
+
+// cardDisplayLabel returns a short label for a card (used in pending edit
+// labels). Falls back to the card ID if the title can't be loaded.
+func (a *App) cardDisplayLabel(cardID string) string {
+	if a.repo == nil {
+		return cardID
+	}
+	c, err := a.repo.GetCard(cardID)
+	if err != nil || c == nil || c.Title == "" {
+		return cardID
+	}
+	return c.Title
+}
+
+// formatStageResult builds a human-readable acknowledgement string for the LLM.
+func formatStageResult(toolName string) string {
+	return "Edits staged for " + toolName + " — awaiting user approval"
+}
+
+// ApplyProjectPendingEdits accepts the specified edits (in order) and rejects
+// the rest, for a project chat message. Mirrors ApplyPendingEdits but uses the
+// project chat ID and the project tool executor.
+//
+// `brandSlug`/`streamSlug`/`projectSlug` identify the project whose chat to
+// load. `msgID` is the assistant message containing the staged edits. `acceptIDs`
+// is the subset of edit IDs to apply; everything else is rejected.
+func (a *App) ApplyProjectPendingEdits(brandSlug, streamSlug, projectSlug, msgID string, acceptIDs []string) (*model.ChatFile, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	project, err := a.repo.GetProject(brandSlug, streamSlug, projectSlug)
+	if err != nil {
+		return nil, err
+	}
+	chatID := projectChatID(project.ID)
+
+	acceptSet := make(map[string]bool, len(acceptIDs))
+	for _, id := range acceptIDs {
+		acceptSet[id] = true
+	}
+
+	cf, err := a.repo.LoadChat(chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Recompute project scope at apply time. This catches cases where the
+	// chat session staged edits referencing cards that no longer belong to the
+	// project (moved or deleted between staging and apply), in addition to
+	// the original LLM-hallucination defence.
+	categories, _ := a.repo.ListCategories(brandSlug, streamSlug, projectSlug)
+	applyScope := projectChatScope{
+		brandSlug:   brandSlug,
+		streamSlug:  streamSlug,
+		projectSlug: projectSlug,
+		cardIDs:     make(map[string]bool),
+	}
+	for _, cat := range categories {
+		pins, _ := a.repo.ListCardsInCategory(cat.ID, cat.ID)
+		for _, p := range pins {
+			applyScope.cardIDs[p.CardID] = true
+		}
+	}
+
+	// Walk the target message, applying accepted edits in order and marking
+	// the rest rejected. Edits run synchronously through the project executor.
+	// Failures are stamped into the edit's Detail so the user can hover to see
+	// them, and we collect a count to surface as a returned error after save —
+	// the frontend uses that to fire a toast.
+	var failures int
+	for i, m := range cf.Messages {
+		if m.ID != msgID {
+			continue
+		}
+		for j, edit := range m.PendingEdits {
+			if edit.Status != "pending" {
+				continue
+			}
+			if acceptSet[edit.ID] {
+				tc := llm.ToolCall{ID: edit.ID, Name: edit.Tool, Arguments: edit.Input}
+				result, _ := a.executeProjectToolCall(tc, applyScope)
+				if strings.HasPrefix(result, "error:") {
+					// Leave it pending so the user can retry; record the error in detail.
+					cf.Messages[i].PendingEdits[j].Detail = result
+					failures++
+					continue
+				}
+				cf.Messages[i].PendingEdits[j].Status = "accepted"
+			} else {
+				cf.Messages[i].PendingEdits[j].Status = "rejected"
+			}
+		}
+		break
+	}
+
+	if err := a.repo.SaveChat(cf); err != nil {
+		return nil, err
+	}
+	// Failures are surfaced via the per-edit Detail field (which starts with
+	// "error:" for failed rows). The frontend scans for those after a refresh
+	// and toasts the user. We don't return a Go error here because Wails would
+	// drop the cf value, and the user needs to see the updated rows so they
+	// can retry the failed ones.
+	_ = failures
+	return cf, nil
 }
 
 // AcceptPendingEdit applies a single pending edit from Suggest mode and marks it accepted.

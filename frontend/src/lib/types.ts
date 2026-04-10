@@ -525,7 +525,7 @@ export interface BackendAdapter {
 
   // Project chat
   LoadProjectChatHistory(brandSlug: string, streamSlug: string, projectSlug: string): Promise<any>
-  SendProjectChatMessage(brandSlug: string, streamSlug: string, projectSlug: string, userMessage: string): Promise<any>
+  SendProjectChatMessage(brandSlug: string, streamSlug: string, projectSlug: string, userMessage: string, contextLevel: string): Promise<any>
   ClearProjectChatHistory(brandSlug: string, streamSlug: string, projectSlug: string): Promise<void>
   ClearCardChatHistory(cardID: string): Promise<void>
 
@@ -549,6 +549,7 @@ export interface BackendAdapter {
   AcceptAllPendingEdits(cardID: string, msgID: string): Promise<any>
   RejectAllPendingEdits(cardID: string, msgID: string): Promise<any>
   ApplyPendingEdits(cardID: string, msgID: string, acceptIDs: string[]): Promise<any>
+  ApplyProjectPendingEdits(brandSlug: string, streamSlug: string, projectSlug: string, msgID: string, acceptIDs: string[]): Promise<any>
 
   // Attachments
   AddCardAttachment(cardID: string, name: string, data: string): Promise<Card>

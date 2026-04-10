@@ -85,6 +85,25 @@ const (
 	ContextGlobal   ContextLevel = "global"
 )
 
+// ProjectChatContextLevel controls how much card detail is serialised into the
+// Project Chat system prompt. Unlike ContextLevel (which is per-card for Card
+// chat), this is a session-level setting for the project chat panel.
+type ProjectChatContextLevel string
+
+const (
+	// ProjectChatContextAll includes every pinned card in every category with
+	// title, type, tags, due date, and description snippet. This is the default.
+	ProjectChatContextAll ProjectChatContextLevel = "all"
+	// ProjectChatContextMetadata includes category names and card titles/types
+	// only — no tags, descriptions, or due dates. Keeps the prompt small while
+	// still giving the LLM a rough map of the board.
+	ProjectChatContextMetadata ProjectChatContextLevel = "metadata"
+	// ProjectChatContextNone omits card enumeration entirely. The LLM sees only
+	// brand/stream/project metadata. Useful for pure-generation tasks where
+	// board state is irrelevant and you want to minimise token usage.
+	ProjectChatContextNone ProjectChatContextLevel = "none"
+)
+
 // ChecklistItem is a single item within a card's checklist.
 // Deprecated: Use Block with Type="checklist" instead. Kept for migration compatibility.
 type ChecklistItem struct {

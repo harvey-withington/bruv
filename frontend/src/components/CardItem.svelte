@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { search, boardSearch, nav, dnd, getTagColor, cardTypes, board } from '../lib/store.svelte'
+  import { search, boardSearch, nav, dnd, getTagColor, getTagIcon, cardTypes, board } from '../lib/store.svelte'
+  import DynamicIcon from './DynamicIcon.svelte'
   import { renderInline } from '../lib/markdown'
   import { t } from '../lib/i18n.svelte'
   import { getCardTypeColor, getCardTypeTextColor } from '../lib/cardTypes'
@@ -105,7 +106,13 @@
     {#if card.tags.length > 0}
       <div class="tags">
         {#each card.tags.slice(0, 3) as tag}
-          <span class="tag" style:background={getTagColor(tag)}>{tag}</span>
+          {@const icon = getTagIcon(tag)}
+          <span class="tag" style:background={getTagColor(tag)}>
+            {#if icon}
+              <span class="tag-icon"><DynamicIcon name={icon} size={10} /></span>
+            {/if}
+            {tag}
+          </span>
         {/each}
         {#if card.tags.length > 3}
           <span class="tag tag-more">+{card.tags.length - 3}</span>
@@ -274,6 +281,14 @@
     border-radius: 3px;
     background: var(--border);
     color: #fff;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+  }
+  .tag-icon {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
   }
 
   .tag-more {

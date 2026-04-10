@@ -68,6 +68,7 @@ export const MoveCategoryCards = (...args: Parameters<ReturnType<typeof getBacke
 export const CopyCategory = (...args: Parameters<ReturnType<typeof getBackend>['CopyCategory']>) => getBackend().CopyCategory(...args)
 export const UpdateCategoryAcceptedTypes = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCategoryAcceptedTypes']>) => getBackend().UpdateCategoryAcceptedTypes(...args)
 export const UpdateCategoryDescription = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCategoryDescription']>) => getBackend().UpdateCategoryDescription(...args)
+export const UpdateCategoryIcon = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCategoryIcon']>) => getBackend().UpdateCategoryIcon(...args)
 
 // Card CRUD
 export const CreateCard = (...args: Parameters<ReturnType<typeof getBackend>['CreateCard']>) => getBackend().CreateCard(...args)
@@ -125,6 +126,7 @@ export const GetProjectLabels = (...args: Parameters<ReturnType<typeof getBacken
 export const AddProjectLabel = (...args: Parameters<ReturnType<typeof getBackend>['AddProjectLabel']>) => getBackend().AddProjectLabel(...args)
 export const RemoveProjectLabel = (...args: Parameters<ReturnType<typeof getBackend>['RemoveProjectLabel']>) => getBackend().RemoveProjectLabel(...args)
 export const UpdateProjectLabel = (...args: Parameters<ReturnType<typeof getBackend>['UpdateProjectLabel']>) => getBackend().UpdateProjectLabel(...args)
+export const SetProjectLabelIcon = (...args: Parameters<ReturnType<typeof getBackend>['SetProjectLabelIcon']>) => getBackend().SetProjectLabelIcon(...args)
 
 // Schema
 export const ListCardTypes = () => getBackend().ListCardTypes()

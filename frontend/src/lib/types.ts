@@ -398,6 +398,7 @@ export interface BackendAdapter {
   CopyCategory(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string): Promise<any>
   UpdateCategoryAcceptedTypes(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string, acceptedTypes: string[]): Promise<any>
   UpdateCategoryDescription(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string, description: string): Promise<any>
+  UpdateCategoryIcon(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string, icon: string): Promise<any>
 
   // Card CRUD
   CreateCard(cardType: string, title: string): Promise<any>
@@ -455,6 +456,7 @@ export interface BackendAdapter {
   AddProjectLabel(brandSlug: string, streamSlug: string, projectSlug: string, name: string, color: string): Promise<any[]>
   RemoveProjectLabel(brandSlug: string, streamSlug: string, projectSlug: string, labelID: string): Promise<any[]>
   UpdateProjectLabel(brandSlug: string, streamSlug: string, projectSlug: string, labelID: string, name: string, color: string): Promise<any[]>
+  SetProjectLabelIcon(brandSlug: string, streamSlug: string, projectSlug: string, labelID: string, icon: string): Promise<any[]>
 
   // Schema
   ListCardTypes(): Promise<CardTypeInfo[]>

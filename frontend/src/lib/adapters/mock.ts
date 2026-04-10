@@ -86,6 +86,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     CopyCategory: async () => ({ slug: 'copy-category', name: 'Copy Category' }),
     UpdateCategoryAcceptedTypes: async () => ({ slug: 'test-category', name: 'Test Category' }),
     UpdateCategoryDescription: async () => ({ slug: 'test-category', name: 'Test Category' }),
+    UpdateCategoryIcon: async () => ({ slug: 'test-category', name: 'Test Category' }),
 
     CreateCard: async () => ({ id: 'card-1', title: '', type: '', tags: [], due_date: null, created_at: '', fields: {}, blocks: [] }),
     GetCard: async () => ({ id: 'card-1', title: '', type: '', tags: [], due_date: null, created_at: '', fields: {}, blocks: [] }),
@@ -135,6 +136,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     AddProjectLabel: async () => [],
     RemoveProjectLabel: async () => [],
     UpdateProjectLabel: async () => [],
+    SetProjectLabelIcon: async () => [],
 
     ListCardTypes: async (): Promise<CardTypeInfo[]> => [],
     ValidateCardFields: async () => [],

@@ -1,11 +1,14 @@
 <script lang="ts">
   import CardItem from './CardItem.svelte'
-  import { GripVertical, Trash2, Settings } from 'lucide-svelte'
+  import DynamicIcon from './DynamicIcon.svelte'
+  import IconPicker from './IconPicker.svelte'
+  import { Trash2, Layers, Smile } from 'lucide-svelte'
   import { dnd, prefs, columnSettings, cardTypes } from '../lib/store.svelte'
   import { t } from '../lib/i18n.svelte'
+  import { showToast } from '../lib/toast.svelte'
   import { renderInline } from '../lib/markdown'
   import { getCardTypeColor, CARD_TYPE_ORDER } from '../lib/cardTypes'
-  import { UpdateCategoryAcceptedTypes, UpdateCategoryDescription } from '../lib/api'
+  import { UpdateCategoryAcceptedTypes, UpdateCategoryDescription, UpdateCategoryIcon } from '../lib/api'
   import { Pencil as PencilSmall } from 'lucide-svelte'
   import { inlineEdit, floatingDropdown } from '../lib/actions'
 
@@ -25,6 +28,7 @@
     name: string
     slug: string
     description?: string
+    icon?: string
     position: number
     accepted_types?: string[]
     cards: CardData[]
@@ -68,6 +72,21 @@
     })
   )
   let settingsBtnEl = $state<HTMLButtonElement | null>(null)
+  let showIconPicker = $state(false)
+
+  async function handleIconSelected(icon: string) {
+    showIconPicker = false
+    if (!brandSlug || !streamSlug || !projectSlug) return
+    try {
+      await UpdateCategoryIcon(brandSlug, streamSlug, projectSlug, category.slug, icon)
+      category.icon = icon
+      onCategoryUpdated?.()
+      document.dispatchEvent(new CustomEvent('bruv:board-changed'))
+    } catch (e) {
+      console.error('UpdateCategoryIcon failed:', e)
+      showToast(t('error.save_failed'), 'error')
+    }
+  }
 
   $effect(() => {
     if (renaming && renameInputEl) {
@@ -264,7 +283,11 @@
     ondragstart={handleColDragStart}
     ondragend={handleColDragEnd}
   >
-    {#if !isReadonly}<span class="drag-handle" title={t('tooltip.drag_column')}><GripVertical size={14} /></span>{/if}
+    {#if category.icon}
+      <span class="column-lead-icon" title={t('tooltip.drag_column')}>
+        <DynamicIcon name={category.icon} size={14} />
+      </span>
+    {/if}
     {#if renaming}
       <input
         class="column-rename-input"
@@ -284,20 +307,35 @@
       >{@html renderInline(category.name)}</h3>
       <span class="card-count">{category.cards.length}</span>
       {#if !isReadonly}
-        <button
-          class="col-action-btn col-settings-btn"
-          bind:this={settingsBtnEl}
-          title={t('tooltip.accepted_types')}
-          onclick={(e: MouseEvent) => { e.stopPropagation(); openSettings() }}
-        ><Settings size={13} /></button>
-        <button
-          class="col-action-btn col-delete-btn"
-          title={t('tooltip.delete_category')}
-          onclick={(e: MouseEvent) => { e.stopPropagation(); onDeleteCategory?.(category.id, category.slug, category.name, category.cards.length) }}
-        ><Trash2 size={13} /></button>
+        <div class="col-actions">
+          <button
+            class="col-action-btn col-icon-btn"
+            title={t('icon.pick')}
+            onclick={(e: MouseEvent) => { e.stopPropagation(); showIconPicker = true }}
+          ><Smile size={13} /></button>
+          <button
+            class="col-action-btn"
+            bind:this={settingsBtnEl}
+            title={t('tooltip.accepted_types')}
+            onclick={(e: MouseEvent) => { e.stopPropagation(); openSettings() }}
+          ><Layers size={13} /></button>
+          <button
+            class="col-action-btn col-delete-btn"
+            title={t('tooltip.delete_category')}
+            onclick={(e: MouseEvent) => { e.stopPropagation(); onDeleteCategory?.(category.id, category.slug, category.name, category.cards.length) }}
+          ><Trash2 size={13} /></button>
+        </div>
       {/if}
     {/if}
   </div>
+
+  {#if showIconPicker}
+    <IconPicker
+      value={category.icon || ''}
+      onSelect={handleIconSelected}
+      onClose={() => showIconPicker = false}
+    />
+  {/if}
 
   {#if !isReadonly}
     <div class="col-description">
@@ -418,8 +456,8 @@
     cursor: grab;
   }
 
-  .drag-handle {
-    color: var(--text-faint);
+  .column-lead-icon {
+    color: var(--text-muted);
     display: flex;
     align-items: center;
     flex-shrink: 0;
@@ -457,6 +495,11 @@
     font-size: 0.85rem;
     font-weight: 600;
     color: var(--text-strong);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .column-title.editable {
@@ -477,20 +520,23 @@
     border-radius: 10px;
   }
 
+  .col-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0;
+  }
   .col-action-btn {
     background: none;
     border: none;
     color: var(--text-faint);
     cursor: pointer;
-    padding: 0.2rem;
+    padding: 0.15rem;
     border-radius: 4px;
     display: flex;
     align-items: center;
     opacity: 0;
     transition: opacity 0.15s, color 0.15s;
-  }
-  .col-settings-btn {
-    margin-left: auto;
   }
   .column-header:hover .col-action-btn { opacity: 1; }
   .col-action-btn:hover { color: var(--accent); }

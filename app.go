@@ -551,6 +551,13 @@ func (a *App) UpdateCategoryDescription(brandSlug, streamSlug, projectSlug, cate
 	return a.repo.UpdateCategoryDescription(brandSlug, streamSlug, projectSlug, categorySlug, description)
 }
 
+func (a *App) UpdateCategoryIcon(brandSlug, streamSlug, projectSlug, categorySlug, icon string) (*model.Category, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.UpdateCategoryIcon(brandSlug, streamSlug, projectSlug, categorySlug, icon)
+}
+
 func (a *App) DeleteCategory(brandSlug, streamSlug, projectSlug, categorySlug string) error {
 	if a.repo == nil {
 		return fmt.Errorf("no repository open")
@@ -1644,6 +1651,13 @@ func (a *App) UpdateProjectLabel(brandSlug, streamSlug, projectSlug, labelID, na
 		return nil, fmt.Errorf("no repository open")
 	}
 	return a.repo.UpdateProjectLabel(brandSlug, streamSlug, projectSlug, labelID, name, color)
+}
+
+func (a *App) SetProjectLabelIcon(brandSlug, streamSlug, projectSlug, labelID, icon string) ([]model.Label, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.repo.SetProjectLabelIcon(brandSlug, streamSlug, projectSlug, labelID, icon)
 }
 
 // UpdateCardLabels replaces a card's label IDs.

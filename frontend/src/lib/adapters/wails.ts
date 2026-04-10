@@ -19,6 +19,8 @@ import {
   CreateCategory, ListCategories, RenameCategory, DeleteCategory, MoveCategoryCards, CopyCategory, UpdateCategoryAcceptedTypes,
   // @ts-ignore — generated after `wails generate` with updated Go code
   UpdateCategoryDescription,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  UpdateCategoryIcon,
   CreateCard, GetCard, ListCards, DeleteCard, DuplicateCard,
   UpdateCardTitle, UpdateCardType, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardLabels, UpdateCardDueDate,
   // @ts-ignore — generated after `wails generate` with updated Go code
@@ -29,7 +31,7 @@ import {
   MoveCardInCategory, MoveCardToCategory, ReorderBrands, ReorderStreams, ReorderProjects, ReorderCategories,
   MoveProject, MoveStream, CopyBrand, CopyStream, CopyProject,
   GetTagColors, SetTagColor, AssignTagColor,
-  GetProjectLabels, AddProjectLabel, RemoveProjectLabel, UpdateProjectLabel,
+  GetProjectLabels, AddProjectLabel, RemoveProjectLabel, UpdateProjectLabel, SetProjectLabelIcon,
   ListCardTypes, ValidateCardFields,
   CreateUserCardType, UpdateUserCardType, DeleteUserCardType, UpdateBuiltinCardType,
   // @ts-ignore — generated after `wails generate` with updated Go code
@@ -179,6 +181,7 @@ export const wailsAdapter: BackendAdapter = {
   CopyCategory,
   UpdateCategoryAcceptedTypes,
   UpdateCategoryDescription,
+  UpdateCategoryIcon,
 
   CreateCard,
   GetCard,
@@ -228,6 +231,7 @@ export const wailsAdapter: BackendAdapter = {
   AddProjectLabel,
   RemoveProjectLabel,
   UpdateProjectLabel,
+  SetProjectLabelIcon,
 
   ListCardTypes: ListCardTypes as BackendAdapter['ListCardTypes'],
   ValidateCardFields,

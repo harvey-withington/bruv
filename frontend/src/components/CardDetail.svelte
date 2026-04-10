@@ -1,7 +1,8 @@
 <script lang="ts">
   import { GetCard, UpdateCardTitle, UpdateCardType, RefreshTypeBlocks, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
     DeleteCard, CreateCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, AddProjectLabel, GetProjectLabels, GetProjectLocation, GetCategoryAcceptedTypes, GetAgentConfig } from '../lib/api'
-  import { projectTags, nav, getTagColor, cardTypes } from '../lib/store.svelte'
+  import { projectTags, nav, getTagColor, getTagIcon, cardTypes } from '../lib/store.svelte'
+  import DynamicIcon from './DynamicIcon.svelte'
   import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, GripVertical, Pencil, MapPin, MapPinOff, MoveRight, BotMessageSquare, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, Maximize2, ArrowLeftRight, Hash, Calendar, Star, ListTree, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell } from 'lucide-svelte'
   import { renderMarkdown, renderInline } from '../lib/markdown'
   import { t } from '../lib/i18n.svelte'

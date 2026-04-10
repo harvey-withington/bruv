@@ -85,6 +85,26 @@ func (r *Repository) RemoveProjectLabel(brandSlug, streamSlug, projectSlug, labe
 	return filtered, nil
 }
 
+// SetProjectLabelIcon sets or clears the icon on a project label by ID.
+func (r *Repository) SetProjectLabelIcon(brandSlug, streamSlug, projectSlug, labelID, icon string) ([]model.Label, error) {
+	labels, _ := r.GetProjectLabels(brandSlug, streamSlug, projectSlug)
+	found := false
+	for i, l := range labels {
+		if l.ID == labelID {
+			labels[i].Icon = icon
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("label %q not found", labelID)
+	}
+	if err := r.saveProjectLabels(brandSlug, streamSlug, projectSlug, labels); err != nil {
+		return nil, err
+	}
+	return labels, nil
+}
+
 // UpdateProjectLabel updates a label's name and/or color by ID and returns the updated list.
 func (r *Repository) UpdateProjectLabel(brandSlug, streamSlug, projectSlug, labelID, name, color string) ([]model.Label, error) {
 	labels, _ := r.GetProjectLabels(brandSlug, streamSlug, projectSlug)

@@ -60,6 +60,7 @@ type Category struct {
 	Name          string    `json:"name"`
 	Slug          string    `json:"slug"`
 	Description   string    `json:"description,omitempty"`
+	Icon          string    `json:"icon,omitempty"`
 	Position      int       `json:"position"`
 	AcceptedTypes []string  `json:"accepted_types,omitempty"` // nil/empty = all card types accepted
 	CreatedAt     time.Time `json:"created_at"`
@@ -71,6 +72,7 @@ type Label struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
 	Color string `json:"color"`
+	Icon  string `json:"icon,omitempty"`
 }
 
 // ContextLevel controls how much repository context the LLM receives for a card.

@@ -33,6 +33,8 @@ export const board = $state({
     id: string
     name: string
     slug: string
+    description?: string
+    icon?: string
     position: number
     accepted_types?: string[]
     cards: Array<{
@@ -67,7 +69,7 @@ export const prefs = $state({
 })
 
 // Project tags — per-project tag definitions (source of truth for tag colors)
-export const projectTags = $state<{ list: Array<{ id: string; name: string; color: string }> }>({ list: [] })
+export const projectTags = $state<{ list: Array<{ id: string; name: string; color: string; icon?: string }> }>({ list: [] })
 
 // Global tag colors — repo-wide map loaded on repo open, used as fallback when no project is active
 export const globalTagColors = $state<{ map: Record<string, string> }>({ map: {} })
@@ -79,6 +81,14 @@ export function getTagColor(tagName: string): string {
   const pt = projectTags.list.find(t => t.name.toLowerCase() === lower)
   if (pt?.color) return pt.color
   return globalTagColors.map[tagName] || globalTagColors.map[lower] || 'var(--border)'
+}
+
+// Resolve a tag name to its icon (project label icon only — no global fallback).
+// Returns '' when the tag has no icon assigned.
+export function getTagIcon(tagName: string): string {
+  const lower = tagName.toLowerCase()
+  const pt = projectTags.list.find(t => t.name.toLowerCase() === lower)
+  return pt?.icon || ''
 }
 
 // Load (or refresh) the global tag color map from the backend.
@@ -178,6 +188,7 @@ export async function loadBoard(brandSlug: string, streamSlug: string, projectSl
         name: cat.name,
         slug: cat.slug,
         description: cat.description || '',
+        icon: cat.icon || '',
         position: cat.position,
         accepted_types: cat.accepted_types?.length ? [...cat.accepted_types] : undefined,
         cards: cards.filter((c): c is NonNullable<typeof c> => c !== null),

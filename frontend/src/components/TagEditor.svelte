@@ -1,10 +1,12 @@
 <script lang="ts">
   import { tick, onMount } from 'svelte'
   import { projectTags, nav, loadBoard } from '../lib/store.svelte'
-  import { AddProjectLabel, RemoveProjectLabel, UpdateProjectLabel, ListCardIDsByTag, GetCard, UpdateCardTags } from '../lib/api'
-  import { X, Plus, Trash2, Palette } from 'lucide-svelte'
+  import { AddProjectLabel, RemoveProjectLabel, UpdateProjectLabel, SetProjectLabelIcon, ListCardIDsByTag, GetCard, UpdateCardTags } from '../lib/api'
+  import { X, Plus, Trash2, Palette, Smile } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import { focusTrap, inlineEdit } from '../lib/actions'
+  import IconPicker from './IconPicker.svelte'
+  import DynamicIcon from './DynamicIcon.svelte'
 
   const TAG_PALETTE = [
     '#61bd4f', '#f2d600', '#ff9f1a', '#eb5a46', '#c377e0',
@@ -19,6 +21,7 @@
   let editingName = $state('')
   let editInputEl = $state<HTMLInputElement | null>(null)
   let colorPickerTagId = $state<string | null>(null)
+  let iconPickerTagId = $state<string | null>(null)
 
   // Usage counts: tag name (lowercase) → number of cards
   let tagUsage = $state<Record<string, number>>({})
@@ -123,6 +126,18 @@
     } catch (e) { console.error('Change color:', e) }
   }
 
+  async function changeIcon(tagId: string, icon: string) {
+    if (!nav.brandSlug || !nav.streamSlug || !nav.projectSlug) return
+    try {
+      projectTags.list = await SetProjectLabelIcon(nav.brandSlug, nav.streamSlug, nav.projectSlug, tagId, icon) || []
+      iconPickerTagId = null
+      // Refresh board so card-item tag chips pick up the new icon
+      if (nav.brandSlug && nav.streamSlug && nav.projectSlug) {
+        await loadBoard(nav.brandSlug, nav.streamSlug, nav.projectSlug)
+      }
+    } catch (e) { console.error('Change icon:', e) }
+  }
+
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') onClose()
   }
@@ -165,10 +180,16 @@
               tabindex="0"
               onclick={() => startEdit(tag)}
               onkeydown={(e) => { if (e.key === 'Enter') startEdit(tag) }}
-            >{tag.name}</span>
+            >
+              {#if tag.icon}
+                <span class="tag-chip-icon"><DynamicIcon name={tag.icon} size={11} /></span>
+              {/if}
+              {tag.name}
+            </span>
             {@const count = tagUsage[tag.name.toLowerCase()] || 0}
             <span class="tag-usage" class:unused={count === 0}>{count === 0 ? t('tags.unused') : count}</span>
             <div class="tag-actions">
+              <button class="action-btn icon-btn" onclick={() => iconPickerTagId = tag.id} title={t('tags.change_icon')}><Smile size={12} /></button>
               <button class="action-btn color-btn" onclick={() => { colorPickerTagId = colorPickerTagId === tag.id ? null : tag.id }} title={t('tooltip.change_tag_color')}><Palette size={12} /></button>
               <button class="action-btn delete-btn" onclick={() => requestRemoveTag(tag.id)} title={t('tooltip.remove_from_project')}><Trash2 size={12} /></button>
             </div>
@@ -201,6 +222,17 @@
     </div>
   </div>
 </div>
+
+{#if iconPickerTagId !== null}
+  {@const tag = projectTags.list.find(t => t.id === iconPickerTagId)}
+  {#if tag}
+    <IconPicker
+      value={tag.icon || ''}
+      onSelect={(icon) => changeIcon(tag.id, icon)}
+      onClose={() => iconPickerTagId = null}
+    />
+  {/if}
+{/if}
 
 {#if confirmDelete}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -311,8 +343,16 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
   }
   .tag-chip:hover { color: #f0f0f0; }
+  .tag-chip-icon {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
 
   .tag-actions {
     display: flex;

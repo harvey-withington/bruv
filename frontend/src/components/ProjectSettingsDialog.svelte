@@ -1,21 +1,24 @@
 <script lang="ts">
-  import { X, ChevronDown, ChevronRight } from 'lucide-svelte'
+  import { X, ChevronDown, ChevronRight, Smile } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
   import { nav, cardTypes } from '../lib/store.svelte'
   import {
     RenameProject, UpdateProjectDescription,
-    ListCategories, RenameCategory, UpdateCategoryDescription, UpdateCategoryAcceptedTypes,
+    ListCategories, RenameCategory, UpdateCategoryDescription, UpdateCategoryAcceptedTypes, UpdateCategoryIcon,
   } from '../lib/api'
   import { onMount } from 'svelte'
+  import IconPicker from './IconPicker.svelte'
+  import DynamicIcon from './DynamicIcon.svelte'
 
   let { onClose }: { onClose: () => void } = $props()
 
   let loaded = $state(false)
   let projectName = $state('')
   let projectDescription = $state('')
-  let categories = $state<Array<{ id: string; slug: string; name: string; description: string; accepted_types: string[] | null }>>([])
+  let categories = $state<Array<{ id: string; slug: string; name: string; description: string; icon: string; accepted_types: string[] | null }>>([])
   let expandedCat = $state<string | null>(null)
+  let iconPickerCatSlug = $state<string | null>(null)
 
   onMount(async () => {
     if (!nav.brandSlug || !nav.streamSlug || !nav.projectSlug) return
@@ -29,6 +32,7 @@
         slug: c.slug as string,
         name: c.name as string,
         description: (c.description as string) || '',
+        icon: (c.icon as string) || '',
         accepted_types: (c.accepted_types as string[] | null) || null,
       }))
     } catch { /* ignore */ }
@@ -52,7 +56,7 @@
     }
   }
 
-  async function saveCategoryField(catSlug: string, field: 'name' | 'description' | 'accepted_types', value: unknown) {
+  async function saveCategoryField(catSlug: string, field: 'name' | 'description' | 'accepted_types' | 'icon', value: unknown) {
     if (!nav.brandSlug || !nav.streamSlug || !nav.projectSlug) return
     try {
       if (field === 'name') {
@@ -61,10 +65,22 @@
         await UpdateCategoryDescription(nav.brandSlug, nav.streamSlug, nav.projectSlug, catSlug, value as string)
       } else if (field === 'accepted_types') {
         await UpdateCategoryAcceptedTypes(nav.brandSlug, nav.streamSlug, nav.projectSlug, catSlug, value as string[])
+      } else if (field === 'icon') {
+        await UpdateCategoryIcon(nav.brandSlug, nav.streamSlug, nav.projectSlug, catSlug, value as string)
       }
-    } catch {
+    } catch (e) {
+      console.error(`saveCategoryField(${field}) failed:`, e)
       showToast(t('error.save_failed'), 'error')
     }
+  }
+
+  function handleIconSelected(catIdx: number, icon: string) {
+    const cat = categories[catIdx]
+    categories[catIdx] = { ...cat, icon }
+    categories = [...categories]
+    saveCategoryField(cat.slug, 'icon', icon)
+    iconPickerCatSlug = null
+    document.dispatchEvent(new CustomEvent('bruv:board-changed'))
   }
 
   function toggleCatType(catIdx: number, typeId: string) {
@@ -141,17 +157,31 @@
           <div class="section-label">{t('project_settings.categories')} <span class="section-count">{categories.length}</span></div>
           {#each categories as cat, i (cat.id)}
             <div class="cat-row" class:expanded={expandedCat === cat.id}>
-              <button class="cat-header" onclick={() => expandedCat = expandedCat === cat.id ? null : cat.id}>
-                <span class="cat-expand">
-                  {#if expandedCat === cat.id}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
-                </span>
-                <span class="cat-name">{cat.name}</span>
-                {#if cat.accepted_types?.length}
-                  <span class="cat-types-badge">{cat.accepted_types.length} types</span>
-                {:else}
-                  <span class="cat-types-all">{t('column.all_types')}</span>
-                {/if}
-              </button>
+              <div class="cat-header-row">
+                <button class="cat-header" onclick={() => expandedCat = expandedCat === cat.id ? null : cat.id}>
+                  <span class="cat-expand">
+                    {#if expandedCat === cat.id}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
+                  </span>
+                  <span class="cat-icon-display">
+                    {#if cat.icon}
+                      <DynamicIcon name={cat.icon} size={14} />
+                    {/if}
+                  </span>
+                  <span class="cat-name">{cat.name}</span>
+                  {#if cat.accepted_types?.length}
+                    <span class="cat-types-badge">{cat.accepted_types.length} types</span>
+                  {:else}
+                    <span class="cat-types-all">{t('column.all_types')}</span>
+                  {/if}
+                </button>
+                <button
+                  class="cat-icon-btn"
+                  title={t('icon.pick')}
+                  onclick={(e) => { e.stopPropagation(); iconPickerCatSlug = cat.slug }}
+                >
+                  <Smile size={13} />
+                </button>
+              </div>
               {#if expandedCat === cat.id}
                 <div class="cat-detail">
                   <label class="field">
@@ -199,6 +229,17 @@
     {/if}
   </div>
 </div>
+
+{#if iconPickerCatSlug !== null}
+  {@const idx = categories.findIndex(c => c.slug === iconPickerCatSlug)}
+  {#if idx !== -1}
+    <IconPicker
+      value={categories[idx].icon}
+      onSelect={(icon) => handleIconSelected(idx, icon)}
+      onClose={() => iconPickerCatSlug = null}
+    />
+  {/if}
+{/if}
 
 <style>
   .dialog-overlay {
@@ -321,12 +362,17 @@
     border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
   }
 
+  .cat-header-row {
+    display: flex;
+    align-items: stretch;
+  }
   .cat-header {
     display: flex;
     align-items: center;
     gap: 0.35rem;
     padding: 0.45rem 0.6rem;
-    width: 100%;
+    flex: 1;
+    min-width: 0;
     background: none;
     border: none;
     color: var(--text-body);
@@ -336,6 +382,29 @@
     transition: background 0.1s;
   }
   .cat-header:hover { background: var(--bg-hover); }
+  .cat-icon-display {
+    display: inline-flex;
+    align-items: center;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .cat-icon-display:empty { display: none; }
+  .cat-icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0.55rem;
+    background: none;
+    border: none;
+    border-left: 1px solid var(--border-muted);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: color 0.1s, background 0.1s;
+  }
+  .cat-icon-btn:hover {
+    color: var(--accent);
+    background: var(--bg-hover);
+  }
 
   .cat-expand { color: var(--text-muted); display: flex; }
   .cat-name { font-weight: 500; flex: 1; }

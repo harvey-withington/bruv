@@ -178,6 +178,20 @@ func (r *Repository) UpdateCategoryDescription(brandSlug, streamSlug, projectSlu
 	return cat, nil
 }
 
+// UpdateCategoryIcon sets or clears the icon on a Category.
+func (r *Repository) UpdateCategoryIcon(brandSlug, streamSlug, projectSlug, categorySlug, icon string) (*model.Category, error) {
+	cat, err := r.GetCategory(brandSlug, streamSlug, projectSlug, categorySlug)
+	if err != nil {
+		return nil, err
+	}
+	cat.Icon = icon
+	cat.UpdatedAt = time.Now().UTC()
+	if err := writeJSON(r.categoryFilePath(brandSlug, streamSlug, projectSlug, categorySlug), cat); err != nil {
+		return nil, fmt.Errorf("write category: %w", err)
+	}
+	return cat, nil
+}
+
 // DeleteCategory removes a Category.
 func (r *Repository) DeleteCategory(brandSlug, streamSlug, projectSlug, categorySlug string) error {
 	path := r.categoryFilePath(brandSlug, streamSlug, projectSlug, categorySlug)

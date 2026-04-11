@@ -1460,6 +1460,7 @@
                       {:else if block.type === 'date'}
                         <DateBlock
                           value={block.value as string | null}
+                          meta={block.meta || {}}
                           onUpdate={(val) => {
                             if (!card) return
                             block.value = val

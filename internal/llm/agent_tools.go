@@ -49,8 +49,15 @@ var allAgentTools = []ToolDef{
 		},
 	},
 	{
-		Name:        "update_self",
-		Description: "Update or create content blocks on this card. Use existing block keys to update them, or use a new key to create a new field. Use this to record findings, update status, or store any useful data on the card.",
+		Name: "update_self",
+		Description: "Update or create content blocks on this card. The 'Current Card State' section of the system prompt lists each block's type (text, list, checklist, number, etc.) — match the value format to that type:\n" +
+			"  - text / description / findings: send a plain string.\n" +
+			"  - list: send an ARRAY of strings, one per list item, e.g. [\"Phnom Penh 20 May $60\", \"Bali 12 Jun $85\"].\n" +
+			"  - checklist: send an ARRAY of strings (each becomes an unchecked item) OR an array of {text, done} objects to set done state.\n" +
+			"  - number: send a number (or numeric string).\n" +
+			"  - date: send an ISO-8601 date/time string.\n" +
+			"  - select / radio: send the chosen option as a string.\n" +
+			"If you send a plain string to a list or checklist block it will be split by newlines as a fallback, but sending an array is strongly preferred. Use existing block keys to update them; use a new key to create a new text block.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -62,11 +69,13 @@ var allAgentTools = []ToolDef{
 						"properties": map[string]any{
 							"key": map[string]any{
 								"type":        "string",
-								"description": "The block key to update (e.g. 'description', 'notes')",
+								"description": "The block key or label to update (e.g. 'description', 'Flight Options')",
 							},
 							"value": map[string]any{
-								"type":        "string",
-								"description": "The new value for the block",
+								// Deliberately NOT typed — different block types accept
+								// different value shapes (string, array, number, object).
+								// The Go handler parses based on the target block's type.
+								"description": "The new value. See the tool description for format requirements per block type.",
 							},
 						},
 						"required": []string{"key", "value"},

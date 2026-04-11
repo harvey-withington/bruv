@@ -622,27 +622,48 @@ func (a *App) executeAgentToolCall(cardID string, card *model.Card, tc llm.ToolC
 				continue
 			}
 			key, _ := upd["key"].(string)
-			value, _ := upd["value"].(string)
+			rawValue := upd["value"]
 			if key == "" {
 				continue
 			}
 			found := false
-			// Match by key first, then by label (case-insensitive) as fallback
+			// Match by key first, then by label (case-insensitive) as
+			// fallback. coerceBlockValueForBlock (in app.go) reshapes the
+			// raw LLM input to match the target block's type AND applies
+			// meta-aware constraints: select/radio option validation,
+			// rating and progress clamping. A constraint violation is
+			// returned to the LLM so it can retry, rather than silently
+			// writing an invalid value.
 			for i, b := range updatedCard.Blocks {
 				if b.Key == key || strings.EqualFold(b.Label, key) {
-					updatedCard.Blocks[i].Value = value
+					coerced, cerr := coerceBlockValueForBlock(&updatedCard.Blocks[i], rawValue)
+					if cerr != nil {
+						log.Printf("update_self: block %q (%s): %v", key, b.Type, cerr)
+						action.Result = fmt.Sprintf("error: block %q: %v", key, cerr)
+						return action.Result, action
+					}
+					updatedCard.Blocks[i].Value = coerced
 					found = true
 					break
 				}
 			}
 			if !found {
-				// Create a new text block only if no existing block matches
+				// Create a new text block only if no existing block matches.
+				// New blocks are always text — the LLM can create a new list
+				// block via the editor if needed, but update_self never
+				// guesses at block types it didn't request.
+				strValue := ""
+				if s, ok := rawValue.(string); ok {
+					strValue = s
+				} else if rawValue != nil {
+					strValue = fmt.Sprintf("%v", rawValue)
+				}
 				updatedCard.Blocks = append(updatedCard.Blocks, model.Block{
 					ID:    fmt.Sprintf("blk-%s", uuid.New().String()[:8]),
 					Type:  model.BlockText,
 					Label: key,
 					Key:   strings.ToLower(strings.ReplaceAll(key, " ", "_")),
-					Value: value,
+					Value: strValue,
 				})
 			}
 		}
@@ -693,37 +714,248 @@ func (a *App) executeAgentToolCall(cardID string, card *model.Card, tc llm.ToolC
 	}
 }
 
+// agentField describes a single agent-tracking field discovered on a
+// card. The guidance string is injected verbatim into the system prompt
+// so the LLM knows what to write for each field.
+type agentField struct {
+	key       string
+	blockType string
+	guidance  string
+}
+
+// agentFieldGuidance maps known agent field keys to instructions for the
+// LLM. Any block on the card whose key matches one of these entries is
+// treated as a required update at the end of every agent run. If a card
+// template defines additional custom fields, they're picked up as
+// "required custom fields" with generic guidance.
+var agentFieldGuidance = map[string]string{
+	"status":      "Set to one of: \"success\", \"failed\", \"idle\". Use \"success\" if the Goal was completed, \"failed\" if something blocked you.",
+	"last_run":    "Write a 1–2 sentence summary of what you actually did this run — tools called, findings, or errors encountered.",
+	"last_run_at": "Set to the CURRENT timestamp as an ISO 8601 string (see System Context below for the exact value).",
+	"findings":    "Append new findings to the existing value. Do not overwrite prior findings — the value should accumulate across runs. If there's nothing new this run, restate the latest.",
+	"description": "Only update if the description is empty or materially out of date; otherwise leave it alone.",
+	"next_check":  "If the Goal involves ongoing monitoring, set this to the ISO 8601 timestamp of when you should next run.",
+	"error":       "Set to a brief error message if the run failed, or clear it (empty string) on success.",
+}
+
+// collectAgentFields walks a card's blocks and returns the agent-tracking
+// fields that actually exist on it, in stable order. This lets the system
+// prompt list mandatory updates scoped to what's present, rather than
+// naming all five standard fields whether or not the card has them.
+//
+// Fields are matched by key (b.Key) against agentFieldGuidance. Any
+// block whose label looks agenty but whose key isn't in the standard
+// set still shows up as a required update with generic guidance —
+// custom card templates that define their own agent fields are
+// respected without needing this function to know about them.
+func collectAgentFields(card *model.Card) []agentField {
+	// Known fields come first, in a deterministic order so the prompt
+	// reads the same way each run (helps with caching and consistency).
+	orderedKnown := []string{"status", "last_run", "last_run_at", "findings", "description", "next_check", "error"}
+	seen := make(map[string]bool)
+	var fields []agentField
+
+	for _, knownKey := range orderedKnown {
+		for _, b := range card.Blocks {
+			if b.Key == knownKey {
+				fields = append(fields, agentField{
+					key:       b.Key,
+					blockType: b.Type,
+					guidance:  agentFieldGuidance[knownKey],
+				})
+				seen[knownKey] = true
+				break
+			}
+		}
+	}
+
+	// Custom agent fields: any other block whose key isn't a known one
+	// but whose block-type or label suggests it's a tracking field
+	// (rating, select, date, etc., with a label like "score", "health",
+	// "run count"). We err on the side of inclusion — the LLM can
+	// decide whether a custom field is genuinely relevant this run.
+	for _, b := range card.Blocks {
+		if b.Key == "" || seen[b.Key] {
+			continue
+		}
+		if !isLikelyAgentField(b) {
+			continue
+		}
+		fields = append(fields, agentField{
+			key:       b.Key,
+			blockType: b.Type,
+			guidance:  "This is a custom tracking field — update it with whatever value this run produces for it. If this run didn't produce a new value, leave it alone.",
+		})
+	}
+
+	return fields
+}
+
+// isLikelyAgentField is a heuristic for custom template-defined agent
+// fields. We match on block types that are typically used for status
+// tracking (number, rating, select, date, progress, checkbox) AND the
+// block has a non-empty key — user-added freeform text blocks don't
+// count because they're the Goal's working surface, not tracking.
+func isLikelyAgentField(b model.Block) bool {
+	switch b.Type {
+	case model.BlockNumber, model.BlockRating, model.BlockSelect,
+		model.BlockDate, model.BlockProgress, model.BlockCheckbox:
+		return b.Key != ""
+	}
+	return false
+}
+
+// formatBlockValueForPrompt renders a block's current value for inclusion
+// in the agent system prompt. Different block types have different value
+// shapes ([]map[string]any for lists/checklists, string for text, etc.)
+// and a raw %v dump produces garbage for the complex ones — so we format
+// each type cleanly so the LLM can see what's already on the card and
+// decide whether to append or replace.
+func formatBlockValueForPrompt(b model.Block) string {
+	if b.Value == nil {
+		return ""
+	}
+	switch b.Type {
+	case model.BlockList:
+		items, ok := b.Value.([]any)
+		if !ok {
+			// Legacy/corrupt value — show whatever we have so the LLM can
+			// see the current state but knows the format is off.
+			return fmt.Sprintf("(unexpected format) %v", b.Value)
+		}
+		if len(items) == 0 {
+			return "(empty list)"
+		}
+		var texts []string
+		for _, it := range items {
+			if m, ok := it.(map[string]any); ok {
+				if t, ok := m["text"].(string); ok {
+					texts = append(texts, t)
+				}
+			}
+		}
+		return "[" + strings.Join(texts, " | ") + "]"
+
+	case model.BlockChecklist:
+		items, ok := b.Value.([]any)
+		if !ok {
+			return fmt.Sprintf("(unexpected format) %v", b.Value)
+		}
+		if len(items) == 0 {
+			return "(empty checklist)"
+		}
+		var parts []string
+		for _, it := range items {
+			if m, ok := it.(map[string]any); ok {
+				text, _ := m["text"].(string)
+				done, _ := m["done"].(bool)
+				mark := "[ ]"
+				if done {
+					mark = "[x]"
+				}
+				parts = append(parts, fmt.Sprintf("%s %s", mark, text))
+			}
+		}
+		return strings.Join(parts, " | ")
+
+	case model.BlockText:
+		s, _ := b.Value.(string)
+		// Truncate long text so the prompt doesn't balloon. The LLM
+		// doesn't need to see 5000 characters of existing description
+		// to decide what to update.
+		if len(s) > 200 {
+			return s[:200] + "…"
+		}
+		return s
+
+	default:
+		// Single-value types: number, bool, string, date, etc.
+		return fmt.Sprintf("%v", b.Value)
+	}
+}
+
 // buildAgentSystemPrompt constructs the system prompt for an agent run.
 func (a *App) buildAgentSystemPrompt(card *model.Card, agentCfg model.AgentConfig, llmCfg config.LLMConfig) string {
 	var sb strings.Builder
 
 	sb.WriteString(fmt.Sprintf(`You are BRUV Agent, an autonomous AI assistant running on a schedule. Today is %s.
 
-You are executing a task defined by the user. Complete the goal using the tools available to you.
-
-RULES:
-- Focus on completing the goal efficiently.
-- Use the notify tool to alert the user about important findings.
-- Use update_self to record your findings on the card for future reference.
-- If a web search or fetch fails, try alternative approaches.
-- Be concise in your responses.
-
 ## Your Goal
+
 %s
+
+## How to Read Your Goal
+
+Your Goal is authoritative. Identify every deliverable it names — things
+to check, save, update, notify, produce — and make sure each one has
+been addressed with the right tool before you finish.
+
+- If the Goal says "notify", "alert", "tell me", "let me know", or
+  anything similar, you MUST call the `+"`notify`"+` tool. Describing the
+  notification in your response is not enough; you have to actually
+  call the tool.
+- If the Goal says to save, record, write, update, or populate a
+  specific block on this card (e.g. "save to the X list", "update Y",
+  "record findings in Z"), you MUST call `+"`update_self`"+` targeting
+  that block by name or key. Check "Current Card State" below to find
+  the exact block and its type; match the value format to the type per
+  the `+"`update_self`"+` tool description.
+- If a Goal references a block that does NOT exist in "Current Card
+  State", skip that deliverable rather than creating a new block under
+  a wrong name — creating unnamed text blocks will not render where
+  the user expected them.
+- Pay attention to quantity and format requirements in the Goal:
+  "one per list item", "as a checklist", "in the findings block".
+  These are instructions, not suggestions.
+
+## You Are Running Autonomously
+
+This is a scheduled, non-interactive run. There is no user available to
+answer questions. Do not ask "would you like me to...", do not wait for
+confirmation, do not end your turn with an open question. If you lack
+information, use your tools to find it; if you cannot find it, record
+what you did discover and finish the run.
+
+## Operational Rules
+
+- Be concise in your text responses — the user reads tool results, not
+  your narration.
+- If a web search or fetch fails, try alternative approaches: different
+  search terms, different sources, fallback aggregators. Do not give
+  up after one failure.
+- Every deliverable the Goal names is either completed (tool called)
+  or explicitly noted as unreachable. Silent omission is a failure.
 `, time.Now().Format("2006-01-02 (Monday)"), agentCfg.Goal))
 
-	// Agent card type guidance
+	// Agent card type guidance — but only list the fields that actually
+	// exist on this card. A previous version of this prompt listed all
+	// standard agent fields unconditionally, which wasted context on
+	// fields the card didn't have AND used soft "if they exist" language
+	// the LLM routinely ignored. Now we scan the card once, collect the
+	// real agent-style fields, and emit a hard MUST-update list scoped
+	// to what's present.
 	if card.Type == "agent" {
-		sb.WriteString(`
-## Agent Card Fields
-This card has standard agent fields. Use update_self to maintain them if they exist:
-- "status": Set to your current state (e.g. "success", "failed", "idle").
-- "last_run": Write a brief summary of what you did this run.
-- "last_run_at": Set to the current ISO 8601 timestamp.
-- "findings": Append or update with accumulated results across runs.
-- "description": Update if the card has one, to reflect what this agent does.
-You may also create new fields with update_self if you have useful data to store.
+		agentFields := collectAgentFields(card)
+		if len(agentFields) > 0 {
+			sb.WriteString(`
+## MANDATORY: Update These Card Fields Before Finishing
+
+This card has agent-tracking fields that MUST be updated at the end of
+every run — this is not optional housekeeping, it is part of the card's
+contract. Before you finish, you MUST call update_self to set each of
+the following. A run that completes without updating these fields is a
+failed run.
+
 `)
+			for _, f := range agentFields {
+				sb.WriteString(fmt.Sprintf("- **`%s`** (type: `%s`) — %s\n", f.key, f.blockType, f.guidance))
+			}
+			sb.WriteString(`
+You may batch all of these into a single update_self call with multiple
+updates in the "updates" array. Do this as the final step of your run,
+after completing the Goal's other deliverables.
+`)
+		}
 	}
 
 	// Card context
@@ -736,7 +968,12 @@ You may also create new fields with update_self if you have useful data to store
 		sb.WriteString(fmt.Sprintf("Tags: %s\n", strings.Join(card.Tags, ", ")))
 	}
 	if len(card.Blocks) > 0 {
+		// Render each block with its type and key so the LLM knows how
+		// to target it via update_self. Previously we only showed label
+		// and value, which left the LLM guessing at block types — a
+		// major reason agents wrote strings into list blocks.
 		sb.WriteString("\n### Card Content\n")
+		sb.WriteString("(Use the `key` column as the `key` argument to update_self. Match value format to `type`.)\n\n")
 		for _, b := range card.Blocks {
 			label := b.Label
 			if label == "" {
@@ -745,7 +982,15 @@ You may also create new fields with update_self if you have useful data to store
 			if label == "" {
 				label = b.Type
 			}
-			sb.WriteString(fmt.Sprintf("- %s: %v\n", label, b.Value))
+			key := b.Key
+			if key == "" {
+				key = "(none — match by label)"
+			}
+			sb.WriteString(fmt.Sprintf("- **%s** (type: `%s`, key: `%s`)\n", label, b.Type, key))
+			valueStr := formatBlockValueForPrompt(b)
+			if valueStr != "" {
+				sb.WriteString(fmt.Sprintf("    current value: %s\n", valueStr))
+			}
 		}
 	}
 

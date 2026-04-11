@@ -4048,13 +4048,21 @@ func (a *App) listCardTypeIDs() []string {
 	return nil
 }
 
-// coerceBlockValue converts an LLM-provided value into the format expected by
-// the given block type. LLMs may ignore the schema and send strings for
-// booleans/numbers, or flat text for checklists, so we handle all of that here.
+// coerceBlockValue converts an LLM-provided value into the format expected
+// by the given block type. LLMs may ignore the schema and send strings for
+// booleans/numbers, or flat text for checklists/lists, so we handle all of
+// that here. The goal is to keep the block renderable no matter what shape
+// the model sent, because LLMs are inconsistent and a corrupted block is a
+// silent failure the user only notices when they look at the card.
+//
+// This variant knows only the block type. For constraint checks that need
+// block.Meta (select options, rating max, etc.), use coerceBlockValueForBlock.
 func coerceBlockValue(blockType string, val any) any {
 	switch blockType {
 	case model.BlockChecklist:
 		return coerceChecklist(val)
+	case model.BlockList:
+		return coerceList(val)
 	case model.BlockCheckbox:
 		return coerceCheckbox(val)
 	case model.BlockNumber:
@@ -4065,23 +4073,247 @@ func coerceBlockValue(blockType string, val any) any {
 	}
 }
 
-// coerceChecklist converts []any of strings or a single string into [{id, text, done}].
+// coerceBlockValueForBlock is the meta-aware variant: given a full block,
+// apply the same type coercion AND additional constraints that need the
+// block's Meta (select/radio allowed options, rating max). Used when the
+// caller has the whole block in hand, such as update_self targeting an
+// existing block on the card.
+//
+// Returns the coerced value and optionally an error describing a
+// constraint violation. On a constraint violation we return the coerced
+// value anyway (best effort — a bad select value is rendered as plain
+// text, not corruption) so callers can still write it if they choose.
+func coerceBlockValueForBlock(b *model.Block, val any) (any, error) {
+	coerced := coerceBlockValue(b.Type, val)
+
+	switch b.Type {
+	case model.BlockDate:
+		// Normalise whatever date/timestamp the LLM sent into a shape
+		// the frontend input can render. LLMs produce all sorts of
+		// inputs — "2026-04-12", "2026-04-12T01:45:09+07:00", "April 12
+		// 2026", "now" — and passing any of those through verbatim to
+		// an <input type="date"> leaves the field empty.
+		s, ok := coerced.(string)
+		if !ok || s == "" {
+			return coerced, nil
+		}
+		format := ""
+		if b.Meta != nil {
+			format, _ = b.Meta["format"].(string)
+		}
+		normalised, err := normaliseDateValue(s, format)
+		if err != nil {
+			return coerced, fmt.Errorf("date block: could not parse %q: %v", s, err)
+		}
+		return normalised, nil
+
+	case model.BlockSelect, model.BlockRadio:
+		// If the block has an options list, the value must be one of
+		// them. LLMs frequently invent options that aren't configured.
+		s, ok := coerced.(string)
+		if !ok {
+			return coerced, nil
+		}
+		opts := extractBlockOptions(b.Meta)
+		if len(opts) == 0 {
+			return coerced, nil // no constraint configured
+		}
+		for _, o := range opts {
+			if o == s {
+				return coerced, nil
+			}
+		}
+		return coerced, fmt.Errorf("value %q is not in the allowed options %v", s, opts)
+
+	case model.BlockRating:
+		// Clamp to [0, max] where max defaults to 5. Also coerces
+		// string → float64 via the existing number path.
+		n, ok := coerced.(float64)
+		if !ok {
+			// coerceBlockValue only converts BlockNumber; rating goes
+			// through the passthrough branch. Try harder here.
+			if parsed := coerceNumber(val); parsed != 0 || val == float64(0) || val == "0" {
+				n = parsed
+				ok = true
+			}
+		}
+		if !ok {
+			return coerced, nil
+		}
+		maxRating := 5.0
+		if b.Meta != nil {
+			if m, ok := b.Meta["max"].(float64); ok && m > 0 {
+				maxRating = m
+			} else if m, ok := b.Meta["max"].(int); ok && m > 0 {
+				maxRating = float64(m)
+			}
+		}
+		if n < 0 {
+			n = 0
+		}
+		if n > maxRating {
+			n = maxRating
+		}
+		return n, nil
+
+	case model.BlockProgress:
+		// Progress is conceptually 0–100. Same clamping treatment.
+		n, ok := coerced.(float64)
+		if !ok {
+			if parsed := coerceNumber(val); parsed != 0 || val == float64(0) || val == "0" {
+				n = parsed
+				ok = true
+			}
+		}
+		if !ok {
+			return coerced, nil
+		}
+		if n < 0 {
+			n = 0
+		}
+		if n > 100 {
+			n = 100
+		}
+		return n, nil
+	}
+
+	return coerced, nil
+}
+
+// normaliseDateValue takes an LLM-supplied date/timestamp string and
+// returns it in a form the frontend DateBlock can parse:
+//
+//   - format == "date-time": full ISO 8601 with timezone (RFC 3339)
+//   - format == "" or "date": YYYY-MM-DD only
+//
+// Accepts a wide range of inputs — full RFC 3339, just a date,
+// Go's RFC3339Nano, or a Unix-ish "2006-01-02 15:04:05" — and fails
+// loudly for anything it can't parse so the caller can surface a
+// useful error to the LLM.
+func normaliseDateValue(raw, format string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+
+	// Try the common formats in order of specificity. time.Parse returns
+	// on the first match.
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04",
+		"2006-01-02",
+	}
+	var parsed time.Time
+	var parseErr error
+	for _, layout := range layouts {
+		parsed, parseErr = time.Parse(layout, raw)
+		if parseErr == nil {
+			break
+		}
+	}
+	if parseErr != nil {
+		return "", parseErr
+	}
+
+	if format == "date-time" {
+		return parsed.Format(time.RFC3339), nil
+	}
+	return parsed.Format("2006-01-02"), nil
+}
+
+// extractBlockOptions pulls the string options list out of a block's
+// Meta map. Options are stored as []any of strings; this flattens that
+// into a plain []string for easy comparison.
+func extractBlockOptions(meta map[string]any) []string {
+	if meta == nil {
+		return nil
+	}
+	raw, ok := meta["options"].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, o := range raw {
+		if s, ok := o.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// coerceChecklist converts []any of strings, []any of {text, done} maps,
+// or a single newline-separated string into [{id, text, done}].
 func coerceChecklist(val any) []map[string]any {
-	var texts []string
+	type entry struct {
+		text string
+		done bool
+	}
+	var entries []entry
 	switch v := val.(type) {
 	case []any:
 		for _, item := range v {
-			if s, ok := item.(string); ok && s != "" {
-				texts = append(texts, s)
+			switch it := item.(type) {
+			case string:
+				if it != "" {
+					entries = append(entries, entry{text: it})
+				}
+			case map[string]any:
+				text, _ := it["text"].(string)
+				if text == "" {
+					continue
+				}
+				done, _ := it["done"].(bool)
+				entries = append(entries, entry{text: text, done: done})
 			}
 		}
 	case string:
 		for _, line := range strings.Split(v, "\n") {
-			line = strings.TrimSpace(line)
-			// Strip leading numbering like "1. " or "- "
-			line = strings.TrimLeft(line, "0123456789.")
-			line = strings.TrimPrefix(line, "-")
-			line = strings.TrimSpace(line)
+			line = stripListPrefix(line)
+			if line != "" {
+				entries = append(entries, entry{text: line})
+			}
+		}
+	}
+	items := make([]map[string]any, len(entries))
+	for i, e := range entries {
+		items[i] = map[string]any{
+			"id":   fmt.Sprintf("cli-%s", uuid.New().String()[:8]),
+			"text": e.text,
+			"done": e.done,
+		}
+	}
+	return items
+}
+
+// coerceList converts []any of strings, []any of {id?, text} maps, or a
+// single newline-separated string into [{id, text}]. This is the fix for
+// the bug where agent `update_self` was writing plain strings directly to
+// list blocks, which the frontend renderer couldn't parse.
+func coerceList(val any) []map[string]any {
+	var texts []string
+	switch v := val.(type) {
+	case []any:
+		for _, item := range v {
+			switch it := item.(type) {
+			case string:
+				if it != "" {
+					texts = append(texts, it)
+				}
+			case map[string]any:
+				if text, ok := it["text"].(string); ok && text != "" {
+					texts = append(texts, text)
+				}
+			}
+		}
+	case string:
+		// Fallback for LLMs that send a formatted string instead of an
+		// array. Newline-split and strip markdown bullets so the result
+		// is a clean list.
+		for _, line := range strings.Split(v, "\n") {
+			line = stripListPrefix(line)
 			if line != "" {
 				texts = append(texts, line)
 			}
@@ -4090,12 +4322,35 @@ func coerceChecklist(val any) []map[string]any {
 	items := make([]map[string]any, len(texts))
 	for i, t := range texts {
 		items[i] = map[string]any{
-			"id":   fmt.Sprintf("cli-%s", uuid.New().String()[:8]),
+			"id":   fmt.Sprintf("li-%s", uuid.New().String()[:8]),
 			"text": t,
-			"done": false,
 		}
 	}
 	return items
+}
+
+// stripListPrefix normalises a single line by trimming whitespace and
+// removing leading markdown list markers like "- ", "* ", "• ", or
+// "1. " / "2) ". Shared by coerceList and coerceChecklist.
+func stripListPrefix(line string) string {
+	line = strings.TrimSpace(line)
+	// Numbered prefix: "1. " or "12) "
+	if len(line) > 0 && line[0] >= '0' && line[0] <= '9' {
+		for i := 0; i < len(line); i++ {
+			c := line[i]
+			if c >= '0' && c <= '9' {
+				continue
+			}
+			if (c == '.' || c == ')') && i+1 < len(line) && line[i+1] == ' ' {
+				line = strings.TrimSpace(line[i+2:])
+			}
+			break
+		}
+	}
+	line = strings.TrimPrefix(line, "- ")
+	line = strings.TrimPrefix(line, "* ")
+	line = strings.TrimPrefix(line, "• ")
+	return strings.TrimSpace(line)
 }
 
 // coerceCheckbox converts string representations ("true", "yes", "1") to bool.

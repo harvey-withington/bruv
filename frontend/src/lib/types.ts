@@ -40,6 +40,10 @@ export type BlockMeta = {
   suffix?: string
   multi?: boolean
   orientation?: 'vertical' | 'horizontal'
+  // Date block: "date" (default, YYYY-MM-DD) or "date-time" (full ISO 8601 with time)
+  format?: string
+  // Short description shown as a helper label for template-declared fields
+  description?: string
   // Alarm-specific
   alarm_time?: string      // ISO 8601 datetime for the alarm
   alarm_channels?: string  // notification channels: "in-app,system"

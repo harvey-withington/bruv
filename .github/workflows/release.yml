@@ -23,6 +23,14 @@ on:
         description: Version tag to build (e.g. v1.0b)
         required: true
 
+# GitHub's default GITHUB_TOKEN has read-only `contents` permission since
+# 2022, which means softprops/action-gh-release (and any other release
+# publisher) will 403 when it tries to create the draft release. Granting
+# `contents: write` at the workflow level is the minimum needed to publish
+# releases and upload assets via the built-in token.
+permissions:
+  contents: write
+
 jobs:
   build-windows:
     name: Build Windows release

@@ -128,8 +128,10 @@ func (r *Repository) DeleteCard(id string) error {
 		}
 	}
 
-	// Remove chat file if it exists
-	_ = os.Remove(r.chatFilePath(id))
+	// Chat history is no longer stored in the repo — it lives in the
+	// OS config folder keyed by repo ID so it stays personal when the
+	// repo is shared. The app layer is responsible for calling
+	// config.DeleteChatFor(repoID, id) alongside card deletion.
 
 	// Remove comments file if it exists
 	_ = os.Remove(r.commentsFilePath(id))

@@ -49,6 +49,8 @@ cd frontend && npx svelte-check
 
 Both must be green before a change lands. The Go test suite covers the repository layer, LLM tool plumbing, agent scheduler, importer, and indexer. `svelte-check` catches type errors and a11y regressions in the Svelte components.
 
+> **Note:** `main.go` embeds `frontend/dist` via `//go:embed`, so `go build ./...` on a fresh checkout will fail with `pattern all:frontend/dist: no matching files found` until you've produced the Svelte bundle. Either run `wails dev` / `wails build` once (which builds the frontend as a side effect) or `cd frontend && npm install && npm run build` directly. Once `frontend/dist` exists, plain `go build` and `go test` work normally.
+
 ## Project coding standards
 
 See [CLAUDE.md](CLAUDE.md) for the full list — those standards were written for AI collaboration but apply to every contributor. The short version:
@@ -71,18 +73,19 @@ bruv-1.0/
 ├── main.go              # Wails app entry point
 ├── app.go               # App struct — Go methods exposed to frontend
 ├── app_agent.go         # Agent-related methods on the App struct
-├── tray.go              # System tray menu wiring
+├── tray_windows.go      # System tray (Windows); tray_other.go stubs Mac/Linux
 ├── wails.json           # Wails project config
 ├── internal/
 │   ├── agent/           # Agent runtime, scheduler, due-date scanner, web tools
-│   ├── config/          # Config-dir IO: profile, LLM accounts, notify config, preferences
+│   ├── config/          # User config + personal state (LLM accounts, chats, prefs)
 │   ├── importer/        # Trello JSON importer
 │   ├── index/           # SQLite full-text search index
 │   ├── llm/             # Provider adapters (Anthropic, OpenAI, Ollama), tool definitions
 │   ├── model/           # Shared data model (Brand, Stream, Project, Card, Block, ...)
 │   ├── notify/          # Notification dispatcher (in-app, system, email, webhook)
-│   ├── repo/            # Repository layer — atomic JSON file IO
-│   └── schema/          # Card type JSON schema system
+│   ├── repo/            # Repository layer — atomic JSON file IO, portable repo format
+│   ├── schema/          # Card type JSON schema system
+│   └── update/          # GitHub Releases update checker
 ├── frontend/
 │   └── src/
 │       ├── components/  # Svelte 5 components
@@ -90,6 +93,55 @@ bruv-1.0/
 │       └── assets/      # Icons, fonts, images
 └── build/               # Build assets (icons, Wails platform configs, NSIS installer)
 ```
+
+### Repo format contract
+
+BRUV repos are designed to be self-contained and portable. The format is stable from v1.0b onward — any future additions must preserve this invariant: **the repo folder contains everything needed to render the project, and nothing personal to the user who created it**.
+
+```
+<repo>/
+├── .bruv/
+│   ├── manifest.json        # repo metadata incl. stable UUID `id`
+│   └── card_types.json      # user-defined types, templates, builtin overrides
+├── brands/                  # hierarchy root
+│   └── <brand-slug>/
+│       ├── brand.json
+│       └── streams/
+│           └── <stream-slug>/
+│               ├── stream.json
+│               └── projects/
+│                   └── <project-slug>/
+│                       ├── project.json
+│                       └── categories/
+│                           └── <cat-slug>.json
+├── cards/
+│   ├── <card-id>.json           # card content + blocks
+│   ├── <card-id>.agent.json     # agent config + run history (optional)
+│   └── <card-id>.comments.json  # comments (optional)
+├── pins/
+│   └── <card-id>/pins.json      # cross-project pinning
+└── types/                        # optional community schema drops
+```
+
+**Personal state lives in the OS config folder**, keyed by `<repo>/.bruv/manifest.json` → `id`:
+
+```
+<configDir>/
+├── chats/<repoID>/<chatID>.messages.json
+├── llm_accounts.json        # metadata only; API keys in OS keychain
+├── notifications.json
+├── preferences.json
+└── profile.json
+```
+
+**The contract:**
+
+1. **Never write personal state into the repo folder.** If a new feature needs per-user, per-machine state, it goes in the config folder keyed by `repoID`. This is what makes sharing work.
+2. **Never assume the config folder follows the repo.** Shared repos land on a machine with empty chat history, zero notifications, and whatever LLM accounts the new user has configured.
+3. **Repo IDs are stable across machines.** Alice's repo zipped to Bob has the same `manifest.json` → `id` on both sides. The ID is a keying convenience, not a secret.
+4. **Migrations run on `OpenRepository()`, not on startup.** See [internal/repo/migrate.go](internal/repo/migrate.go) — older repo layouts are upgraded in place the first time they're opened.
+
+When adding a new persistence surface, ask: *"If Alice shares this repo with Bob, should Bob see this?"* If yes, it goes in the repo. If no, it goes in the config folder keyed by repoID.
 
 ### Backend adapter architecture
 

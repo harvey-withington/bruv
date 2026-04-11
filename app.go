@@ -12,6 +12,7 @@ import (
 	"bruv/internal/schema"
 	"bruv/internal/update"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/url"
@@ -354,6 +355,29 @@ func (a *App) OpenRepository(path string) error {
 	if a.registry != nil {
 		_ = a.registry.LoadExternalTypes(path + "/types")
 	}
+
+	// Pre-v1.0b portability migration: seed the repo-scoped card types
+	// store from the user's old global location (if any), and move any
+	// in-repo chat files out to the config folder so they stop following
+	// the repo around when it's shared. Idempotent — a no-op on repos
+	// that have already been migrated or are already in the new layout.
+	migrateStats := r.MigrateOnOpen(
+		func() ([]byte, error) {
+			// Read the old global card_types.json directly. We don't
+			// go through config.LoadUserTypeStore because that would
+			// return a decoded struct and we want to hand the raw JSON
+			// to the migration so it can be dropped in verbatim.
+			dir, dErr := config.ConfigDir()
+			if dErr != nil {
+				return nil, dErr
+			}
+			return os.ReadFile(filepath.Join(dir, "card_types.json"))
+		},
+		func(repoID, chatID string, cf *model.ChatFile) error {
+			return config.SaveChatFor(repoID, cf)
+		},
+	)
+	log.Printf("repo migrate: %s", migrateStats)
 
 	// Revalidate repo data (remove stale pins, orphaned files, etc.)
 	if repairStats, err := r.Revalidate(); err != nil {
@@ -952,6 +976,9 @@ func (a *App) DeleteCard(id string) error {
 	if err := a.repo.DeleteCard(id); err != nil {
 		return err
 	}
+	// Chat history lives in the config folder now — the repo layer
+	// doesn't know about it, so we clean it up here alongside the card.
+	_ = config.DeleteChatFor(a.repo.Manifest.ID, id)
 	if a.idx != nil {
 		_ = a.idx.RemoveCard(id)
 	}
@@ -1955,12 +1982,12 @@ func (a *App) ensureMissingBuiltinTemplates(store *config.UserTypeStore) bool {
 
 // ListCardTypes returns all card types (built-in first, then user-defined).
 func (a *App) ListCardTypes() []CardTypeInfo {
-	store, _ := config.LoadUserTypeStore()
+	store, _ := a.repo.LoadUserTypeStore()
 	dirty := a.ensureSeeded(&store)
 	dirty = a.ensureStarterTemplates(&store) || dirty
 	dirty = a.ensureMissingBuiltinTemplates(&store) || dirty
 	if dirty {
-		_ = config.SaveUserTypeStore(store)
+		_ = a.repo.SaveUserTypeStore(store)
 	}
 
 	result := make([]CardTypeInfo, 0, len(builtinTypes)+len(store.Types))
@@ -2020,7 +2047,7 @@ func (a *App) applyTypeBlocks(cardID, cardType string) {
 
 // resolveTemplateBlocks returns the template/schema blocks for a card type.
 func (a *App) resolveTemplateBlocks(cardType string) []model.Block {
-	store, _ := config.LoadUserTypeStore()
+	store, _ := a.repo.LoadUserTypeStore()
 
 	// Priority 1: user-defined type template
 	for _, ut := range store.Types {
@@ -2160,7 +2187,7 @@ func (a *App) CreateUserCardType(label, color, description, aiHint, templateID s
 	if label == "" {
 		return config.UserCardType{}, fmt.Errorf("label is required")
 	}
-	store, err := config.LoadUserTypeStore()
+	store, err := a.repo.LoadUserTypeStore()
 	if err != nil {
 		return config.UserCardType{}, err
 	}
@@ -2178,12 +2205,12 @@ func (a *App) CreateUserCardType(label, color, description, aiHint, templateID s
 		Description: description, AIHint: aiHint, TemplateID: templateID,
 	}
 	store.Types = append(store.Types, t)
-	return t, config.SaveUserTypeStore(store)
+	return t, a.repo.SaveUserTypeStore(store)
 }
 
 // UpdateUserCardType updates an existing user-defined card type by ID.
 func (a *App) UpdateUserCardType(id, label, color, description, aiHint, templateID string) (config.UserCardType, error) {
-	store, err := config.LoadUserTypeStore()
+	store, err := a.repo.LoadUserTypeStore()
 	if err != nil {
 		return config.UserCardType{}, err
 	}
@@ -2194,7 +2221,7 @@ func (a *App) UpdateUserCardType(id, label, color, description, aiHint, template
 			store.Types[i].Description = description
 			store.Types[i].AIHint = aiHint
 			store.Types[i].TemplateID = templateID
-			return store.Types[i], config.SaveUserTypeStore(store)
+			return store.Types[i], a.repo.SaveUserTypeStore(store)
 		}
 	}
 	return config.UserCardType{}, fmt.Errorf("card type %q not found", id)
@@ -2202,14 +2229,14 @@ func (a *App) UpdateUserCardType(id, label, color, description, aiHint, template
 
 // UpdateUserCardTypeIcon sets or clears the icon on a user-defined card type.
 func (a *App) UpdateUserCardTypeIcon(id, icon string) (config.UserCardType, error) {
-	store, err := config.LoadUserTypeStore()
+	store, err := a.repo.LoadUserTypeStore()
 	if err != nil {
 		return config.UserCardType{}, err
 	}
 	for i, t := range store.Types {
 		if t.ID == id {
 			store.Types[i].Icon = icon
-			return store.Types[i], config.SaveUserTypeStore(store)
+			return store.Types[i], a.repo.SaveUserTypeStore(store)
 		}
 	}
 	return config.UserCardType{}, fmt.Errorf("card type %q not found", id)
@@ -2217,14 +2244,14 @@ func (a *App) UpdateUserCardTypeIcon(id, icon string) (config.UserCardType, erro
 
 // DeleteUserCardType removes a user-defined card type by ID.
 func (a *App) DeleteUserCardType(id string) error {
-	store, err := config.LoadUserTypeStore()
+	store, err := a.repo.LoadUserTypeStore()
 	if err != nil {
 		return err
 	}
 	for i, t := range store.Types {
 		if t.ID == id {
 			store.Types = append(store.Types[:i], store.Types[i+1:]...)
-			return config.SaveUserTypeStore(store)
+			return a.repo.SaveUserTypeStore(store)
 		}
 	}
 	return fmt.Errorf("card type %q not found", id)
@@ -2242,7 +2269,7 @@ func (a *App) UpdateBuiltinCardType(id, color, templateID string) error {
 	if !isBuiltin {
 		return fmt.Errorf("card type %q is not a built-in type", id)
 	}
-	store, err := config.LoadUserTypeStore()
+	store, err := a.repo.LoadUserTypeStore()
 	if err != nil {
 		return err
 	}
@@ -2253,12 +2280,12 @@ func (a *App) UpdateBuiltinCardType(id, color, templateID string) error {
 		Color:      color,
 		TemplateID: templateID,
 	}
-	return config.SaveUserTypeStore(store)
+	return a.repo.SaveUserTypeStore(store)
 }
 
 // ListCardTemplates returns all user-defined card templates.
 func (a *App) ListCardTemplates() ([]config.CardTemplate, error) {
-	store, err := config.LoadUserTypeStore()
+	store, err := a.repo.LoadUserTypeStore()
 	if err != nil {
 		return nil, err
 	}
@@ -2273,7 +2300,7 @@ func (a *App) CreateCardTemplate(name string, blocks []model.Block) (config.Card
 	if name == "" {
 		return config.CardTemplate{}, fmt.Errorf("name is required")
 	}
-	store, err := config.LoadUserTypeStore()
+	store, err := a.repo.LoadUserTypeStore()
 	if err != nil {
 		return config.CardTemplate{}, err
 	}
@@ -2283,12 +2310,12 @@ func (a *App) CreateCardTemplate(name string, blocks []model.Block) (config.Card
 		Blocks: blocks,
 	}
 	store.Templates = append(store.Templates, tmpl)
-	return tmpl, config.SaveUserTypeStore(store)
+	return tmpl, a.repo.SaveUserTypeStore(store)
 }
 
 // UpdateCardTemplate updates an existing card template by ID.
 func (a *App) UpdateCardTemplate(id, name string, blocks []model.Block) (config.CardTemplate, error) {
-	store, err := config.LoadUserTypeStore()
+	store, err := a.repo.LoadUserTypeStore()
 	if err != nil {
 		return config.CardTemplate{}, err
 	}
@@ -2296,7 +2323,7 @@ func (a *App) UpdateCardTemplate(id, name string, blocks []model.Block) (config.
 		if tmpl.ID == id {
 			store.Templates[i].Name = name
 			store.Templates[i].Blocks = blocks
-			return store.Templates[i], config.SaveUserTypeStore(store)
+			return store.Templates[i], a.repo.SaveUserTypeStore(store)
 		}
 	}
 	return config.CardTemplate{}, fmt.Errorf("template %q not found", id)
@@ -2304,17 +2331,218 @@ func (a *App) UpdateCardTemplate(id, name string, blocks []model.Block) (config.
 
 // DeleteCardTemplate removes a card template by ID.
 func (a *App) DeleteCardTemplate(id string) error {
-	store, err := config.LoadUserTypeStore()
+	store, err := a.repo.LoadUserTypeStore()
 	if err != nil {
 		return err
 	}
 	for i, tmpl := range store.Templates {
 		if tmpl.ID == id {
 			store.Templates = append(store.Templates[:i], store.Templates[i+1:]...)
-			return config.SaveUserTypeStore(store)
+			return a.repo.SaveUserTypeStore(store)
 		}
 	}
 	return fmt.Errorf("template %q not found", id)
+}
+
+// --- Card type export / import ---
+//
+// The portable export format is a JSON file that mirrors UserTypeStore but
+// also carries a format marker so we can evolve the schema safely. Import
+// supports three merge modes so users can choose between a full replace
+// (dangerous, confirm in UI), merging only non-colliding types, or merging
+// and overwriting on ID collisions.
+
+// CardTypesExport is the on-wire shape for exported card types. It's the
+// same data as UserTypeStore minus the per-repo seeding flags, plus a
+// format version for forward compatibility.
+type CardTypesExport struct {
+	Format           string                            `json:"format"`
+	Version          int                               `json:"version"`
+	Types            []config.UserCardType             `json:"types"`
+	Templates        []config.CardTemplate             `json:"templates"`
+	BuiltinOverrides map[string]config.BuiltinOverride `json:"builtin_overrides,omitempty"`
+}
+
+// CardTypesImportResult reports what an import actually did so the UI can
+// show an accurate summary toast.
+type CardTypesImportResult struct {
+	TypesAdded         int `json:"types_added"`
+	TypesOverwritten   int `json:"types_overwritten"`
+	TypesSkipped       int `json:"types_skipped"`
+	TemplatesAdded     int `json:"templates_added"`
+	TemplatesOverwritten int `json:"templates_overwritten"`
+	TemplatesSkipped   int `json:"templates_skipped"`
+}
+
+// ExportCardTypesToFile writes the current repo's card types + templates +
+// built-in overrides to a portable JSON file the user can share.
+func (a *App) ExportCardTypesToFile(filePath string) error {
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
+	store, err := a.repo.LoadUserTypeStore()
+	if err != nil {
+		return fmt.Errorf("load card types: %w", err)
+	}
+	exp := CardTypesExport{
+		Format:           "bruv-card-types",
+		Version:          1,
+		Types:            store.Types,
+		Templates:        store.Templates,
+		BuiltinOverrides: store.BuiltinOverrides,
+	}
+	data, err := json.MarshalIndent(exp, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal export: %w", err)
+	}
+	return os.WriteFile(filePath, data, 0o644)
+}
+
+// ImportCardTypesFromFile reads a portable export JSON and merges it into
+// the current repo's card types store. mode is one of:
+//   - "replace"         — overwrite the current store entirely
+//   - "merge"           — add non-colliding entries, skip collisions
+//   - "merge_overwrite" — add everything, overwrite on ID collisions
+func (a *App) ImportCardTypesFromFile(filePath, mode string) (CardTypesImportResult, error) {
+	var result CardTypesImportResult
+	if a.repo == nil {
+		return result, fmt.Errorf("no repository open")
+	}
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return result, fmt.Errorf("read import file: %w", err)
+	}
+	var exp CardTypesExport
+	if err := json.Unmarshal(data, &exp); err != nil {
+		return result, fmt.Errorf("parse import file: %w", err)
+	}
+	if exp.Format != "bruv-card-types" {
+		return result, fmt.Errorf("not a BRUV card types export (format=%q)", exp.Format)
+	}
+	return a.applyCardTypesImport(exp, mode)
+}
+
+// ImportCardTypesFromRepo reads another BRUV repo's .bruv/card_types.json
+// directly — no portable export file needed. The caller passes the path
+// to the other repo's root folder. This is the "steal types from my
+// other repo" workflow: no export step, no intermediate file.
+func (a *App) ImportCardTypesFromRepo(otherRepoPath, mode string) (CardTypesImportResult, error) {
+	var result CardTypesImportResult
+	if a.repo == nil {
+		return result, fmt.Errorf("no repository open")
+	}
+	src := filepath.Join(otherRepoPath, ".bruv", "card_types.json")
+	data, err := os.ReadFile(src)
+	if err != nil {
+		// Not a valid repo, or a legacy repo that predates the move —
+		// surface a clear error so the UI can say so.
+		if os.IsNotExist(err) {
+			return result, fmt.Errorf("no card types found in %q (not a BRUV repo, or a legacy repo without repo-scoped types)", otherRepoPath)
+		}
+		return result, fmt.Errorf("read source repo types: %w", err)
+	}
+	var store config.UserTypeStore
+	if err := json.Unmarshal(data, &store); err != nil {
+		return result, fmt.Errorf("parse source repo types: %w", err)
+	}
+	exp := CardTypesExport{
+		Format:           "bruv-card-types",
+		Version:          1,
+		Types:            store.Types,
+		Templates:        store.Templates,
+		BuiltinOverrides: store.BuiltinOverrides,
+	}
+	return a.applyCardTypesImport(exp, mode)
+}
+
+// applyCardTypesImport is shared between the file and repo import paths.
+// It loads the current store, merges per the requested mode, saves, and
+// returns a count of what happened.
+func (a *App) applyCardTypesImport(exp CardTypesExport, mode string) (CardTypesImportResult, error) {
+	var result CardTypesImportResult
+
+	current, err := a.repo.LoadUserTypeStore()
+	if err != nil {
+		return result, fmt.Errorf("load current card types: %w", err)
+	}
+
+	switch mode {
+	case "replace":
+		// Count everything being added as new, since the previous state
+		// is being discarded entirely.
+		result.TypesAdded = len(exp.Types)
+		result.TemplatesAdded = len(exp.Templates)
+		current.Types = append([]config.UserCardType(nil), exp.Types...)
+		current.Templates = append([]config.CardTemplate(nil), exp.Templates...)
+		if exp.BuiltinOverrides != nil {
+			copied := make(map[string]config.BuiltinOverride, len(exp.BuiltinOverrides))
+			for k, v := range exp.BuiltinOverrides {
+				copied[k] = v
+			}
+			current.BuiltinOverrides = copied
+		}
+
+	case "merge", "merge_overwrite":
+		overwrite := mode == "merge_overwrite"
+
+		typeIdx := make(map[string]int, len(current.Types))
+		for i, t := range current.Types {
+			typeIdx[t.ID] = i
+		}
+		for _, t := range exp.Types {
+			if existing, ok := typeIdx[t.ID]; ok {
+				if overwrite {
+					current.Types[existing] = t
+					result.TypesOverwritten++
+				} else {
+					result.TypesSkipped++
+				}
+				continue
+			}
+			current.Types = append(current.Types, t)
+			result.TypesAdded++
+		}
+
+		tmplIdx := make(map[string]int, len(current.Templates))
+		for i, tmpl := range current.Templates {
+			tmplIdx[tmpl.ID] = i
+		}
+		for _, tmpl := range exp.Templates {
+			if existing, ok := tmplIdx[tmpl.ID]; ok {
+				if overwrite {
+					current.Templates[existing] = tmpl
+					result.TemplatesOverwritten++
+				} else {
+					result.TemplatesSkipped++
+				}
+				continue
+			}
+			current.Templates = append(current.Templates, tmpl)
+			result.TemplatesAdded++
+		}
+
+		// Built-in overrides merge additively — overwrite-mode replaces
+		// existing per-ID overrides, merge-mode leaves them alone.
+		if exp.BuiltinOverrides != nil {
+			if current.BuiltinOverrides == nil {
+				current.BuiltinOverrides = make(map[string]config.BuiltinOverride)
+			}
+			for k, v := range exp.BuiltinOverrides {
+				if _, exists := current.BuiltinOverrides[k]; exists && !overwrite {
+					continue
+				}
+				current.BuiltinOverrides[k] = v
+			}
+		}
+
+	default:
+		return result, fmt.Errorf("unknown import mode %q (expected replace, merge, or merge_overwrite)", mode)
+	}
+
+	if err := a.repo.SaveUserTypeStore(current); err != nil {
+		return result, fmt.Errorf("save merged card types: %w", err)
+	}
+	return result, nil
 }
 
 func isTypeIDTaken(store config.UserTypeStore, id string) bool {
@@ -2772,7 +3000,7 @@ func (a *App) LoadChatHistory(cardID string) (*model.ChatFile, error) {
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
-	return a.repo.LoadChat(cardID)
+	return config.LoadChatFor(a.repo.Manifest.ID,cardID)
 }
 
 // projectChatID returns the virtual chat ID used to store project-level chat messages.
@@ -2789,7 +3017,7 @@ func (a *App) LoadProjectChatHistory(brandSlug, streamSlug, projectSlug string) 
 	if err != nil {
 		return nil, err
 	}
-	return a.repo.LoadChat(projectChatID(project.ID))
+	return config.LoadChatFor(a.repo.Manifest.ID,projectChatID(project.ID))
 }
 
 // ClearProjectChatHistory deletes all messages in a project's AI chat.
@@ -2802,7 +3030,7 @@ func (a *App) ClearProjectChatHistory(brandSlug, streamSlug, projectSlug string)
 		return err
 	}
 	chatID := projectChatID(project.ID)
-	return a.repo.SaveChat(&model.ChatFile{CardID: chatID, Messages: []model.ChatMessage{}})
+	return config.SaveChatFor(a.repo.Manifest.ID,&model.ChatFile{CardID: chatID, Messages: []model.ChatMessage{}})
 }
 
 // ClearCardChatHistory deletes all messages in a card's AI chat.
@@ -2810,7 +3038,7 @@ func (a *App) ClearCardChatHistory(cardID string) error {
 	if a.repo == nil {
 		return fmt.Errorf("no repository open")
 	}
-	return a.repo.SaveChat(&model.ChatFile{CardID: cardID, Messages: []model.ChatMessage{}})
+	return config.SaveChatFor(a.repo.Manifest.ID,&model.ChatFile{CardID: cardID, Messages: []model.ChatMessage{}})
 }
 
 // SendProjectChatMessage sends a message in the project-level AI chat.
@@ -2885,7 +3113,7 @@ func (a *App) runChatLoop(ctx context.Context, provider llm.Provider, modelName 
 				Content:   "Error: " + err.Error(),
 				Timestamp: time.Now().UTC(),
 			}
-			cf, _ = a.repo.AppendMessage(lc.chatID, errMsg)
+			cf, _ = config.AppendChatMessage(a.repo.Manifest.ID,lc.chatID, errMsg)
 			if lc.totalTokensUsed != nil {
 				*lc.totalTokensUsed = cumulativeTokens
 			}
@@ -2905,7 +3133,7 @@ func (a *App) runChatLoop(ctx context.Context, provider llm.Provider, modelName 
 				Content:   fmt.Sprintf("Token budget exceeded (%d / %d). Stopping.", cumulativeTokens, lc.tokenBudget),
 				Timestamp: time.Now().UTC(),
 			}
-			cf, _ = a.repo.AppendMessage(lc.chatID, budgetMsg)
+			cf, _ = config.AppendChatMessage(a.repo.Manifest.ID,lc.chatID, budgetMsg)
 			if lc.totalTokensUsed != nil {
 				*lc.totalTokensUsed = cumulativeTokens
 			}
@@ -2923,7 +3151,7 @@ func (a *App) runChatLoop(ctx context.Context, provider llm.Provider, modelName 
 				PinSuggestion: pinSuggestion,
 				PendingEdits:  allPendingEdits,
 			}
-			cf, _ = a.repo.AppendMessage(lc.chatID, assistantMsg)
+			cf, _ = config.AppendChatMessage(a.repo.Manifest.ID,lc.chatID, assistantMsg)
 			if lc.totalTokensUsed != nil {
 				*lc.totalTokensUsed = cumulativeTokens
 			}
@@ -2992,7 +3220,7 @@ func (a *App) runChatLoop(ctx context.Context, provider llm.Provider, modelName 
 		PinSuggestion: pinSuggestion,
 		PendingEdits:  allPendingEdits,
 	}
-	cf, _ = a.repo.AppendMessage(lc.chatID, assistantMsg)
+	cf, _ = config.AppendChatMessage(a.repo.Manifest.ID,lc.chatID, assistantMsg)
 	if lc.totalTokensUsed != nil {
 		*lc.totalTokensUsed = cumulativeTokens
 	}
@@ -3665,7 +3893,7 @@ func (a *App) saveUserMessage(chatID, userMessage string) (*model.ChatFile, erro
 		Content:   repo.SanitizeText(userMessage),
 		Timestamp: time.Now().UTC(),
 	}
-	return a.repo.AppendMessage(chatID, userMsg)
+	return config.AppendChatMessage(a.repo.Manifest.ID,chatID, userMsg)
 }
 
 // loadLLMProvider loads config and creates a provider. Returns (cfg, provider, err).
@@ -5198,7 +5426,7 @@ func (a *App) stageToolCall(tc llm.ToolCall, allCats []CategoryPath) (string, []
 		cardType, _ := tc.Arguments["card_type"].(string)
 		fakeResult := "Card type will be set to " + cardType + "."
 		var previewBlocks []model.Block
-		store, _ := config.LoadUserTypeStore()
+		store, _ := a.repo.LoadUserTypeStore()
 		for _, ut := range store.Types {
 			if ut.ID == cardType && ut.TemplateID != "" {
 				for _, tmpl := range store.Templates {
@@ -5899,7 +6127,7 @@ func (a *App) ApplyProjectPendingEdits(brandSlug, streamSlug, projectSlug, msgID
 		acceptSet[id] = true
 	}
 
-	cf, err := a.repo.LoadChat(chatID)
+	cf, err := config.LoadChatFor(a.repo.Manifest.ID,chatID)
 	if err != nil {
 		return nil, err
 	}
@@ -5953,7 +6181,7 @@ func (a *App) ApplyProjectPendingEdits(brandSlug, streamSlug, projectSlug, msgID
 		break
 	}
 
-	if err := a.repo.SaveChat(cf); err != nil {
+	if err := config.SaveChatFor(a.repo.Manifest.ID,cf); err != nil {
 		return nil, err
 	}
 	// Failures are surfaced via the per-edit Detail field (which starts with
@@ -5970,7 +6198,7 @@ func (a *App) AcceptPendingEdit(cardID, msgID, editID string) (*model.ChatFile, 
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
-	cf, err := a.repo.LoadChat(cardID)
+	cf, err := config.LoadChatFor(a.repo.Manifest.ID,cardID)
 	if err != nil {
 		return nil, err
 	}
@@ -5999,7 +6227,7 @@ func (a *App) AcceptPendingEdit(cardID, msgID, editID string) (*model.ChatFile, 
 			}
 			card, _ = a.repo.GetCard(cardID) // refresh for subsequent edits in same batch
 			cf.Messages[i].PendingEdits[j].Status = "accepted"
-			if err := a.repo.SaveChat(cf); err != nil {
+			if err := config.SaveChatFor(a.repo.Manifest.ID,cf); err != nil {
 				return nil, err
 			}
 			return cf, nil
@@ -6013,7 +6241,7 @@ func (a *App) RejectPendingEdit(cardID, msgID, editID string) (*model.ChatFile, 
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
-	cf, err := a.repo.LoadChat(cardID)
+	cf, err := config.LoadChatFor(a.repo.Manifest.ID,cardID)
 	if err != nil {
 		return nil, err
 	}
@@ -6029,7 +6257,7 @@ func (a *App) RejectPendingEdit(cardID, msgID, editID string) (*model.ChatFile, 
 				return cf, nil
 			}
 			cf.Messages[i].PendingEdits[j].Status = "rejected"
-			if err := a.repo.SaveChat(cf); err != nil {
+			if err := config.SaveChatFor(a.repo.Manifest.ID,cf); err != nil {
 				return nil, err
 			}
 			return cf, nil
@@ -6049,7 +6277,7 @@ func (a *App) ApplyPendingEdits(cardID, msgID string, acceptIDs []string) (*mode
 		acceptSet[id] = true
 	}
 
-	cf, err := a.repo.LoadChat(cardID)
+	cf, err := config.LoadChatFor(a.repo.Manifest.ID,cardID)
 	if err != nil {
 		return nil, err
 	}
@@ -6095,7 +6323,7 @@ func (a *App) AcceptAllPendingEdits(cardID, msgID string) (*model.ChatFile, erro
 		return nil, fmt.Errorf("no repository open")
 	}
 	// Collect IDs first so we iterate a stable snapshot
-	cf, err := a.repo.LoadChat(cardID)
+	cf, err := config.LoadChatFor(a.repo.Manifest.ID,cardID)
 	if err != nil {
 		return nil, err
 	}
@@ -6123,7 +6351,7 @@ func (a *App) RejectAllPendingEdits(cardID, msgID string) (*model.ChatFile, erro
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
-	cf, err := a.repo.LoadChat(cardID)
+	cf, err := config.LoadChatFor(a.repo.Manifest.ID,cardID)
 	if err != nil {
 		return nil, err
 	}
@@ -6134,7 +6362,7 @@ func (a *App) RejectAllPendingEdits(cardID, msgID string) (*model.ChatFile, erro
 					cf.Messages[i].PendingEdits[j].Status = "rejected"
 				}
 			}
-			return cf, a.repo.SaveChat(cf)
+			return cf, config.SaveChatFor(a.repo.Manifest.ID,cf)
 		}
 	}
 	return cf, nil
@@ -6145,7 +6373,7 @@ func (a *App) AcceptPinSuggestion(cardID, messageID string) error {
 	if a.repo == nil {
 		return fmt.Errorf("no repository open")
 	}
-	cf, err := a.repo.LoadChat(cardID)
+	cf, err := config.LoadChatFor(a.repo.Manifest.ID,cardID)
 	if err != nil {
 		return err
 	}
@@ -6156,7 +6384,7 @@ func (a *App) AcceptPinSuggestion(cardID, messageID string) error {
 				return err
 			}
 			cf.Messages[i].PinSuggestion.Status = "accepted"
-			return a.repo.SaveChat(cf)
+			return config.SaveChatFor(a.repo.Manifest.ID,cf)
 		}
 	}
 	return fmt.Errorf("pin suggestion not found or already resolved")
@@ -6167,14 +6395,14 @@ func (a *App) RejectPinSuggestion(cardID, messageID string) error {
 	if a.repo == nil {
 		return fmt.Errorf("no repository open")
 	}
-	cf, err := a.repo.LoadChat(cardID)
+	cf, err := config.LoadChatFor(a.repo.Manifest.ID,cardID)
 	if err != nil {
 		return err
 	}
 	for i, m := range cf.Messages {
 		if m.ID == messageID && m.PinSuggestion != nil && m.PinSuggestion.Status == "pending" {
 			cf.Messages[i].PinSuggestion.Status = "rejected"
-			return a.repo.SaveChat(cf)
+			return config.SaveChatFor(a.repo.Manifest.ID,cf)
 		}
 	}
 	return fmt.Errorf("pin suggestion not found or already resolved")

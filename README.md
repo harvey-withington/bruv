@@ -43,6 +43,19 @@
 
 Full keyboard shortcut list: press `?` anywhere in the app.
 
+## Sharing a repo
+
+BRUV repos are self-contained and portable. To share a project with someone else — or sync your work across machines — zip the repo folder, commit it to git, or drop it in any sync service. Everything the project needs is inside:
+
+- Cards, tags, and the full brand → stream → project → category hierarchy
+- Agent configurations (schedules, tools, budgets)
+- Your custom card types and templates for that repo
+- Attachments and comments
+
+Your personal data stays on your machine and does **not** travel with a shared repo: AI chat history, LLM API keys, notification history, profile, and window state all live in your local config folder keyed per-repo. When a collaborator opens your shared repo, they get their own fresh chat history — your conversations stay private.
+
+BRUV's **Import card types from another repo** button (Card Types dialog) lets you pull a type vocabulary from another local repo without an intermediate export file — useful when you maintain several repos and want to keep a shared set of types across them.
+
 ## Privacy
 
 BRUV is local-first by design. Your data lives in plain JSON on your disk. No telemetry, no analytics, no crash reporting, no account, no cloud.

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Repository represents an open BRUV repository on disk.
@@ -61,6 +63,7 @@ func Init(basePath string, name string) (*Repository, error) {
 
 	now := time.Now().UTC()
 	manifest := &model.Manifest{
+		ID:        uuid.New().String(),
 		Version:   "0.1.0",
 		Name:      name,
 		CreatedAt: now,
@@ -90,6 +93,21 @@ func Open(root string) (*Repository, error) {
 	var manifest model.Manifest
 	if err := readJSON(mpath, &manifest); err != nil {
 		return nil, fmt.Errorf("read manifest: %w", err)
+	}
+
+	// Backfill a stable ID on repos created before the field existed.
+	// Persisted immediately so later opens are no-ops. The same repo
+	// shared to another machine keeps its ID — repoID travels with the
+	// data, personal state (chats, etc.) stays keyed by it locally.
+	if manifest.ID == "" {
+		manifest.ID = uuid.New().String()
+		manifest.UpdatedAt = time.Now().UTC()
+		if err := writeJSON(mpath, &manifest); err != nil {
+			// Non-fatal: if we can't persist the ID, we still let the
+			// repo open, but subsequent opens will regenerate. This is
+			// rare enough to not block the user on it.
+			return nil, fmt.Errorf("backfill manifest id: %w", err)
+		}
 	}
 
 	return &Repository{Root: root, Manifest: &manifest}, nil
@@ -160,8 +178,10 @@ func (r *Repository) cardFilePath(id string) string {
 	return filepath.Join(r.Root, cardsDir, id+".json")
 }
 
-func (r *Repository) chatFilePath(cardID string) string {
-	return filepath.Join(r.Root, cardsDir, cardID+".messages.json")
+// cardTypesPath returns the location of the repo-scoped card types store.
+// See internal/repo/card_types.go for the Load/Save API.
+func (r *Repository) cardTypesPath() string {
+	return filepath.Join(r.Root, bruvDir, "card_types.json")
 }
 
 func (r *Repository) pinsDirPath(cardID string) string {

@@ -2,7 +2,7 @@
 
 import { getBackend } from './adapters'
 
-export type { UserProfile, AuthInfo, LLMConfig, LLMAccount, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard, AgentConfig, AgentRun, AgentFile, AgentStatus, AgentSummary, AgentRunEntry, AgentAnalytics, AppNotification, NotifyConfig, ModelPricing, BuildInfo, UpdateCheckResult } from './types'
+export type { UserProfile, AuthInfo, LLMConfig, LLMAccount, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard, AgentConfig, AgentRun, AgentFile, AgentStatus, AgentSummary, AgentRunEntry, AgentAnalytics, AppNotification, NotifyConfig, ModelPricing, BuildInfo, UpdateCheckResult, CardTypesImportMode, CardTypesImportResult } from './types'
 
 // Capabilities
 export const getCapabilities = () => getBackend().getCapabilities()
@@ -29,6 +29,9 @@ export const OpenConfigFolder = () => getBackend().OpenConfigFolder()
 export const OpenBugReportURL = () => getBackend().OpenBugReportURL()
 export const MarkLLMNudgeShown = () => getBackend().MarkLLMNudgeShown()
 export const CheckForUpdates = () => getBackend().CheckForUpdates()
+export const ExportCardTypesToFile = (...args: Parameters<ReturnType<typeof getBackend>['ExportCardTypesToFile']>) => getBackend().ExportCardTypesToFile(...args)
+export const ImportCardTypesFromFile = (...args: Parameters<ReturnType<typeof getBackend>['ImportCardTypesFromFile']>) => getBackend().ImportCardTypesFromFile(...args)
+export const ImportCardTypesFromRepo = (...args: Parameters<ReturnType<typeof getBackend>['ImportCardTypesFromRepo']>) => getBackend().ImportCardTypesFromRepo(...args)
 export const HasRepository = () => getBackend().HasRepository()
 export const InitRepository = (...args: Parameters<ReturnType<typeof getBackend>['InitRepository']>) => getBackend().InitRepository(...args)
 export const OpenRepository = (...args: Parameters<ReturnType<typeof getBackend>['OpenRepository']>) => getBackend().OpenRepository(...args)

@@ -2,8 +2,19 @@ package model
 
 import "time"
 
-// Manifest holds repository-level metadata stored in .bruv/manifest.json
+// Manifest holds repository-level metadata stored in .bruv/manifest.json.
+//
+// ID is a stable UUID generated at repo creation time. It is used to key
+// per-user data (chat history, window state, etc.) in the OS config folder
+// so that personal state stays separate from the repo itself. The ID
+// survives zipping, cloning, and sharing — if Alice shares her repo with
+// Bob, both machines see the same ID and keep their chats keyed
+// independently in their own config folders.
+//
+// Existing repos created before this field existed get an ID backfilled
+// on first open via repo.Open().
 type Manifest struct {
+	ID          string    `json:"id"`
 	Version     string    `json:"version"`
 	Name        string    `json:"name"`
 	Description string    `json:"description,omitempty"`

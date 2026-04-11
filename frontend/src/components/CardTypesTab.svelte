@@ -2,12 +2,15 @@
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
   import { showConfirm } from '../lib/confirm.svelte'
-  import { Plus, Pencil, Trash2, X } from 'lucide-svelte'
+  import { Plus, Pencil, Trash2, X, Upload, Download, FolderOpen } from 'lucide-svelte'
   import CardTypeEditor from './CardTypeEditor.svelte'
   import {
     CreateUserCardType, UpdateUserCardType, DeleteUserCardType, UpdateBuiltinCardType,
     ListCardTemplates, CreateCardTemplate, UpdateCardTemplate, DeleteCardTemplate,
+    ExportCardTypesToFile, ImportCardTypesFromFile, ImportCardTypesFromRepo,
+    PickSaveFile, PickFile, PickFolder,
   } from '../lib/api'
+  import type { CardTypesImportMode, CardTypesImportResult } from '../lib/types'
   import { cardTypes, loadCardTypes } from '../lib/store.svelte'
   import { draggable } from '../lib/draggable'
   import { focusTrap, portal } from '../lib/actions'
@@ -37,6 +40,67 @@
   // Editor modal state
   let editingType = $state<CardTypeInfo | undefined>(undefined)
   let showEditor = $state(false)
+
+  // Import/export flow state
+  let showImportDialog = $state(false)
+  let importMode = $state<CardTypesImportMode>('merge')
+  let importSource = $state<'file' | 'repo'>('file')
+
+  async function handleExport() {
+    try {
+      const path = await PickSaveFile(
+        t('card_types.export_title'),
+        'bruv-card-types.json',
+        'BRUV Card Types',
+        '*.json',
+      )
+      if (!path) return
+      await ExportCardTypesToFile(path)
+      showToast(t('card_types.export_success'), 'success')
+    } catch (e) {
+      showToast(t('card_types.export_failed') + ': ' + String(e), 'error')
+    }
+  }
+
+  function formatImportResult(r: CardTypesImportResult): string {
+    const parts: string[] = []
+    if (r.types_added) parts.push(t('card_types.import_result_types_added', { count: r.types_added }))
+    if (r.types_overwritten) parts.push(t('card_types.import_result_types_overwritten', { count: r.types_overwritten }))
+    if (r.types_skipped) parts.push(t('card_types.import_result_types_skipped', { count: r.types_skipped }))
+    if (r.templates_added) parts.push(t('card_types.import_result_templates_added', { count: r.templates_added }))
+    if (r.templates_overwritten) parts.push(t('card_types.import_result_templates_overwritten', { count: r.templates_overwritten }))
+    if (r.templates_skipped) parts.push(t('card_types.import_result_templates_skipped', { count: r.templates_skipped }))
+    return parts.length ? parts.join(', ') : t('card_types.import_result_nothing')
+  }
+
+  async function doImport() {
+    showImportDialog = false
+    try {
+      let result: CardTypesImportResult
+      if (importSource === 'file') {
+        const path = await PickFile(t('card_types.import_file_title'), 'BRUV Card Types', '*.json')
+        if (!path) return
+        result = await ImportCardTypesFromFile(path, importMode)
+      } else {
+        const path = await PickFolder(t('card_types.import_repo_title'))
+        if (!path) return
+        result = await ImportCardTypesFromRepo(path, importMode)
+      }
+      showToast(formatImportResult(result), 'success')
+      await loadTemplates()
+      await loadCardTypes()
+    } catch (e) {
+      showToast(t('card_types.import_failed') + ': ' + String(e), 'error')
+    }
+  }
+
+  async function confirmImport() {
+    if (importMode === 'replace') {
+      const ok = await showConfirm(t('card_types.import_replace_confirm_body'))
+      if (!ok) return
+    }
+    doImport()
+  }
 
   function openCreate() {
     editingType = undefined
@@ -130,7 +194,15 @@
   <div class="dialog" role="dialog" use:draggable={{ handle: '.dialog-header' }} use:focusTrap>
     <div class="dialog-header">
       <h2>{t('card_types.title')}</h2>
-      <button class="close-btn" onclick={onClose} title={t('common.close')}><X size={18} /></button>
+      <div class="header-actions">
+        <button class="icon-btn" onclick={handleExport} title={t('card_types.export_tooltip')} aria-label={t('card_types.export_tooltip')}>
+          <Download size={14} />
+        </button>
+        <button class="icon-btn" onclick={() => { showImportDialog = true }} title={t('card_types.import_tooltip')} aria-label={t('card_types.import_tooltip')}>
+          <Upload size={14} />
+        </button>
+        <button class="close-btn" onclick={onClose} title={t('common.close')}><X size={18} /></button>
+      </div>
     </div>
 
     <div class="dialog-body">
@@ -204,6 +276,62 @@
       onSave={handleSave}
       onClose={() => showEditor = false}
     />
+  {/if}
+
+  {#if showImportDialog}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div class="overlay" role="presentation" use:portal onclick={(e) => { if (e.target === e.currentTarget) showImportDialog = false }}>
+      <div class="dialog import-dialog" role="dialog" tabindex="-1" aria-label={t('card_types.import_title')} use:focusTrap>
+        <div class="dialog-header">
+          <h2>{t('card_types.import_title')}</h2>
+          <button class="close-btn" onclick={() => { showImportDialog = false }} title={t('common.close')}><X size={18} /></button>
+        </div>
+        <div class="dialog-body">
+          <p class="import-hint">{t('card_types.import_hint')}</p>
+
+          <div class="import-section">
+            <span class="import-section-label">{t('card_types.import_source_label')}</span>
+            <label class="radio-row">
+              <input type="radio" bind:group={importSource} value="file" />
+              <span><FolderOpen size={12} /> {t('card_types.import_source_file')}</span>
+            </label>
+            <label class="radio-row">
+              <input type="radio" bind:group={importSource} value="repo" />
+              <span><FolderOpen size={12} /> {t('card_types.import_source_repo')}</span>
+            </label>
+          </div>
+
+          <div class="import-section">
+            <span class="import-section-label">{t('card_types.import_mode_label')}</span>
+            <label class="radio-row">
+              <input type="radio" bind:group={importMode} value="merge" />
+              <span>
+                <strong>{t('card_types.import_mode_merge')}</strong>
+                <em>{t('card_types.import_mode_merge_desc')}</em>
+              </span>
+            </label>
+            <label class="radio-row">
+              <input type="radio" bind:group={importMode} value="merge_overwrite" />
+              <span>
+                <strong>{t('card_types.import_mode_merge_overwrite')}</strong>
+                <em>{t('card_types.import_mode_merge_overwrite_desc')}</em>
+              </span>
+            </label>
+            <label class="radio-row">
+              <input type="radio" bind:group={importMode} value="replace" />
+              <span>
+                <strong class="danger-text">{t('card_types.import_mode_replace')}</strong>
+                <em>{t('card_types.import_mode_replace_desc')}</em>
+              </span>
+            </label>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button class="btn btn-ghost" onclick={() => { showImportDialog = false }}>{t('common.cancel')}</button>
+          <button class="btn btn-primary" onclick={confirmImport}>{t('card_types.import_confirm')}</button>
+        </div>
+      </div>
+    </div>
   {/if}
 </div>
 
@@ -305,6 +433,74 @@
   }
   .icon-btn:hover { color: var(--text); background: var(--bg-hover); }
   .icon-btn.danger:hover { color: var(--danger); }
+
+  .header-actions { display: flex; align-items: center; gap: 4px; }
+
+  .import-dialog { width: 440px; }
+  .import-dialog .dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 0.75rem 1.25rem;
+    border-top: 1px solid var(--border-muted);
+  }
+  .import-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 0 0 14px;
+    line-height: 1.5;
+  }
+  .import-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 16px;
+  }
+  .import-section-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+  }
+  .radio-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+  }
+  .radio-row:hover { background: var(--bg-hover); }
+  .radio-row input { margin-top: 3px; }
+  .radio-row span {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 12px;
+  }
+  .radio-row strong { font-weight: 600; color: var(--text-primary); }
+  .radio-row em { font-style: normal; color: var(--text-muted); font-size: 11px; }
+  .danger-text { color: var(--danger); }
+  .btn {
+    padding: 6px 14px;
+    font-size: 12px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+  .btn:hover { background: var(--bg-hover); }
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+  .btn-primary:hover { filter: brightness(1.1); }
+  .btn-ghost { background: transparent; }
 
   .builtin-badge {
     font-size: 10px;

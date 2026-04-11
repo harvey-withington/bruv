@@ -38,11 +38,28 @@ jobs:
           go-version: '1.24'
           cache: true
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
       - name: Install Linux build deps
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      # main.go embeds frontend/dist via //go:embed, so `go build ./...`
+      # won't compile unless the Svelte build has produced that directory.
+      # Build the frontend first on every runner.
+      - name: Build frontend
+        working-directory: frontend
+        shell: bash
+        run: |
+          npm ci || npm install
+          npm run build
 
       - name: go build
         run: go build ./...

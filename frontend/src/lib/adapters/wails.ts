@@ -14,6 +14,12 @@ import {
   // @ts-ignore — generated after `wails generate` with updated Go code
   CheckForUpdates,
   // @ts-ignore — generated after `wails generate` with updated Go code
+  ExportCardTypesToFile,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  ImportCardTypesFromFile,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  ImportCardTypesFromRepo,
+  // @ts-ignore — generated after `wails generate` with updated Go code
   GetRepoDescription,
   // @ts-ignore — generated after `wails generate` with updated Go code
   UpdateRepoDescription,
@@ -176,6 +182,9 @@ export const wailsAdapter: BackendAdapter = {
   OpenBugReportURL: OpenBugReportURL as unknown as BackendAdapter['OpenBugReportURL'],
   MarkLLMNudgeShown: MarkLLMNudgeShown as unknown as BackendAdapter['MarkLLMNudgeShown'],
   CheckForUpdates: CheckForUpdates as unknown as BackendAdapter['CheckForUpdates'],
+  ExportCardTypesToFile: ExportCardTypesToFile as unknown as BackendAdapter['ExportCardTypesToFile'],
+  ImportCardTypesFromFile: ImportCardTypesFromFile as unknown as BackendAdapter['ImportCardTypesFromFile'],
+  ImportCardTypesFromRepo: ImportCardTypesFromRepo as unknown as BackendAdapter['ImportCardTypesFromRepo'],
   HasRepository,
   InitRepository,
   OpenRepository,

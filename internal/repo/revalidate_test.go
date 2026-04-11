@@ -99,52 +99,11 @@ func TestRevalidateRemovesOrphanedPinDirs(t *testing.T) {
 	}
 }
 
-func TestRevalidateRemovesOrphanedChatFiles(t *testing.T) {
-	r := setupTestRepo(t)
-
-	// Create a chat file for a card that doesn't exist
-	chatFile := filepath.Join(r.Root, "cards", "nonexistent-card.messages.json")
-	writeJSON(chatFile, &model.ChatFile{
-		CardID:   "nonexistent-card",
-		Messages: []model.ChatMessage{{ID: "m1", Role: "user", Content: "hi"}},
-	})
-
-	stats, err := r.Revalidate()
-	if err != nil {
-		t.Fatalf("Revalidate: %v", err)
-	}
-	if stats.OrphanedChatFiles != 1 {
-		t.Errorf("OrphanedChatFiles = %d, want 1", stats.OrphanedChatFiles)
-	}
-
-	// Chat file should be cleaned up
-	if fileExists(chatFile) {
-		t.Error("orphaned chat file should be removed")
-	}
-}
-
-// Project-level chat files use the synthetic prefix `__project__` and have no
-// backing card on disk by design. The revalidator must NOT delete them.
-func TestRevalidatePreservesProjectChatFiles(t *testing.T) {
-	r := setupTestRepo(t)
-
-	projectChatFile := filepath.Join(r.Root, "cards", "__project__some-project-id.messages.json")
-	writeJSON(projectChatFile, &model.ChatFile{
-		CardID:   "__project__some-project-id",
-		Messages: []model.ChatMessage{{ID: "m1", Role: "user", Content: "test"}},
-	})
-
-	stats, err := r.Revalidate()
-	if err != nil {
-		t.Fatalf("Revalidate: %v", err)
-	}
-	if stats.OrphanedChatFiles != 0 {
-		t.Errorf("OrphanedChatFiles = %d, want 0 (project chat files must be preserved)", stats.OrphanedChatFiles)
-	}
-	if !fileExists(projectChatFile) {
-		t.Error("project chat file must NOT be removed by revalidate")
-	}
-}
+// Chat files no longer live in the repo — they're stored in the OS
+// config folder keyed by repo ID so they stay personal when the repo is
+// shared. The revalidator therefore has nothing to clean up for chats;
+// any leftover .messages.json files in an old repo are handled by the
+// one-shot migration in OpenRepository, not by Revalidate.
 
 func TestRevalidatePreservesValidPins(t *testing.T) {
 	r := setupTestRepo(t)
@@ -188,19 +147,11 @@ func TestRevalidateMultipleIssues(t *testing.T) {
 		Pins:   []model.Pin{{CardID: "ghost-card-2", ProjectID: "p2", CategoryID: "c2"}},
 	})
 
-	// Create orphaned chat file
-	writeJSON(filepath.Join(r.Root, "cards", "ghost-card-3.messages.json"), &model.ChatFile{
-		CardID: "ghost-card-3", Messages: []model.ChatMessage{},
-	})
-
 	stats, err := r.Revalidate()
 	if err != nil {
 		t.Fatalf("Revalidate: %v", err)
 	}
 	if stats.OrphanedPinDirs != 2 {
 		t.Errorf("OrphanedPinDirs = %d, want 2", stats.OrphanedPinDirs)
-	}
-	if stats.OrphanedChatFiles != 1 {
-		t.Errorf("OrphanedChatFiles = %d, want 1", stats.OrphanedChatFiles)
 	}
 }

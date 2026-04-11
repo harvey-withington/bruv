@@ -388,6 +388,17 @@ export interface UpdateCheckResult {
   error?: string
 }
 
+export type CardTypesImportMode = 'replace' | 'merge' | 'merge_overwrite'
+
+export interface CardTypesImportResult {
+  types_added: number
+  types_overwritten: number
+  types_skipped: number
+  templates_added: number
+  templates_overwritten: number
+  templates_skipped: number
+}
+
 export interface BackendAdapter {
   // Capabilities
   getCapabilities(): BackendCapabilities
@@ -414,6 +425,9 @@ export interface BackendAdapter {
   OpenBugReportURL(): Promise<void>
   MarkLLMNudgeShown(): Promise<void>
   CheckForUpdates(): Promise<UpdateCheckResult>
+  ExportCardTypesToFile(filePath: string): Promise<void>
+  ImportCardTypesFromFile(filePath: string, mode: CardTypesImportMode): Promise<CardTypesImportResult>
+  ImportCardTypesFromRepo(otherRepoPath: string, mode: CardTypesImportMode): Promise<CardTypesImportResult>
   HasRepository(): Promise<boolean>
   InitRepository(basePath: string, name: string): Promise<string>
   OpenRepository(id: string): Promise<void>

@@ -100,11 +100,11 @@ func (r *Repository) repairOrphanedPinDirs(stats *RevalidateStats) {
 	}
 }
 
-// repairOrphanedChatFiles removes .messages.json files for cards that no longer exist.
-//
-// Project-level chat files use a synthetic ID prefix `__project__` (see
-// projectChatID in app.go) and have no backing card on disk by design.
-// They must be skipped here or every revalidation pass would wipe them.
+// repairOrphanedChatFiles sweeps orphaned .agent.json files for cards
+// that no longer exist. Chat .messages.json files used to be stored in
+// the repo but now live in the OS config folder, so the sweep only
+// touches agent files. The stats field is kept for compatibility with
+// existing tests and frontend counters.
 func (r *Repository) repairOrphanedChatFiles(stats *RevalidateStats) {
 	entries, err := os.ReadDir(r.cardsPath())
 	if err != nil {
@@ -113,17 +113,7 @@ func (r *Repository) repairOrphanedChatFiles(stats *RevalidateStats) {
 
 	for _, e := range entries {
 		name := e.Name()
-		// Skip synthetic chat files that aren't tied to a real card.
-		if strings.HasPrefix(name, "__project__") {
-			continue
-		}
-		if strings.HasSuffix(name, ".messages.json") {
-			cardID := strings.TrimSuffix(name, ".messages.json")
-			if !fileExists(r.cardFilePath(cardID)) {
-				_ = os.Remove(r.chatFilePath(cardID))
-				stats.OrphanedChatFiles++
-			}
-		} else if strings.HasSuffix(name, ".agent.json") {
+		if strings.HasSuffix(name, ".agent.json") {
 			cardID := strings.TrimSuffix(name, ".agent.json")
 			if !fileExists(r.cardFilePath(cardID)) {
 				_ = os.Remove(r.agentFilePath(cardID))

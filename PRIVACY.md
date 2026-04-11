@@ -4,20 +4,44 @@ BRUV is **local-first**. Your data lives on your machine, in files you own, in f
 
 ## What stays on your machine
 
-Everything you create in BRUV — brands, streams, projects, cards, tags, agents, chat history, notifications — is stored as plain JSON files on your local disk.
+Everything you create in BRUV is stored as plain JSON files on your local disk, split across two locations:
+
+### Your repo folder (shareable)
+
+Whatever path you chose when you created a repo. This folder contains the project itself — brands, streams, projects, categories, cards, tags, agent configs, card types and templates. It is deliberately designed to be **self-contained and portable**: zip it, commit it to git, drop it on a USB stick, and everything the project needs travels with it. See [README.md](README.md#sharing-a-repo) for the sharing story.
+
+```
+<your-repo>/
+├── .bruv/
+│   ├── manifest.json      # repo metadata (name, stable ID, description)
+│   └── card_types.json    # your custom card types + templates for this repo
+├── brands/                # hierarchy: brands → streams → projects → categories
+├── cards/
+│   ├── <id>.json          # card content
+│   └── <id>.agent.json    # agent config + run history (if the card has one)
+├── pins/
+│   └── <id>/pins.json     # cross-project card pinning
+└── types/                 # optional: community card type schema drops
+```
+
+### Your config folder (personal, machine-local)
 
 **Location (Windows):** `%APPDATA%\bruv\`
 
-You can open this folder from **BRUV → About → Open config folder** (or navigate to it manually). Inside you'll find:
+Open from **BRUV → About → Open config folder**. This folder contains per-user, per-machine state that should **not** travel when you share a repo:
 
-- Your project data (the repository itself)
-- `llm_accounts.json` — your configured AI providers and API keys (see note below)
+- `llm_accounts.json` — AI provider metadata (API keys live in your OS keychain, see below)
 - `llm_config.json` — LLM system prompt and related settings
 - `notify_config.json` — notification channel preferences
-- Chat history files, one per card or project chat
+- `preferences.json` — UI preferences, theme, locale, etc.
+- `profile.json` — display name, avatar
+- `notifications.json` — notification history
+- `pricing.json` — token pricing table
 - `window.json` — remembered window size and position
+- `recent.json` — list of recently opened repo paths
+- **`chats/<repoID>/`** — AI chat history, keyed by repo ID so that shared repos don't leak personal conversations
 
-**There is no cloud sync, no account, no login.** If you delete this folder, you've deleted BRUV's knowledge of everything.
+**There is no cloud sync, no account, no login.** If you delete the config folder, you've reset BRUV to first-run state but your repo is untouched. If you delete a repo folder, only that repo is gone.
 
 ## What goes over the network
 
@@ -80,6 +104,30 @@ If you'd rather not store keys anywhere at all, configure **Ollama** instead and
 ### Migrating from earlier versions
 
 If you're upgrading from a BRUV build that predates Sprint B (the keychain backend), the first launch will automatically move any plaintext API keys out of `llm_accounts.json` and into the OS keychain. The migration is one-way and idempotent — it only rewrites the JSON file if there are plaintext keys left to migrate.
+
+## Sharing a repo
+
+BRUV repos are designed to be shared. The repo folder contains everything a project needs — cards, hierarchy, tags, agent configs, card types and templates — and nothing personal. When you share a repo (zip, git, cloud sync, USB), only the project travels; your AI chats, API keys, and settings stay on your machine.
+
+**What does NOT travel with a shared repo:**
+
+- AI chat history (stored per-user in your config folder, keyed by repo ID)
+- LLM API keys (OS keychain)
+- Notification history, preferences, profile, window state
+- Agent run history from YOUR copy (configs travel; the history of what your agents have actually done stays local to each machine)
+
+**What DOES travel with a shared repo:**
+
+- Cards, tags, brands, streams, projects, categories
+- Card types and templates defined in this repo
+- Agent configurations (schedules, tools, budgets, safety rails)
+- Attachments and comments
+
+When someone else opens your shared repo, they get a fresh chat history and an empty notification inbox for that repo — their usage stays separate from yours.
+
+### Before sharing
+
+If you've been running agents in your copy of a repo, the `.agent.json` files contain run history that includes token counts, timestamps, and any recorded outputs. This is not sensitive in most cases but you may want to clear it before sharing. You can do this today by opening each agent card → **Clear run history**. A one-click "prepare for sharing" sweep is tracked in the backlog for a post-v1.0b release.
 
 ## How to wipe everything
 

@@ -56,27 +56,37 @@ jobs:
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1
 
-      - name: Build frontend
+      # NSIS is required by `wails build -nsis` to generate the Windows
+      # installer. GitHub's windows-latest runners ship with Chocolatey
+      # pre-installed, so this is a one-line install.
+      - name: Install NSIS
+        run: choco install nsis -y --no-progress
+
+      - name: Install frontend deps
         working-directory: frontend
         run: |
           npm ci || npm install
 
-      - name: Build Windows binary
+      - name: Build Windows binary + NSIS installer
         shell: bash
         env:
           VERSION: ${{ steps.version.outputs.value }}
         run: |
           # Stamp version + build date into the binary. See app.go for the
-          # var declarations these -X flags override.
+          # var declarations these -X flags override. -nsis produces an
+          # installer alongside the raw .exe; -clean wipes build/bin first.
           BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           wails build \
+            -nsis \
+            -clean \
             -trimpath \
             -ldflags "-X main.AppVersion=${VERSION} -X main.BuildDate=${BUILD_DATE}"
 
-      - name: Upload unsigned artifact
+      - name: Upload unsigned artifacts
         uses: actions/upload-artifact@v4
         with:
           name: bruv-${{ steps.version.outputs.value }}-windows-unsigned
+          # Catches both the portable .exe and the NSIS installer .exe
           path: build/bin/*.exe
           retention-days: 7
 

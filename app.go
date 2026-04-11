@@ -2922,7 +2922,25 @@ func (a *App) SendProjectChatMessage(brandSlug, streamSlug, projectSlug, userMes
 		systemPrompt:       systemPrompt,
 		tools:              toolDefs,
 		maxIter:            5,
-		allowDuplicateTool: map[string]bool{"create_card": true},
+		// Per-entity mutating tools must be callable multiple times in one
+		// iteration so the LLM can act on several distinct targets in a single
+		// turn (e.g. set an icon on every category, move several cards). The
+		// bulk variant `update_cards` exists for the most common case but the
+		// LLM doesn't always reach for it. Query/read tools are deliberately
+		// NOT whitelisted — those should be deduped to stop runaway loops.
+		allowDuplicateTool: map[string]bool{
+			"create_card":          true,
+			"update_card":          true,
+			"move_card":            true,
+			"add_tags_to_cards":    true,
+			"configure_agent":      true,
+			"create_category":      true,
+			"update_category":      true,
+			"delete_category":      true,
+			"create_project_tag":   true,
+			"update_project_tag":   true,
+			"delete_project_tag":   true,
+		},
 		executeTool: func(tc llm.ToolCall) (string, *model.ToolAction, *model.PinSuggestion) {
 			result, action := a.executeProjectToolCall(tc, scope)
 			return result, action, nil
@@ -3113,8 +3131,82 @@ func (a *App) buildProjectSystemPrompt(brandSlug, streamSlug, projectSlug string
 	sb.WriteString("- `update_category` and `delete_category` accept either `category_id` (preferred) or `category_name`. Use the name when referring to a category you just created in the same conversation, since its ID won't be known yet.\n")
 	sb.WriteString("- When chaining `create_category` with `move_card` or `create_card` in the same turn, use the destination's NAME (`to_category_name` / `category_name`) — the apply phase resolves the name after the create runs.\n")
 	sb.WriteString("- `move_card` only requires `card_id` and the destination. The source (`from_category_id`) is auto-detected from the card's current pin in this project, so you usually don't need to supply it.\n\n")
+	sb.WriteString("Icon names (for `icon` parameters on `update_project`, `update_category`, `create_project_tag`, `update_project_tag`):\n")
+	sb.WriteString("Use ONLY these names — anything else will display as a placeholder. Names use kebab-case.\n")
+	sb.WriteString(availableIconList())
+	sb.WriteString("\n\n")
 	sb.WriteString("When creating cards, always pin them to the most appropriate category.\n")
 	return sb.String()
+}
+
+// availableIconList returns the icon name list embedded in the system prompt.
+// MUST be kept in sync with `ICON_MAP` in `frontend/src/lib/icons.ts`. The
+// frontend's DynamicIcon component renders an unknown-icon placeholder for
+// any name not in that map, so picking one from outside this list silently
+// breaks the display.
+//
+// When you add an icon to ICON_MAP, add it here too. (And vice versa.)
+func availableIconList() string {
+	icons := []string{
+		// General
+		"folder", "folder-open", "star", "heart", "zap", "rocket", "globe", "home", "flag", "bookmark",
+		"tag", "tags", "lightbulb", "puzzle", "circle-dot", "crown", "trophy", "diamond", "gem", "sparkles",
+		// People & reactions
+		"user", "users", "hand-metal", "thumbs-up", "thumbs-down", "smile", "frown", "meh", "angry", "laugh",
+		// Communication
+		"bell", "mail", "message-square", "message-circle", "megaphone", "phone", "smartphone", "send", "inbox",
+		// Media & entertainment
+		"image", "video", "music", "music-2", "camera", "mic", "tv", "tv-2", "radio", "podcast", "headphones",
+		"gamepad2", "film", "clapperboard", "popcorn", "drama", "newspaper",
+		"disc", "monitor-play", "play-circle", "pause-circle", "stop-circle", "volume-2", "volume-x",
+		// Files & writing
+		"file-text", "file", "book", "book-open", "library", "pen", "pen-tool", "brush", "scissors", "palette",
+		"edit", "copy", "save", "archive", "box", "package", "boxes",
+		// Dev
+		"code", "terminal", "database", "server", "cloud", "hash", "at-sign", "binary", "github", "gitlab", "layers",
+		// Business / money
+		"briefcase", "building", "shopping-cart", "dollar-sign", "credit-card", "bar-chart", "pie-chart",
+		"award", "target", "crosshair", "circle-dollar-sign", "wallet", "piggy-bank", "banknote", "receipt",
+		"calculator", "medal",
+		// Time
+		"calendar", "calendar-days", "calendar-clock", "calendar-check", "clock", "timer", "alarm-clock", "hourglass", "history",
+		// Nature & weather
+		"sun", "moon", "flame", "leaf", "tree-pine", "tree-deciduous", "mountain", "cloud-rain", "cloud-snow",
+		"cloud-lightning", "snowflake", "wind", "rainbow", "sunrise", "sunset",
+		// Animals
+		"dog", "cat", "bird", "fish", "rabbit", "squirrel", "bug", "turtle",
+		// Food & drink
+		"coffee", "pizza", "utensils", "wine", "apple", "cookie", "ice-cream", "soup", "beer",
+		// Transport
+		"plane", "car", "bus", "train", "bike", "ship", "truck", "fuel",
+		// Science & education
+		"microscope", "atom", "flask-conical", "beaker", "dna", "brain", "brain-circuit", "graduation-cap", "school",
+		// Health & fitness
+		"activity", "heart-pulse", "stethoscope", "pill", "syringe", "bandage", "dumbbell",
+		// Tools
+		"wrench", "hammer", "drill", "pickaxe", "ruler", "hardhat", "plug",
+		// Navigation
+		"map", "map-pin", "compass", "navigation", "arrow-right", "arrow-up", "link", "external-link",
+		// Security
+		"lock", "unlock", "key", "shield", "shield-check", "shield-alert", "eye",
+		// Devices
+		"monitor", "laptop", "settings",
+		// Status & alerts
+		"alert-circle", "check-circle", "alert-triangle", "info", "help-circle", "badge-check", "badge-alert",
+		// Lists & filter
+		"list-checks", "list-todo", "list-filter", "filter",
+		// Search
+		"search", "zoom-in", "zoom-out",
+		// Social
+		"twitter", "youtube", "twitch", "linkedin", "facebook", "instagram", "slack",
+		// Shapes
+		"circle", "triangle", "octagon", "hexagon", "pentagon",
+		// Editing
+		"refresh-cw", "check", "plus", "minus",
+		// Fun
+		"gift", "party-popper", "percent",
+	}
+	return strings.Join(icons, ", ")
 }
 
 // renderCategoryHeader produces the markdown header line(s) for a category in

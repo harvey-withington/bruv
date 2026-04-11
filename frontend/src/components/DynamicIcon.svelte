@@ -33,6 +33,16 @@
   <span class="dynamic-icon {className}" style={colorStyle}>
     <IconComponent {size} />
   </span>
+{:else if inner}
+  <!-- Unknown icon name — render a visible placeholder so the symptom isn't
+       silent. The full name is in the tooltip so the user can report it and
+       the icon can be added to ICON_MAP. -->
+  <span
+    class="dynamic-icon dynamic-icon-unknown {className}"
+    style="--icon-size:{size}px; {colorStyle}"
+    title={`Unknown icon: ${inner}`}
+    aria-label={`Unknown icon: ${inner}`}
+  >?</span>
 {/if}
 
 <style>
@@ -61,5 +71,16 @@
     mask-position: center;
     -webkit-mask-size: contain;
     mask-size: contain;
+  }
+  .dynamic-icon-unknown {
+    width: var(--icon-size);
+    height: var(--icon-size);
+    border: 1px dashed currentColor;
+    border-radius: 3px;
+    font-size: calc(var(--icon-size) * 0.7);
+    line-height: 1;
+    font-weight: 700;
+    opacity: 0.6;
+    cursor: help;
   }
 </style>

@@ -22,6 +22,32 @@ import {
   Gift, PartyPopper, Megaphone, HandMetal,
   Lightbulb, Puzzle, Wrench, Hammer, CircleDot,
   Hash, AtSign, Percent, Binary,
+  // Expanded set — added 2026-04-11 because the LLM and the user kept
+  // wanting icons that weren't here. If you find another missing one,
+  // import it above and add a slug→component entry to ICON_MAP plus a
+  // category line in ICON_CATEGORIES below.
+  Newspaper, Film, Tv2, Clapperboard, Popcorn, Drama,
+  Microscope, Atom, FlaskConical, Beaker, Dna, Brain, BrainCircuit,
+  Coffee, Pizza, Utensils, Wine, Apple, Cookie, IceCream, Soup, Beer,
+  Plane, Car, Bus, Train, Bike, Ship, Truck, Fuel,
+  Dog, Cat, Bird, Fish, Rabbit, Squirrel, Bug, Turtle,
+  Mountain, TreeDeciduous, CloudRain, CloudSnow, CloudLightning, Snowflake, Wind, Rainbow, Sunrise, Sunset,
+  ThumbsUp, ThumbsDown, Smile, Frown, Meh, Angry, Laugh,
+  Crown, Trophy, Medal, Diamond, Gem, CircleDollarSign, Wallet, PiggyBank, Banknote, Receipt, Calculator,
+  GraduationCap, School, Library,
+  Activity, Stethoscope, Pill, Syringe, Bandage, HeartPulse,
+  Dumbbell,
+  Drill, Pickaxe, Ruler, HardHat, Plug,
+  ShieldCheck, ShieldAlert, AlertTriangle, Info, HelpCircle, BadgeCheck, BadgeAlert,
+  Layers, Box, Package, Boxes, Archive, Inbox, Send,
+  Volume2, VolumeX, Music2, Disc,
+  MonitorPlay, PlayCircle, PauseCircle, StopCircle,
+  CalendarDays, CalendarClock, CalendarCheck, AlarmClock, Hourglass, History,
+  Search, ZoomIn, ZoomOut, Filter, ListFilter,
+  Github, Gitlab, Twitter, Youtube, Twitch, Linkedin, Facebook, Instagram, Slack, MessageCircle,
+  ListChecks, ListTodo, Circle, Triangle, Octagon, Hexagon, Pentagon,
+  RefreshCw, Save, Edit, Copy,
+  Check, Plus, Minus,
 } from 'lucide-svelte'
 
 type IconComponent = typeof Folder
@@ -120,23 +146,208 @@ export const ICON_MAP: Record<string, IconComponent> = {
   'at-sign': AtSign,
   'percent': Percent,
   'binary': Binary,
+
+  // Media & entertainment
+  'newspaper': Newspaper,
+  'film': Film,
+  'tv-2': Tv2,
+  'clapperboard': Clapperboard,
+  'popcorn': Popcorn,
+  'drama': Drama,
+
+  // Science & education
+  'microscope': Microscope,
+  'atom': Atom,
+  'flask-conical': FlaskConical,
+  'beaker': Beaker,
+  'dna': Dna,
+  'brain': Brain,
+  'brain-circuit': BrainCircuit,
+  'graduation-cap': GraduationCap,
+  'school': School,
+  'library': Library,
+
+  // Food & drink
+  'coffee': Coffee,
+  'pizza': Pizza,
+  'utensils': Utensils,
+  'wine': Wine,
+  'apple': Apple,
+  'cookie': Cookie,
+  'ice-cream': IceCream,
+  'soup': Soup,
+  'beer': Beer,
+
+  // Transport
+  'plane': Plane,
+  'car': Car,
+  'bus': Bus,
+  'train': Train,
+  'bike': Bike,
+  'ship': Ship,
+  'truck': Truck,
+  'fuel': Fuel,
+
+  // Animals
+  'dog': Dog,
+  'cat': Cat,
+  'bird': Bird,
+  'fish': Fish,
+  'rabbit': Rabbit,
+  'squirrel': Squirrel,
+  'bug': Bug,
+  'turtle': Turtle,
+
+  // Weather & nature
+  'mountain': Mountain,
+  'tree-deciduous': TreeDeciduous,
+  'cloud-rain': CloudRain,
+  'cloud-snow': CloudSnow,
+  'cloud-lightning': CloudLightning,
+  'snowflake': Snowflake,
+  'wind': Wind,
+  'rainbow': Rainbow,
+  'sunrise': Sunrise,
+  'sunset': Sunset,
+
+  // Reactions / faces
+  'thumbs-up': ThumbsUp,
+  'thumbs-down': ThumbsDown,
+  'smile': Smile,
+  'frown': Frown,
+  'meh': Meh,
+  'angry': Angry,
+  'laugh': Laugh,
+
+  // Achievements & money
+  'crown': Crown,
+  'trophy': Trophy,
+  'medal': Medal,
+  'diamond': Diamond,
+  'gem': Gem,
+  'circle-dollar-sign': CircleDollarSign,
+  'wallet': Wallet,
+  'piggy-bank': PiggyBank,
+  'banknote': Banknote,
+  'receipt': Receipt,
+  'calculator': Calculator,
+
+  // Health & fitness
+  'activity': Activity,
+  'stethoscope': Stethoscope,
+  'pill': Pill,
+  'syringe': Syringe,
+  'bandage': Bandage,
+  'heart-pulse': HeartPulse,
+  'dumbbell': Dumbbell,
+
+  // Tools
+  'drill': Drill,
+  'pickaxe': Pickaxe,
+  'ruler': Ruler,
+  'hardhat': HardHat,
+  'plug': Plug,
+
+  // Status & info
+  'shield-check': ShieldCheck,
+  'shield-alert': ShieldAlert,
+  'alert-triangle': AlertTriangle,
+  'info': Info,
+  'help-circle': HelpCircle,
+  'badge-check': BadgeCheck,
+  'badge-alert': BadgeAlert,
+
+  // Containers & lists
+  'layers': Layers,
+  'box': Box,
+  'package': Package,
+  'boxes': Boxes,
+  'archive': Archive,
+  'inbox': Inbox,
+  'send': Send,
+  'list-checks': ListChecks,
+  'list-todo': ListTodo,
+
+  // Audio / video controls
+  'volume-2': Volume2,
+  'volume-x': VolumeX,
+  'music-2': Music2,
+  'disc': Disc,
+  'monitor-play': MonitorPlay,
+  'play-circle': PlayCircle,
+  'pause-circle': PauseCircle,
+  'stop-circle': StopCircle,
+
+  // Calendar variants
+  'calendar-days': CalendarDays,
+  'calendar-clock': CalendarClock,
+  'calendar-check': CalendarCheck,
+  'alarm-clock': AlarmClock,
+  'hourglass': Hourglass,
+  'history': History,
+
+  // Search & filter
+  'search': Search,
+  'zoom-in': ZoomIn,
+  'zoom-out': ZoomOut,
+  'filter': Filter,
+  'list-filter': ListFilter,
+
+  // Brands / social
+  'github': Github,
+  'gitlab': Gitlab,
+  'twitter': Twitter,
+  'youtube': Youtube,
+  'twitch': Twitch,
+  'linkedin': Linkedin,
+  'facebook': Facebook,
+  'instagram': Instagram,
+  'slack': Slack,
+  'message-circle': MessageCircle,
+
+  // Shapes
+  'circle': Circle,
+  'triangle': Triangle,
+  'octagon': Octagon,
+  'hexagon': Hexagon,
+  'pentagon': Pentagon,
+
+  // Editing
+  'refresh-cw': RefreshCw,
+  'save': Save,
+  'edit': Edit,
+  'copy': Copy,
+  'check': Check,
+  'plus': Plus,
+  'minus': Minus,
 }
 
 export const AVAILABLE_ICONS = Object.keys(ICON_MAP)
 
 export const ICON_CATEGORIES: Record<string, string[]> = {
-  'General': ['folder', 'folder-open', 'star', 'heart', 'zap', 'rocket', 'globe', 'home', 'flag', 'bookmark', 'tag', 'tags', 'lightbulb', 'puzzle', 'circle-dot'],
-  'People': ['user', 'users', 'hand-metal'],
-  'Communication': ['bell', 'mail', 'message-square', 'megaphone', 'phone', 'smartphone'],
-  'Media': ['image', 'video', 'music', 'camera', 'mic', 'tv', 'radio', 'podcast', 'headphones', 'gamepad2'],
-  'Files': ['file-text', 'file', 'book', 'book-open', 'pen', 'pen-tool', 'brush', 'scissors', 'palette'],
-  'Dev': ['code', 'terminal', 'database', 'server', 'cloud', 'hash', 'at-sign', 'binary'],
-  'Business': ['briefcase', 'building', 'shopping-cart', 'dollar-sign', 'credit-card', 'bar-chart', 'pie-chart', 'award', 'target', 'crosshair'],
-  'Time': ['calendar', 'clock', 'timer'],
-  'Nature': ['sun', 'moon', 'sparkles', 'flame', 'leaf', 'tree-pine'],
+  'General': ['folder', 'folder-open', 'star', 'heart', 'zap', 'rocket', 'globe', 'home', 'flag', 'bookmark', 'tag', 'tags', 'lightbulb', 'puzzle', 'circle-dot', 'crown', 'trophy', 'diamond', 'gem', 'sparkles'],
+  'People': ['user', 'users', 'hand-metal', 'thumbs-up', 'thumbs-down', 'smile', 'frown', 'meh', 'angry', 'laugh'],
+  'Communication': ['bell', 'mail', 'message-square', 'message-circle', 'megaphone', 'phone', 'smartphone', 'send', 'inbox'],
+  'Media': ['image', 'video', 'music', 'music-2', 'camera', 'mic', 'tv', 'tv-2', 'radio', 'podcast', 'headphones', 'gamepad2', 'film', 'clapperboard', 'popcorn', 'drama', 'newspaper', 'disc', 'monitor-play', 'play-circle', 'pause-circle', 'stop-circle', 'volume-2', 'volume-x'],
+  'Files': ['file-text', 'file', 'book', 'book-open', 'library', 'pen', 'pen-tool', 'brush', 'scissors', 'palette', 'edit', 'copy', 'save', 'archive', 'box', 'package', 'boxes'],
+  'Dev': ['code', 'terminal', 'database', 'server', 'cloud', 'hash', 'at-sign', 'binary', 'github', 'gitlab', 'layers'],
+  'Business': ['briefcase', 'building', 'shopping-cart', 'dollar-sign', 'credit-card', 'bar-chart', 'pie-chart', 'award', 'target', 'crosshair', 'circle-dollar-sign', 'wallet', 'piggy-bank', 'banknote', 'receipt', 'calculator', 'medal'],
+  'Time': ['calendar', 'calendar-days', 'calendar-clock', 'calendar-check', 'clock', 'timer', 'alarm-clock', 'hourglass', 'history'],
+  'Nature & weather': ['sun', 'moon', 'flame', 'leaf', 'tree-pine', 'tree-deciduous', 'mountain', 'cloud-rain', 'cloud-snow', 'cloud-lightning', 'snowflake', 'wind', 'rainbow', 'sunrise', 'sunset'],
+  'Animals': ['dog', 'cat', 'bird', 'fish', 'rabbit', 'squirrel', 'bug', 'turtle'],
+  'Food & drink': ['coffee', 'pizza', 'utensils', 'wine', 'apple', 'cookie', 'ice-cream', 'soup', 'beer'],
+  'Transport': ['plane', 'car', 'bus', 'train', 'bike', 'ship', 'truck', 'fuel'],
+  'Science & education': ['microscope', 'atom', 'flask-conical', 'beaker', 'dna', 'brain', 'brain-circuit', 'graduation-cap', 'school'],
+  'Health & fitness': ['activity', 'heart-pulse', 'stethoscope', 'pill', 'syringe', 'bandage', 'dumbbell'],
+  'Tools': ['wrench', 'hammer', 'drill', 'pickaxe', 'ruler', 'hardhat', 'plug'],
   'Navigation': ['map', 'map-pin', 'compass', 'navigation', 'arrow-right', 'arrow-up', 'link', 'external-link'],
-  'Security': ['lock', 'unlock', 'key', 'shield', 'eye'],
+  'Security': ['lock', 'unlock', 'key', 'shield', 'shield-check', 'shield-alert', 'eye'],
   'Devices': ['monitor', 'laptop', 'settings'],
-  'Status': ['alert-circle', 'check-circle'],
-  'Fun': ['gift', 'party-popper', 'wrench', 'hammer', 'percent'],
+  'Status': ['alert-circle', 'check-circle', 'alert-triangle', 'info', 'help-circle', 'badge-check', 'badge-alert'],
+  'Lists': ['list-checks', 'list-todo', 'list-filter', 'filter'],
+  'Search': ['search', 'zoom-in', 'zoom-out'],
+  'Social': ['twitter', 'youtube', 'twitch', 'linkedin', 'facebook', 'instagram', 'slack'],
+  'Shapes': ['circle', 'triangle', 'octagon', 'hexagon', 'pentagon'],
+  'Editing': ['refresh-cw', 'check', 'plus', 'minus'],
+  'Fun': ['gift', 'party-popper', 'percent'],
 }

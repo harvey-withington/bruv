@@ -7,11 +7,23 @@ import (
 )
 
 // redirectConfig points configDir() at a temp directory for test isolation.
+//
+// os.UserConfigDir() resolves differently on each OS:
+//   - Windows uses %APPDATA%
+//   - Linux uses $XDG_CONFIG_HOME, falling back to $HOME/.config
+//   - macOS uses $HOME/Library/Application Support (XDG is ignored)
+//
+// To cover all three we set APPDATA, unset XDG_CONFIG_HOME (so Linux
+// falls through to HOME instead of using a pre-existing CI value), and
+// set HOME. On macOS the HOME override is the only thing that works; on
+// Windows the APPDATA override dominates; on Linux the XDG clear + HOME
+// set combination lands in a predictable temp directory.
 func redirectConfig(t *testing.T) {
 	t.Helper()
 	tmp := t.TempDir()
-	t.Setenv("APPDATA", tmp)        // Windows
-	t.Setenv("XDG_CONFIG_HOME", tmp) // Linux/macOS fallback
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", tmp)
 }
 
 func TestLoadUserTypeStoreEmpty(t *testing.T) {

@@ -36,6 +36,11 @@ input[type="checkbox"] {
     --accent-glow-2: rgba(99,102,241,0.2);
     --accent-glow-3: rgba(99,102,241,0.1);
 
+    /* Links — brighter than --accent-light so URLs stay legible on
+       elevated/hover surfaces. Tailwind indigo-300 / indigo-200. */
+    --link: #a5b4fc;
+    --link-hover: #c7d2fe;
+
     /* Semantic */
     --success: #22c55e;
     --warning: #f59e0b;
@@ -76,6 +81,10 @@ input[type="checkbox"] {
     --accent-glow-1: rgba(94,96,206,0.3);
     --accent-glow-2: rgba(94,96,206,0.15);
     --accent-glow-3: rgba(94,96,206,0.08);
+
+    /* Links — classic indigo, high contrast on light paper. */
+    --link: #4338ca;
+    --link-hover: #3730a3;
 
     /* Semantic — keep same */
     --success: #22c55e;
@@ -220,29 +229,43 @@ body {
     color: var(--text-primary);
 }
 
+/* In-content links: rendered markdown, checklist items, card titles, etc.
+   Uses --link so dark mode stays legible against elevated surfaces.
+   Button-styled anchors (e.g. .media-action-btn) set their own colour and
+   are unaffected. */
 .markdown-content a,
 .card-title a,
 .checklist-text a,
+.cl-text a,
 .column-title a,
 .modal-title a,
-.label a {
-    color: var(--accent-light);
+.label a,
+.comment-body a,
+.block-value a {
+    color: var(--link);
     text-decoration: none;
 }
 .markdown-content a:visited,
 .card-title a:visited,
 .checklist-text a:visited,
+.cl-text a:visited,
 .column-title a:visited,
 .modal-title a:visited,
-.label a:visited {
-    color: var(--accent-light);
+.label a:visited,
+.comment-body a:visited,
+.block-value a:visited {
+    color: var(--link);
 }
 .markdown-content a:hover,
 .card-title a:hover,
 .checklist-text a:hover,
+.cl-text a:hover,
 .column-title a:hover,
 .modal-title a:hover,
-.label a:hover {
+.label a:hover,
+.comment-body a:hover,
+.block-value a:hover {
+    color: var(--link-hover);
     text-decoration: underline;
 }
 

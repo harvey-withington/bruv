@@ -8,6 +8,20 @@
 # and exercises the systray code path. The macOS and Linux jobs are here
 # to catch regressions early; neither platform has a signed release yet,
 # but we want to know when they break so they can be fixed deliberately.
+#
+# Generated artifacts this workflow has to produce at runtime, because
+# they are gitignored and neither Go nor Vite can find them otherwise:
+#
+#   - frontend/wailsjs/**   — TS/JS bindings for the Wails @App struct.
+#                             Produced by `wails generate module`.
+#                             Imported by src/lib/adapters/wails.ts.
+#   - frontend/dist/**      — Vite production bundle.
+#                             Produced by `npm run build`.
+#                             Embedded by main.go via //go:embed.
+#
+# Both jobs below therefore follow the same prep sequence: install Node
+# deps → install Wails CLI → generate bindings → build Vite bundle. The
+# Go job then runs go build/test; the frontend job then runs svelte-check.
 
 name: CI
 
@@ -51,15 +65,29 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
 
-      # main.go embeds frontend/dist via //go:embed, so `go build ./...`
-      # won't compile unless the Svelte build has produced that directory.
-      # Build the frontend first on every runner.
-      - name: Build frontend
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1
+
+      - name: Install frontend deps
         working-directory: frontend
         shell: bash
-        run: |
-          npm ci || npm install
-          npm run build
+        run: npm ci || npm install
+
+      # `wails generate module` produces frontend/wailsjs/** from the
+      # Go App struct without doing a full build. This is what `wails dev`
+      # runs under the hood and is the supported way to materialise the
+      # bindings in CI where we don't want a native binary.
+      - name: Generate Wails bindings
+        run: wails generate module
+
+      # main.go embeds frontend/dist via //go:embed, so `go build ./...`
+      # won't compile unless Vite has produced the bundle. This is also a
+      # useful cross-platform smoke test — if the frontend build breaks on
+      # one OS, we want to know here rather than at release time.
+      - name: Build frontend bundle
+        working-directory: frontend
+        shell: bash
+        run: npm run build
 
       - name: go build
         run: go build ./...
@@ -73,6 +101,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -80,9 +114,22 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Install Linux build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1
+
       - name: Install frontend deps
         working-directory: frontend
         run: npm ci || npm install
+
+      # svelte-check imports from wailsjs/go/main/App.js (via wails.ts
+      # adapter), so the bindings need to exist before type-checking.
+      - name: Generate Wails bindings
+        run: wails generate module
 
       - name: svelte-check
         working-directory: frontend

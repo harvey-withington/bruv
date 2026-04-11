@@ -73,17 +73,24 @@ jobs:
         shell: bash
         run: npm ci || npm install
 
+      # Chicken-and-egg: `wails generate module` compiles the Go code to
+      # introspect the App struct, but main.go embeds frontend/dist via
+      # //go:embed, so compilation fails unless that directory exists. We
+      # create an empty placeholder first; the real `npm run build` step
+      # below overwrites it with the actual Vite bundle.
+      - name: Create placeholder frontend/dist
+        shell: bash
+        run: |
+          mkdir -p frontend/dist
+          touch frontend/dist/.placeholder
+
       # `wails generate module` produces frontend/wailsjs/** from the
-      # Go App struct without doing a full build. This is what `wails dev`
-      # runs under the hood and is the supported way to materialise the
-      # bindings in CI where we don't want a native binary.
+      # Go App struct. This is the supported way to materialise the
+      # TypeScript bindings in CI where we don't want a native binary.
       - name: Generate Wails bindings
         run: wails generate module
 
-      # main.go embeds frontend/dist via //go:embed, so `go build ./...`
-      # won't compile unless Vite has produced the bundle. This is also a
-      # useful cross-platform smoke test — if the frontend build breaks on
-      # one OS, we want to know here rather than at release time.
+      # Now build the real Vite bundle, replacing the placeholder.
       - name: Build frontend bundle
         working-directory: frontend
         shell: bash
@@ -125,6 +132,14 @@ jobs:
       - name: Install frontend deps
         working-directory: frontend
         run: npm ci || npm install
+
+      # Same chicken-and-egg as the go-test job: `wails generate module`
+      # compiles the Go code, which requires frontend/dist to exist for
+      # the //go:embed directive. Placeholder is enough.
+      - name: Create placeholder frontend/dist
+        run: |
+          mkdir -p frontend/dist
+          touch frontend/dist/.placeholder
 
       # svelte-check imports from wailsjs/go/main/App.js (via wails.ts
       # adapter), so the bindings need to exist before type-checking.

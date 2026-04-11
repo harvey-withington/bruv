@@ -123,4 +123,4 @@ bruv-1.0/
 
 ## License
 
-Open source — license TBD.
+[MIT](LICENSE) © 2026 Harvey. Free to use, modify, and distribute.

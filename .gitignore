@@ -7,7 +7,7 @@ frontend/wailsjs
 frontend/public/bruv-icon.svg
 frontend/public/bruv-icon.png
 frontend/public/icon.ico
-plan/private/
+plan/
 
 # IDE
 .vscode/*

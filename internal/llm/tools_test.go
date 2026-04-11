@@ -6,9 +6,9 @@ import (
 
 func TestCardToolsBaseCount(t *testing.T) {
 	tools := CardTools(nil, nil)
-	// Base tools: set_title, set_due_date, set_card_type, set_fields, add_tags, add_field, suggest_pin
-	if len(tools) != 7 {
-		t.Errorf("expected 7 base tools, got %d", len(tools))
+	// Base tools: set_title, set_due_date, set_card_type, set_fields, add_tags, add_field, suggest_pin, configure_agent
+	if len(tools) != 8 {
+		t.Errorf("expected 8 base tools, got %d", len(tools))
 	}
 }
 
@@ -158,13 +158,14 @@ func TestCardToolsSuggestPinAlwaysHasHierarchyFields(t *testing.T) {
 func TestCardToolsExpectedNames(t *testing.T) {
 	tools := CardTools([]string{"feature"}, []map[string]string{{"id": "c1", "name": "Cat"}})
 	expected := map[string]bool{
-		"set_title":     true,
-		"set_due_date":  true,
-		"set_card_type": true,
-		"set_fields":    true,
-		"add_tags":      true,
-		"add_field":     true,
-		"suggest_pin":   true,
+		"set_title":       true,
+		"set_due_date":    true,
+		"set_card_type":   true,
+		"set_fields":      true,
+		"add_tags":        true,
+		"add_field":       true,
+		"suggest_pin":     true,
+		"configure_agent": true,
 	}
 	for _, tool := range tools {
 		if !expected[tool.Name] {

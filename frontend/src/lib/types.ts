@@ -11,7 +11,19 @@ export type ListItem = {
   text: string
 }
 
-export type BlockType = 'text' | 'checklist' | 'list' | 'media' | 'url' | 'divider' | 'select' | 'number' | 'date' | 'rating' | 'checkbox' | 'radio' | 'checkbox_group' | 'image' | 'progress' | 'alarm'
+export type BlockType = 'text' | 'checklist' | 'list' | 'media' | 'url' | 'divider' | 'select' | 'number' | 'date' | 'rating' | 'checkbox' | 'radio' | 'checkbox_group' | 'image' | 'progress' | 'alarm' | 'survey'
+
+export type SurveyQuestionType = 'text' | 'rating' | 'choice'
+
+export type SurveyQuestion = {
+  id: string
+  prompt: string
+  type: SurveyQuestionType
+  options?: string[]      // for type='choice'
+  multi?: boolean         // for type='choice': allow multi-select
+  max?: number            // for type='rating'
+  answer?: string | string[] | number
+}
 
 export type MediaItem = {
   id: string
@@ -39,8 +51,33 @@ export type Block = {
   type: BlockType
   label: string
   key: string
-  value: string | number | boolean | string[] | ChecklistItem[] | ListItem[] | MediaItem[] | { url: string; caption?: string } | null
+  value: string | number | boolean | string[] | ChecklistItem[] | ListItem[] | MediaItem[] | SurveyQuestion[] | { url: string; caption?: string } | null
   meta?: BlockMeta
+}
+
+// --- Card comments ---
+
+export type CardComment = {
+  id: string
+  author: string
+  created_at: string       // ISO 8601
+  updated_at: string       // ISO 8601
+  text: string
+}
+
+// --- Import / Export ---
+
+export type TrelloArchiveMode = 'skip' | 'archive' | 'inline'
+
+export type TrelloImportResult = {
+  project_slug: string
+  project_name: string
+  categories: number
+  cards: number
+  labels: number
+  comments: number
+  archived: number
+  skipped_closed: number
 }
 
 export type Attachment = {
@@ -359,6 +396,8 @@ export interface BackendAdapter {
   OpenRepository(id: string): Promise<void>
   CloseRepository(): Promise<void>
   PickFolder(title: string): Promise<string>
+  PickFile(title: string, filterName: string, filterPattern: string): Promise<string>
+  PickSaveFile(title: string, defaultName: string, filterName: string, filterPattern: string): Promise<string>
   ListRecentRepos(): Promise<Array<{ path: string; name: string; last_opened: string }>>
   RemoveRecentRepo(path: string): Promise<void>
   GetRepoDescription(): Promise<string>
@@ -444,7 +483,7 @@ export interface BackendAdapter {
   MoveStream(fromBrand: string, streamSlug: string, toBrand: string): Promise<void>
   CopyBrand(brandSlug: string): Promise<any>
   CopyStream(fromBrand: string, streamSlug: string, toBrand: string): Promise<any>
-  CopyProject(fromBrand: string, fromStream: string, projectSlug: string, toBrand: string, toStream: string): Promise<any>
+  CopyProject(fromBrand: string, fromStream: string, projectSlug: string, toBrand: string, toStream: string, position: number): Promise<any>
 
   // Tag colors
   GetTagColors(): Promise<Record<string, string>>
@@ -554,6 +593,17 @@ export interface BackendAdapter {
   // Attachments
   AddCardAttachment(cardID: string, name: string, data: string): Promise<Card>
   RemoveCardAttachment(cardID: string, attachmentID: string): Promise<Card>
+
+  // Comments
+  ListCardComments(cardID: string): Promise<CardComment[]>
+  AddCardComment(cardID: string, author: string, text: string): Promise<CardComment>
+  UpdateCardComment(cardID: string, commentID: string, text: string): Promise<CardComment>
+  DeleteCardComment(cardID: string, commentID: string): Promise<void>
+
+  // Import / Export
+  ImportTrelloBoard(brandSlug: string, streamSlug: string, filePath: string, archiveMode: TrelloArchiveMode): Promise<TrelloImportResult>
+  ImportTrelloBoardFromJSON(brandSlug: string, streamSlug: string, jsonContent: string, archiveMode: TrelloArchiveMode): Promise<TrelloImportResult>
+  ExportProjectToFile(brandSlug: string, streamSlug: string, projectSlug: string, filePath: string): Promise<number>
 
   // Due-date notifications
   GetDueDateSettings(): Promise<{ enabled: boolean; thresholds: string[]; channels: string }>

@@ -4,7 +4,7 @@
   import { EventsOn } from '../../wailsjs/runtime/runtime'
   import { projectTags, nav, getTagColor, getTagIcon, cardTypes } from '../lib/store.svelte'
   import DynamicIcon from './DynamicIcon.svelte'
-  import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, GripVertical, Pencil, MapPin, MapPinOff, MoveRight, BotMessageSquare, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, Maximize2, ArrowLeftRight, Hash, Calendar, Star, ListTree, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell } from 'lucide-svelte'
+  import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, GripVertical, Pencil, MapPin, MapPinOff, MoveRight, BotMessageSquare, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, Maximize2, ArrowLeftRight, Hash, Calendar, Star, ListTree, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell, ClipboardList } from 'lucide-svelte'
   import { renderMarkdown, renderInline } from '../lib/markdown'
   import { t } from '../lib/i18n.svelte'
   import MentionPicker from './MentionPicker.svelte'
@@ -27,13 +27,15 @@
   import ImageBlock from './ImageBlock.svelte'
   import ProgressBlock from './ProgressBlock.svelte'
   import AlarmBlock from './AlarmBlock.svelte'
+  import SurveyBlock from './SurveyBlock.svelte'
+  import CardComments from './CardComments.svelte'
   import SaveIndicator from './SaveIndicator.svelte'
   import { draggable } from '../lib/draggable'
   import { getCardTypeColor, getCardTypeTextColor } from '../lib/cardTypes'
   import { focusOnMount, focusTrap, inlineEdit, floatingDropdown } from '../lib/actions'
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
-  import type { Card, Block, BlockMeta, CardPin, ChecklistItem, ListItem, MediaItem } from '../lib/types'
+  import type { Card, Block, BlockMeta, CardPin, ChecklistItem, ListItem, MediaItem, SurveyQuestion } from '../lib/types'
 
 
   let { cardId, currentCategoryId, currentCategoryName, categoryAcceptedTypes, onClose, onUpdated, onPin, autoEditTitle, initialTab }: {
@@ -287,6 +289,7 @@
     { type: 'image',          label: t('block.image'),          icon: 'ImageIcon' },
     { type: 'progress',       label: t('block.progress'),       icon: 'ChartColumn' },
     { type: 'alarm',          label: t('block.alarm'),          icon: 'Bell' },
+    { type: 'survey',         label: t('block.survey'),         icon: 'ClipboardList' },
   ] as const
 
   function labelToKey(label: string): string {
@@ -295,7 +298,7 @@
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const BLOCK_ICON_MAP: Record<string, any> = {
-    Type, ListChecks, List, Film, Link, Minus, ChevronDown, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell,
+    Type, ListChecks, List, Film, Link, Minus, ChevronDown, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell, ClipboardList,
   }
 
   // --- Block collapse/expand ---
@@ -415,6 +418,7 @@
     else if (blockType === 'image') value = null
     else if (blockType === 'progress') value = 0
     else if (blockType === 'alarm') { value = null; meta = { alarm_channels: 'in-app,system' } }
+    else if (blockType === 'survey') value = []
 
     const newBlock: Block = { id, type: blockType as Block['type'], label, key: labelToKey(label), value, meta }
     const blocks = [...card.blocks, newBlock]
@@ -1036,7 +1040,7 @@
             style="background: {getCardTypeColor(card.type, cardTypes.list)}; color: {getCardTypeTextColor(card.type)}"
             onclick={openTypePicker}
             title={t('tooltip.change_card_type')}
-          >{cardTypes.list.find(t => t.id === card.type)?.label || card.type || t('card.type_none')}{#if card.type}<span class="refresh-type-btn" role="button" tabindex="-1" onclick={(e) => { e.stopPropagation(); refreshType() }} title={t('tooltip.refresh_type')}><ArrowLeftRight size={10} /></span>{/if}<ChevronDown size={10} class="type-chevron" /></button>
+          >{cardTypes.list.find(t => t.id === card!.type)?.label || card!.type || t('card.type_none')}{#if card!.type}<span class="refresh-type-btn" role="button" tabindex="-1" onclick={(e) => { e.stopPropagation(); refreshType() }} title={t('tooltip.refresh_type')}><ArrowLeftRight size={10} /></span>{/if}<ChevronDown size={10} class="type-chevron" /></button>
           {#if showTypePicker && typeBadgeBtnEl}
             {@const filteredTypes = acceptedTypes?.length
               ? cardTypes.list.filter(ct => acceptedTypes!.includes(ct.id))
@@ -1535,6 +1539,16 @@
                             onUpdated?.()
                           }}
                         />
+                      {:else if block.type === 'survey'}
+                        <SurveyBlock
+                          value={(block.value as SurveyQuestion[]) || []}
+                          onUpdate={(val) => {
+                            if (!card) return
+                            block.value = val
+                            tracked(UpdateCardBlocks(cardId, card.blocks))
+                            onUpdated?.()
+                          }}
+                        />
 
                       {:else}
                         <!-- Legacy/unknown block type: show value as read-only text -->
@@ -1552,6 +1566,9 @@
             <div class="block-drop-indicator" class:copy-mode={blockCopyMode}></div>
           {/if}
         </div>
+
+        <!-- Card comments — first-class thread, not a block -->
+        <CardComments {cardId} />
 
       </div>
 

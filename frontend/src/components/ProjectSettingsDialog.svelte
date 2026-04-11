@@ -6,6 +6,7 @@
   import {
     RenameProject, UpdateProjectDescription,
     ListCategories, RenameCategory, UpdateCategoryDescription, UpdateCategoryAcceptedTypes, UpdateCategoryIcon,
+    PickSaveFile, ExportProjectToFile,
   } from '../lib/api'
   import { onMount } from 'svelte'
   import IconPicker from './IconPicker.svelte'
@@ -81,6 +82,33 @@
     saveCategoryField(cat.slug, 'icon', icon)
     iconPickerCatSlug = null
     document.dispatchEvent(new CustomEvent('bruv:board-changed'))
+  }
+
+  let exporting = $state(false)
+
+  async function handleExportProject() {
+    if (!nav.brandSlug || !nav.streamSlug || !nav.projectSlug || exporting) return
+    exporting = true
+    try {
+      const defaultName = `${nav.projectSlug}-export.json`
+      const path = await PickSaveFile(
+        t('project_settings.export_project'),
+        defaultName,
+        'JSON',
+        '*.json',
+      )
+      if (!path) {
+        exporting = false
+        return
+      }
+      await ExportProjectToFile(nav.brandSlug, nav.streamSlug, nav.projectSlug, path)
+      showToast(t('project_settings.export_success', { path }), 'success')
+    } catch (e) {
+      console.error('ExportProjectToFile', e)
+      showToast(t('project_settings.export_failed'), 'error')
+    } finally {
+      exporting = false
+    }
   }
 
   function toggleCatType(catIdx: number, typeId: string) {
@@ -222,6 +250,15 @@
               {/if}
             </div>
           {/each}
+        </div>
+
+        <!-- Export / portability -->
+        <div class="section">
+          <div class="section-label">{t('project_settings.export_section')}</div>
+          <p class="field-hint" style="margin: 0 0 0.5rem 0;">{t('project_settings.export_hint')}</p>
+          <button class="export-btn" onclick={handleExportProject} disabled={exporting}>
+            {exporting ? t('app.loading') : t('project_settings.export_project')}
+          </button>
         </div>
       </div>
     {:else}
@@ -450,5 +487,26 @@
     height: 8px;
     border-radius: 50%;
     flex-shrink: 0;
+  }
+
+  .export-btn {
+    padding: 0.4rem 0.9rem;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-body);
+    font-size: 0.85rem;
+    font-family: inherit;
+    cursor: pointer;
+    align-self: flex-start;
+  }
+  .export-btn:hover:not(:disabled) {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  .export-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 </style>

@@ -15,7 +15,11 @@ func (r *Repository) CreateBrand(name string) (*model.Brand, error) {
 	if baseSlug == "" {
 		return nil, fmt.Errorf("invalid brand name: %q", name)
 	}
-	slug := uniqueSlug(baseSlug, func(s string) bool { return fileExists(r.brandPath(s)) })
+	// Reject duplicate names outright rather than silently creating "my-brand-2".
+	if fileExists(r.brandPath(baseSlug)) {
+		return nil, fmt.Errorf("brand %q already exists", name)
+	}
+	slug := baseSlug
 
 	brandDir := r.brandPath(slug)
 

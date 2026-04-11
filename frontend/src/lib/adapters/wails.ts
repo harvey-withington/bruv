@@ -124,6 +124,24 @@ import {
   ListActivityLog,
   // @ts-ignore — generated after `wails generate` with updated Go code
   ListRecentlyUpdatedCards,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  PickFile,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  PickSaveFile,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  ImportTrelloBoard,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  ImportTrelloBoardFromJSON,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  ExportProjectToFile,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  ListCardComments,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  AddCardComment,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  UpdateCardComment,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  DeleteCardComment,
 } from '../../../wailsjs/go/main/App.js'
 
 export const wailsAdapter: BackendAdapter = {
@@ -148,6 +166,8 @@ export const wailsAdapter: BackendAdapter = {
   OpenRepository,
   CloseRepository,
   PickFolder,
+  PickFile: PickFile as unknown as BackendAdapter['PickFile'],
+  PickSaveFile: PickSaveFile as unknown as BackendAdapter['PickSaveFile'],
   ListRecentRepos,
   RemoveRecentRepo,
   GetRepoDescription,
@@ -313,4 +333,13 @@ export const wailsAdapter: BackendAdapter = {
 
   ListActivityLog: ListActivityLog as unknown as BackendAdapter['ListActivityLog'],
   ListRecentlyUpdatedCards: ListRecentlyUpdatedCards as unknown as BackendAdapter['ListRecentlyUpdatedCards'],
+
+  ListCardComments: ListCardComments as unknown as BackendAdapter['ListCardComments'],
+  AddCardComment: AddCardComment as unknown as BackendAdapter['AddCardComment'],
+  UpdateCardComment: UpdateCardComment as unknown as BackendAdapter['UpdateCardComment'],
+  DeleteCardComment,
+
+  ImportTrelloBoard: ImportTrelloBoard as unknown as BackendAdapter['ImportTrelloBoard'],
+  ImportTrelloBoardFromJSON: ImportTrelloBoardFromJSON as unknown as BackendAdapter['ImportTrelloBoardFromJSON'],
+  ExportProjectToFile: ExportProjectToFile as unknown as BackendAdapter['ExportProjectToFile'],
 }

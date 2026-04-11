@@ -142,10 +142,28 @@ const (
 	BlockImage     = "image"
 	BlockProgress  = "progress"
 	BlockAlarm     = "alarm"
+	BlockSurvey    = "survey"
 
 	// Legacy block types — kept for migration compatibility.
 	BlockVideo = "video"
 )
+
+// Comment is a user- or import-authored comment on a card.
+// Stored separately from the card itself in cards/<cardID>.comments.json,
+// matching the on-disk layout used by chat history.
+type Comment struct {
+	ID        string    `json:"id"`
+	Author    string    `json:"author"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Text      string    `json:"text"`
+}
+
+// CommentFile is the on-disk format for cards/<card-uuid>.comments.json.
+type CommentFile struct {
+	CardID   string    `json:"card_id"`
+	Comments []Comment `json:"comments"`
+}
 
 // FileAttachment is a file attached to a card (card-level, not per-block).
 type FileAttachment struct {

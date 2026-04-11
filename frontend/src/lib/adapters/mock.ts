@@ -218,6 +218,27 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
 
     GetPreferences: async () => ({}),
     SetPreferences: async () => {},
+
+    ListActivityLog: async () => [],
+    ListRecentlyUpdatedCards: async () => [],
+
+    PickFile: async () => '',
+    PickSaveFile: async () => '',
+
+    ListCardComments: async () => [],
+    AddCardComment: async () => ({ id: 'mock', author: 'Test', created_at: '', updated_at: '', text: '' }),
+    UpdateCardComment: async () => ({ id: 'mock', author: 'Test', created_at: '', updated_at: '', text: '' }),
+    DeleteCardComment: async () => {},
+
+    ImportTrelloBoard: async () => ({
+      project_slug: 'mock', project_name: 'Mock', categories: 0, cards: 0,
+      labels: 0, comments: 0, archived: 0, skipped_closed: 0,
+    }),
+    ImportTrelloBoardFromJSON: async () => ({
+      project_slug: 'mock', project_name: 'Mock', categories: 0, cards: 0,
+      labels: 0, comments: 0, archived: 0, skipped_closed: 0,
+    }),
+    ExportProjectToFile: async () => 0,
   }
 
   return { ...base, ...overrides }

@@ -238,3 +238,18 @@ export const SetPreferences = (...args: Parameters<ReturnType<typeof getBackend>
 // Activity & recently updated
 export const ListActivityLog = (...args: Parameters<ReturnType<typeof getBackend>['ListActivityLog']>) => getBackend().ListActivityLog(...args)
 export const ListRecentlyUpdatedCards = (...args: Parameters<ReturnType<typeof getBackend>['ListRecentlyUpdatedCards']>) => getBackend().ListRecentlyUpdatedCards(...args)
+
+// Native dialogs
+export const PickFile = (...args: Parameters<ReturnType<typeof getBackend>['PickFile']>) => getBackend().PickFile(...args)
+export const PickSaveFile = (...args: Parameters<ReturnType<typeof getBackend>['PickSaveFile']>) => getBackend().PickSaveFile(...args)
+
+// Card comments
+export const ListCardComments = (...args: Parameters<ReturnType<typeof getBackend>['ListCardComments']>) => getBackend().ListCardComments(...args)
+export const AddCardComment = (...args: Parameters<ReturnType<typeof getBackend>['AddCardComment']>) => getBackend().AddCardComment(...args)
+export const UpdateCardComment = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardComment']>) => getBackend().UpdateCardComment(...args)
+export const DeleteCardComment = (...args: Parameters<ReturnType<typeof getBackend>['DeleteCardComment']>) => getBackend().DeleteCardComment(...args)
+
+// Import / Export
+export const ImportTrelloBoard = (...args: Parameters<ReturnType<typeof getBackend>['ImportTrelloBoard']>) => getBackend().ImportTrelloBoard(...args)
+export const ImportTrelloBoardFromJSON = (...args: Parameters<ReturnType<typeof getBackend>['ImportTrelloBoardFromJSON']>) => getBackend().ImportTrelloBoardFromJSON(...args)
+export const ExportProjectToFile = (...args: Parameters<ReturnType<typeof getBackend>['ExportProjectToFile']>) => getBackend().ExportProjectToFile(...args)

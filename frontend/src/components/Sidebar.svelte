@@ -2,11 +2,12 @@
   import { onMount } from 'svelte'
   import { nav, board, loadBoard } from '../lib/store.svelte'
   import { CloseRepository, CreateBrand, RenameBrand, UpdateBrandDescription, UpdateBrandIcon, CreateStream, RenameStream, UpdateStreamDescription, UpdateStreamIcon, CreateProject, RenameProject, UpdateProjectDescription, UpdateProjectIcon, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, GetCard, GetCardPins, ListOrphanedCardIDs, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject, GetPreferences, GetRepoDescription, UpdateRepoDescription } from '../lib/api'
-  import { LogOut, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox, Timer, ChevronsUpDown, ChevronsDownUp, Smile } from 'lucide-svelte'
+  import { LogOut, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox, Timer, ChevronsUpDown, ChevronsDownUp, Smile, Upload } from 'lucide-svelte'
   import ThemeToggle from './ThemeToggle.svelte'
   import BruvIcon from './BruvIcon.svelte'
   import DynamicIcon from './DynamicIcon.svelte'
   import IconPicker from './IconPicker.svelte'
+  import ImportTrelloDialog from './ImportTrelloDialog.svelte'
   import { t } from '../lib/i18n.svelte'
   import { renderInline } from '../lib/markdown'
   import { showConfirm } from '../lib/confirm.svelte'
@@ -367,6 +368,22 @@
       renaming = { type: 'project', key: `${brandSlug}/${streamSlug}/${created.slug}`, name: created.name, original: created.name, description: '', originalDescription: '', isCreate: true, brandSlug, streamSlug, projectSlug: created.slug }
       setTimeout(() => { const el = document.querySelector('.rename-input') as HTMLInputElement; el?.scrollIntoView({ block: 'nearest' }); el?.select() }, 0)
     } catch (e) { console.error('CreateProject:', e) }
+  }
+
+  // --- Trello import dialog ---
+  let trelloImportTarget = $state<{ brandSlug: string; streamSlug: string } | null>(null)
+
+  function openTrelloImport(brandSlug: string, streamSlug: string) {
+    trelloImportTarget = { brandSlug, streamSlug }
+  }
+
+  async function handleTrelloImportDone(brandSlug: string, streamSlug: string) {
+    const streamKey = `${brandSlug}/${streamSlug}`
+    projectsByStream[streamKey] = await ListProjects(brandSlug, streamSlug) || []
+    // Expand the brand + stream so the new project is visible immediately.
+    if (!expandedBrands.has(brandSlug)) expandedBrands = new Set([...expandedBrands, brandSlug])
+    if (!expandedStreams.has(streamKey)) expandedStreams = new Set([...expandedStreams, streamKey])
+    trelloImportTarget = null
   }
 
   // --- Unified commit / cancel / edit ---
@@ -924,12 +941,19 @@
                         <div class="drop-indicator" class:copy-mode={isCopyMode}></div>
                       {/if}
 
-                      <button class="add-btn nested" onclick={() => handleCreateProject(brand.slug, stream.slug)} title={t('tooltip.add_project')}
-                        ondragover={(e) => handleDragOverGap(e, 'project', `${brand.slug}/${stream.slug}`, projectsByStream[`${brand.slug}/${stream.slug}`]?.length ?? 0)}
-                        ondrop={handleDrop}
-                      >
-                        {t('sidebar.add_project')}
-                      </button>
+                      <div class="add-btn-row action-reveal-parent">
+                        <button class="add-btn nested" onclick={() => handleCreateProject(brand.slug, stream.slug)} title={t('tooltip.add_project')}
+                          ondragover={(e) => handleDragOverGap(e, 'project', `${brand.slug}/${stream.slug}`, projectsByStream[`${brand.slug}/${stream.slug}`]?.length ?? 0)}
+                          ondrop={handleDrop}
+                        >
+                          {t('sidebar.add_project')}
+                        </button>
+                        <button
+                          class="add-btn-action action-reveal"
+                          onclick={() => openTrelloImport(brand.slug, stream.slug)}
+                          title={t('sidebar.import_trello')}
+                        ><Upload size={12} /></button>
+                      </div>
                     </div>
                   {/if}
                 </div>
@@ -987,6 +1011,15 @@
     value={iconPickerTarget.currentIcon}
     onSelect={handleIconSelect}
     onClose={() => iconPickerTarget = null}
+  />
+{/if}
+
+{#if trelloImportTarget}
+  <ImportTrelloDialog
+    brandSlug={trelloImportTarget.brandSlug}
+    streamSlug={trelloImportTarget.streamSlug}
+    onClose={() => trelloImportTarget = null}
+    onImported={handleTrelloImportDone}
   />
 {/if}
 
@@ -1300,6 +1333,23 @@
   }
   .add-btn.nested {
     padding-left: 2rem;
+  }
+
+  .add-btn-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  .add-btn-row .add-btn {
+    flex: 1;
+  }
+  /* Visibility is driven by the shared .action-reveal utility —
+     transparent by default, revealed on .action-reveal-parent:hover. */
+  .add-btn-action {
+    padding: 0.25rem 0.5rem;
+    margin-right: 0.25rem;
+    display: flex;
+    align-items: center;
   }
 
   .rename-input {

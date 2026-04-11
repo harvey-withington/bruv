@@ -1,0 +1,411 @@
+<script lang="ts">
+  import { X, FileJson, UploadCloud } from 'lucide-svelte'
+  import { t } from '../lib/i18n.svelte'
+  import { focusTrap } from '../lib/actions'
+  import { showToast } from '../lib/toast.svelte'
+  import { PickFile, ImportTrelloBoard, ImportTrelloBoardFromJSON } from '../lib/api'
+  import type { TrelloArchiveMode, TrelloImportResult } from '../lib/types'
+
+  let {
+    brandSlug,
+    streamSlug,
+    onClose,
+    onImported,
+  }: {
+    brandSlug: string
+    streamSlug: string
+    onClose: () => void
+    onImported: (brandSlug: string, streamSlug: string, result: TrelloImportResult) => void
+  } = $props()
+
+  let filePath = $state('')
+  let droppedContent = $state<string | null>(null)
+  let droppedName = $state('')
+  let archiveMode = $state<TrelloArchiveMode>('archive')
+  let importing = $state(false)
+  let errorMsg = $state('')
+  let dragActive = $state(false)
+
+  const ARCHIVE_CHOICES: Array<{ value: TrelloArchiveMode; label: string; hint: string }> = [
+    { value: 'archive', label: t('import.trello.archive.archive'), hint: t('import.trello.archive.archive_hint') },
+    { value: 'skip',    label: t('import.trello.archive.skip'),    hint: t('import.trello.archive.skip_hint') },
+    { value: 'inline',  label: t('import.trello.archive.inline'),  hint: t('import.trello.archive.inline_hint') },
+  ]
+
+  async function pickFile() {
+    try {
+      const path = await PickFile(t('import.trello.choose_file'), 'Trello JSON', '*.json')
+      if (path) {
+        filePath = path
+        droppedContent = null
+        droppedName = ''
+        errorMsg = ''
+      }
+    } catch (e) {
+      console.error('PickFile', e)
+      showToast(t('import.trello.pick_failed'), 'error')
+    }
+  }
+
+  function handleDragOver(e: DragEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    dragActive = true
+  }
+
+  function handleDragLeave(e: DragEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    dragActive = false
+  }
+
+  async function handleDrop(e: DragEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    dragActive = false
+    const file = e.dataTransfer?.files?.[0]
+    if (!file) return
+    if (!file.name.toLowerCase().endsWith('.json')) {
+      errorMsg = t('import.trello.parse_failed')
+      return
+    }
+    try {
+      const text = await file.text()
+      droppedContent = text
+      droppedName = file.name
+      filePath = ''
+      errorMsg = ''
+    } catch (e) {
+      console.error('read dropped file', e)
+      errorMsg = t('import.trello.read_failed')
+    }
+  }
+
+  async function runImport() {
+    if (importing) return
+    if (!filePath && !droppedContent) {
+      errorMsg = t('import.trello.no_file')
+      return
+    }
+    if (!brandSlug || !streamSlug) {
+      errorMsg = t('import.trello.no_target')
+      return
+    }
+    importing = true
+    errorMsg = ''
+    try {
+      let result: TrelloImportResult
+      if (droppedContent) {
+        result = await ImportTrelloBoardFromJSON(brandSlug, streamSlug, droppedContent, archiveMode)
+      } else {
+        result = await ImportTrelloBoard(brandSlug, streamSlug, filePath, archiveMode)
+      }
+      showToast(
+        t('import.trello.success', {
+          project: result.project_name,
+          cards: result.cards,
+          categories: result.categories,
+        }),
+        'success',
+      )
+      onImported(brandSlug, streamSlug, result)
+    } catch (e) {
+      console.error('ImportTrelloBoard', e)
+      const msg = e instanceof Error ? e.message : String(e)
+      errorMsg = msg.includes('trello') || msg.includes('board')
+        ? t('import.trello.parse_failed')
+        : `${t('import.trello.failed')}: ${msg}`
+    } finally {
+      importing = false
+    }
+  }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && !importing) {
+      e.preventDefault()
+      onClose()
+    }
+  }
+
+  const sourceLabel = $derived(
+    droppedContent ? droppedName :
+    filePath || '',
+  )
+</script>
+
+<svelte:window onkeydown={handleKeydown} />
+
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<div class="import-backdrop" role="presentation" onclick={() => !importing && onClose()}>
+  <div class="import-dialog" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} use:focusTrap>
+    <header class="import-header">
+      <FileJson size={16} />
+      <h2 class="import-title">{t('import.trello.title')}</h2>
+      <button class="import-close" onclick={onClose} disabled={importing} title={t('common.close')}>
+        <X size={14} />
+      </button>
+    </header>
+
+    <div class="import-body">
+      <div class="import-field">
+        <span class="import-label">{t('import.trello.source')}</span>
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="import-dropzone"
+          class:active={dragActive}
+          class:has-file={!!sourceLabel}
+          ondragover={handleDragOver}
+          ondragleave={handleDragLeave}
+          ondrop={handleDrop}
+        >
+          <UploadCloud size={20} />
+          {#if sourceLabel}
+            <p class="import-dropzone-file">{sourceLabel}</p>
+          {:else}
+            <p class="import-dropzone-hint">{t('import.trello.drop_hint')}</p>
+          {/if}
+          <button class="import-pick-btn" onclick={pickFile} disabled={importing}>
+            {t('import.trello.choose_file')}
+          </button>
+        </div>
+      </div>
+
+      <div class="import-field">
+        <span class="import-label">{t('import.trello.archive')}</span>
+        <div class="import-archive-choices">
+          {#each ARCHIVE_CHOICES as choice}
+            <label class="import-archive-choice" class:active={archiveMode === choice.value}>
+              <input
+                type="radio"
+                name="archive-mode"
+                value={choice.value}
+                checked={archiveMode === choice.value}
+                onchange={() => archiveMode = choice.value}
+              />
+              <div class="import-archive-text">
+                <span class="import-archive-label">{choice.label}</span>
+                <span class="import-archive-hint">{choice.hint}</span>
+              </div>
+            </label>
+          {/each}
+        </div>
+      </div>
+
+      {#if errorMsg}
+        <p class="import-error">{errorMsg}</p>
+      {/if}
+    </div>
+
+    <footer class="import-footer">
+      <button class="import-cancel" onclick={onClose} disabled={importing}>
+        {t('import.trello.cancel_btn')}
+      </button>
+      <button class="import-submit" onclick={runImport} disabled={importing || (!filePath && !droppedContent)}>
+        {importing ? t('import.trello.importing') : t('import.trello.import_btn')}
+      </button>
+    </footer>
+  </div>
+</div>
+
+<style>
+  .import-backdrop {
+    position: fixed;
+    inset: 0;
+    background: var(--bg-overlay);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 99990;
+  }
+
+  .import-dialog {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    width: min(520px, 90vw);
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.35);
+  }
+
+  .import-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-primary);
+  }
+  .import-title {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    flex: 1;
+  }
+  .import-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    padding: 0.2rem;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+  }
+  .import-close:hover { color: var(--text-primary); background: var(--bg-elevated); }
+  .import-close:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .import-body {
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    overflow-y: auto;
+  }
+
+  .import-field { display: flex; flex-direction: column; gap: 0.35rem; }
+
+  .import-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+  }
+
+  .import-dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 6px;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text-muted);
+    background: var(--bg-elevated);
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .import-dropzone.active {
+    border-color: var(--accent);
+    background: var(--bg-surface);
+  }
+  .import-dropzone.has-file {
+    border-style: solid;
+    border-color: var(--accent);
+  }
+
+  .import-dropzone-hint {
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+  .import-dropzone-file {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    font-weight: 500;
+    word-break: break-all;
+    text-align: center;
+  }
+
+  .import-pick-btn {
+    padding: 0.35rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-surface);
+    color: var(--text-body);
+    font-size: 0.8rem;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .import-pick-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .import-pick-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .import-archive-choices {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+
+  .import-archive-choice {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    background: var(--bg-elevated);
+  }
+  .import-archive-choice:hover { border-color: var(--accent); }
+  .import-archive-choice.active {
+    border-color: var(--accent);
+    background: var(--bg-surface);
+  }
+  .import-archive-choice input[type="radio"] {
+    margin-top: 0.25rem;
+    accent-color: var(--accent);
+  }
+
+  .import-archive-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+  .import-archive-label {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+  .import-archive-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+
+  .import-error {
+    margin: 0;
+    padding: 0.5rem 0.7rem;
+    background: color-mix(in srgb, var(--danger, #e53935) 15%, transparent);
+    border: 1px solid var(--danger, #e53935);
+    color: var(--danger, #e53935);
+    border-radius: 4px;
+    font-size: 0.8rem;
+  }
+
+  .import-footer {
+    padding: 0.75rem 1rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    background: var(--bg-elevated);
+  }
+
+  .import-cancel,
+  .import-submit {
+    padding: 0.4rem 1rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-family: inherit;
+    cursor: pointer;
+    border: 1px solid var(--border);
+  }
+  .import-cancel {
+    background: var(--bg-surface);
+    color: var(--text-body);
+  }
+  .import-cancel:hover { background: var(--bg-elevated); }
+  .import-submit {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  .import-submit:hover:not(:disabled) { filter: brightness(1.1); }
+  .import-cancel:disabled,
+  .import-submit:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+</style>

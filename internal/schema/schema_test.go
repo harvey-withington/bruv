@@ -11,7 +11,7 @@ func TestNewRegistryLoadsBuiltinTypes(t *testing.T) {
 		t.Fatalf("NewRegistry: %v", err)
 	}
 
-	expected := []string{"brainstorm", "episode", "feature", "reference", "task"}
+	expected := []string{"agent", "brainstorm", "episode", "feature", "reference", "task"}
 	types := reg.List()
 
 	if len(types) != len(expected) {

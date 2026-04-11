@@ -3,6 +3,7 @@ package main
 import (
 	"bruv/internal/agent"
 	"bruv/internal/config"
+	"bruv/internal/importer"
 	"bruv/internal/index"
 	"bruv/internal/llm"
 	"bruv/internal/model"
@@ -164,6 +165,35 @@ func (a *App) PickFolder(title string) (string, error) {
 		return "", err
 	}
 	return result, nil
+}
+
+// PickFile opens a native file picker and returns the selected path. The
+// filterPattern is a glob like "*.json" (space-separated for multi); filterName
+// is the human-readable label shown in the dialog's type dropdown.
+func (a *App) PickFile(title, filterName, filterPattern string) (string, error) {
+	opts := wailsRuntime.OpenDialogOptions{Title: title}
+	if filterPattern != "" {
+		opts.Filters = []wailsRuntime.FileFilter{{
+			DisplayName: filterName,
+			Pattern:     filterPattern,
+		}}
+	}
+	return wailsRuntime.OpenFileDialog(a.ctx, opts)
+}
+
+// PickSaveFile opens a native save-file dialog and returns the chosen path.
+func (a *App) PickSaveFile(title, defaultName, filterName, filterPattern string) (string, error) {
+	opts := wailsRuntime.SaveDialogOptions{
+		Title:           title,
+		DefaultFilename: defaultName,
+	}
+	if filterPattern != "" {
+		opts.Filters = []wailsRuntime.FileFilter{{
+			DisplayName: filterName,
+			Pattern:     filterPattern,
+		}}
+	}
+	return wailsRuntime.SaveFileDialog(a.ctx, opts)
 }
 
 // --- Repository Management ---
@@ -6331,4 +6361,133 @@ func (a *App) GetTokenPricing() (map[string]config.ModelPricing, error) {
 // SaveTokenPricing saves custom token pricing overrides.
 func (a *App) SaveTokenPricing(pricing map[string]config.ModelPricing) error {
 	return config.SaveCustomPricing(pricing)
+}
+
+// --- Card Comments ---
+
+// ListCardComments returns all comments attached to a card in chronological order.
+func (a *App) ListCardComments(cardID string) ([]model.Comment, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	cf, err := a.repo.LoadComments(cardID)
+	if err != nil {
+		return nil, err
+	}
+	return cf.Comments, nil
+}
+
+// AddCardComment appends a new comment to a card. The author defaults to the
+// current profile display name when empty.
+func (a *App) AddCardComment(cardID, author, text string) (*model.Comment, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	text = strings.TrimSpace(repo.SanitizeText(text))
+	if text == "" {
+		return nil, fmt.Errorf("comment text cannot be empty")
+	}
+	if author == "" {
+		if profile, err := config.LoadProfile(); err == nil && profile.DisplayName != "" {
+			author = profile.DisplayName
+		} else {
+			author = "You"
+		}
+	}
+	comment, err := a.repo.AddCardComment(cardID, author, text, time.Time{})
+	if err != nil {
+		return nil, err
+	}
+	a.logActivity(cardID, "commented", "")
+	return comment, nil
+}
+
+// UpdateCardComment edits an existing comment's text.
+func (a *App) UpdateCardComment(cardID, commentID, text string) (*model.Comment, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	text = strings.TrimSpace(repo.SanitizeText(text))
+	if text == "" {
+		return nil, fmt.Errorf("comment text cannot be empty")
+	}
+	return a.repo.UpdateCardComment(cardID, commentID, text)
+}
+
+// DeleteCardComment removes a comment by ID.
+func (a *App) DeleteCardComment(cardID, commentID string) error {
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
+	return a.repo.DeleteCardComment(cardID, commentID)
+}
+
+// --- Trello Import ---
+
+// ImportTrelloBoard reads a Trello JSON export from disk and creates a new
+// project under the given brand/stream. archiveMode is one of
+// "skip" | "archive" | "inline" — see importer.ArchiveMode.
+func (a *App) ImportTrelloBoard(brandSlug, streamSlug, filePath, archiveMode string) (*importer.Result, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("read file: %w", err)
+	}
+	return a.importTrelloBytes(brandSlug, streamSlug, data, archiveMode)
+}
+
+// ImportTrelloBoardFromJSON accepts a Trello JSON export as a string payload
+// (useful when the frontend drops a file via FileReader and never has access
+// to the original path).
+func (a *App) ImportTrelloBoardFromJSON(brandSlug, streamSlug, jsonContent, archiveMode string) (*importer.Result, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return a.importTrelloBytes(brandSlug, streamSlug, []byte(jsonContent), archiveMode)
+}
+
+func (a *App) importTrelloBytes(brandSlug, streamSlug string, data []byte, archiveMode string) (*importer.Result, error) {
+	parsed, err := importer.ParseTrelloJSON(data)
+	if err != nil {
+		return nil, err
+	}
+
+	mode := importer.ArchiveSeparate
+	switch strings.ToLower(archiveMode) {
+	case "skip":
+		mode = importer.ArchiveSkip
+	case "inline":
+		mode = importer.ArchiveInline
+	case "", "archive", "separate":
+		mode = importer.ArchiveSeparate
+	}
+
+	result, err := importer.ImportTrello(a.repo, brandSlug, streamSlug, parsed, importer.Options{Archive: mode})
+	if err != nil {
+		return nil, err
+	}
+	if a.idx != nil {
+		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
+	}
+	return result, nil
+}
+
+// --- Project Export ---
+
+// ExportProjectToFile writes a project export to the given absolute path.
+// Returns the byte count of the written file on success.
+func (a *App) ExportProjectToFile(brandSlug, streamSlug, projectSlug, filePath string) (int, error) {
+	if a.repo == nil {
+		return 0, fmt.Errorf("no repository open")
+	}
+	data, err := importer.ExportProject(a.repo, brandSlug, streamSlug, projectSlug)
+	if err != nil {
+		return 0, err
+	}
+	if err := os.WriteFile(filePath, data, 0o644); err != nil {
+		return 0, fmt.Errorf("write export: %w", err)
+	}
+	return len(data), nil
 }

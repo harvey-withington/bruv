@@ -131,6 +131,9 @@ func (r *Repository) DeleteCard(id string) error {
 	// Remove chat file if it exists
 	_ = os.Remove(r.chatFilePath(id))
 
+	// Remove comments file if it exists
+	_ = os.Remove(r.commentsFilePath(id))
+
 	// Remove agent file if it exists
 	_ = os.Remove(r.agentFilePath(id))
 

@@ -67,13 +67,19 @@ The **Tool Permissions** panel in each agent card lets you enable or disable eac
 
 ## Your API keys
 
-When you add an LLM account, your API key is stored in `llm_accounts.json` inside the config directory **in plain text**. This is a known limitation and will be replaced with OS-keychain storage in a future release. In the meantime:
+When you add an LLM account, your API key is stored in the **OS keychain** — Windows Credential Manager on Windows, Keychain on macOS, or libsecret on Linux. The `llm_accounts.json` file on disk stores only the non-secret metadata (provider, model, label) with the `api_key` field blank.
 
-- The file is only readable by your user account (standard OS file permissions)
-- The key never leaves your machine except in the `Authorization` header of requests to the provider you configured it for
-- If you share your config directory (backup, sync tool, etc.), **you are sharing your API keys** — be aware
+- Keys never touch the disk in plaintext on systems with a working keychain.
+- Keys never leave your machine except in the `Authorization` header of requests to the provider you configured them for.
+- You can see BRUV's stored secrets in your OS keychain viewer under the service name **BRUV**.
+- If the OS keychain is unavailable (broken libsecret daemon, locked-down corporate machine), BRUV transparently falls back to storing keys in `llm_accounts.json` with user-only file permissions, exactly as earlier versions did. The goal is to upgrade security when possible, never to lock you out of your own data.
+- If you share your config directory (backup, sync tool, etc.), you are **not** sharing your API keys on a system with a working keychain — the JSON file has nothing sensitive in it. On a fallback-to-plaintext system, you are sharing the keys; be aware.
 
-If you'd rather not store keys on disk at all, configure **Ollama** instead and run models locally.
+If you'd rather not store keys anywhere at all, configure **Ollama** instead and run models locally.
+
+### Migrating from earlier versions
+
+If you're upgrading from a BRUV build that predates Sprint B (the keychain backend), the first launch will automatically move any plaintext API keys out of `llm_accounts.json` and into the OS keychain. The migration is one-way and idempotent — it only rewrites the JSON file if there are plaintext keys left to migrate.
 
 ## How to wipe everything
 

@@ -1,0 +1,164 @@
+# Release pipeline for BRUV.
+#
+# Triggered by pushing a tag that matches v*. Builds the Windows executable
+# and NSIS installer via Wails, stamps the version and build date into the
+# binary via ldflags, (optionally) submits it to SignPath Foundation for
+# code signing, then creates a GitHub Release with the artifact attached.
+#
+# SignPath signing is gated behind a repository secret — the workflow runs
+# signed or unsigned depending on whether SIGNPATH_API_TOKEN is available.
+# This lets us ship unsigned betas today and flip the signing switch when
+# our SignPath Foundation application is approved, with no workflow
+# rewrite required.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Version tag to build (e.g. v1.0b)
+        required: true
+
+jobs:
+  build-windows:
+    name: Build Windows release
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci || npm install
+
+      - name: Build Windows binary
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          # Stamp version + build date into the binary. See app.go for the
+          # var declarations these -X flags override.
+          BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          wails build \
+            -trimpath \
+            -ldflags "-X main.AppVersion=${VERSION} -X main.BuildDate=${BUILD_DATE}"
+
+      - name: Upload unsigned artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bruv-${{ steps.version.outputs.value }}-windows-unsigned
+          path: build/bin/*.exe
+          retention-days: 7
+
+  sign-windows:
+    name: Sign via SignPath Foundation
+    needs: build-windows
+    runs-on: windows-latest
+    # Only run if the SignPath token is configured as a repo secret.
+    # Until our SignPath Foundation application is approved, this job
+    # is skipped automatically and the release ships unsigned.
+    if: ${{ vars.SIGNPATH_ENABLED == 'true' }}
+
+    steps:
+      - name: Download unsigned artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: bruv-${{ needs.build-windows.outputs.version }}-windows-unsigned
+          path: unsigned
+
+      - name: Submit to SignPath
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORG_ID }}
+          project-slug: bruv
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: exe
+          github-artifact-id: bruv-${{ needs.build-windows.outputs.version }}-windows-unsigned
+          wait-for-completion: true
+          output-artifact-directory: signed
+
+      - name: Upload signed artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bruv-${{ needs.build-windows.outputs.version }}-windows-signed
+          path: signed/*.exe
+          retention-days: 30
+
+  release:
+    name: Publish GitHub Release
+    needs: [build-windows, sign-windows]
+    # Always run, even if the signing job was skipped.
+    if: always() && needs.build-windows.result == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download signed artifact
+        if: needs.sign-windows.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: bruv-${{ needs.build-windows.outputs.version }}-windows-signed
+          path: dist
+
+      - name: Download unsigned artifact (fallback)
+        if: needs.sign-windows.result != 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: bruv-${{ needs.build-windows.outputs.version }}-windows-unsigned
+          path: dist
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build-windows.outputs.version }}
+          name: BRUV ${{ needs.build-windows.outputs.version }}
+          draft: true
+          prerelease: ${{ contains(needs.build-windows.outputs.version, 'b') || contains(needs.build-windows.outputs.version, '-') }}
+          files: dist/*
+          body: |
+            ## BRUV ${{ needs.build-windows.outputs.version }}
+
+            <!-- Release notes go here. See plan/backlog.md for the change log. -->
+
+            ### Install
+
+            Download the installer below and run it. Windows SmartScreen may
+            warn you during the beta — see the [README](../README.md#smartscreen-and-signing)
+            for why and how to proceed.
+
+            ### Verify
+
+            The source is MIT-licensed and buildable from a clean checkout.
+            See [CONTRIBUTING.md](../CONTRIBUTING.md) for instructions.

@@ -50,6 +50,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     OpenConfigFolder: async () => {},
     OpenBugReportURL: async () => {},
     MarkLLMNudgeShown: async () => {},
+    CheckForUpdates: async () => ({ status: 'up_to_date' as const, current_version: '0.1.0-test' }),
     HasRepository: async () => true,
     InitRepository: async () => '/tmp/test-repo',
     OpenRepository: async () => {},

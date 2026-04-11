@@ -28,8 +28,10 @@ func llmAccountsPath() (string, error) {
 	return filepath.Join(dir, "llm_accounts.json"), nil
 }
 
-// LoadLLMAccounts reads the accounts list from disk, returning an empty slice if not found.
-func LoadLLMAccounts() ([]LLMAccount, error) {
+// loadRawLLMAccounts reads the JSON file without hydrating keys from the
+// keychain. Used by the migration path, which needs to see the raw disk
+// state before rewriting anything.
+func loadRawLLMAccounts() ([]LLMAccount, error) {
 	path, err := llmAccountsPath()
 	if err != nil {
 		return nil, err
@@ -51,21 +53,109 @@ func LoadLLMAccounts() ([]LLMAccount, error) {
 	return accounts, nil
 }
 
-// SaveLLMAccounts writes the accounts list to disk.
+// LoadLLMAccounts reads the accounts list from disk and hydrates any API
+// keys from the OS keychain. An account whose APIKey is already populated
+// in the JSON (legacy pre-migration state) is returned as-is. An account
+// whose APIKey is empty is looked up in the keychain and filled in if a
+// matching entry exists.
+func LoadLLMAccounts() ([]LLMAccount, error) {
+	accounts, err := loadRawLLMAccounts()
+	if err != nil {
+		return nil, err
+	}
+	for i := range accounts {
+		if accounts[i].APIKey == "" {
+			if secret, err := getKeychainSecret(accounts[i].ID); err == nil && secret != "" {
+				accounts[i].APIKey = secret
+			}
+		}
+	}
+	return accounts, nil
+}
+
+// SaveLLMAccounts writes the accounts list to disk. For each account, the
+// API key is moved into the OS keychain and blanked out of the JSON
+// representation before writing. Accounts that have been removed since
+// the last save have their keychain entries purged.
+//
+// If the OS keychain is unavailable, the code falls back to writing the
+// API key in plaintext exactly as before — the goal is to upgrade
+// security when possible, never to lose data.
+//
 // Enforces exactly one default if the list is non-empty.
 func SaveLLMAccounts(accounts []LLMAccount) error {
 	if len(accounts) > 0 {
 		ensureOneDefault(accounts)
 	}
+
+	// Diff against the previous on-disk state to catch removals. Keychain
+	// entries for accounts that no longer exist in the new list are purged
+	// so we don't accumulate orphaned secrets over time.
+	previous, _ := loadRawLLMAccounts()
+	newIDs := make(map[string]bool, len(accounts))
+	for _, a := range accounts {
+		newIDs[a.ID] = true
+	}
+	for _, old := range previous {
+		if !newIDs[old.ID] {
+			deleteKeychainSecret(old.ID)
+		}
+	}
+
+	// Build the JSON-facing copy. Each account's key is stored in the
+	// keychain if possible; if that fails we keep the plaintext APIKey so
+	// the account stays functional.
+	jsonAccounts := make([]LLMAccount, len(accounts))
+	for i, a := range accounts {
+		jsonAccounts[i] = a
+		if a.APIKey != "" {
+			if err := storeKeychainSecret(a.ID, a.APIKey); err == nil {
+				jsonAccounts[i].APIKey = ""
+			}
+		}
+	}
+
 	path, err := llmAccountsPath()
 	if err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(accounts, "", "  ")
+	data, err := json.MarshalIndent(jsonAccounts, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(path, data, 0o600)
+}
+
+// MigrateLLMKeysToKeychain moves any plaintext API keys from llm_accounts.json
+// into the OS keychain. Idempotent and safe to call on every startup: if
+// the keychain is unavailable it's a no-op, and if no plaintext keys are
+// present the file is not rewritten.
+//
+// This is the one-way upgrade path for users who installed BRUV before
+// the keychain backend existed. Once a user's keys have been migrated,
+// subsequent saves keep them in the keychain automatically via the
+// normal SaveLLMAccounts path.
+func MigrateLLMKeysToKeychain() error {
+	if !KeychainAvailable() {
+		return nil
+	}
+	accounts, err := loadRawLLMAccounts()
+	if err != nil || len(accounts) == 0 {
+		return err
+	}
+	needsRewrite := false
+	for _, a := range accounts {
+		if a.APIKey != "" {
+			needsRewrite = true
+			break
+		}
+	}
+	if !needsRewrite {
+		return nil
+	}
+	// Re-save through the normal path, which moves keys into the keychain
+	// and blanks them out of the JSON.
+	return SaveLLMAccounts(accounts)
 }
 
 // GetDefaultAccount returns the default account, or nil if none.

@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { X, Github, Bug, FolderOpen, Heart } from 'lucide-svelte'
+  import { X, Github, Bug, FolderOpen, Heart, RefreshCw, CircleCheck, CircleAlert, Download } from 'lucide-svelte'
   import { onMount } from 'svelte'
   import { t } from '../lib/i18n.svelte'
-  import { GetBuildInfo, OpenConfigFolder, OpenBugReportURL } from '../lib/api'
-  import type { BuildInfo } from '../lib/types'
+  import { GetBuildInfo, OpenConfigFolder, OpenBugReportURL, CheckForUpdates } from '../lib/api'
+  import type { BuildInfo, UpdateCheckResult } from '../lib/types'
   import { draggable } from '../lib/draggable'
   import { focusTrap } from '../lib/actions'
   import { showToast } from '../lib/toast.svelte'
@@ -11,6 +11,26 @@
   let { onClose }: { onClose: () => void } = $props()
 
   let info = $state<BuildInfo | null>(null)
+  let updateResult = $state<UpdateCheckResult | null>(null)
+  let checkingUpdates = $state(false)
+
+  async function checkForUpdates() {
+    checkingUpdates = true
+    updateResult = null
+    try {
+      updateResult = await CheckForUpdates()
+    } catch (e) {
+      updateResult = { status: 'error', current_version: info?.version ?? '', error: String(e) }
+    } finally {
+      checkingUpdates = false
+    }
+  }
+
+  function openReleaseURL() {
+    if (updateResult?.release_url) {
+      window.open(updateResult.release_url, '_blank', 'noopener')
+    }
+  }
 
   onMount(async () => {
     try {
@@ -95,6 +115,10 @@
       {/if}
 
       <div class="actions">
+        <button type="button" class="action-btn" onclick={checkForUpdates} disabled={checkingUpdates}>
+          <RefreshCw size={16} class={checkingUpdates ? 'spinning' : ''} />
+          <span>{checkingUpdates ? t('about.checking_updates') : t('about.check_updates')}</span>
+        </button>
         <button type="button" class="action-btn" onclick={openRepo}>
           <Github size={16} />
           <span>{t('about.view_source')}</span>
@@ -108,6 +132,40 @@
           <span>{t('about.report_bug')}</span>
         </button>
       </div>
+
+      {#if updateResult}
+        <div class="update-result update-{updateResult.status}">
+          {#if updateResult.status === 'up_to_date'}
+            <CircleCheck size={16} />
+            <div class="update-body">
+              <p class="update-headline">{t('about.update_up_to_date')}</p>
+              <p class="update-sub">{t('about.update_up_to_date_sub', { version: updateResult.current_version })}</p>
+            </div>
+          {:else if updateResult.status === 'update_available'}
+            <Download size={16} />
+            <div class="update-body">
+              <p class="update-headline">{t('about.update_available', { version: updateResult.latest_version ?? '' })}</p>
+              <p class="update-sub">{t('about.update_current', { version: updateResult.current_version })}</p>
+              {#if updateResult.release_notes}
+                <details class="update-notes">
+                  <summary>{t('about.update_release_notes')}</summary>
+                  <pre class="release-notes-body">{updateResult.release_notes}</pre>
+                </details>
+              {/if}
+              <button type="button" class="update-download-btn" onclick={openReleaseURL}>
+                <Download size={14} />
+                <span>{t('about.update_download')}</span>
+              </button>
+            </div>
+          {:else}
+            <CircleAlert size={16} />
+            <div class="update-body">
+              <p class="update-headline">{t('about.update_error')}</p>
+              <p class="update-sub">{updateResult.error ?? ''}</p>
+            </div>
+          {/if}
+        </div>
+      {/if}
 
       <p class="credit">
         {t('about.made_with')}
@@ -305,5 +363,101 @@
 
   .license :global(a:hover) {
     text-decoration: underline;
+  }
+
+  .action-btn :global(.spinning) {
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .update-result {
+    display: flex;
+    gap: 0.6rem;
+    padding: 0.7rem 0.9rem;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+    border: 1px solid var(--border);
+    align-items: flex-start;
+  }
+
+  .update-result.update-up_to_date {
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+    color: var(--text-primary);
+  }
+
+  .update-result.update-update_available {
+    background: color-mix(in srgb, #f59e0b 10%, transparent);
+    border-color: color-mix(in srgb, #f59e0b 40%, var(--border));
+    color: var(--text-primary);
+  }
+
+  .update-result.update-error {
+    background: color-mix(in srgb, #ef4444 10%, transparent);
+    border-color: color-mix(in srgb, #ef4444 40%, var(--border));
+    color: var(--text-primary);
+  }
+
+  .update-body {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .update-headline {
+    margin: 0 0 0.2rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+
+  .update-sub {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+
+  .update-notes {
+    margin-top: 0.5rem;
+  }
+
+  .update-notes summary {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .release-notes-body {
+    margin: 0.4rem 0 0;
+    max-height: 120px;
+    overflow-y: auto;
+    padding: 0.5rem 0.6rem;
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.72rem;
+    font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .update-download-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.55rem;
+    padding: 0.4rem 0.75rem;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 0.78rem;
+    cursor: pointer;
+  }
+
+  .update-download-btn:hover {
+    filter: brightness(1.1);
   }
 </style>

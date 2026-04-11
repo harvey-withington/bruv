@@ -10,6 +10,7 @@ import (
 	"bruv/internal/notify"
 	"bruv/internal/repo"
 	"bruv/internal/schema"
+	"bruv/internal/update"
 	"context"
 	"fmt"
 	"log"
@@ -89,6 +90,13 @@ func (a *App) startup(ctx context.Context) {
 
 	// Migrate legacy single-provider config to multi-account
 	_ = config.MigrateLegacyLLMConfig()
+
+	// Upgrade any plaintext LLM API keys into the OS keychain. Idempotent
+	// and safe on every startup — no-op if keys are already migrated or
+	// the keychain is unavailable.
+	if err := config.MigrateLLMKeysToKeychain(); err != nil {
+		log.Printf("warning: LLM keychain migration failed: %v", err)
+	}
 }
 
 // domReady is called after the frontend DOM is ready.
@@ -241,6 +249,14 @@ func (a *App) OpenBugReportURL() error {
 
 	wailsRuntime.BrowserOpenURL(a.ctx, fullURL)
 	return nil
+}
+
+// CheckForUpdates queries GitHub Releases for the latest BRUV version and
+// returns a Result the frontend can render. This is intentionally a manual
+// check triggered by the About dialog, not a background poller — the app
+// never phones home on its own.
+func (a *App) CheckForUpdates() update.Result {
+	return update.Check(AppVersion)
 }
 
 // MarkLLMNudgeShown persists a flag so the first-run LLM-configuration

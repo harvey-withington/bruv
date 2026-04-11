@@ -67,11 +67,13 @@ This isn't a workaround — it's the honest cost of running an unfunded OSS proj
 
 ## Platform status
 
-| Platform | Status |
-|---|---|
-| Windows 10 / 11 | ✅ Supported — public beta |
-| macOS | ❌ Not yet. Apple's developer program is $99/year, which doesn't fit the no-recurring-costs model of this beta. Deferred until sponsorship or paid-tier funding covers it. |
-| Linux | ❌ Not tested. Wails supports it in principle; no one has smoke-tested a BRUV build on Linux yet. If you'd like to help, open an issue. |
+| Platform | Build | Installer | Tray | Notes |
+|---|---|---|---|---|
+| Windows 10 / 11 | ✅ | ✅ NSIS | ✅ | Primary release target. Public beta. |
+| Linux | ✅ | ⚠️ none | ❌ | Backend cross-compiles cleanly; CI smoke-tests every push. No official installer or tray support yet — build from source if you want to try it. Contributions welcome. |
+| macOS | ✅ | ❌ | ❌ | Backend cross-compiles and CI smoke-tests every push. No code-signed release because Apple's developer program is $99/year, which doesn't fit the no-recurring-costs model of this beta. Deferred until sponsorship or paid-tier funding covers it. |
+
+The tray icon is a Windows-only feature for now. On macOS and Linux, BRUV runs as a normal windowed app — the agent scheduler and all other features work identically.
 
 ## Support the project
 

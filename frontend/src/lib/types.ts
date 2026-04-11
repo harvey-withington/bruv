@@ -378,6 +378,16 @@ export interface BuildInfo {
   go_version: string
 }
 
+export interface UpdateCheckResult {
+  status: 'up_to_date' | 'update_available' | 'error'
+  current_version: string
+  latest_version?: string
+  release_url?: string
+  release_notes?: string
+  published_at?: string
+  error?: string
+}
+
 export interface BackendAdapter {
   // Capabilities
   getCapabilities(): BackendCapabilities
@@ -403,6 +413,7 @@ export interface BackendAdapter {
   OpenConfigFolder(): Promise<void>
   OpenBugReportURL(): Promise<void>
   MarkLLMNudgeShown(): Promise<void>
+  CheckForUpdates(): Promise<UpdateCheckResult>
   HasRepository(): Promise<boolean>
   InitRepository(basePath: string, name: string): Promise<string>
   OpenRepository(id: string): Promise<void>

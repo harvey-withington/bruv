@@ -12,6 +12,8 @@ import {
   // @ts-ignore — generated after `wails generate` with updated Go code
   MarkLLMNudgeShown,
   // @ts-ignore — generated after `wails generate` with updated Go code
+  CheckForUpdates,
+  // @ts-ignore — generated after `wails generate` with updated Go code
   GetRepoDescription,
   // @ts-ignore — generated after `wails generate` with updated Go code
   UpdateRepoDescription,
@@ -173,6 +175,7 @@ export const wailsAdapter: BackendAdapter = {
   OpenConfigFolder: OpenConfigFolder as unknown as BackendAdapter['OpenConfigFolder'],
   OpenBugReportURL: OpenBugReportURL as unknown as BackendAdapter['OpenBugReportURL'],
   MarkLLMNudgeShown: MarkLLMNudgeShown as unknown as BackendAdapter['MarkLLMNudgeShown'],
+  CheckForUpdates: CheckForUpdates as unknown as BackendAdapter['CheckForUpdates'],
   HasRepository,
   InitRepository,
   OpenRepository,

@@ -2,7 +2,7 @@
 
 import { getBackend } from './adapters'
 
-export type { UserProfile, AuthInfo, LLMConfig, LLMAccount, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard, AgentConfig, AgentRun, AgentFile, AgentStatus, AgentSummary, AgentRunEntry, AgentAnalytics, AppNotification, NotifyConfig, ModelPricing, BuildInfo } from './types'
+export type { UserProfile, AuthInfo, LLMConfig, LLMAccount, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard, AgentConfig, AgentRun, AgentFile, AgentStatus, AgentSummary, AgentRunEntry, AgentAnalytics, AppNotification, NotifyConfig, ModelPricing, BuildInfo, UpdateCheckResult } from './types'
 
 // Capabilities
 export const getCapabilities = () => getBackend().getCapabilities()
@@ -28,6 +28,7 @@ export const GetBuildInfo = () => getBackend().GetBuildInfo()
 export const OpenConfigFolder = () => getBackend().OpenConfigFolder()
 export const OpenBugReportURL = () => getBackend().OpenBugReportURL()
 export const MarkLLMNudgeShown = () => getBackend().MarkLLMNudgeShown()
+export const CheckForUpdates = () => getBackend().CheckForUpdates()
 export const HasRepository = () => getBackend().HasRepository()
 export const InitRepository = (...args: Parameters<ReturnType<typeof getBackend>['InitRepository']>) => getBackend().InitRepository(...args)
 export const OpenRepository = (...args: Parameters<ReturnType<typeof getBackend>['OpenRepository']>) => getBackend().OpenRepository(...args)

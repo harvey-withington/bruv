@@ -1981,13 +1981,22 @@ func (a *App) ensureMissingBuiltinTemplates(store *config.UserTypeStore) bool {
 }
 
 // ListCardTypes returns all card types (built-in first, then user-defined).
+//
+// Called early in the frontend boot sequence (from loadCardTypes() in
+// App.svelte) — often BEFORE tryReopenLastRepo() has finished, so a.repo
+// may be nil. In that case we fall back to returning only the built-ins
+// so the UI has something to render; as soon as a repo opens the
+// frontend re-fetches and picks up the user-defined types.
 func (a *App) ListCardTypes() []CardTypeInfo {
-	store, _ := a.repo.LoadUserTypeStore()
-	dirty := a.ensureSeeded(&store)
-	dirty = a.ensureStarterTemplates(&store) || dirty
-	dirty = a.ensureMissingBuiltinTemplates(&store) || dirty
-	if dirty {
-		_ = a.repo.SaveUserTypeStore(store)
+	var store config.UserTypeStore
+	if a.repo != nil {
+		store, _ = a.repo.LoadUserTypeStore()
+		dirty := a.ensureSeeded(&store)
+		dirty = a.ensureStarterTemplates(&store) || dirty
+		dirty = a.ensureMissingBuiltinTemplates(&store) || dirty
+		if dirty {
+			_ = a.repo.SaveUserTypeStore(store)
+		}
 	}
 
 	result := make([]CardTypeInfo, 0, len(builtinTypes)+len(store.Types))
@@ -2046,8 +2055,13 @@ func (a *App) applyTypeBlocks(cardID, cardType string) {
 }
 
 // resolveTemplateBlocks returns the template/schema blocks for a card type.
+// Safe to call with a.repo nil — falls through to the built-in schema
+// registry, which is always available.
 func (a *App) resolveTemplateBlocks(cardType string) []model.Block {
-	store, _ := a.repo.LoadUserTypeStore()
+	var store config.UserTypeStore
+	if a.repo != nil {
+		store, _ = a.repo.LoadUserTypeStore()
+	}
 
 	// Priority 1: user-defined type template
 	for _, ut := range store.Types {
@@ -2187,6 +2201,9 @@ func (a *App) CreateUserCardType(label, color, description, aiHint, templateID s
 	if label == "" {
 		return config.UserCardType{}, fmt.Errorf("label is required")
 	}
+	if a.repo == nil {
+		return config.UserCardType{}, fmt.Errorf("no repository open")
+	}
 	store, err := a.repo.LoadUserTypeStore()
 	if err != nil {
 		return config.UserCardType{}, err
@@ -2210,6 +2227,9 @@ func (a *App) CreateUserCardType(label, color, description, aiHint, templateID s
 
 // UpdateUserCardType updates an existing user-defined card type by ID.
 func (a *App) UpdateUserCardType(id, label, color, description, aiHint, templateID string) (config.UserCardType, error) {
+	if a.repo == nil {
+		return config.UserCardType{}, fmt.Errorf("no repository open")
+	}
 	store, err := a.repo.LoadUserTypeStore()
 	if err != nil {
 		return config.UserCardType{}, err
@@ -2229,6 +2249,9 @@ func (a *App) UpdateUserCardType(id, label, color, description, aiHint, template
 
 // UpdateUserCardTypeIcon sets or clears the icon on a user-defined card type.
 func (a *App) UpdateUserCardTypeIcon(id, icon string) (config.UserCardType, error) {
+	if a.repo == nil {
+		return config.UserCardType{}, fmt.Errorf("no repository open")
+	}
 	store, err := a.repo.LoadUserTypeStore()
 	if err != nil {
 		return config.UserCardType{}, err
@@ -2244,6 +2267,9 @@ func (a *App) UpdateUserCardTypeIcon(id, icon string) (config.UserCardType, erro
 
 // DeleteUserCardType removes a user-defined card type by ID.
 func (a *App) DeleteUserCardType(id string) error {
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
 	store, err := a.repo.LoadUserTypeStore()
 	if err != nil {
 		return err
@@ -2269,6 +2295,9 @@ func (a *App) UpdateBuiltinCardType(id, color, templateID string) error {
 	if !isBuiltin {
 		return fmt.Errorf("card type %q is not a built-in type", id)
 	}
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
 	store, err := a.repo.LoadUserTypeStore()
 	if err != nil {
 		return err
@@ -2284,7 +2313,12 @@ func (a *App) UpdateBuiltinCardType(id, color, templateID string) error {
 }
 
 // ListCardTemplates returns all user-defined card templates.
+// Safe to call before a repo is open — returns an empty list so the
+// frontend's early-boot loadCardTypes() call doesn't nil-panic.
 func (a *App) ListCardTemplates() ([]config.CardTemplate, error) {
+	if a.repo == nil {
+		return []config.CardTemplate{}, nil
+	}
 	store, err := a.repo.LoadUserTypeStore()
 	if err != nil {
 		return nil, err
@@ -2299,6 +2333,9 @@ func (a *App) ListCardTemplates() ([]config.CardTemplate, error) {
 func (a *App) CreateCardTemplate(name string, blocks []model.Block) (config.CardTemplate, error) {
 	if name == "" {
 		return config.CardTemplate{}, fmt.Errorf("name is required")
+	}
+	if a.repo == nil {
+		return config.CardTemplate{}, fmt.Errorf("no repository open")
 	}
 	store, err := a.repo.LoadUserTypeStore()
 	if err != nil {
@@ -2315,6 +2352,9 @@ func (a *App) CreateCardTemplate(name string, blocks []model.Block) (config.Card
 
 // UpdateCardTemplate updates an existing card template by ID.
 func (a *App) UpdateCardTemplate(id, name string, blocks []model.Block) (config.CardTemplate, error) {
+	if a.repo == nil {
+		return config.CardTemplate{}, fmt.Errorf("no repository open")
+	}
 	store, err := a.repo.LoadUserTypeStore()
 	if err != nil {
 		return config.CardTemplate{}, err
@@ -2331,6 +2371,9 @@ func (a *App) UpdateCardTemplate(id, name string, blocks []model.Block) (config.
 
 // DeleteCardTemplate removes a card template by ID.
 func (a *App) DeleteCardTemplate(id string) error {
+	if a.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
 	store, err := a.repo.LoadUserTypeStore()
 	if err != nil {
 		return err
@@ -5426,7 +5469,10 @@ func (a *App) stageToolCall(tc llm.ToolCall, allCats []CategoryPath) (string, []
 		cardType, _ := tc.Arguments["card_type"].(string)
 		fakeResult := "Card type will be set to " + cardType + "."
 		var previewBlocks []model.Block
-		store, _ := a.repo.LoadUserTypeStore()
+		var store config.UserTypeStore
+		if a.repo != nil {
+			store, _ = a.repo.LoadUserTypeStore()
+		}
 		for _, ut := range store.Types {
 			if ut.ID == cardType && ut.TemplateID != "" {
 				for _, tmpl := range store.Templates {

@@ -11,6 +11,7 @@
     onUpdate: (value: number | null) => void
   } = $props()
 
+  // svelte-ignore state_referenced_locally
   let localValue = $state(value ?? 0)
   let debounceTimer: ReturnType<typeof setTimeout> | null = null
 

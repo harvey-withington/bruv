@@ -13,8 +13,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -26,7 +29,26 @@ import (
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const AppVersion = "0.1.0-dev"
+// AppVersion is the user-facing release version. Overridable at build
+// time via -ldflags "-X main.AppVersion=v1.0b" so releases don't require
+// a source edit.
+var AppVersion = "v1.0b-dev"
+
+// BuildDate is stamped at build time via -ldflags "-X main.BuildDate=...".
+// Defaults to "development" for local dev builds.
+var BuildDate = "development"
+
+// BugReportURL is the GitHub issues page used by the "Report a bug" action.
+const BugReportURL = "https://github.com/harvey-withington/bruv/issues/new"
+
+// BuildInfo is returned to the frontend for the About dialog.
+type BuildInfo struct {
+	Version   string `json:"version"`
+	BuildDate string `json:"build_date"`
+	OS        string `json:"os"`
+	Arch      string `json:"arch"`
+	GoVersion string `json:"go_version"`
+}
 
 // App struct
 type App struct {
@@ -154,6 +176,84 @@ func (a *App) beforeClose(ctx context.Context) bool {
 // Version returns the current application version
 func (a *App) Version() string {
 	return AppVersion
+}
+
+// GetBuildInfo returns full version and build metadata for the About dialog.
+func (a *App) GetBuildInfo() BuildInfo {
+	return BuildInfo{
+		Version:   AppVersion,
+		BuildDate: BuildDate,
+		OS:        runtime.GOOS,
+		Arch:      runtime.GOARCH,
+		GoVersion: runtime.Version(),
+	}
+}
+
+// OpenConfigFolder opens the BRUV config directory in the user's native file
+// manager. Users call this via About → Open config folder to find logs, back
+// up their data, or inspect the JSON files BRUV stores.
+func (a *App) OpenConfigFolder() error {
+	dir, err := config.ConfigDir()
+	if err != nil {
+		return fmt.Errorf("resolve config dir: %w", err)
+	}
+	switch runtime.GOOS {
+	case "windows":
+		return exec.Command("explorer", dir).Start()
+	case "darwin":
+		return exec.Command("open", dir).Start()
+	default:
+		return exec.Command("xdg-open", dir).Start()
+	}
+}
+
+// OpenBugReportURL opens a pre-filled GitHub issue in the user's default
+// browser with version and OS information baked into the body so users
+// don't have to hunt for it when filing bugs.
+func (a *App) OpenBugReportURL() error {
+	info := a.GetBuildInfo()
+	body := fmt.Sprintf(`## What happened
+
+<!-- Describe the bug -->
+
+## What you expected
+
+<!-- What should have happened instead -->
+
+## Steps to reproduce
+
+1.
+2.
+3.
+
+---
+
+**BRUV version:** %s
+**Build date:** %s
+**OS:** %s/%s
+**Go version:** %s
+`, info.Version, info.BuildDate, info.OS, info.Arch, info.GoVersion)
+
+	params := url.Values{}
+	params.Set("body", body)
+	params.Set("labels", "bug")
+	fullURL := BugReportURL + "?" + params.Encode()
+
+	wailsRuntime.BrowserOpenURL(a.ctx, fullURL)
+	return nil
+}
+
+// MarkLLMNudgeShown persists a flag so the first-run LLM-configuration
+// nudge only fires once per install. Intentionally writes via the
+// existing Preferences store so it survives across restarts but resets
+// when the user wipes their config directory (desired behaviour).
+func (a *App) MarkLLMNudgeShown() error {
+	p, err := config.LoadPreferences()
+	if err != nil {
+		return err
+	}
+	p.LLMNudgeShown = true
+	return config.SavePreferences(p)
 }
 
 // PickFolder opens a native folder picker dialog and returns the selected path.

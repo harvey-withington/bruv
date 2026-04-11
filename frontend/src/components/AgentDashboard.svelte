@@ -130,8 +130,10 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div class="dashboard-overlay" onclick={onClose} onkeydown={(e) => e.key === 'Escape' && onClose()}>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div class="dashboard-panel" onclick={(e) => e.stopPropagation()}>
     <div class="dashboard-header">
       <div class="header-left">
@@ -183,6 +185,7 @@
         </div>
         {#each agents as agent}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
           <div
             class="table-row"
             class:disabled={!agent.enabled}

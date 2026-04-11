@@ -53,6 +53,7 @@
   let card = $state<Card | null>(null)
   let loading = $state(true)
   let pinBreadcrumbs = $state<CardPin[]>([])
+  // svelte-ignore state_referenced_locally
   let acceptedTypes = $state<string[] | undefined>(categoryAcceptedTypes)
   let hasAgent = $state(false)
   let showPinPicker = $state(false)
@@ -62,6 +63,7 @@
   let showOtherPins = $state(false)
   const CHAT_VISIBLE_KEY = 'bruv:chatPanelVisible'
   let showChat = $state(localStorage.getItem(CHAT_VISIBLE_KEY) === 'true')
+  // svelte-ignore state_referenced_locally
   let activeTab = $state<'details' | 'agent' | 'runs'>(initialTab ?? 'details')
   $effect(() => { localStorage.setItem(CHAT_VISIBLE_KEY, String(showChat)) })
 
@@ -1075,7 +1077,8 @@
             onblur={saveTitle}
           />
         {:else}
-          <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_noninteractive_tabindex -->
+          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
         <h2 class="modal-title" tabindex="0" onclick={() => { editingTitle = true }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editingTitle = true } }} title={t('tooltip.edit_title')}>
             {@html renderInline(card.title)}
           </h2>
@@ -1255,16 +1258,17 @@
               {/if}
 
               <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
               <div
                 class="block-wrapper"
                 class:block-collapsed={collapsedBlocks.has(block.id)}
-                role="listitem"
                 class:block-dragging={draggingBlockIdx === blockIdx}
                 ondragover={(e) => handleBlockDragOver(e, blockIdx)}
                 onkeydown={(e) => handleBlockKeydown(e, blockIdx)}
                 data-block-id={block.id}
               >
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
                 <div
                   class="block-drag-handle"
                   role="presentation"
@@ -1822,8 +1826,9 @@
   .btn-other-pins.expanded { color: var(--text-body); }
   .btn-other-pins:disabled { opacity: 0.5; cursor: default; }
 
-  /* Inbox / summary label */
-  .location-inbox {
+  /* Inbox / summary label (unused but kept for potential re-enable) */
+  /* svelte-ignore css_unused_selector */
+  :global(.location-inbox) {
     display: flex;
     align-items: center;
     gap: 0.3rem;
@@ -2416,9 +2421,7 @@
     outline-offset: 2px;
   }
 
-  .block-wrapper.block-collapsed .block-content {
-    /* Collapsed: only show the header */
-  }
+  /* Collapsed blocks only show the header (rule handled by .block-collapsed visibility below) */
 
   .block-wrapper.block-dragging {
     opacity: 0.35;

@@ -17,7 +17,10 @@
     onClose: () => void
   } = $props()
 
+  // Form state seeded once from the incoming `template` prop; saved via onSave.
+  /* svelte-ignore state_referenced_locally */
   let name = $state(template?.name ?? '')
+  /* svelte-ignore state_referenced_locally */
   let blocks = $state<Block[]>(template?.blocks ? JSON.parse(JSON.stringify(template.blocks)) : [])
   let saving = $state(false)
 
@@ -55,6 +58,7 @@
     return (PREPOPULABLE_TYPES as readonly string[]).includes(type)
   }
 
+  /* svelte-ignore state_referenced_locally */
   let prePopulate = $state<Record<string, boolean>>(
     Object.fromEntries(
       (template?.blocks ?? [])
@@ -274,7 +278,7 @@
 
     <div class="dialog-body">
       <div class="field-row">
-        <label class="field-label">{t('template_editor.name')}</label>
+        <span class="field-label">{t('template_editor.name')}</span>
         <input
           class="field-input"
           bind:value={name}
@@ -668,7 +672,7 @@
   }
   .prepopulate-textarea:focus { outline: none; border-color: var(--accent); }
 
-  .add-block-wrap { }
+
   .add-block-btn {
     display: flex;
     align-items: center;

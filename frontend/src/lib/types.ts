@@ -370,6 +370,14 @@ export type BackendEvent =
 export type EventCallback = (event: BackendEvent) => void
 
 // --- Backend adapter interface ---
+export interface BuildInfo {
+  version: string
+  build_date: string
+  os: string
+  arch: string
+  go_version: string
+}
+
 export interface BackendAdapter {
   // Capabilities
   getCapabilities(): BackendCapabilities
@@ -391,6 +399,10 @@ export interface BackendAdapter {
 
   // Repository / workspace management
   Version(): Promise<string>
+  GetBuildInfo(): Promise<BuildInfo>
+  OpenConfigFolder(): Promise<void>
+  OpenBugReportURL(): Promise<void>
+  MarkLLMNudgeShown(): Promise<void>
   HasRepository(): Promise<boolean>
   InitRepository(basePath: string, name: string): Promise<string>
   OpenRepository(id: string): Promise<void>

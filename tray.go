@@ -4,6 +4,7 @@ import (
 	"bruv/internal/config"
 	_ "embed"
 	"fmt"
+	"log"
 	"runtime"
 
 	"github.com/energye/systray"
@@ -83,6 +84,26 @@ func (a *App) setupTray() {
 					} else {
 						mPause.Check()
 						a.PauseAllAgents()
+					}
+				}()
+			})
+
+			systray.AddSeparator()
+
+			mConfig := systray.AddMenuItem("Open Config Folder", "Open BRUV's config directory in Explorer")
+			mConfig.Click(func() {
+				go func() {
+					if err := a.OpenConfigFolder(); err != nil {
+						log.Printf("tray: open config folder failed: %v", err)
+					}
+				}()
+			})
+
+			mBug := systray.AddMenuItem("Report a Bug", "Open a pre-filled GitHub issue in your browser")
+			mBug.Click(func() {
+				go func() {
+					if err := a.OpenBugReportURL(); err != nil {
+						log.Printf("tray: open bug report failed: %v", err)
 					}
 				}()
 			})

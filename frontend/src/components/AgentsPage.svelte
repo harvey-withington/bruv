@@ -278,6 +278,7 @@
               </div>
               {#each agents as agent}
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <div
                   class="table-row"
                   class:disabled={!agent.enabled}
@@ -312,6 +313,7 @@
                   <span class="col-next-run">{formatRelative(agent.next_run_at)}</span>
                   <span class="col-tokens">{agent.last_run_tokens ? agent.last_run_tokens.toLocaleString() : '-'}</span>
                   <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
                   <span class="col-actions" onclick={(e) => e.stopPropagation()}>
                     {#if agent.is_running}
                       <button class="action-btn action-cancel" onclick={() => cancelAgent(agent.card_id)} title={t('agent.cancel')}>
@@ -390,6 +392,7 @@
                 <div class="breakdown-list">
                   {#each tokensByAgent() as agent}
                     <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
                     <div class="breakdown-row" onclick={() => onCardClick(agent.id)}>
                       <span class="breakdown-title">{agent.title}</span>
                       <span class="breakdown-runs">{agent.runs} runs</span>
@@ -449,6 +452,7 @@
             </div>
             {#each runs as run}
               <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
               <div class="run-row" onclick={() => onCardClick(run.card_id)}>
                 <span class="rh-status run-status-icon" style="color: {statusColor(run.status === 'success' ? 'idle' : run.status === 'failure' ? 'failed' : 'disabled')}">
                   {#each [runStatusIcon(run.status)] as RunIcon}

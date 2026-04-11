@@ -16,8 +16,13 @@
     { url: '', caption: '' }
   )
 
+  // Draft state seeded once from the incoming value. The edit flow writes
+  // back through onUpdate, so drafts don't need to track prop changes.
+  // svelte-ignore state_referenced_locally
   let editing = $state(!imgData.url)
+  // svelte-ignore state_referenced_locally
   let urlDraft = $state(imgData.url)
+  // svelte-ignore state_referenced_locally
   let captionDraft = $state(imgData.caption || '')
 
   function save() {
@@ -48,6 +53,7 @@
     </div>
   {:else}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div class="image-display" onclick={() => { urlDraft = imgData.url; captionDraft = imgData.caption || ''; editing = true }}>
       <img src={imgData.url} alt={imgData.caption || ''} class="block-image" />
       {#if imgData.caption}
@@ -58,7 +64,6 @@
 </div>
 
 <style>
-  .image-block { }
   .image-edit { display: flex; flex-direction: column; gap: 6px; }
   .image-url-input, .image-caption-input {
     padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;

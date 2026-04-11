@@ -23,14 +23,23 @@
     '#e11d48', '#84cc16',
   ]
 
+  // Form state seeded once from the incoming `type` prop; saved via onSave.
+  // The editor is remounted per-open, so one-time capture is intentional.
+  /* svelte-ignore state_referenced_locally */
   let label = $state(type?.label ?? '')
+  /* svelte-ignore state_referenced_locally */
   let color = $state(type?.color ?? TYPE_PALETTE[0])
+  /* svelte-ignore state_referenced_locally */
   let icon = $state(type?.icon ?? '')
+  /* svelte-ignore state_referenced_locally */
   let description = $state(type?.description ?? '')
+  /* svelte-ignore state_referenced_locally */
   let aiHint = $state(type?.ai_hint ?? '')
+  /* svelte-ignore state_referenced_locally */
   let selectedTemplateId = $state(type?.template_id ?? '')
   let saving = $state(false)
   let showIconPicker = $state(false)
+  /* svelte-ignore state_referenced_locally */
   const isBuiltin = type?.builtin ?? false
 
   let slugPreview = $derived(
@@ -40,6 +49,7 @@
   // Template editor sub-modal
   let showTemplateEditor = $state(false)
   let editingTemplate = $state<CardTemplate | undefined>(undefined)
+  /* svelte-ignore state_referenced_locally */
   let localTemplates = $state<CardTemplate[]>([...templates])
 
   function openNewTemplate() {
@@ -133,7 +143,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div class="overlay" role="presentation" use:portal onclick={handleOverlayClick}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="dialog" role="dialog" use:draggable={{ handle: '.dialog-header' }} use:focusTrap onclick={handleDialogClick}>
+  <div class="dialog" role="dialog" tabindex="-1" aria-label={type ? t('card_type_editor.title_edit') : t('card_type_editor.title_create')} use:draggable={{ handle: '.dialog-header' }} use:focusTrap onclick={handleDialogClick}>
     <div class="dialog-header">
       <h2>{type ? t('card_type_editor.title_edit') : t('card_type_editor.title_create')}</h2>
       <button class="close-btn" onclick={onClose} title={t('common.close')}><X size={18} /></button>
@@ -142,7 +152,7 @@
     <div class="dialog-body">
       {#if !isBuiltin}
         <div class="field-row">
-          <label class="field-label">{t('card_type_editor.label')}</label>
+          <span class="field-label">{t('card_type_editor.label')}</span>
           <input
             class="field-input"
             bind:value={label}
@@ -155,7 +165,7 @@
       {/if}
 
       <div class="field-row">
-        <label class="field-label">{t('card_type_editor.color')}</label>
+        <span class="field-label">{t('card_type_editor.color')}</span>
         <div class="color-palette">
           {#each TYPE_PALETTE as c}
             <button
@@ -192,7 +202,7 @@
 
       {#if !isBuiltin}
         <div class="field-row">
-          <label class="field-label">{t('card_type_editor.description')}</label>
+          <span class="field-label">{t('card_type_editor.description')}</span>
           <textarea
             class="field-input textarea"
             bind:value={description}
@@ -202,7 +212,7 @@
         </div>
 
         <div class="field-row">
-          <label class="field-label">{t('card_type_editor.ai_hint')}</label>
+          <span class="field-label">{t('card_type_editor.ai_hint')}</span>
           <textarea
             class="field-input textarea"
             bind:value={aiHint}
@@ -213,7 +223,7 @@
       {/if}
 
       <div class="field-row">
-        <label class="field-label">{t('card_type_editor.template')}</label>
+        <span class="field-label">{t('card_type_editor.template')}</span>
         <div class="template-row">
           <div class="template-picker-wrap">
             <button class="template-picker-btn" bind:this={templatePickerBtnEl} onclick={toggleTemplatePicker}>

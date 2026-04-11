@@ -14,8 +14,10 @@
 
   let { onClose, initialTab }: { onClose: () => void; initialTab?: TabId } = $props()
 
-  const startTab: TabId = initialTab ?? 'general'
-  let activeTab = $state<TabId>(startTab)
+  // initialTab is intentionally read once at mount time — the dialog is
+  // re-created on every open, so reactive capture would be wrong here.
+  // svelte-ignore state_referenced_locally
+  let activeTab = $state<TabId>(initialTab ?? 'general')
   let searchQuery = $state('')
   let searchInputEl = $state<HTMLInputElement | null>(null)
 
@@ -442,7 +444,7 @@
                per-alarm channel selection is authoritative. Use Windows
                Settings → Notifications → BRUV to mute everything. -->
           <div class="field-row">
-            <label class="field-label">{t('notifications.system_enabled')}</label>
+            <span class="field-label">{t('notifications.system_enabled')}</span>
             <div class="field-value field-value--action">
               <button class="btn btn-outline btn-sm" onclick={testSystemNotif} disabled={testingSystem}>
                 <Bell size={14} />
@@ -454,19 +456,19 @@
           <!-- Email SMTP -->
           <div class="field-section-label">{t('notifications.email_title')}</div>
           <div class="field-row">
-            <label class="field-label">{t('notifications.smtp_host')}</label>
+            <span class="field-label">{t('notifications.smtp_host')}</span>
             <div class="field-value"><input type="text" class="field-input" bind:value={notifCfg.smtp_host} placeholder="smtp.gmail.com" /></div>
           </div>
           <div class="field-row">
-            <label class="field-label">{t('notifications.smtp_port')}</label>
+            <span class="field-label">{t('notifications.smtp_port')}</span>
             <div class="field-value"><input type="number" class="field-input field-input-short" bind:value={notifCfg.smtp_port} /></div>
           </div>
           <div class="field-row">
-            <label class="field-label">{t('notifications.smtp_username')}</label>
+            <span class="field-label">{t('notifications.smtp_username')}</span>
             <div class="field-value"><input type="text" class="field-input" bind:value={notifCfg.smtp_username} /></div>
           </div>
           <div class="field-row">
-            <label class="field-label">{t('notifications.smtp_password')}</label>
+            <span class="field-label">{t('notifications.smtp_password')}</span>
             <div class="field-value">
               <div class="key-row">
                 <input type={showSmtpPassword ? 'text' : 'password'} class="field-input" bind:value={notifCfg.smtp_password} />
@@ -477,26 +479,26 @@
             </div>
           </div>
           <div class="field-row">
-            <label class="field-label">{t('notifications.smtp_from')}</label>
+            <span class="field-label">{t('notifications.smtp_from')}</span>
             <div class="field-value"><input type="email" class="field-input" bind:value={notifCfg.smtp_from_addr} placeholder="bruv@example.com" /></div>
           </div>
           <div class="field-row">
-            <label class="field-label">{t('notifications.smtp_to')}</label>
+            <span class="field-label">{t('notifications.smtp_to')}</span>
             <div class="field-value"><input type="email" class="field-input" bind:value={notifCfg.smtp_to_addr} placeholder="you@example.com" /></div>
           </div>
           <div class="field-row">
-            <label class="field-label">{t('notifications.smtp_tls')}</label>
+            <span class="field-label">{t('notifications.smtp_tls')}</span>
             <div class="field-value"><input type="checkbox" bind:checked={notifCfg.smtp_tls} /></div>
           </div>
 
           <!-- Webhook -->
           <div class="field-section-label">{t('notifications.webhook_title')}</div>
           <div class="field-row">
-            <label class="field-label">{t('notifications.webhook_url')}</label>
+            <span class="field-label">{t('notifications.webhook_url')}</span>
             <div class="field-value"><input type="url" class="field-input" bind:value={notifCfg.webhook_url} placeholder="https://example.com/webhook" /></div>
           </div>
           <div class="field-row">
-            <label class="field-label">{t('notifications.webhook_auth')}</label>
+            <span class="field-label">{t('notifications.webhook_auth')}</span>
             <div class="field-value"><input type="text" class="field-input" bind:value={notifCfg.webhook_auth_header} placeholder="Bearer token..." /></div>
           </div>
 
@@ -504,12 +506,12 @@
           {#if fieldVisible('due_date')}
             <div class="field-section-label">{t('prefs.due_date_title')}</div>
             <div class="field-row">
-              <label class="field-label">{t('prefs.due_date_enabled')}</label>
+              <span class="field-label">{t('prefs.due_date_enabled')}</span>
               <div class="field-value"><input type="checkbox" bind:checked={dueDateEnabled} /></div>
             </div>
             {#if dueDateEnabled}
               <div class="field-row">
-                <label class="field-label">{t('prefs.due_date_thresholds')}</label>
+                <span class="field-label">{t('prefs.due_date_thresholds')}</span>
                 <div class="field-value checkbox-group">
                   <label class="toggle"><input type="checkbox" bind:checked={dueDateThresholds['24h']} /> {t('prefs.due_date_24h')}</label>
                   <label class="toggle"><input type="checkbox" bind:checked={dueDateThresholds['1h']} /> {t('prefs.due_date_1h')}</label>
@@ -518,7 +520,7 @@
                 </div>
               </div>
               <div class="field-row">
-                <label class="field-label">{t('prefs.due_date_channels')}</label>
+                <span class="field-label">{t('prefs.due_date_channels')}</span>
                 <div class="field-value checkbox-group">
                   <label class="toggle"><input type="checkbox" checked disabled /> {t('agent.channel_inapp')}</label>
                   <label class="toggle"><input type="checkbox" bind:checked={dueDateChannels['system']} /> {t('agent.channel_system')}</label>

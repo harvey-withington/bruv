@@ -17,7 +17,9 @@
   const alarmFired = $derived(meta?.alarm_fired || false)
   const alarmChannels = $derived(meta?.alarm_channels || 'in-app,system')
 
+  // svelte-ignore state_referenced_locally
   let channelSystem = $state(alarmChannels.includes('system'))
+  // svelte-ignore state_referenced_locally
   let channelEmail = $state(alarmChannels.includes('email'))
 
   function setAlarm(e: Event) {

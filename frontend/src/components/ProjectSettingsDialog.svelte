@@ -146,8 +146,10 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div class="dialog-overlay" onclick={onClose} onkeydown={(e) => { if (e.key === 'Escape') onClose() }}>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div class="dialog" onclick={(e) => e.stopPropagation()}>
     <div class="dialog-header">
       <h2 class="dialog-title">{t('project_settings.title')}</h2>

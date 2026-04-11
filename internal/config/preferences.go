@@ -23,6 +23,10 @@ type Preferences struct {
 	DueDateNotify     bool     `json:"due_date_notify"`
 	DueDateThresholds []string `json:"due_date_thresholds"` // ["24h", "1h", "0", "overdue"]
 	DueDateChannels   string   `json:"due_date_channels"`   // "in-app,system"
+
+	// First-run guidance: set to true after the LLM-configuration nudge has
+	// been shown once. Lives inside the config dir so wiping the dir resets it.
+	LLMNudgeShown bool `json:"llm_nudge_shown"`
 }
 
 // DefaultPreferences returns sensible defaults.

@@ -19,8 +19,9 @@
   import Toast from './components/Toast.svelte'
   import ConfirmDialog from './components/ConfirmDialog.svelte'
   import OptionsEditorDialog from './components/OptionsEditorDialog.svelte'
+  import AboutDialog from './components/AboutDialog.svelte'
 
-  import { GetPreferences, ListRecentRepos, OpenRepository, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits } from './lib/api'
+  import { GetPreferences, ListRecentRepos, OpenRepository, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, IsLLMConfigured, MarkLLMNudgeShown } from './lib/api'
 
   // Restore persisted preferences
   loadTheme()
@@ -45,7 +46,10 @@
       nav.repoOpen = true
       nav.repoId = last.path
     } catch { /* silently fall back to welcome screen */ }
-    finally { appLoading = false }
+    finally {
+      appLoading = false
+      maybeShowLLMNudge()
+    }
   }
   tryReopenLastRepo()
   loadCardTypes()
@@ -55,11 +59,29 @@
   let searchCardInitialTab = $state<'details' | 'agent' | undefined>(undefined)
   let resizing = $state(false)
   let showSettings = $state(false)
+  let settingsInitialTab = $state<'general' | 'ai' | 'notifications' | undefined>(undefined)
   let showProjectSettings = $state(false)
   let showProfile = $state(false)
   let showTagEditor = $state(false)
   let showProjectChat = $state(false)
   let showKeyboardShortcuts = $state(false)
+  let showAbout = $state(false)
+
+  // First-run LLM nudge: fire once per install, after the initial prefs load.
+  // When the user has no LLM account configured, open the Settings dialog
+  // straight on the AI tab so they can add one. We mark the flag immediately
+  // so a crash before the user interacts doesn't re-nudge next launch.
+  async function maybeShowLLMNudge() {
+    try {
+      const p = await GetPreferences() as { llm_nudge_shown?: boolean } | null
+      if (p?.llm_nudge_shown) return
+      const configured = await IsLLMConfigured()
+      if (configured) return
+      await MarkLLMNudgeShown()
+      settingsInitialTab = 'ai'
+      showSettings = true
+    } catch { /* non-critical */ }
+  }
 
   function handleSearchSelectCard(cardId: string, tab?: 'details' | 'agent') {
     searchCardInitialTab = tab
@@ -194,8 +216,9 @@
 {:else if nav.repoOpen}
   <div class="app-shell" class:resizing>
     <Sidebar
-      onOpenPrefs={() => showSettings = true}
+      onOpenPrefs={() => { settingsInitialTab = undefined; showSettings = true }}
       onOpenProfile={() => showProfile = true}
+      onOpenAbout={() => showAbout = true}
     />
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div
@@ -242,7 +265,7 @@
   {/if}
 
   {#if showSettings}
-    <SettingsDialog onClose={() => showSettings = false} />
+    <SettingsDialog onClose={() => { showSettings = false; settingsInitialTab = undefined }} initialTab={settingsInitialTab} />
   {/if}
 
   {#if showProjectSettings}
@@ -263,6 +286,10 @@
 
 {#if showKeyboardShortcuts}
   <KeyboardShortcuts onClose={() => showKeyboardShortcuts = false} />
+{/if}
+
+{#if showAbout}
+  <AboutDialog onClose={() => showAbout = false} />
 {/if}
 
 <Toast />

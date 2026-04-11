@@ -4,6 +4,14 @@ import {
   Version, HasRepository, InitRepository, OpenRepository, CloseRepository,
   PickFolder, ListRecentRepos, RemoveRecentRepo,
   // @ts-ignore — generated after `wails generate` with updated Go code
+  GetBuildInfo,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  OpenConfigFolder,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  OpenBugReportURL,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  MarkLLMNudgeShown,
+  // @ts-ignore — generated after `wails generate` with updated Go code
   GetRepoDescription,
   // @ts-ignore — generated after `wails generate` with updated Go code
   UpdateRepoDescription,
@@ -161,6 +169,10 @@ export const wailsAdapter: BackendAdapter = {
   unsubscribe(_cb: EventCallback) {},
 
   Version,
+  GetBuildInfo: GetBuildInfo as unknown as BackendAdapter['GetBuildInfo'],
+  OpenConfigFolder: OpenConfigFolder as unknown as BackendAdapter['OpenConfigFolder'],
+  OpenBugReportURL: OpenBugReportURL as unknown as BackendAdapter['OpenBugReportURL'],
+  MarkLLMNudgeShown: MarkLLMNudgeShown as unknown as BackendAdapter['MarkLLMNudgeShown'],
   HasRepository,
   InitRepository,
   OpenRepository,

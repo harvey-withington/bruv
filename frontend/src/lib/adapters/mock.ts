@@ -46,6 +46,10 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     unsubscribe: (_cb: EventCallback) => {},
 
     Version: async () => '0.1.0-test',
+    GetBuildInfo: async () => ({ version: '0.1.0-test', build_date: 'test', os: 'test', arch: 'test', go_version: 'test' }),
+    OpenConfigFolder: async () => {},
+    OpenBugReportURL: async () => {},
+    MarkLLMNudgeShown: async () => {},
     HasRepository: async () => true,
     InitRepository: async () => '/tmp/test-repo',
     OpenRepository: async () => {},

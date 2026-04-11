@@ -2,124 +2,86 @@
   <img src="frontend/src/assets/images/bruv-icon.svg" alt="BRUV logo" width="128" />
 </p>
 
-# BRUV
+<h1 align="center">BRUV</h1>
 
-> Your most organised best bud.
+<p align="center"><em>Your most organised best bud.</em></p>
 
-An AI-native, local-first productivity app combining the structure of a kanban board with the intelligence of an LLM assistant. Built with :gift_heart: by Harvey & :robot: Claude.
+<p align="center">
+  An AI-native, local-first productivity app that pairs a kanban-style board with an LLM assistant and autonomous agents — all running on your machine, with your data, under your control.
+</p>
 
-## Tech Stack
+> **Status:** public beta (v1.0b). Windows only for now. No telemetry, no account, no cloud. Built with ❤ by Harvey and 🤖 Claude.
 
-- **Desktop shell:** [Wails v2](https://wails.io/) (Go backend + web frontend)
-- **Frontend:** [Svelte 5](https://svelte.dev/) + TypeScript + Vite
-- **Backend:** Go — repository I/O, SQLite indexing, MCP server
-- **LLM:** Provider-agnostic (Anthropic, OpenAI, Ollama)
+---
 
-## Prerequisites
+## What BRUV does
 
-- [Go 1.23+](https://go.dev/dl/)
-- [Node.js 20+](https://nodejs.org/)
-- [Wails CLI v2](https://wails.io/docs/gettingstarted/installation)
+- **Organise work as cards on boards.** Brands → streams → projects → categories → cards. Drag to reorder, pin to multiple places, keep everything sortable and searchable.
+- **16 built-in block types.** Text, checklists, selects, numbers, dates, ratings, checkboxes, radios, groups, images, progress bars, alarms, and more. Build your own card schemas without writing a line of code.
+- **AI chat on every card, every project.** Three modes: **chat** (ask questions), **suggest** (review AI-proposed edits before they land), **edit** (let the AI mutate cards directly, scoped to the current project).
+- **Autonomous agents attached to cards.** Any card can become an agent — schedule it, give it tools (web search, URL fetching, HTTP, notifications, card reads/writes), set a token budget, and let it run. Full run history, cost tracking, safety rails (rate limits, retries, budget caps).
+- **Multi-provider LLM support.** Bring your own Anthropic, OpenAI, or Ollama key. Fully local if you use Ollama.
+- **Local-first, file-based storage.** All your data is plain JSON in your OS config directory. No database server, no cloud, no account. Back it up with a file copy.
+- **System-tray resident.** Minimise to tray, pause all agents from the tray menu, click a notification to jump to the relevant card.
 
-## Development
+## Download
 
-```bash
-# Run in live development mode (hot reload)
-wails dev
-```
+**Windows:** Grab the latest installer from the [Releases page](https://github.com/harvey-withington/bruv/releases).
 
-The frontend dev server provides hot reload for Svelte changes. Go changes trigger a rebuild automatically.
+> ⚠️ **SmartScreen warning during the beta.** BRUV is not yet code-signed, so Windows SmartScreen will warn you when you run the installer for the first time. This is expected. Click **More info → Run anyway**. The warning will go away in the v1.0 final release once we're code-signed via [SignPath Foundation](https://signpath.org/) (their free OSS sponsorship — no ongoing cost to BRUV, so it stays free for you). See [SmartScreen and signing](#smartscreen-and-signing) below for why.
 
-## Building
+**macOS / Linux:** not supported yet. See [Platform status](#platform-status).
 
-```bash
-# Build a production binary
-wails build
-```
+## Quick start
 
-Output lands in `build/bin/`.
+1. **Install and launch.** BRUV opens to an empty workspace on first run.
+2. **Add an LLM provider.** Open **Settings → LLM Accounts** and paste an API key for Anthropic, OpenAI, or point at a local Ollama instance. BRUV works without one — you just won't get AI features until you add one. You'll get a friendly first-run nudge if you skip it.
+3. **Create a brand → stream → project.** These are the organisational hierarchy. Think of them as company → department → workstream, or any other three-level grouping that fits your life.
+4. **Add categories (columns) to your project, then drop in cards.** Drag to reorder. Every card has a type that determines its block schema.
+5. **Open the project chat panel** and ask the AI to help you organise, plan, or draft cards. Try suggest mode if you want to review changes before they land.
+6. **Turn a card into an agent.** Open any card → Agent tab → enable an LLM account → pick tools → set a schedule → hit run.
 
-## oDrive Sync Reminder
+Full keyboard shortcut list: press `?` anywhere in the app.
 
-If you use oDrive to sync this repo, install the bundled VS Code extension that reminds you to resume sync when closing the editor:
+## Privacy
 
-```powershell
-# For Windsurf:
-cmd /c mklink /J "%USERPROFILE%\.windsurf\extensions\odrive-reminder" "tools\odrive-reminder"
+BRUV is local-first by design. Your data lives in plain JSON on your disk. No telemetry, no analytics, no crash reporting, no account, no cloud.
 
-# For VS Code:
-cmd /c mklink /J "%USERPROFILE%\.vscode\extensions\odrive-reminder" "tools\odrive-reminder"
-```
+The only outbound network traffic happens when:
+- You use AI chat or run an agent — your prompt goes to **the LLM provider you configured**, and only that provider.
+- An agent uses a web tool (`web_search`, `web_fetch`, `http_request`) that you've explicitly enabled for it.
 
-Restart VS Code after creating the junction.
+Full details, including what files live where, what agents can access, and how to wipe everything: **[PRIVACY.md](PRIVACY.md)**.
 
-## Backend Adapter Architecture
+## SmartScreen and signing
 
-The frontend is decoupled from the Wails/Go backend via an adapter pattern, making it possible to swap in a cloud or SaaS backend without changing any UI components.
+BRUV is fully open source and free. Windows code-signing certificates cost real money every year, which doesn't fit a free OSS project maintained by one person. Instead, we're applying to the [SignPath Foundation](https://signpath.org/) — a service that provides free code signing to qualifying open-source projects. Once approved, releases will be signed and SmartScreen will stop warning.
 
-### How it works
+Until then: beta builds ship unsigned. If you'd rather not click through a SmartScreen warning, you can:
 
-```
-UI Components  →  api.ts (delegation)  →  getBackend()  →  adapter (wails / cloud / …)
-```
+- **Verify the binary yourself** against the source — everything here is MIT-licensed and buildable from a clean checkout (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+- **Build from source** — clone the repo and run `wails build`.
+- **Wait for v1.0 final**, which will be signed.
 
-- **`src/lib/types.ts`** — defines the `BackendAdapter` interface (every method the UI can call) plus shared types (`UserProfile`, `AuthInfo`, `LLMConfig`, `BackendCapabilities`).
-- **`src/lib/adapters/wails.ts`** — the local adapter; thin wrapper around auto-generated Wails Go bindings.
-- **`src/lib/adapters/index.ts`** — reads `VITE_BACKEND` env var (`"wails"` by default) and lazily loads the matching adapter.
-- **`src/lib/api.ts`** — re-exports every method via `getBackend()`, so components import from `api.ts` and never reference an adapter directly.
+This isn't a workaround — it's the honest cost of running an unfunded OSS project. Thanks for your patience.
 
-### Implementing a new backend
+## Platform status
 
-1. **Create `src/lib/adapters/mybackend.ts`** exporting a `BackendAdapter` object. Every method in the interface must be implemented — use the Wails adapter as a reference.
-2. **Register it** in `src/lib/adapters/index.ts` by adding a `case` to the `switch`:
-   ```ts
-   case 'mybackend': {
-     const { myAdapter } = await import('./mybackend')
-     _adapter = myAdapter
-     break
-   }
-   ```
-3. **Set the env var** `VITE_BACKEND=mybackend` (or add it to a `.env` file in `frontend/`).
-4. **Return appropriate capabilities** from `getCapabilities()` — the UI uses these to show/hide local-only features (e.g. folder picker, file path inputs).
+| Platform | Status |
+|---|---|
+| Windows 10 / 11 | ✅ Supported — public beta |
+| macOS | ❌ Not yet. Apple's developer program is $99/year, which doesn't fit the no-recurring-costs model of this beta. Deferred until sponsorship or paid-tier funding covers it. |
+| Linux | ❌ Not tested. Wails supports it in principle; no one has smoke-tested a BRUV build on Linux yet. If you'd like to help, open an issue. |
 
-### Identity model
+## Support the project
 
-The adapter exposes three separate concerns:
+BRUV is free and will stay free. If it saves you time and you'd like to chip in, there'll be a "Buy me a coffee" link in the About dialog at v1.0b. No subscriptions, no locked features.
 
-| Concept | Purpose | Local behaviour |
-|---------|---------|-----------------|
-| **UserProfile** | Editable display identity (name, role, bio, expertise, avatar) | Auto-populates display name from Windows account on first launch |
-| **AuthInfo** | Authentication state (id, provider, email, authenticated) | Returns local OS username, `provider: "local"`, `authenticated: true` |
-| **LLMConfig** | AI-specific settings (context prompt, etc.) | Persisted to `llm_config.json` in the app config directory |
+A future optional hosted sync service is on the roadmap — the desktop app is architected for it via an [adapter pattern](CONTRIBUTING.md#backend-adapter-architecture). The app itself will remain free and local-first forever; the hosted service would be a separate, optional paid add-on.
 
-### Capabilities
+## Contributing and development
 
-`getCapabilities()` returns a `BackendCapabilities` object that UI components check before rendering local-only features:
-
-```ts
-interface BackendCapabilities {
-  hasLocalFilesystem: boolean  // folder picker, path inputs
-  hasAuth: boolean             // login/logout flows
-  hasRealtime: boolean         // live event subscriptions
-}
-```
-
-### Events
-
-The adapter supports `subscribe(cb)` / `unsubscribe(cb)` for real-time push events. The local Wails adapter currently no-ops these (Wails uses its own event system), but a cloud adapter would use WebSockets or SSE to push `BackendEvent` objects to subscribers.
-
-## Project Structure
-
-```
-bruv-1.0/
-├── main.go              # Wails app entry point
-├── app.go               # App struct — Go methods exposed to frontend
-├── wails.json           # Wails project config
-├── frontend/
-│   ├── src/             # Svelte 5 app source
-│   └── wailsjs/         # Auto-generated Go bindings (gitignored)
-└── build/               # Build assets (icons, platform configs)
-```
+Source, build instructions, architecture notes, and how to add a new backend adapter live in **[CONTRIBUTING.md](CONTRIBUTING.md)**. Pull requests, issues, and thoughtful feedback are welcome.
 
 ## License
 

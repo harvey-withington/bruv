@@ -158,7 +158,8 @@
               />
               <button class="oe-item-btn" onclick={commitEdit}><Check size={14} /></button>
             {:else}
-              <span class="oe-item-text" ondblclick={() => startEdit(i)}>{opt}</span>
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <span class="oe-item-text" role="button" tabindex="-1" ondblclick={() => startEdit(i)}>{opt}</span>
               <span class="oe-item-actions">
                 <button class="oe-item-btn oe-edit" onclick={() => startEdit(i)}><Pencil size={12} /></button>
                 <button class="oe-item-btn oe-delete" onclick={() => removeOption(i)}><Trash2 size={12} /></button>

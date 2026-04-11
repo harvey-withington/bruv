@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import { nav, board, loadBoard } from '../lib/store.svelte'
   import { CloseRepository, CreateBrand, RenameBrand, UpdateBrandDescription, UpdateBrandIcon, CreateStream, RenameStream, UpdateStreamDescription, UpdateStreamIcon, CreateProject, RenameProject, UpdateProjectDescription, UpdateProjectIcon, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, GetCard, GetCardPins, ListOrphanedCardIDs, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject, GetPreferences, GetRepoDescription, UpdateRepoDescription } from '../lib/api'
-  import { LogOut, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox, Timer, ChevronsUpDown, ChevronsDownUp, Smile, Upload } from 'lucide-svelte'
+  import { LogOut, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox, Timer, ChevronsUpDown, ChevronsDownUp, Smile, Upload, Info } from 'lucide-svelte'
   import ThemeToggle from './ThemeToggle.svelte'
   import BruvIcon from './BruvIcon.svelte'
   import DynamicIcon from './DynamicIcon.svelte'
@@ -14,9 +14,10 @@
   import { showToast } from '../lib/toast.svelte'
   import { inlineEdit } from '../lib/actions'
 
-  let { onOpenPrefs, onOpenProfile }: {
+  let { onOpenPrefs, onOpenProfile, onOpenAbout }: {
     onOpenPrefs?: () => void
     onOpenProfile?: () => void
+    onOpenAbout?: () => void
   } = $props()
 
   async function handleCloseRepo() {
@@ -992,6 +993,7 @@
       <button class="footer-btn" onclick={onOpenProfile} title={t('profile.title')}><UserCircle size={16} /></button>
       <span class="footer-spacer"></span>
       <ThemeToggle />
+      <button class="footer-btn" onclick={onOpenAbout} title={t('about.title')} aria-label={t('about.title')}><Info size={16} /></button>
       <button class="footer-btn" onclick={onOpenPrefs} title={t('prefs.title')}><Settings size={16} /></button>
     </div>
   {/if}
@@ -1001,6 +1003,7 @@
       <button class="footer-btn" onclick={onOpenProfile} title={t('profile.title')}><UserCircle size={16} /></button>
       <span class="footer-spacer"></span>
       <ThemeToggle />
+      <button class="footer-btn" onclick={onOpenAbout} title={t('about.title')} aria-label={t('about.title')}><Info size={16} /></button>
       <button class="footer-btn" onclick={onOpenPrefs} title={t('prefs.title')}><Settings size={16} /></button>
     </div>
   {/if}

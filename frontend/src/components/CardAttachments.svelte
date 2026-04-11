@@ -116,9 +116,12 @@
   </button>
 
   {#if !collapsed}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="attachments-body"
       class:drag-over={draggingOver}
+      role="region"
+      aria-label="Attachments drop zone"
       ondrop={handleDrop}
       ondragover={handleDragOver}
       ondragleave={handleDragLeave}

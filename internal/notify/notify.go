@@ -88,10 +88,12 @@ func (d *Dispatcher) sendInApp(n config.Notification) {
 }
 
 func (d *Dispatcher) sendSystem(n config.Notification) {
-	if !d.cfg.SystemEnabled {
-		log.Printf("notify: system notifications disabled, skipping")
-		return
-	}
+	// Historically this was gated on d.cfg.SystemEnabled, but that created a
+	// silent double-gate: ticking "system" on an agent did nothing if the
+	// global toggle was off, with no feedback. Windows already exposes a
+	// per-app notification master switch (Settings → Notifications → BRUV),
+	// so the in-app gate was redundant. Per-caller channel selection is now
+	// authoritative — if a channel requests system, we try to deliver.
 	log.Printf("notify: sending system notification: %q", n.Title)
 	if err := beeep.Notify(n.Title, n.Body, ""); err != nil {
 		log.Printf("notify: system notification error: %v", err)

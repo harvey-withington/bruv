@@ -45,7 +45,7 @@
     min_confidence: '',
   })
   let notifCfg = $state({
-    system_enabled: false,
+    system_enabled: true, // retained for backward-compat with NotifyConfig shape; no longer consulted by the backend
     smtp_host: '',
     smtp_port: 587,
     smtp_username: '',
@@ -111,7 +111,10 @@
         llm.min_confidence = c.min_confidence || ''
       }
       if (nc) {
-        notifCfg.system_enabled = nc.system_enabled ?? false
+        // system_enabled is no longer consulted by the backend — keep it true
+        // so any config written from this dialog doesn't re-introduce the
+        // silent gate if a future client reads it.
+        notifCfg.system_enabled = true
         notifCfg.smtp_host = nc.smtp_host || ''
         notifCfg.smtp_port = nc.smtp_port || 587
         notifCfg.smtp_username = nc.smtp_username || ''
@@ -186,7 +189,7 @@
     { tab: 'ai', key: 'auto_pin', label: 'auto pin behavior' },
     { tab: 'ai', key: 'min_confidence', label: 'minimum confidence ai suggestion pin threshold' },
     { tab: 'ai', key: 'context', label: 'ai context additional' },
-    { tab: 'notifications', key: 'system_enabled', label: 'desktop system notifications' },
+    { tab: 'notifications', key: 'system_enabled', label: 'desktop system notifications test' },
     { tab: 'notifications', key: 'smtp_host', label: 'email smtp host server' },
     { tab: 'notifications', key: 'smtp_to', label: 'email smtp recipient to address' },
     { tab: 'notifications', key: 'webhook_url', label: 'webhook url post' },
@@ -435,16 +438,12 @@
         {/if}
 
         {#if activeTab === 'notifications'}
-          <!-- System notifications -->
+          <!-- System notifications: no in-app master toggle. Per-agent /
+               per-alarm channel selection is authoritative. Use Windows
+               Settings → Notifications → BRUV to mute everything. -->
           <div class="field-row">
             <label class="field-label">{t('notifications.system_enabled')}</label>
-            <div class="field-value">
-              <label class="toggle"><input type="checkbox" bind:checked={notifCfg.system_enabled} /> {t('notifications.system_desc')}</label>
-            </div>
-          </div>
-          <div class="field-row">
-            <span class="field-label"></span>
-            <div class="field-value">
+            <div class="field-value field-value--action">
               <button class="btn btn-outline btn-sm" onclick={testSystemNotif} disabled={testingSystem}>
                 <Bell size={14} />
                 {testingSystem ? '...' : t('notifications.test_system')}
@@ -831,6 +830,13 @@
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
+  }
+  /* One-off row with a single action button: don't stretch it to the full
+     column width. Size to content, push to the right. */
+  .field-value--action {
+    flex-direction: row;
+    justify-content: flex-end;
+    align-items: center;
   }
   .field-input {
     padding: 0.45rem 0.6rem;

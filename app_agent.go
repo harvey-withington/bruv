@@ -567,16 +567,41 @@ func (a *App) executeAgentToolCall(cardID string, card *model.Card, tc llm.ToolC
 		title, _ := tc.Arguments["title"].(string)
 		body, _ := tc.Arguments["body"].(string)
 		notifier := a.makeNotifier()
-		// Always include in-app; add agent's configured channels
-		channels := notify.ParseChannels("in-app")
+		// In-app is always included by ParseChannels. Merge in whatever
+		// extra channels (system, email, webhook) the user picked on the
+		// agent's Permissions tab — otherwise ticking "System" there is
+		// silently ignored by tool-initiated notifications.
+		channelSpec := "in-app"
+		if af, err := a.repo.GetAgentConfig(cardID); err == nil && af != nil && af.Config.NotifyChannel != "" {
+			channelSpec = "in-app," + af.Config.NotifyChannel
+		}
 		notifier.Send(notify.Request{
 			Title:     title,
 			Body:      body,
 			Source:    "agent",
 			CardID:    cardID,
 			CardTitle: card.Title,
-			Channels:  channels,
+			Channels:  notify.ParseChannels(channelSpec),
 		})
+		// Also persist the notification to the card's comment thread so
+		// there's a durable audit trail even when the agent fires a
+		// notification without otherwise updating the card's fields or
+		// blocks. Without this, a flaky run leaves no trace on the card
+		// itself and the user has to dig through the Runs tab to see
+		// what the agent reported.
+		commentText := strings.TrimSpace(title)
+		if b := strings.TrimSpace(body); b != "" {
+			if commentText != "" {
+				commentText += "\n\n" + b
+			} else {
+				commentText = b
+			}
+		}
+		if commentText != "" {
+			if _, err := a.repo.AddCardComment(cardID, "Agent", commentText, time.Time{}); err != nil {
+				log.Printf("notify tool: add card comment: %v", err)
+			}
+		}
 		action.Result = "notification sent"
 		return "Notification sent to user.", action
 

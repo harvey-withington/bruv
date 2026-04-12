@@ -1,7 +1,31 @@
 package llm
 
-// CardTools returns the tool definitions available for card classification.
-func CardTools(cardTypes []string, categories []map[string]string) []ToolDef {
+// builtinAgentToolNames is the static list of tool names an agent can be
+// granted via configure_agent. MCP tools are appended dynamically at call
+// time by buildAllowedToolsEnum.
+var builtinAgentToolNames = []string{
+	"web_fetch", "web_search", "notify", "update_self",
+	"create_card", "read_card", "http_request",
+}
+
+// buildAllowedToolsEnum merges the static built-in tool names with any
+// MCP tool IDs the repo currently has, producing the enum array for the
+// configure_agent tool's allowed_tools parameter. This lets the LLM
+// include MCP tools when configuring an agent from the card chat.
+func buildAllowedToolsEnum(mcpToolIDs []string) []string {
+	out := make([]string, len(builtinAgentToolNames), len(builtinAgentToolNames)+len(mcpToolIDs))
+	copy(out, builtinAgentToolNames)
+	out = append(out, mcpToolIDs...)
+	return out
+}
+
+// CardTools returns the tool definitions available for card-level AI chat.
+// mcpToolIDs is the list of namespaced MCP tool IDs (e.g. "filesystem__read_text_file")
+// currently available via the repo's MCP registry. These are appended to the
+// configure_agent tool's allowed_tools enum so the LLM can include them when
+// setting up or modifying an agent's tool permissions. Pass nil if no MCP
+// registry is active.
+func CardTools(cardTypes []string, categories []map[string]string, mcpToolIDs []string) []ToolDef {
 	// Build enum for card types
 	typeEnum := make([]any, len(cardTypes))
 	for i, t := range cardTypes {
@@ -138,8 +162,8 @@ func CardTools(cardTypes []string, categories []map[string]string) []ToolDef {
 				},
 				"allowed_tools": map[string]any{
 					"type":  "array",
-					"items": map[string]any{"type": "string", "enum": []string{"web_fetch", "web_search", "notify", "update_self", "create_card", "read_card", "http_request"}},
-					"description": "Which tools the agent can use. Common sets: ['web_fetch', 'web_search', 'notify', 'update_self'] for monitoring tasks.",
+					"items": map[string]any{"type": "string", "enum": buildAllowedToolsEnum(mcpToolIDs)},
+					"description": "Which tools the agent can use. Built-in tools: web_fetch, web_search, notify, update_self, create_card, read_card, http_request. MCP tools use a server__tool prefix (e.g. filesystem__read_text_file). Include MCP tools when the goal requires external capabilities like filesystem access.",
 				},
 				"notify_on": map[string]any{
 					"type":        "array",

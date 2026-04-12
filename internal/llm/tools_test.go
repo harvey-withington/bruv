@@ -5,7 +5,7 @@ import (
 )
 
 func TestCardToolsBaseCount(t *testing.T) {
-	tools := CardTools(nil, nil)
+	tools := CardTools(nil, nil, nil)
 	// Base tools: set_title, set_due_date, set_card_type, set_fields, add_tags, add_field, suggest_pin, configure_agent
 	if len(tools) != 8 {
 		t.Errorf("expected 8 base tools, got %d", len(tools))
@@ -15,7 +15,7 @@ func TestCardToolsBaseCount(t *testing.T) {
 func TestCardToolsAllHaveNameAndDescription(t *testing.T) {
 	tools := CardTools([]string{"feature", "task"}, []map[string]string{
 		{"id": "cat-1", "name": "Backlog"},
-	})
+	}, nil)
 	for _, tool := range tools {
 		if tool.Name == "" {
 			t.Error("tool has empty Name")
@@ -31,7 +31,7 @@ func TestCardToolsAllHaveNameAndDescription(t *testing.T) {
 
 func TestCardToolsSetCardTypeEnum(t *testing.T) {
 	types := []string{"feature", "task", "brainstorm"}
-	tools := CardTools(types, nil)
+	tools := CardTools(types, nil, nil)
 
 	var setCardType *ToolDef
 	for i := range tools {
@@ -59,7 +59,7 @@ func TestCardToolsSetCardTypeEnum(t *testing.T) {
 }
 
 func TestCardToolsEmptyCardTypes(t *testing.T) {
-	tools := CardTools([]string{}, nil)
+	tools := CardTools([]string{}, nil, nil)
 
 	var setCardType *ToolDef
 	for i := range tools {
@@ -85,7 +85,7 @@ func TestCardToolsSuggestPinWithCategories(t *testing.T) {
 		{"id": "cat-1", "name": "Backlog"},
 		{"id": "cat-2", "name": "Done"},
 	}
-	tools := CardTools(nil, categories)
+	tools := CardTools(nil, categories, nil)
 
 	var suggestPin *ToolDef
 	for i := range tools {
@@ -114,7 +114,7 @@ func TestCardToolsSuggestPinWithCategories(t *testing.T) {
 }
 
 func TestCardToolsSuggestPinWithoutCategories(t *testing.T) {
-	tools := CardTools(nil, nil)
+	tools := CardTools(nil, nil, nil)
 
 	var suggestPin *ToolDef
 	for i := range tools {
@@ -134,7 +134,7 @@ func TestCardToolsSuggestPinWithoutCategories(t *testing.T) {
 }
 
 func TestCardToolsSuggestPinAlwaysHasHierarchyFields(t *testing.T) {
-	tools := CardTools(nil, nil)
+	tools := CardTools(nil, nil, nil)
 
 	var suggestPin *ToolDef
 	for i := range tools {
@@ -156,7 +156,7 @@ func TestCardToolsSuggestPinAlwaysHasHierarchyFields(t *testing.T) {
 }
 
 func TestCardToolsExpectedNames(t *testing.T) {
-	tools := CardTools([]string{"feature"}, []map[string]string{{"id": "c1", "name": "Cat"}})
+	tools := CardTools([]string{"feature"}, []map[string]string{{"id": "c1", "name": "Cat"}}, nil)
 	expected := map[string]bool{
 		"set_title":       true,
 		"set_due_date":    true,

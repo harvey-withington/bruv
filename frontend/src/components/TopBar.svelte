@@ -1,8 +1,9 @@
 <script lang="ts">
   import SearchBar from './SearchBar.svelte'
   import CardTypesTab from './CardTypesTab.svelte'
+  import MCPServersDialog from './MCPServersDialog.svelte'
   import NotificationPanel from './NotificationPanel.svelte'
-  import { Tags, SlidersHorizontal, BotMessageSquare, Timer, Inbox, Layers, Type, User, FolderOpen, Check, Bell } from 'lucide-svelte'
+  import { Tags, SlidersHorizontal, BotMessageSquare, Timer, Inbox, Layers, Type, User, FolderOpen, Check, Bell, Plug } from 'lucide-svelte'
   import { nav, inboxSearchFilters, boardSearchFilters } from '../lib/store.svelte'
   import { notifications } from '../lib/notifications.svelte'
   import { t } from '../lib/i18n.svelte'
@@ -16,6 +17,7 @@
   } = $props()
 
   let showCardTypes = $state(false)
+  let showMCPServers = $state(false)
   let showNotifications = $state(false)
 </script>
 
@@ -143,6 +145,7 @@
       {/if}
     </div>
     <button class="icon-btn" onclick={() => showCardTypes = true} title={t('toolbar.card_types')}><Layers size={16} /></button>
+    <button class="icon-btn" onclick={() => showMCPServers = true} title={t('toolbar.mcp_servers')}><Plug size={16} /></button>
     {#if nav.projectSlug}
       <button class="icon-btn" onclick={onOpenTagEditor} title={t('toolbar.tags')}><Tags size={16} /></button>
     {/if}
@@ -155,6 +158,10 @@
 
 {#if showCardTypes}
   <CardTypesTab onClose={() => showCardTypes = false} />
+{/if}
+
+{#if showMCPServers}
+  <MCPServersDialog onClose={() => showMCPServers = false} />
 {/if}
 
 <style>

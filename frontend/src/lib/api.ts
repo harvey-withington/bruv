@@ -2,7 +2,7 @@
 
 import { getBackend } from './adapters'
 
-export type { UserProfile, AuthInfo, LLMConfig, LLMAccount, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard, AgentConfig, AgentRun, AgentFile, AgentStatus, AgentSummary, AgentRunEntry, AgentAnalytics, AppNotification, NotifyConfig, ModelPricing, BuildInfo, UpdateCheckResult, CardTypesImportMode, CardTypesImportResult } from './types'
+export type { UserProfile, AuthInfo, LLMConfig, LLMAccount, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard, AgentConfig, AgentRun, AgentFile, AgentStatus, AgentSummary, AgentRunEntry, AgentAnalytics, AppNotification, NotifyConfig, ModelPricing, BuildInfo, UpdateCheckResult, CardTypesImportMode, CardTypesImportResult, MCPServerSpec, MCPServerView, MCPServerHealth, MCPHealthStatus, MCPServerViewTool } from './types'
 
 // Capabilities
 export const getCapabilities = () => getBackend().getCapabilities()
@@ -32,6 +32,15 @@ export const CheckForUpdates = () => getBackend().CheckForUpdates()
 export const ExportCardTypesToFile = (...args: Parameters<ReturnType<typeof getBackend>['ExportCardTypesToFile']>) => getBackend().ExportCardTypesToFile(...args)
 export const ImportCardTypesFromFile = (...args: Parameters<ReturnType<typeof getBackend>['ImportCardTypesFromFile']>) => getBackend().ImportCardTypesFromFile(...args)
 export const ImportCardTypesFromRepo = (...args: Parameters<ReturnType<typeof getBackend>['ImportCardTypesFromRepo']>) => getBackend().ImportCardTypesFromRepo(...args)
+
+// MCP server management — per-repo external tool providers
+export const ListMCPServers = () => getBackend().ListMCPServers()
+export const AddMCPServer = (...args: Parameters<ReturnType<typeof getBackend>['AddMCPServer']>) => getBackend().AddMCPServer(...args)
+export const UpdateMCPServer = (...args: Parameters<ReturnType<typeof getBackend>['UpdateMCPServer']>) => getBackend().UpdateMCPServer(...args)
+export const DeleteMCPServer = (...args: Parameters<ReturnType<typeof getBackend>['DeleteMCPServer']>) => getBackend().DeleteMCPServer(...args)
+export const SetMCPServerSecret = (...args: Parameters<ReturnType<typeof getBackend>['SetMCPServerSecret']>) => getBackend().SetMCPServerSecret(...args)
+export const GetMCPServerSecretStatus = (...args: Parameters<ReturnType<typeof getBackend>['GetMCPServerSecretStatus']>) => getBackend().GetMCPServerSecretStatus(...args)
+export const RestartMCPServer = (...args: Parameters<ReturnType<typeof getBackend>['RestartMCPServer']>) => getBackend().RestartMCPServer(...args)
 export const HasRepository = () => getBackend().HasRepository()
 export const InitRepository = (...args: Parameters<ReturnType<typeof getBackend>['InitRepository']>) => getBackend().InitRepository(...args)
 export const OpenRepository = (...args: Parameters<ReturnType<typeof getBackend>['OpenRepository']>) => getBackend().OpenRepository(...args)

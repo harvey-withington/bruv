@@ -20,6 +20,20 @@ import {
   // @ts-ignore — generated after `wails generate` with updated Go code
   ImportCardTypesFromRepo,
   // @ts-ignore — generated after `wails generate` with updated Go code
+  ListMCPServers,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  AddMCPServer,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  UpdateMCPServer,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  DeleteMCPServer,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  SetMCPServerSecret,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  GetMCPServerSecretStatus,
+  // @ts-ignore — generated after `wails generate` with updated Go code
+  RestartMCPServer,
+  // @ts-ignore — generated after `wails generate` with updated Go code
   GetRepoDescription,
   // @ts-ignore — generated after `wails generate` with updated Go code
   UpdateRepoDescription,
@@ -185,6 +199,13 @@ export const wailsAdapter: BackendAdapter = {
   ExportCardTypesToFile: ExportCardTypesToFile as unknown as BackendAdapter['ExportCardTypesToFile'],
   ImportCardTypesFromFile: ImportCardTypesFromFile as unknown as BackendAdapter['ImportCardTypesFromFile'],
   ImportCardTypesFromRepo: ImportCardTypesFromRepo as unknown as BackendAdapter['ImportCardTypesFromRepo'],
+  ListMCPServers: ListMCPServers as unknown as BackendAdapter['ListMCPServers'],
+  AddMCPServer: AddMCPServer as unknown as BackendAdapter['AddMCPServer'],
+  UpdateMCPServer: UpdateMCPServer as unknown as BackendAdapter['UpdateMCPServer'],
+  DeleteMCPServer: DeleteMCPServer as unknown as BackendAdapter['DeleteMCPServer'],
+  SetMCPServerSecret: SetMCPServerSecret as unknown as BackendAdapter['SetMCPServerSecret'],
+  GetMCPServerSecretStatus: GetMCPServerSecretStatus as unknown as BackendAdapter['GetMCPServerSecretStatus'],
+  RestartMCPServer: RestartMCPServer as unknown as BackendAdapter['RestartMCPServer'],
   HasRepository,
   InitRepository,
   OpenRepository,

@@ -403,6 +403,65 @@ export interface CardTypesImportResult {
   templates_skipped: number
 }
 
+// --- MCP (Model Context Protocol) external server support ---
+//
+// Users can configure external MCP servers per-repo to expose
+// additional tools to agents in that repo. See docs/mcp-servers.md
+// for the end-user story and internal/mcp/ for the Go implementation.
+// These types mirror the Go structs one-for-one.
+
+export type MCPHealthStatus =
+  | 'disabled'
+  | 'starting'
+  | 'ready'
+  | 'failed'
+  | 'restarting'
+
+export interface MCPServerSpec {
+  name: string
+  description?: string
+  command: string
+  args?: string[]
+  /**
+   * Names of environment variables this server requires. Values
+   * live in the OS keychain keyed by repo + server + name so they
+   * never travel when a repo is shared. Use SetMCPServerSecret to
+   * set values and GetMCPServerSecretStatus to check which are
+   * populated without exposing the values themselves.
+   */
+  env_names?: string[]
+  enabled: boolean
+}
+
+export interface MCPServerHealth {
+  name: string
+  status: MCPHealthStatus
+  last_error?: string
+  tool_count: number
+  protocol_version?: string
+  server_name?: string
+  server_version?: string
+  started_at?: string
+}
+
+export interface MCPServerViewTool {
+  /** The plain tool name as the server returns it (e.g. "read_file"). */
+  name: string
+  /**
+   * The namespaced ID (e.g. "filesystem__read_file") — this is what
+   * goes into per-card allowed_tools lists and what the agent tool
+   * dispatch matches on.
+   */
+  namespace_id: string
+  description: string
+}
+
+export interface MCPServerView {
+  spec: MCPServerSpec
+  health: MCPServerHealth
+  tools: MCPServerViewTool[]
+}
+
 export interface BackendAdapter {
   // Capabilities
   getCapabilities(): BackendCapabilities
@@ -432,6 +491,15 @@ export interface BackendAdapter {
   ExportCardTypesToFile(filePath: string): Promise<void>
   ImportCardTypesFromFile(filePath: string, mode: CardTypesImportMode): Promise<CardTypesImportResult>
   ImportCardTypesFromRepo(otherRepoPath: string, mode: CardTypesImportMode): Promise<CardTypesImportResult>
+
+  // MCP servers — per-repo external tool providers
+  ListMCPServers(): Promise<MCPServerView[]>
+  AddMCPServer(spec: MCPServerSpec): Promise<void>
+  UpdateMCPServer(spec: MCPServerSpec): Promise<void>
+  DeleteMCPServer(name: string): Promise<void>
+  SetMCPServerSecret(serverName: string, envVarName: string, value: string): Promise<void>
+  GetMCPServerSecretStatus(serverName: string): Promise<Record<string, boolean>>
+  RestartMCPServer(name: string): Promise<void>
   HasRepository(): Promise<boolean>
   InitRepository(basePath: string, name: string): Promise<string>
   OpenRepository(id: string): Promise<void>

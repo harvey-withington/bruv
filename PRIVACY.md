@@ -54,6 +54,7 @@ BRUV itself makes no network calls. The only outbound traffic happens when:
 2. **An agent uses a web tool.** If you grant an agent the `web_search`, `web_fetch`, or `http_request` tool, it can:
    - Query DuckDuckGo via `https://html.duckduckgo.com/html/` (`web_search`)
    - Fetch arbitrary URLs you or the agent specify (`web_fetch`, `http_request`)
+3. **You configure an MCP server.** External Model Context Protocol servers run as local subprocesses on your machine and may make their own network calls depending on what the server does — e.g. a GitHub MCP server calls github.com, a Kiwi flight MCP server calls Kiwi's API. These calls come from the MCP server, not BRUV. You control which servers to install; each server's source code and network behaviour is the user's responsibility to vet. See [docs/mcp-servers.md](docs/mcp-servers.md) for the full security model.
 
 That's the complete list. There is:
 
@@ -122,6 +123,12 @@ BRUV repos are designed to be shared. The repo folder contains everything a proj
 - Card types and templates defined in this repo
 - Agent configurations (schedules, tools, budgets, safety rails)
 - Attachments and comments
+- **MCP server definitions** (`.bruv/mcp_servers.json`) — the command, args, and list of env var *names* each server needs. The recipient sees which servers to install but has to provide their own API keys via the MCP Servers dialog.
+
+**What does NOT travel with shared MCP configs:**
+
+- API keys or other env var values — these are per-user per-machine via the OS keychain
+- Server-side caches, logs, or auth tokens the subprocess might write to its own config dir
 
 When someone else opens your shared repo, they get a fresh chat history and an empty notification inbox for that repo — their usage stays separate from yours.
 

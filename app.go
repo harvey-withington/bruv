@@ -6,6 +6,7 @@ import (
 	"bruv/internal/importer"
 	"bruv/internal/index"
 	"bruv/internal/llm"
+	"bruv/internal/mcp"
 	"bruv/internal/model"
 	"bruv/internal/notify"
 	"bruv/internal/repo"
@@ -69,7 +70,14 @@ type App struct {
 	dueDateScanner *agent.DueDateScanner
 	agentCancels   sync.Map // cardID → context.CancelFunc
 	forceQuit      bool
-	trayPauseItem interface{ Check(); Uncheck(); Checked() bool } // system tray "Pause Agents" menu item
+	trayPauseItem  interface{ Check(); Uncheck(); Checked() bool } // system tray "Pause Agents" menu item
+	// mcpRegistry manages external MCP server subprocesses for the
+	// currently open repo. Nil when no repo is open. Tools exposed by
+	// MCP servers appear in the agent tool catalogue alongside
+	// built-in tools and dispatch through the same executeAgentToolCall
+	// path via a namespaced ID prefix. See internal/mcp for the full
+	// architecture and docs/mcp-servers.md for user-facing docs.
+	mcpRegistry *mcp.Registry
 }
 
 // NewApp creates a new App application struct
@@ -174,6 +182,7 @@ func (a *App) beforeClose(ctx context.Context) bool {
 	if a.forceQuit {
 		a.stopScheduler()
 		a.stopDueDateScanner()
+		a.stopMCPRegistry()
 		return false // allow quit
 	}
 
@@ -407,7 +416,51 @@ func (a *App) OpenRepository(path string) error {
 	// Start due-date notification scanner
 	a.startDueDateScanner()
 
+	// Start MCP registry for this repo. Failures here don't block
+	// opening the repo — servers that can't start are surfaced in
+	// the Settings UI and their tools are simply absent from the
+	// agent catalogue. A broken MCP config must never prevent
+	// access to the card data.
+	a.startMCPRegistry()
+
 	return nil
+}
+
+// startMCPRegistry brings up the per-repo MCP registry. Reads the
+// repo-scoped server config, constructs a Registry keyed by the
+// repo's stable manifest ID, and kicks off every enabled server.
+// Startup errors are logged per server; the registry is still
+// installed so the UI can display failures and allow recovery.
+func (a *App) startMCPRegistry() {
+	if a.repo == nil {
+		return
+	}
+	store, err := a.repo.LoadMCPServerStore()
+	if err != nil {
+		log.Printf("mcp: load server store: %v", err)
+		return
+	}
+	reg := mcp.NewRegistry(a.repo.Manifest.ID, config.MCPSecretResolver{})
+	// Use a generous context so slow startups (npm cold start on
+	// Windows can take 10+ seconds on first run) don't all fail.
+	startCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	errs := reg.LoadAndStart(startCtx, store.Servers)
+	for name, err := range errs {
+		log.Printf("mcp[%s]: startup: %v", name, err)
+	}
+	a.mcpRegistry = reg
+}
+
+// stopMCPRegistry shuts down every server subprocess owned by the
+// current registry. Called as part of CloseRepository so closing a
+// repo doesn't leave orphaned subprocesses running in the background.
+func (a *App) stopMCPRegistry() {
+	if a.mcpRegistry == nil {
+		return
+	}
+	a.mcpRegistry.Shutdown()
+	a.mcpRegistry = nil
 }
 
 // HasRepository returns true if a repository is currently open.
@@ -419,6 +472,7 @@ func (a *App) HasRepository() bool {
 func (a *App) CloseRepository() {
 	a.stopScheduler()
 	a.stopDueDateScanner()
+	a.stopMCPRegistry()
 	if a.idx != nil {
 		a.idx.Close()
 		a.idx = nil
@@ -3784,7 +3838,15 @@ func (a *App) SendChatMessage(cardID, userMessage string) (*model.ChatFile, erro
 	}
 
 	buildToolDefs := func(c *model.Card) []llm.ToolDef {
-		tools := llm.CardTools(cardTypes, catMaps)
+		// Collect MCP tool IDs so configure_agent's allowed_tools enum
+		// includes them — lets the LLM add MCP tools to agents via chat.
+		var mcpToolIDs []string
+		if a.mcpRegistry != nil {
+			for _, t := range a.mcpRegistry.Tools() {
+				mcpToolIDs = append(mcpToolIDs, t.NamespaceID)
+			}
+		}
+		tools := llm.CardTools(cardTypes, catMaps, mcpToolIDs)
 		if c != nil && len(c.Blocks) > 0 {
 			fieldProps := make(map[string]any)
 			for _, b := range c.Blocks {
@@ -4780,6 +4842,14 @@ func (a *App) executeToolCall(cardID string, card *model.Card, tc llm.ToolCall, 
 			return "error: " + err.Error(), nil, nil
 		}
 
+		// Notify any open CardDetail so the Agent tab re-fetches and
+		// shows the updated goal / schedule / tools immediately. Without
+		// this, the user sees the chat say "I updated the goal" but the
+		// Agent tab still shows the old value until they close + reopen
+		// the card — which is exactly the bug Harvey reported on
+		// 2026-04-12.
+		a.emitCardUpdated(cardID)
+
 		summary := fmt.Sprintf("Agent %s — schedule: %s, tools: %s", map[bool]string{true: "enabled", false: "disabled"}[enabled], schedule, strings.Join(allowedTools, ", "))
 		action := &model.ToolAction{Tool: "configure_agent", Input: tc.Arguments, Result: summary}
 		return summary, action, nil
@@ -5088,6 +5158,7 @@ func (a *App) executeProjectToolCall(tc llm.ToolCall, scope projectChatScope) (s
 		if err := a.repo.SaveAgentConfig(cardID, af.Config); err != nil {
 			return "error: " + err.Error(), nil
 		}
+		a.emitCardUpdated(cardID)
 		result := "Configured agent: " + strings.Join(changes, ", ")
 		action := &model.ToolAction{Tool: "configure_agent", Input: tc.Arguments, Result: result}
 		return result, action

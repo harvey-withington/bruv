@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { GetAgentConfig, SaveAgentConfig, TriggerAgent, CancelAgent, IsLLMConfigured, ListAgentCardIDs, GetLLMAccounts } from '../lib/api'
+  import { GetAgentConfig, SaveAgentConfig, TriggerAgent, CancelAgent, IsLLMConfigured, ListAgentCardIDs, GetLLMAccounts, ListMCPServers } from '../lib/api'
+  import type { MCPServerView } from '../lib/types'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
   import { board } from '../lib/store.svelte'
@@ -80,6 +81,28 @@
   ]
 
 
+  // MCP servers — one checkbox per server, toggles all its tools.
+  let mcpServers = $state<MCPServerView[]>([])
+
+  function mcpServerToolIds(server: MCPServerView): string[] {
+    return server.tools.map(t => t.namespace_id)
+  }
+
+  function isMcpServerEnabled(server: MCPServerView): boolean {
+    const ids = mcpServerToolIds(server)
+    return ids.length > 0 && ids.every(id => allowedTools.includes(id))
+  }
+
+  function toggleMcpServer(server: MCPServerView) {
+    const ids = mcpServerToolIds(server)
+    if (isMcpServerEnabled(server)) {
+      allowedTools = allowedTools.filter(id => !ids.includes(id))
+    } else {
+      allowedTools = [...new Set([...allowedTools, ...ids])]
+    }
+    dirty = true
+  }
+
   const SCHEDULE_PRESETS = [
     { label: '@hourly', value: '@hourly' },
     { label: '@daily', value: '@daily' },
@@ -90,7 +113,8 @@
   async function loadConfig() {
     loading = true
     try {
-      const [af, isConfigured, accounts] = await Promise.all([GetAgentConfig(cardId), IsLLMConfigured(), GetLLMAccounts()])
+      const [af, isConfigured, accounts, servers] = await Promise.all([GetAgentConfig(cardId), IsLLMConfigured(), GetLLMAccounts(), ListMCPServers()])
+      mcpServers = servers ?? []
       llmAccounts = accounts || []
       llmConfigured = isConfigured
       enabled = af.config.enabled
@@ -265,6 +289,14 @@
       EventsOn('agent:failed', (data: any) => {
         if (data?.cardID === cardId) { loadConfig() }
       }),
+      // Re-fetch config when the card is updated externally — this
+      // covers configure_agent called from the card chat or project
+      // chat, which emits card:updated after saving the new config.
+      // Without this the Agent tab shows stale goal/schedule/tools
+      // until the user closes and reopens the card.
+      EventsOn('card:updated', (data: any) => {
+        if (data?.cardID === cardId) { loadConfig() }
+      }),
     ]
   })
 
@@ -436,9 +468,9 @@
             <div class="perm-scroll">
               <div class="tools-list">
                 {#each TOOL_GROUPS as group}
-                  {@const groupIds = group.tools.map(t => t.id)}
-                  {@const allChecked = groupIds.every(id => allowedTools.includes(id))}
-                  {@const someChecked = groupIds.some(id => allowedTools.includes(id)) && !allChecked}
+                  {@const groupIds = group.tools.map((t: ToolDef) => t.id)}
+                  {@const allChecked = groupIds.every((id: string) => allowedTools.includes(id))}
+                  {@const someChecked = groupIds.some((id: string) => allowedTools.includes(id)) && !allChecked}
                   <div class="tool-group">
                     <label class="tool-group-header">
                       <input
@@ -471,6 +503,24 @@
                     {/each}
                   </div>
                 {/each}
+                {#if mcpServers.some(s => s.health.status === 'ready' && s.tools.length > 0)}
+                  <div class="tool-group mcp-group">
+                    <span class="tool-group-title">{t('agent.tool_group_mcp')}</span>
+                    {#each mcpServers.filter(s => s.health.status === 'ready' && s.tools.length > 0) as server}
+                      <label class="tool-item">
+                        <input
+                          type="checkbox"
+                          checked={isMcpServerEnabled(server)}
+                          onchange={() => toggleMcpServer(server)}
+                        />
+                        <div class="tool-info">
+                          <span class="tool-name">{server.spec.name}</span>
+                          <span class="tool-desc">{server.tools.length} {server.tools.length === 1 ? 'tool' : 'tools'}</span>
+                        </div>
+                      </label>
+                    {/each}
+                  </div>
+                {/if}
               </div>
             </div>
           </div>
@@ -866,6 +916,11 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: var(--text-faint);
+  }
+  .mcp-group {
+    border-top: 1px solid var(--border-muted);
+    padding-top: 0.5rem;
+    margin-top: 0.3rem;
   }
   .tool-item {
     display: flex;

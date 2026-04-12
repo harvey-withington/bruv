@@ -4,6 +4,7 @@ import (
 	"bruv/internal/agent"
 	"bruv/internal/config"
 	"bruv/internal/llm"
+	"bruv/internal/mcp"
 	"bruv/internal/model"
 	"bruv/internal/notify"
 	"context"
@@ -439,6 +440,12 @@ func (a *App) executeAgent(ctx context.Context, cardID string) error {
 
 	// 7. Build filtered tools
 	toolDefs := llm.AgentTools(af.Config.AllowedTools)
+	// Append any MCP tools exposed by the per-repo registry that
+	// this agent has been granted via per-card allowed-tools. MCP
+	// tool IDs are namespaced (server__tool) so they never collide
+	// with built-in tool names. Passing an empty allowed list
+	// means "all MCP tools", matching the built-in behaviour.
+	toolDefs = append(toolDefs, a.mcpToolDefs(af.Config.AllowedTools)...)
 
 	// 8. Create ephemeral chat file (not persisted to card chat)
 	cf := &model.ChatFile{
@@ -523,11 +530,81 @@ func (a *App) executeAgent(ctx context.Context, cardID string) error {
 	return nil
 }
 
+// mcpToolDefs returns llm.ToolDef entries for every MCP tool currently
+// available via the registry, filtered by the agent's allowed-tools
+// list. Empty allowed means "all", matching llm.AgentTools semantics
+// for built-ins.
+//
+// Tool IDs use the server__tool namespace prefix so the LLM sees a
+// unique name per tool even when two servers happen to expose tools
+// with the same underlying name. The mcp package's NamespaceTool
+// function is the single source of truth for the separator so the
+// prefix here stays in sync with what executeAgentToolCall expects
+// on the dispatch side.
+func (a *App) mcpToolDefs(allowedTools []string) []llm.ToolDef {
+	if a.mcpRegistry == nil {
+		return nil
+	}
+	tools := a.mcpRegistry.Tools()
+	if len(tools) == 0 {
+		return nil
+	}
+	// Build allow-set once. An empty allow list means "allow all"
+	// for both built-ins and MCP tools.
+	var allow map[string]bool
+	if len(allowedTools) > 0 {
+		allow = make(map[string]bool, len(allowedTools))
+		for _, t := range allowedTools {
+			allow[t] = true
+		}
+	}
+	out := make([]llm.ToolDef, 0, len(tools))
+	for _, t := range tools {
+		if allow != nil && !allow[t.NamespaceID] {
+			continue
+		}
+		// MCP InputSchema is the JSON Schema object we pass
+		// verbatim to the LLM. If a server omits it entirely
+		// (technically spec-noncompliant but some do it) we
+		// supply a minimal object-typed schema so providers
+		// that require one don't reject the tool.
+		params := t.Tool.InputSchema
+		if params == nil {
+			params = map[string]any{"type": "object", "properties": map[string]any{}}
+		}
+		description := t.Tool.Description
+		if description == "" && t.Tool.Title != "" {
+			description = t.Tool.Title
+		}
+		// Prepend the server name to the description so the LLM
+		// has context about which external source this tool
+		// belongs to — useful when an agent has tools from
+		// multiple servers and needs to pick between them.
+		description = fmt.Sprintf("[via %s MCP server] %s", t.ServerName, description)
+		out = append(out, llm.ToolDef{
+			Name:        t.NamespaceID,
+			Description: description,
+			Parameters:  params,
+		})
+	}
+	return out
+}
+
 // executeAgentToolCall dispatches a single agent tool call.
 func (a *App) executeAgentToolCall(cardID string, card *model.Card, tc llm.ToolCall) (string, *model.ToolAction) {
 	action := &model.ToolAction{
 		Tool:  tc.Name,
 		Input: tc.Arguments,
+	}
+
+	// MCP tool calls are namespaced. Detect via the registry's
+	// OwnsTool check (O(1) map lookup) and route through the
+	// MCP registry. This branch runs BEFORE the built-in switch
+	// so namespaced IDs can never accidentally match a built-in
+	// name, even if a future BRUV release adds a built-in tool
+	// with a name that happens to include the separator.
+	if a.mcpRegistry != nil && a.mcpRegistry.OwnsTool(tc.Name) {
+		return a.executeMCPToolCall(tc, action)
 	}
 
 	switch tc.Name {
@@ -712,6 +789,59 @@ func (a *App) executeAgentToolCall(cardID string, card *model.Card, tc llm.ToolC
 		action.Result = "unknown tool"
 		return fmt.Sprintf("Unknown tool: %s", tc.Name), action
 	}
+}
+
+// executeMCPToolCall routes a namespaced tool call through the per-repo
+// MCP registry and flattens the result into the single-string form the
+// existing agent tool loop expects.
+//
+// Error handling mirrors the distinction the MCP spec draws between
+// protocol errors and tool-level errors (see internal/mcp/client.go):
+//
+//   - Transport or JSON-RPC errors (network, malformed server output,
+//     unknown tool on the server side) come back from CallTool as a
+//     Go error. We log them, mark the action as failed, and return a
+//     descriptive error string to the LLM so it can try an alternative
+//     approach rather than aborting the whole run.
+//
+//   - Tool-level errors (IsError flag set on a successful MCP
+//     response) indicate the tool ran but didn't like what it was
+//     asked — e.g. rate limits, missing files, permission denied.
+//     These flow through to the LLM as normal tool results with an
+//     "Error:" prefix so the model sees them and can adapt.
+//
+// Tool calls get their own 60-second timeout — generous enough for
+// most MCP servers but bounded so a hung server can't stall an
+// entire agent run. Agents with legitimately long-running tool
+// needs will want a different transport anyway.
+func (a *App) executeMCPToolCall(tc llm.ToolCall, action *model.ToolAction) (string, *model.ToolAction) {
+	serverName, toolName := mcp.SplitNamespacedTool(tc.Name)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	result, err := a.mcpRegistry.CallTool(ctx, tc.Name, tc.Arguments)
+	if err != nil {
+		log.Printf("mcp[%s] tool %q: protocol error: %v", serverName, toolName, err)
+		action.Result = fmt.Sprintf("mcp error: %s", err.Error())
+		return fmt.Sprintf("MCP tool %q failed: %s", tc.Name, err.Error()), action
+	}
+
+	content := mcp.FlattenContent(result.Content)
+	if result.IsError {
+		// Tool-level error — prefix with "Error:" so the LLM
+		// recognises this as a failure it should react to.
+		action.Result = "mcp tool error"
+		if content == "" {
+			content = "tool returned an error without a message"
+		}
+		return "Error: " + content, action
+	}
+
+	action.Result = fmt.Sprintf("mcp[%s].%s ok", serverName, toolName)
+	if content == "" {
+		content = "(tool returned no content)"
+	}
+	return content, action
 }
 
 // agentField describes a single agent-tracking field discovered on a

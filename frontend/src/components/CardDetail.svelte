@@ -64,14 +64,35 @@
   let showOtherPins = $state(false)
   const CHAT_VISIBLE_KEY = 'bruv:chatPanelVisible'
   let showChat = $state(localStorage.getItem(CHAT_VISIBLE_KEY) === 'true')
+  // Tracks whether the chat panel is physically present in the DOM —
+  // this lags behind `showChat` during the close animation so the
+  // modal's `.chat-open` class and modal-main's inline width stay in
+  // effect while the panel is animating out. Without this the modal
+  // snaps to its narrow width the instant the user clicks close, then
+  // the panel animates in the new narrow layout, which looks wrong.
+  // Must match the `slideOutWidth` duration in ChatSection.svelte.
+  const CHAT_OUT_DURATION = 240
+  // svelte-ignore state_referenced_locally
+  let chatInDom = $state(showChat)
+  $effect(() => {
+    if (showChat) {
+      chatInDom = true
+    } else if (chatInDom) {
+      const timer = setTimeout(() => { chatInDom = false }, CHAT_OUT_DURATION)
+      return () => clearTimeout(timer)
+    }
+  })
   // svelte-ignore state_referenced_locally
   let activeTab = $state<'details' | 'agent' | 'runs'>(initialTab ?? 'details')
   $effect(() => { localStorage.setItem(CHAT_VISIBLE_KEY, String(showChat)) })
 
-  // Splitter: redistributes space between main and chat when chat is open
+  // Splitter: redistributes space between main and chat when chat is open.
+  // Default is 880px so Details/Agent/Runs tabs all render at the same
+  // width — users used to see a jump from 720→880 when switching to the
+  // Agent or Runs tabs, which was distracting.
   const MAIN_WIDTH_KEY = 'bruv:mainPanelWidth'
   const MIN_PANEL = 350
-  let mainWidth = $state(Number(localStorage.getItem(MAIN_WIDTH_KEY)) || 720)
+  let mainWidth = $state(Number(localStorage.getItem(MAIN_WIDTH_KEY)) || 880)
   let splitterDragging = $state(false)
 
   let savingCount = $state(0)
@@ -1033,8 +1054,8 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div class="modal-backdrop" role="presentation" onclick={handleBackdropClick} out:fade={{ duration: 150 }}>
-  <div class="modal" class:chat-open={showChat} class:agent-tab-active={activeTab === 'agent' || activeTab === 'runs'} class:splitter-dragging={splitterDragging} use:draggable={{ handle: '.modal-header' }} use:focusTrap>
-   <div class="modal-main" style={showChat ? `width: ${mainWidth}px;` : ''}>
+  <div class="modal" class:chat-open={chatInDom} class:splitter-dragging={splitterDragging} style:--modal-base="{mainWidth}px" use:draggable={{ handle: '.modal-header' }} use:focusTrap>
+   <div class="modal-main" style={chatInDom ? `width: ${mainWidth}px;` : ''}>
     {#if loading}
       <div class="modal-loading">{t('app.loading')}</div>
     {:else if card}
@@ -1687,18 +1708,24 @@
   .modal {
     background: var(--bg-surface);
     border-radius: 10px;
-    width: 720px;
+    /* Base width tracks the user's card-body preference (--modal-base,
+       set inline from `mainWidth`). Default 880px so Details, Agent
+       and Runs tabs all render at the same width — switching tabs no
+       longer jumps the modal. This also makes the close animation's
+       final state match the steady-state width, so the modal doesn't
+       snap when .chat-open is removed at t=240ms. */
+    width: var(--modal-base, 880px);
     max-width: 95vw;
-    max-height: 85vh;
+    /* Fixed height (not max-height) so the dialog is a stable size
+       regardless of which tab is active. Tab content scrolls
+       internally via .modal-body's overflow-y: auto. */
+    height: 85vh;
     display: flex;
     flex-direction: row;
     overflow: hidden;
     box-shadow: 0 8px 32px var(--shadow-lg);
     position: relative;
     animation: fade-in-scale var(--duration-slow) var(--ease-out);
-  }
-  .modal.agent-tab-active {
-    width: 880px;
   }
   .modal.chat-open {
     width: auto;

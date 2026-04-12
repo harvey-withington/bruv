@@ -7,6 +7,35 @@
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
 
+  // Custom Svelte transition: slide the chat-panel's width out to 0 on
+  // unmount, mirroring the CSS `chat-panel-in` keyframe used on mount.
+  // We measure the element's clientWidth at transition start (captured
+  // once in the outer closure) so the animation honours whatever width
+  // the user has dragged to. Operates on `width` + `opacity` only — no
+  // transform, so the .chat-messages scroll container inside is unaffected.
+  //
+  // Duration and easing are chosen to mirror the `chat-panel-in` CSS
+  // keyframe exactly (240ms, cubic-bezier(0.16, 1, 0.3, 1)) so the close
+  // animation plays as the true reverse of the open animation. The
+  // parent (CardDetail) uses a setTimeout of the same duration to
+  // delay dropping the `.chat-open` class on the modal — otherwise
+  // the dialog width would snap narrow before the panel has finished
+  // animating out.
+  const chatPanelEasing = (t: number) => {
+    // cubic-bezier(0.16, 1, 0.3, 1) via a JS approximation.
+    // Matches the CSS easing used by the `chat-panel-in` keyframe.
+    return 1 - Math.pow(1 - t, 4)
+  }
+  function slideOutWidth(node: HTMLElement, opts: { duration?: number } = {}) {
+    const duration = opts.duration ?? 240
+    const width = node.clientWidth
+    return {
+      duration,
+      easing: chatPanelEasing,
+      css: (t: number) => `width: ${width * t}px; opacity: ${t}; overflow: hidden; min-width: 0;`,
+    }
+  }
+
   interface PendingEdit {
     id: string
     tool: string
@@ -486,8 +515,12 @@
 
 {#if visible}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <div class="chat-panel" class:resizing style="width: {chatWidth}px;">
+  <div class="chat-panel" class:resizing style="width: {chatWidth}px; --chat-width: {chatWidth}px;" out:slideOutWidth={{ duration: 220 }}>
     <div class="chat-resize-handle left" class:active={resizing} role="separator" tabindex="-1" onmousedown={onSplitterDown}></div>
+    <!-- Inner wrapper is pinned to the final width, so children don't
+         reflow while the outer .chat-panel animates from 0 → chatWidth.
+         The overflow on the right is clipped by .modal's overflow:hidden. -->
+    <div class="chat-panel-inner" style="width: {chatWidth}px;">
     <div class="chat-header">
       <span class="chat-title">{projectMode ? t('chat.project_title') : t('chat.title')}{messages.length > 0 ? ` (${messages.length})` : ''}</span>
       {#if projectMode}
@@ -701,6 +734,7 @@
       </div>
     </div>
     </div>
+    </div>
   </div>
 {/if}
 
@@ -712,12 +746,48 @@
     border-left: 1px solid var(--border-muted);
     background: var(--bg-surface);
     position: relative;
-    animation: chat-panel-in 180ms ease-out;
+    /* Clip the fixed-width .chat-panel-inner child while the outer
+       panel width animates. Without this, inner content overflows
+       rightward during the intro animation. The child .chat-messages
+       has its own overflow:auto, which is independent. */
+    overflow: hidden;
+    /* Slide-out entrance — the panel's width grows from 0 to its
+       target on mount, so it appears to emerge from the right edge
+       of the card body. We animate `width` (layout), not `transform`,
+       because transforms create a stacking context that breaks the
+       scroll container inside .chat-messages on WebView2.
+       `--chat-width` is mirrored from the inline `width` style on
+       the element, so the keyframe doesn't hard-code a value.
+       `backwards` fill-mode applies the from-state before the
+       animation starts (preventing a 1-frame flash at full width),
+       then releases control back to the inline style after the
+       animation ends so the user's resize drag keeps working. */
+    animation: chat-panel-in 240ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
   }
 
   @keyframes chat-panel-in {
-    from { opacity: 0; }
-    to   { opacity: 1; }
+    from {
+      width: 0;
+      opacity: 0;
+    }
+    to {
+      width: var(--chat-width);
+      opacity: 1;
+    }
+  }
+
+  /* Inner wrapper: pinned to the chat panel's natural width via an
+     inline style. Because it holds a fixed width while the parent
+     animates, the children inside (header, messages, input, etc.)
+     don't reflow on every animation frame — only the outer clip
+     region changes. This is both more efficient and visually cleaner
+     since text doesn't rewrap as the panel grows. */
+  .chat-panel-inner {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
   }
 
   .chat-panel.resizing {

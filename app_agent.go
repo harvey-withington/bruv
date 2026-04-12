@@ -590,6 +590,18 @@ func (a *App) mcpToolDefs(allowedTools []string) []llm.ToolDef {
 	return out
 }
 
+// cardHasBlock returns true if the card has a block whose key or label
+// matches name (case-insensitive). Used to decide whether an intrinsic
+// field intercept should fire or defer to a real block.
+func cardHasBlock(card *model.Card, name string) bool {
+	for _, b := range card.Blocks {
+		if strings.EqualFold(b.Key, name) || strings.EqualFold(b.Label, name) {
+			return true
+		}
+	}
+	return false
+}
+
 // executeAgentToolCall dispatches a single agent tool call.
 func (a *App) executeAgentToolCall(cardID string, card *model.Card, tc llm.ToolCall) (string, *model.ToolAction) {
 	action := &model.ToolAction{
@@ -660,39 +672,41 @@ func (a *App) executeAgentToolCall(cardID string, card *model.Card, tc llm.ToolC
 			CardTitle: card.Title,
 			Channels:  notify.ParseChannels(channelSpec),
 		})
-		// Also persist the notification to the card's comment thread so
-		// there's a durable audit trail even when the agent fires a
-		// notification without otherwise updating the card's fields or
-		// blocks. Without this, a flaky run leaves no trace on the card
-		// itself and the user has to dig through the Runs tab to see
-		// what the agent reported.
-		commentText := strings.TrimSpace(title)
-		if b := strings.TrimSpace(body); b != "" {
-			if commentText != "" {
-				commentText += "\n\n" + b
-			} else {
-				commentText = b
-			}
-		}
-		if commentText != "" {
-			if _, err := a.repo.AddCardComment(cardID, "Agent", commentText, time.Time{}); err != nil {
-				log.Printf("notify tool: add card comment: %v", err)
-			}
-		}
 		action.Result = "notification sent"
 		return "Notification sent to user.", action
 
 	case "update_self":
-		updates, ok := tc.Arguments["updates"].([]any)
-		if !ok {
-			action.Result = "error: invalid updates format"
-			return action.Result, action
-		}
 		updatedCard, err := a.repo.GetCard(cardID)
 		if err != nil {
 			action.Result = "error: " + err.Error()
 			return action.Result, action
 		}
+		// Optional top-level intrinsic field updates
+		if newTitle, ok := tc.Arguments["title"].(string); ok && newTitle != "" {
+			updatedCard.Title = newTitle
+		}
+		if newDueDate, ok := tc.Arguments["due_date"].(string); ok && newDueDate != "" {
+			parsed, perr := time.Parse("2006-01-02", newDueDate)
+			if perr != nil {
+				// Try RFC3339 as fallback
+				parsed, perr = time.Parse(time.RFC3339, newDueDate)
+			}
+			if perr == nil {
+				updatedCard.DueDate = &parsed
+			}
+		}
+		if newTags, ok := tc.Arguments["tags"].([]any); ok {
+			tags := make([]string, 0, len(newTags))
+			for _, t := range newTags {
+				if s, ok := t.(string); ok && s != "" {
+					tags = append(tags, s)
+				}
+			}
+			if len(tags) > 0 {
+				updatedCard.Tags = tags
+			}
+		}
+		updates, _ := tc.Arguments["updates"].([]any)
 		for _, u := range updates {
 			upd, ok := u.(map[string]any)
 			if !ok {
@@ -701,6 +715,44 @@ func (a *App) executeAgentToolCall(cardID string, card *model.Card, tc llm.ToolC
 			key, _ := upd["key"].(string)
 			rawValue := upd["value"]
 			if key == "" {
+				continue
+			}
+			// LLMs frequently put intrinsic fields in the updates array
+			// instead of using top-level parameters. Intercept them here
+			// so the actual card fields change rather than creating
+			// spurious text blocks — but only when no real block with
+			// that key/label exists (a user-created "Tags" block wins).
+			if strings.EqualFold(key, "title") && !cardHasBlock(updatedCard, key) {
+				if s, ok := rawValue.(string); ok && s != "" {
+					updatedCard.Title = s
+				}
+				continue
+			}
+			if (strings.EqualFold(key, "due_date") || strings.EqualFold(key, "due date") || strings.EqualFold(key, "duedate")) && !cardHasBlock(updatedCard, key) {
+				if s, ok := rawValue.(string); ok && s != "" {
+					parsed, perr := time.Parse("2006-01-02", s)
+					if perr != nil {
+						parsed, perr = time.Parse(time.RFC3339, s)
+					}
+					if perr == nil {
+						updatedCard.DueDate = &parsed
+					}
+				}
+				continue
+			}
+			if strings.EqualFold(key, "tags") && !cardHasBlock(updatedCard, key) {
+				switch v := rawValue.(type) {
+				case []any:
+					for _, item := range v {
+						if s, ok := item.(string); ok && s != "" {
+							updatedCard.Tags = append(updatedCard.Tags, s)
+						}
+					}
+				case string:
+					if v != "" {
+						updatedCard.Tags = append(updatedCard.Tags, v)
+					}
+				}
 				continue
 			}
 			found := false
@@ -1024,6 +1076,10 @@ been addressed with the right tool before you finish.
   anything similar, you MUST call the `+"`notify`"+` tool. Describing the
   notification in your response is not enough; you have to actually
   call the tool.
+- If the Goal says to change the card title, due date, or tags, use
+  the top-level `+"`title`"+`, `+"`due_date`"+`, or `+"`tags`"+` parameters on
+  `+"`update_self`"+`. Do NOT put these in the `+"`updates`"+` array — that
+  only works for content blocks, not intrinsic card fields.
 - If the Goal says to save, record, write, update, or populate a
   specific block on this card (e.g. "save to the X list", "update Y",
   "record findings in Z"), you MUST call `+"`update_self`"+` targeting

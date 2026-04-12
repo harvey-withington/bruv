@@ -1160,16 +1160,13 @@
         </button>
       </div>
 
-      {#if activeTab === 'agent'}
-        <div class="modal-body">
-          <AgentTab {cardId} />
-        </div>
-      {:else if activeTab === 'runs'}
-        <div class="modal-body">
-          <AgentRunsTab {cardId} />
-        </div>
-      {:else}
-      <div class="modal-body">
+      <div class="modal-body" hidden={activeTab !== 'agent'}>
+        <AgentTab {cardId} />
+      </div>
+      <div class="modal-body" hidden={activeTab !== 'runs'}>
+        <AgentRunsTab {cardId} />
+      </div>
+      <div class="modal-body" hidden={activeTab !== 'details'}>
         <!-- Standard fields: compact 2-column grid + FAB in third column -->
         <div class="fields-grid">
           <div class="field-cell">
@@ -1602,7 +1599,6 @@
           onCardUpdated={handleAttachmentUpdate}
         />
       </div>
-      {/if}
 
       <div class="modal-footer">
         <button class="btn-delete" onclick={handleDelete} title={t('tooltip.delete_card')}><Trash2 size={14} /> {t('card.delete')}</button>
@@ -2070,6 +2066,9 @@
     flex-direction: column;
     gap: 0.75rem;
     position: relative;
+  }
+  .modal-body[hidden] {
+    display: none;
   }
 
   .section-title {

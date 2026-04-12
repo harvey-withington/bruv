@@ -284,18 +284,19 @@
         if (data?.cardID === cardId) { status = 'running' }
       }),
       EventsOn('agent:completed', (data: any) => {
-        if (data?.cardID === cardId) { loadConfig() }
+        if (data?.cardID === cardId && !dirty) { loadConfig() }
       }),
       EventsOn('agent:failed', (data: any) => {
-        if (data?.cardID === cardId) { loadConfig() }
+        if (data?.cardID === cardId && !dirty) { loadConfig() }
       }),
       // Re-fetch config when the card is updated externally — this
       // covers configure_agent called from the card chat or project
       // chat, which emits card:updated after saving the new config.
       // Without this the Agent tab shows stale goal/schedule/tools
       // until the user closes and reopens the card.
+      // Skip reload when the user has unsaved edits to avoid losing them.
       EventsOn('card:updated', (data: any) => {
-        if (data?.cardID === cardId) { loadConfig() }
+        if (data?.cardID === cardId && !dirty) { loadConfig() }
       }),
     ]
   })

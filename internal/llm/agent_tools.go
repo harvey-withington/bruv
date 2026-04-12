@@ -50,17 +50,31 @@ var allAgentTools = []ToolDef{
 	},
 	{
 		Name: "update_self",
-		Description: "Update or create content blocks on this card. The 'Current Card State' section of the system prompt lists each block's type (text, list, checklist, number, etc.) — match the value format to that type:\n" +
+		Description: "Update this card's intrinsic fields (title, due date, tags) and/or content blocks. The 'Current Card State' section of the system prompt lists each block's type (text, list, checklist, number, etc.) — match the value format to that type:\n" +
 			"  - text / description / findings: send a plain string.\n" +
 			"  - list: send an ARRAY of strings, one per list item, e.g. [\"Phnom Penh 20 May $60\", \"Bali 12 Jun $85\"].\n" +
 			"  - checklist: send an ARRAY of strings (each becomes an unchecked item) OR an array of {text, done} objects to set done state.\n" +
 			"  - number: send a number (or numeric string).\n" +
 			"  - date: send an ISO-8601 date/time string.\n" +
 			"  - select / radio: send the chosen option as a string.\n" +
-			"If you send a plain string to a list or checklist block it will be split by newlines as a fallback, but sending an array is strongly preferred. Use existing block keys to update them; use a new key to create a new text block.",
+			"If you send a plain string to a list or checklist block it will be split by newlines as a fallback, but sending an array is strongly preferred. Use existing block keys to update them; use a new key to create a new text block.\n" +
+			"To change intrinsic card fields, use the top-level 'title', 'due_date', or 'tags' parameters.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
+				"title": map[string]any{
+					"type":        "string",
+					"description": "New card title. Omit to leave unchanged.",
+				},
+				"due_date": map[string]any{
+					"type":        "string",
+					"description": "Due date in YYYY-MM-DD or ISO-8601 format. Omit to leave unchanged.",
+				},
+				"tags": map[string]any{
+					"type":        "array",
+					"description": "Set the card's tags. Omit to leave unchanged.",
+					"items":       map[string]any{"type": "string"},
+				},
 				"updates": map[string]any{
 					"type":        "array",
 					"description": "List of block updates",
@@ -82,7 +96,6 @@ var allAgentTools = []ToolDef{
 					},
 				},
 			},
-			"required": []string{"updates"},
 		},
 	},
 	{

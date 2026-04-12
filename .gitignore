@@ -1,6 +1,7 @@
 build/bin
 build/appicon.png
 build/windows/icon.ico
+build/windows/installer/wails_tools.nsh
 node_modules
 frontend/dist
 frontend/wailsjs

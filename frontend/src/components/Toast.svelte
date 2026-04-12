@@ -6,7 +6,7 @@
 {#if toasts.list.length > 0}
   <div class="toast-container">
     {#each toasts.list as toast (toast.id)}
-      <div class="toast toast--{toast.type}">
+      <div class="toast toast--{toast.type}" class:dismissing={toast.dismissing}>
         <span class="toast-message">{toast.message}</span>
         <button class="toast-dismiss" onclick={() => dismissToast(toast.id)}><X size={14} /></button>
       </div>
@@ -37,12 +37,21 @@
     max-width: 400px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
     pointer-events: auto;
-    animation: toast-in 0.2s ease;
+    animation: toast-in 0.2s var(--ease-out) both;
+  }
+
+  .toast.dismissing {
+    animation: toast-out 0.2s var(--ease-in-out) forwards;
   }
 
   @keyframes toast-in {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; transform: translateY(8px) scale(0.96); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  @keyframes toast-out {
+    from { opacity: 1; transform: translateY(0) scale(1); }
+    to   { opacity: 0; transform: translateY(4px) scale(0.96); }
   }
 
   .toast--info    { background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-primary); }
@@ -61,6 +70,7 @@
     padding: 0;
     display: flex;
     flex-shrink: 0;
+    transition: opacity var(--duration-fast);
   }
   .toast-dismiss:hover { opacity: 1; }
 </style>

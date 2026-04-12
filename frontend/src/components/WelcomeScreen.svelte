@@ -175,6 +175,7 @@
     max-width: 400px;
     width: 100%;
     padding: 2rem;
+    animation: fade-in-up 0.5s var(--ease-out) both;
   }
 
   .welcome-icon {

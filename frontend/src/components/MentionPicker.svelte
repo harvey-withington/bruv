@@ -183,6 +183,7 @@
     border-radius: 8px;
     box-shadow: 0 8px 24px var(--shadow-lg);
     overflow: hidden;
+    animation: fade-in-scale var(--duration-normal) var(--ease-out);
   }
 
   .mention-search {

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { optionsEditorState, resolveOptionsEditor } from '../lib/optionsEditor.svelte'
+  import { fade } from 'svelte/transition'
   import { t } from '../lib/i18n.svelte'
   import { focusTrap, focusOnMount } from '../lib/actions'
   import { GripVertical, Trash2, Plus, Pencil, Check, X } from 'lucide-svelte'
@@ -104,7 +105,7 @@
 
 {#if optionsEditorState.visible}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="oe-backdrop" role="presentation" onclick={cancel}>
+  <div class="oe-backdrop" role="presentation" onclick={cancel} out:fade={{ duration: 150 }}>
     <div class="oe-dialog" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} use:focusTrap>
       <div class="oe-header">
         <h3 class="oe-title">{optionsEditorState.title}</h3>
@@ -204,11 +205,13 @@
     position: fixed; inset: 0; z-index: 99990;
     background: var(--bg-overlay);
     display: flex; align-items: center; justify-content: center;
+    animation: fade-in var(--duration-normal) var(--ease-out);
   }
   .oe-dialog {
     background: var(--bg-surface); border: 1px solid var(--border); border-radius: 10px;
     width: 440px; max-height: 80vh; display: flex; flex-direction: column;
     box-shadow: 0 8px 32px var(--shadow-lg);
+    animation: fade-in-scale var(--duration-moderate) var(--ease-out);
   }
   .oe-header {
     display: flex; align-items: center; justify-content: space-between;

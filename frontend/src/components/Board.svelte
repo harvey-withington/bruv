@@ -642,6 +642,7 @@
     height: 100%;
     color: var(--text-muted);
     font-size: 0.9rem;
+    animation: fade-in var(--duration-moderate) var(--ease-out);
   }
 
   .empty-board {

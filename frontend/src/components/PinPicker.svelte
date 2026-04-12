@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ListAllCategories } from '../lib/api'
+  import { fade } from 'svelte/transition'
   import { X } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import { focusTrap } from '../lib/actions'
@@ -83,7 +84,7 @@
 
 {#if visible}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="pin-backdrop" onmousedown={handleBackdropClick}>
+  <div class="pin-backdrop" onmousedown={handleBackdropClick} out:fade={{ duration: 150 }}>
     <div class="pin-modal" use:focusTrap>
       <div class="pin-header">
         <span class="pin-title">{t('pin.title')}</span>
@@ -136,6 +137,7 @@
     justify-content: center;
     padding-top: 6rem;
     z-index: 200;
+    animation: fade-in var(--duration-normal) var(--ease-out);
   }
 
   .pin-modal {
@@ -149,6 +151,7 @@
     flex-direction: column;
     overflow: hidden;
     box-shadow: 0 8px 32px var(--shadow-lg);
+    animation: fade-in-scale var(--duration-moderate) var(--ease-out);
   }
 
   .pin-header {

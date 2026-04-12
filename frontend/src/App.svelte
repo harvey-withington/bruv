@@ -315,7 +315,7 @@
     width: 4px;
     cursor: col-resize;
     background: transparent;
-    transition: background 0.15s;
+    transition: background var(--duration-normal) var(--ease-out);
     flex-shrink: 0;
     position: relative;
     z-index: 10;
@@ -359,11 +359,13 @@
     justify-content: center;
     height: 100vh;
     background: var(--bg-base);
+    animation: fade-in var(--duration-slow) var(--ease-out);
   }
 
   .loading-text {
     color: var(--text-muted);
     font-size: 0.9rem;
     letter-spacing: 0.05em;
+    animation: fade-in-up 0.6s var(--ease-out) both;
   }
 </style>

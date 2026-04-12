@@ -198,7 +198,7 @@
   .attachments-body {
     padding: 0.35rem 0;
     border-radius: 6px;
-    transition: background 0.15s;
+    transition: background var(--duration-normal);
   }
   .attachments-body.drag-over {
     background: color-mix(in srgb, var(--accent) 8%, transparent);
@@ -254,7 +254,7 @@
     color: var(--text-muted);
     font-size: 0.75rem;
     cursor: pointer;
-    transition: border-color 0.15s, color 0.15s;
+    transition: border-color var(--duration-normal), color var(--duration-normal);
   }
   .attachment-drop-zone:hover {
     border-color: var(--accent);

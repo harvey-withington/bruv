@@ -341,6 +341,7 @@
     color: var(--text-muted);
     font-size: 0.88rem;
     margin: 0;
+    animation: fade-in var(--duration-moderate) var(--ease-out);
   }
 
   .col-heading-row {

@@ -9,6 +9,7 @@
   import { setLocale, availableLocales } from '../lib/i18n.svelte'
   import { nav, prefs as prefsStore } from '../lib/store.svelte'
   import { draggable } from '../lib/draggable'
+  import { fade } from 'svelte/transition'
   import { focusTrap } from '../lib/actions'
   type TabId = 'general' | 'ai' | 'notifications'
 
@@ -247,7 +248,7 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="overlay" role="presentation" onclick={handleOverlayClick}>
+<div class="overlay" role="presentation" onclick={handleOverlayClick} out:fade={{ duration: 150 }}>
   <div class="dialog" use:draggable={{ handle: '.dialog-header' }} use:focusTrap>
     <div class="dialog-header">
       <h2>{t('prefs.title')}</h2>
@@ -552,6 +553,7 @@
     align-items: center;
     justify-content: center;
     z-index: 100;
+    animation: fade-in var(--duration-normal) var(--ease-out);
   }
 
   .dialog {
@@ -563,6 +565,7 @@
     display: flex;
     flex-direction: column;
     box-shadow: 0 8px 32px var(--shadow-lg);
+    animation: fade-in-scale var(--duration-moderate) var(--ease-out);
   }
 
   .dialog-header {
@@ -651,7 +654,7 @@
     font-weight: 500;
     padding: 0.6rem 1rem;
     cursor: pointer;
-    transition: color 0.15s, border-color 0.15s;
+    transition: color var(--duration-normal), border-color var(--duration-normal);
   }
   .tab-btn:hover { color: var(--text-primary); }
   .tab-btn.active {

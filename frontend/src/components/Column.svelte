@@ -442,7 +442,7 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    transition: outline 0.15s;
+    transition: outline var(--duration-normal) var(--ease-out);
     position: relative;
   }
 
@@ -558,7 +558,7 @@
     display: flex;
     align-items: center;
     opacity: 0;
-    transition: opacity 0.15s, color 0.15s;
+    transition: opacity var(--duration-normal), color var(--duration-normal);
   }
   .column-header:hover .col-action-btn { opacity: 1; }
   .col-action-btn:hover { color: var(--accent); }
@@ -577,7 +577,7 @@
     cursor: pointer;
     border-radius: 3px;
     padding: 0.1rem 0.2rem;
-    transition: color 0.15s;
+    transition: color var(--duration-normal);
   }
   .col-desc-display:hover {
     color: var(--text-secondary);
@@ -704,6 +704,7 @@
   .card-list {
     flex: 1;
     overflow-y: auto;
+    scrollbar-gutter: stable;
     padding: 0 0.5rem;
     min-height: 40px;
     display: flex;
@@ -725,7 +726,7 @@
     font-size: 0.85rem;
     cursor: pointer;
     text-align: left;
-    transition: background 0.1s, color 0.1s;
+    transition: background var(--duration-fast), color var(--duration-fast);
   }
 
   .add-card-btn:hover {

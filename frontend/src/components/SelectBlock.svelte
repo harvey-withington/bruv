@@ -118,6 +118,7 @@
     background: var(--bg-surface); border: 1px solid var(--border);
     border-radius: 6px; max-height: 200px; overflow-y: auto;
     box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    animation: slide-down var(--duration-normal) var(--ease-out);
   }
   :global(.select-dropdown .select-option) {
     display: block; width: 100%; text-align: left; padding: 8px 12px;

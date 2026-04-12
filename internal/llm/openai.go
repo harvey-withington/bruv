@@ -109,6 +109,14 @@ func (p *openaiProvider) ChatCompletion(ctx context.Context, req ChatRequest) (*
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return nil, &RateLimitError{
+			Provider:   "openai",
+			StatusCode: resp.StatusCode,
+			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
+			Body:       truncate(string(respBody), 200),
+		}
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("OpenAI API error (%d): %s", resp.StatusCode, truncate(string(respBody), 200))
 	}

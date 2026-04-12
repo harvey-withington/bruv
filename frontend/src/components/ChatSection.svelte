@@ -712,6 +712,12 @@
     border-left: 1px solid var(--border-muted);
     background: var(--bg-surface);
     position: relative;
+    animation: chat-panel-in 180ms ease-out;
+  }
+
+  @keyframes chat-panel-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
   }
 
   .chat-panel.resizing {
@@ -849,10 +855,13 @@
   .chat-messages {
     flex: 1;
     overflow-y: auto;
+    scrollbar-gutter: stable;
     display: flex;
     flex-direction: column;
     gap: 6px;
     padding: 0.75rem;
+    background: var(--bg-surface);
+    contain: layout paint;
   }
 
   .chat-empty {

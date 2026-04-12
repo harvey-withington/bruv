@@ -110,8 +110,8 @@
     { label: '30m', value: '30m' },
   ]
 
-  async function loadConfig() {
-    loading = true
+  async function loadConfig(silent: boolean = false) {
+    if (!silent) loading = true
     try {
       const [af, isConfigured, accounts, servers] = await Promise.all([GetAgentConfig(cardId), IsLLMConfigured(), GetLLMAccounts(), ListMCPServers()])
       mcpServers = servers ?? []
@@ -284,10 +284,10 @@
         if (data?.cardID === cardId) { status = 'running' }
       }),
       EventsOn('agent:completed', (data: any) => {
-        if (data?.cardID === cardId && !dirty) { loadConfig() }
+        if (data?.cardID === cardId && !dirty) { loadConfig(true) }
       }),
       EventsOn('agent:failed', (data: any) => {
-        if (data?.cardID === cardId && !dirty) { loadConfig() }
+        if (data?.cardID === cardId && !dirty) { loadConfig(true) }
       }),
       // Re-fetch config when the card is updated externally — this
       // covers configure_agent called from the card chat or project
@@ -295,8 +295,10 @@
       // Without this the Agent tab shows stale goal/schedule/tools
       // until the user closes and reopens the card.
       // Skip reload when the user has unsaved edits to avoid losing them.
+      // Silent reload — no loading placeholder, so the tab doesn't
+      // flash every time the running agent writes back to the card.
       EventsOn('card:updated', (data: any) => {
-        if (data?.cardID === cardId && !dirty) { loadConfig() }
+        if (data?.cardID === cardId && !dirty) { loadConfig(true) }
       }),
     ]
   })
@@ -678,7 +680,7 @@
     font-size: 0.73rem;
     font-weight: 500;
     cursor: pointer;
-    transition: filter 0.1s;
+    transition: filter var(--duration-fast);
   }
   .run-now-btn:hover { filter: brightness(1.15); }
   .run-now-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -726,7 +728,7 @@
     font-size: 0.73rem;
     font-weight: 500;
     cursor: pointer;
-    transition: filter 0.1s;
+    transition: filter var(--duration-fast);
   }
   .save-btn:hover { filter: brightness(1.15); }
   .save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -748,7 +750,7 @@
     color: var(--text-muted);
     font-size: 0.75rem;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all var(--duration-normal);
     flex: 1;
     justify-content: center;
   }
@@ -792,7 +794,7 @@
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
-    transition: border-color 0.15s;
+    transition: border-color var(--duration-normal);
   }
   .config-card:focus-within {
     border-color: color-mix(in srgb, var(--accent) 40%, transparent);
@@ -824,7 +826,7 @@
     font-size: 0.8rem;
     font-family: inherit;
     resize: vertical;
-    transition: border-color 0.15s;
+    transition: border-color var(--duration-normal);
     color-scheme: dark light;
   }
   :global([data-theme="dark"]) .agent-input { color-scheme: dark; }
@@ -850,7 +852,7 @@
     font-size: 0.7rem;
     cursor: pointer;
     font-family: monospace;
-    transition: border-color 0.1s, color 0.1s, background 0.1s;
+    transition: border-color var(--duration-fast), color var(--duration-fast), background var(--duration-fast);
   }
   .preset-chip:hover {
     border-color: var(--accent);
@@ -931,7 +933,7 @@
     padding: 0.3rem 0.5rem;
     border-radius: 4px;
     cursor: pointer;
-    transition: background 0.1s;
+    transition: background var(--duration-fast);
     flex-shrink: 0;
   }
   .tool-item:hover { background: var(--bg-hover); }
@@ -980,7 +982,7 @@
     border-radius: 4px;
     color: var(--text-body);
     cursor: pointer;
-    transition: border-color 0.15s;
+    transition: border-color var(--duration-normal);
   }
   .cost-reset-btn:hover {
     border-color: var(--accent);

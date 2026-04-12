@@ -45,7 +45,7 @@
   .checkbox-option input { display: none; }
   .check-box {
     width: 12px; height: 12px; border-radius: 2px; border: 1.5px solid var(--border);
-    position: relative; flex-shrink: 0; transition: background 0.15s, border-color 0.15s;
+    position: relative; flex-shrink: 0; transition: background var(--duration-normal), border-color var(--duration-normal);
   }
   .checkbox-option input:checked + .check-box {
     background: var(--accent); border-color: var(--accent);
@@ -53,7 +53,7 @@
   .check-box::after {
     content: ''; position: absolute; left: 3px; top: 0.5px;
     width: 3px; height: 6px; border: solid white; border-width: 0 1.5px 1.5px 0;
-    transform: rotate(45deg) scale(0); transition: transform 0.15s;
+    transform: rotate(45deg) scale(0); transition: transform var(--duration-normal);
   }
   .checkbox-option input:checked + .check-box::after { transform: rotate(45deg) scale(1); }
   .check-label { font-size: 0.8em; color: var(--text-primary); }

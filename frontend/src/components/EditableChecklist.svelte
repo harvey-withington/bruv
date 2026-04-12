@@ -119,7 +119,7 @@
     height: 100%;
     background: var(--success);
     border-radius: 2px;
-    transition: width 0.2s;
+    transition: width var(--duration-moderate);
   }
 
   .cl-items {

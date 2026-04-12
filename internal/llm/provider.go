@@ -2,8 +2,44 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 )
+
+// RateLimitError is returned when a provider responds with HTTP 429
+// (or an equivalent rate-limit signal). RetryAfter is the suggested
+// minimum wait before retrying, parsed from the Retry-After header
+// when present. Callers can type-assert with errors.As to apply a
+// longer backoff instead of the generic retry schedule.
+type RateLimitError struct {
+	Provider   string
+	StatusCode int
+	RetryAfter time.Duration // 0 if the server didn't send a hint
+	Body       string        // truncated response body for logging
+}
+
+func (e *RateLimitError) Error() string {
+	if e.RetryAfter > 0 {
+		return fmt.Sprintf("%s rate limit (HTTP %d, retry after %s): %s", e.Provider, e.StatusCode, e.RetryAfter, e.Body)
+	}
+	return fmt.Sprintf("%s rate limit (HTTP %d): %s", e.Provider, e.StatusCode, e.Body)
+}
+
+// IsRateLimitError reports whether err (or anything it wraps) is a *RateLimitError.
+func IsRateLimitError(err error) bool {
+	var rle *RateLimitError
+	return errors.As(err, &rle)
+}
+
+// AsRateLimitError unwraps err to a *RateLimitError, returning nil if not one.
+func AsRateLimitError(err error) *RateLimitError {
+	var rle *RateLimitError
+	if errors.As(err, &rle) {
+		return rle
+	}
+	return nil
+}
 
 // Message is a single chat message for the LLM API.
 type Message struct {

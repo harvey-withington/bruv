@@ -31,6 +31,7 @@
   import CardComments from './CardComments.svelte'
   import SaveIndicator from './SaveIndicator.svelte'
   import { draggable } from '../lib/draggable'
+  import { fade } from 'svelte/transition'
   import { getCardTypeColor, getCardTypeTextColor } from '../lib/cardTypes'
   import { focusOnMount, focusTrap, inlineEdit, floatingDropdown } from '../lib/actions'
   import { showConfirm } from '../lib/confirm.svelte'
@@ -456,15 +457,18 @@
     const unsubscribe = EventsOn('card:updated', (data: { cardID?: string } | undefined) => {
       if (!data || data.cardID !== watchedCardId) return
       if (editingTitle || editingDescription || editingBlockId !== null || editingBlockLabelId !== null) return
-      loadCard()
+      // Silent refresh — don't wipe the visible card with the loading
+      // placeholder. Without this, the dialog flashes whenever the agent
+      // writes an update to the card mid-run.
+      loadCard(true)
     })
     return () => {
       if (typeof unsubscribe === 'function') unsubscribe()
     }
   })
 
-  async function loadCard() {
-    loading = true
+  async function loadCard(silent: boolean = false) {
+    if (!silent) loading = true
     try {
       card = await GetCard(cardId) as Card
       pinBreadcrumbs = await GetCardPinBreadcrumbs(cardId) || []
@@ -1028,7 +1032,7 @@
 <svelte:window onkeydown={handleBackdropKeydown} onclick={handleWindowClick} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="modal-backdrop" role="presentation" onclick={handleBackdropClick}>
+<div class="modal-backdrop" role="presentation" onclick={handleBackdropClick} out:fade={{ duration: 150 }}>
   <div class="modal" class:chat-open={showChat} class:agent-tab-active={activeTab === 'agent' || activeTab === 'runs'} class:splitter-dragging={splitterDragging} use:draggable={{ handle: '.modal-header' }} use:focusTrap>
    <div class="modal-main" style={showChat ? `width: ${mainWidth}px;` : ''}>
     {#if loading}
@@ -1677,6 +1681,7 @@
     padding-top: 3rem;
     z-index: 100;
     overflow-y: auto;
+    animation: fade-in var(--duration-normal) var(--ease-out);
   }
 
   .modal {
@@ -1690,6 +1695,7 @@
     overflow: hidden;
     box-shadow: 0 8px 32px var(--shadow-lg);
     position: relative;
+    animation: fade-in-scale var(--duration-slow) var(--ease-out);
   }
   .modal.agent-tab-active {
     width: 880px;
@@ -1714,6 +1720,7 @@
     padding: 2rem;
     text-align: center;
     color: var(--text-muted);
+    animation: fade-in var(--duration-moderate) var(--ease-out);
   }
 
   .modal-header {
@@ -1740,7 +1747,8 @@
     border: none;
     border-bottom: 2px solid transparent;
     cursor: pointer;
-    transition: color 0.15s, border-color 0.15s;
+    transition: color var(--duration-normal) var(--ease-out),
+                border-color var(--duration-moderate) var(--ease-out);
   }
   .card-tab:hover { color: var(--text); }
   .card-tab.active {
@@ -1783,7 +1791,7 @@
     color: var(--text-muted);
     font-size: 0.73rem;
     cursor: pointer;
-    transition: background 0.1s, border-color 0.1s, color 0.1s;
+    transition: background var(--duration-fast), border-color var(--duration-fast), color var(--duration-fast);
   }
   .pin-toggle.pinned {
     border-color: var(--accent);
@@ -1928,7 +1936,7 @@
   .type-badge-btn {
     border: 1px solid transparent;
     cursor: pointer;
-    transition: opacity 0.15s, border-color 0.15s;
+    transition: opacity var(--duration-normal), border-color var(--duration-normal);
   }
   .type-badge-btn:hover {
     opacity: 0.85;
@@ -1946,7 +1954,7 @@
     color: rgba(255, 255, 255, 0.75);
     cursor: pointer;
     border-radius: 2px;
-    transition: color 0.15s, background 0.15s;
+    transition: color var(--duration-normal), background var(--duration-normal);
     flex-shrink: 0;
   }
   .refresh-type-btn:hover {
@@ -1976,7 +1984,7 @@
     background: none;
     border: none;
     cursor: pointer;
-    transition: background 0.1s;
+    transition: background var(--duration-fast);
   }
   .type-picker-option:hover, .type-picker-option.active {
     background: var(--bg-elevated);
@@ -2087,7 +2095,7 @@
     cursor: text;
     padding: 0.5rem;
     border-radius: 6px;
-    transition: background 0.1s;
+    transition: background var(--duration-fast);
   }
   .desc-display:hover { background: var(--bg-elevated); }
   .desc-display p { margin: 0; color: var(--text-body); font-size: 0.9rem; line-height: 1.5; }
@@ -2313,7 +2321,7 @@
     font-size: 0.75rem;
     font-weight: 500;
     cursor: pointer;
-    transition: background 0.15s, transform 0.1s;
+    transition: background var(--duration-normal), transform var(--duration-fast);
     z-index: 1;
     box-shadow: 0 1px 4px rgba(0,0,0,0.15);
   }
@@ -2375,7 +2383,7 @@
     display: flex;
     gap: 0.15rem;
     opacity: 0;
-    transition: opacity 0.1s;
+    transition: opacity var(--duration-fast);
   }
   .block-wrapper:hover .block-actions {
     opacity: 1;
@@ -2413,7 +2421,7 @@
     align-items: flex-start;
     gap: 0;
     position: relative;
-    transition: opacity 0.15s;
+    transition: opacity var(--duration-normal);
     border-radius: 6px;
   }
   .block-wrapper:focus-within {
@@ -2434,7 +2442,7 @@
     opacity: 0;
     margin: 0;
     padding: 0;
-    transition: max-height 0.15s ease, opacity 0.1s ease;
+    transition: max-height var(--duration-normal) ease, opacity var(--duration-fast) ease;
   }
 
   .block-drag-handle {
@@ -2447,7 +2455,7 @@
     cursor: grab;
     flex-shrink: 0;
     border-radius: 4px;
-    transition: color 0.1s, background 0.1s;
+    transition: color var(--duration-fast), background var(--duration-fast);
     margin-right: 2px;
   }
   .block-wrapper:hover .block-drag-handle {
@@ -2479,7 +2487,7 @@
     flex-shrink: 0;
     border-radius: 4px;
     margin: -0.25rem 0;
-    transition: background 0.1s, color 0.1s;
+    transition: background var(--duration-fast), color var(--duration-fast);
   }
   .block-collapse-btn:hover {
     color: var(--text-primary);
@@ -2534,7 +2542,7 @@
     background: var(--accent);
     border-radius: 2px;
     margin: 2px 22px 2px 22px;
-    transition: background 0.1s;
+    transition: background var(--duration-fast);
   }
   .block-drop-indicator.copy-mode {
     background: var(--success, #22c55e);

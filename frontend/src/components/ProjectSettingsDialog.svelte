@@ -1,5 +1,6 @@
 <script lang="ts">
   import { X, ChevronDown, ChevronRight, Smile } from 'lucide-svelte'
+  import { fade } from 'svelte/transition'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
   import { nav, cardTypes } from '../lib/store.svelte'
@@ -147,7 +148,7 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="dialog-overlay" onclick={onClose} onkeydown={(e) => { if (e.key === 'Escape') onClose() }}>
+<div class="dialog-overlay" onclick={onClose} onkeydown={(e) => { if (e.key === 'Escape') onClose() }} out:fade={{ duration: 150 }}>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div class="dialog" onclick={(e) => e.stopPropagation()}>
@@ -289,6 +290,7 @@
     align-items: center;
     justify-content: center;
     z-index: 200;
+    animation: fade-in var(--duration-normal) var(--ease-out);
   }
 
   .dialog {
@@ -300,6 +302,7 @@
     display: flex;
     flex-direction: column;
     box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+    animation: fade-in-scale var(--duration-moderate) var(--ease-out);
   }
 
   .dialog-header {

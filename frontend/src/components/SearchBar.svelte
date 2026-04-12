@@ -198,6 +198,8 @@
     max-height: 300px;
     overflow-y: auto;
     z-index: 50;
+    animation: slide-down var(--duration-moderate) var(--ease-out);
+    transform-origin: top center;
   }
 
   .search-result {

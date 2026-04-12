@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '../lib/i18n.svelte'
+  import { fade } from 'svelte/transition'
   import { showToast } from '../lib/toast.svelte'
   import { showConfirm } from '../lib/confirm.svelte'
   import { focusTrap, portal } from '../lib/actions'
@@ -266,7 +267,7 @@
 <svelte:window onkeydown={handleKeydown} onclick={handleWindowClick} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="overlay" role="presentation" use:portal onclick={handleOverlayClick}>
+<div class="overlay" role="presentation" use:portal onclick={handleOverlayClick} out:fade={{ duration: 150 }}>
   <div class="dialog" use:draggable={{ handle: '.dialog-header' }} use:focusTrap>
     <div class="dialog-header">
       <div class="header-left">
@@ -527,6 +528,7 @@
     align-items: center;
     justify-content: center;
     z-index: 300;
+    animation: fade-in var(--duration-normal) var(--ease-out);
   }
   .dialog {
     background: var(--bg-surface);
@@ -538,6 +540,7 @@
     flex-direction: column;
     overflow: hidden;
     box-shadow: 0 8px 32px var(--shadow-lg);
+    animation: fade-in-scale var(--duration-moderate) var(--ease-out);
   }
   .dialog-header {
     display: flex;

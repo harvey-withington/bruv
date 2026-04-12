@@ -191,7 +191,7 @@
     border-radius: 6px;
     background: var(--bg-elevated);
     overflow: hidden;
-    transition: border-color 0.15s;
+    transition: border-color var(--duration-normal);
   }
   .search-filter-group:focus-within {
     border-color: var(--accent);
@@ -216,7 +216,7 @@
     background: none;
     color: var(--text-faint);
     cursor: pointer;
-    transition: color 0.15s, background 0.15s;
+    transition: color var(--duration-normal), background var(--duration-normal);
     flex-shrink: 0;
   }
   .filter-btn:last-child {
@@ -287,7 +287,7 @@
     border-radius: 6px;
     display: flex;
     align-items: center;
-    transition: color 0.15s, background 0.15s;
+    transition: color var(--duration-normal), background var(--duration-normal);
   }
   .icon-btn:hover {
     color: var(--text-primary);
@@ -316,5 +316,11 @@
     line-height: 16px;
     text-align: center;
     pointer-events: none;
+    animation: badge-pop var(--duration-slow) var(--ease-spring);
+  }
+
+  @keyframes badge-pop {
+    from { transform: scale(0); opacity: 0; }
+    to   { transform: scale(1); opacity: 1; }
   }
 </style>

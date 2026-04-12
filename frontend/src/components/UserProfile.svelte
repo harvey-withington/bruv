@@ -1,5 +1,6 @@
 <script lang="ts">
   import { X, Plus } from 'lucide-svelte'
+  import { fade } from 'svelte/transition'
   import { t } from '../lib/i18n.svelte'
   import { GetProfile, SetProfile } from '../lib/api'
   import { draggable } from '../lib/draggable'
@@ -69,7 +70,7 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="overlay" role="presentation" onclick={handleOverlayClick}>
+<div class="overlay" role="presentation" onclick={handleOverlayClick} out:fade={{ duration: 150 }}>
   <div class="dialog" use:draggable={{ handle: '.dialog-header' }}>
     <div class="dialog-header">
       <h2>{t('profile.title')}</h2>
@@ -134,6 +135,7 @@
     align-items: center;
     justify-content: center;
     z-index: 100;
+    animation: fade-in var(--duration-normal) var(--ease-out);
   }
 
   .dialog {
@@ -144,6 +146,7 @@
     max-height: 85vh;
     overflow-y: auto;
     box-shadow: 0 8px 32px var(--shadow-lg);
+    animation: fade-in-scale var(--duration-moderate) var(--ease-out);
   }
 
   .dialog-header {

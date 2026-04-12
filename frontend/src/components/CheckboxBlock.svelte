@@ -24,12 +24,12 @@
   .toggle-input { display: none; }
   .toggle-switch {
     width: 36px; height: 20px; border-radius: 10px; position: relative;
-    background: var(--border); transition: background 0.2s;
+    background: var(--border); transition: background var(--duration-moderate);
   }
   .toggle-switch::after {
     content: ''; position: absolute; top: 2px; left: 2px;
     width: 16px; height: 16px; border-radius: 50%;
-    background: white; transition: transform 0.2s;
+    background: white; transition: transform var(--duration-moderate);
   }
   .toggle-input:checked + .toggle-switch { background: var(--accent); }
   .toggle-input:checked + .toggle-switch::after { transform: translateX(16px); }

@@ -241,7 +241,7 @@
     border: 1px solid var(--border);
     border-radius: 6px;
     overflow: hidden;
-    transition: border-color 0.15s;
+    transition: border-color var(--duration-normal);
   }
   .account-row.expanded {
     border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
@@ -259,7 +259,7 @@
     cursor: pointer;
     font-size: 0.82rem;
     text-align: left;
-    transition: background 0.1s;
+    transition: background var(--duration-fast);
   }
   .account-header:hover { background: var(--bg-hover); }
 
@@ -380,7 +380,7 @@
     color: var(--text-muted);
     font-size: 0.8rem;
     cursor: pointer;
-    transition: border-color 0.15s, color 0.15s;
+    transition: border-color var(--duration-normal), color var(--duration-normal);
   }
   .add-btn:hover {
     border-color: var(--accent);

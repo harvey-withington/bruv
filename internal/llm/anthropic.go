@@ -115,6 +115,14 @@ func (p *anthropicProvider) ChatCompletion(ctx context.Context, req ChatRequest)
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == 529 {
+		return nil, &RateLimitError{
+			Provider:   "anthropic",
+			StatusCode: resp.StatusCode,
+			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
+			Body:       truncate(string(respBody), 200),
+		}
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("Anthropic API error (%d): %s", resp.StatusCode, truncate(string(respBody), 200))
 	}

@@ -86,7 +86,7 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    transition: color 0.12s;
+    transition: color var(--duration-fast);
   }
   .card-path:hover {
     color: var(--accent);

@@ -87,6 +87,8 @@
     flex-direction: column;
     overflow: hidden;
     z-index: 9991;
+    animation: slide-down var(--duration-moderate) var(--ease-out);
+    transform-origin: top right;
   }
 
   .notif-header {
@@ -119,7 +121,7 @@
     border-radius: 4px;
     display: flex;
     align-items: center;
-    transition: color 0.1s, background 0.1s;
+    transition: color var(--duration-fast), background var(--duration-fast);
   }
   .notif-action-btn:hover {
     color: var(--text-body);
@@ -143,7 +145,7 @@
     border-bottom: 1px solid var(--border-muted);
     color: var(--text-body);
     cursor: pointer;
-    transition: background 0.1s;
+    transition: background var(--duration-fast);
   }
   .notif-item:last-child { border-bottom: none; }
   .notif-item:hover { background: var(--bg-hover); }

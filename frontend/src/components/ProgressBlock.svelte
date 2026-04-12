@@ -32,7 +32,7 @@
   }
   .progress-bar-fill {
     height: 100%; background: var(--accent); border-radius: 4px;
-    transition: width 0.2s ease;
+    transition: width var(--duration-moderate) ease;
   }
   .progress-controls { display: flex; align-items: center; gap: 8px; }
   .progress-slider {

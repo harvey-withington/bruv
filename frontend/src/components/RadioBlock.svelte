@@ -36,12 +36,12 @@
   .radio-option input { display: none; }
   .radio-dot {
     width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--border);
-    position: relative; flex-shrink: 0; transition: border-color 0.15s;
+    position: relative; flex-shrink: 0; transition: border-color var(--duration-normal);
   }
   .radio-dot::after {
     content: ''; position: absolute; inset: 0; margin: auto;
     width: 4px; height: 4px; border-radius: 50%;
-    background: var(--accent); transform: scale(0); transition: transform 0.15s;
+    background: var(--accent); transform: scale(0); transition: transform var(--duration-normal);
   }
   .radio-option input:checked + .radio-dot { border-color: var(--accent); }
   .radio-option input:checked + .radio-dot::after { transform: scale(1); }

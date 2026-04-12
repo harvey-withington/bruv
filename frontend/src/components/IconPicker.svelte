@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '../lib/i18n.svelte'
+  import { fade } from 'svelte/transition'
   import { ICON_CATEGORIES } from '../lib/icons'
   import DynamicIcon from './DynamicIcon.svelte'
   import ColorPicker from './ColorPicker.svelte'
@@ -354,7 +355,7 @@
 <svelte:window onkeydown={handleKeydown} onpaste={onPaste} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="icon-picker-backdrop" role="presentation" onclick={handleBackdropClick}>
+<div class="icon-picker-backdrop" role="presentation" onclick={handleBackdropClick} out:fade={{ duration: 150 }}>
   <div class="icon-picker" role="dialog" aria-modal="true" aria-label={t('icon.pick')}>
     <!-- Tabs -->
     <div class="ip-tabs" role="tablist">
@@ -550,6 +551,7 @@
     align-items: center;
     justify-content: center;
     background: rgba(0, 0, 0, 0.3);
+    animation: fade-in var(--duration-normal) var(--ease-out);
   }
   .icon-picker {
     width: 440px;
@@ -560,6 +562,7 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    animation: fade-in-scale var(--duration-moderate) var(--ease-out);
   }
 
   /* Tabs */

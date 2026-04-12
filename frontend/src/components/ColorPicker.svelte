@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '../lib/i18n.svelte'
+  import { fade } from 'svelte/transition'
   import { X } from 'lucide-svelte'
   import { focusOnMount } from '../lib/actions'
 
@@ -108,7 +109,7 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="color-picker-backdrop" role="presentation" onclick={handleBackdropClick}>
+<div class="color-picker-backdrop" role="presentation" onclick={handleBackdropClick} out:fade={{ duration: 150 }}>
   <div class="color-picker" role="dialog" aria-modal="true" aria-label={t('color.title')}>
     <div class="cp-header">
       <span class="cp-title">{t('color.title')}</span>
@@ -182,6 +183,7 @@
     align-items: center;
     justify-content: center;
     background: rgba(0, 0, 0, 0.4);
+    animation: fade-in var(--duration-normal) var(--ease-out);
   }
   .color-picker {
     width: 340px;
@@ -191,6 +193,7 @@
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
     display: flex;
     flex-direction: column;
+    animation: fade-in-scale var(--duration-moderate) var(--ease-out);
   }
   .cp-header {
     display: flex;

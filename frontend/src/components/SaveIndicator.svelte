@@ -37,7 +37,7 @@
     font-size: 0.72rem;
     font-weight: 500;
     opacity: 0;
-    transition: opacity 0.25s ease;
+    transition: opacity var(--duration-moderate) ease;
     pointer-events: none;
     user-select: none;
     min-width: 0;

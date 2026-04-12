@@ -1,6 +1,7 @@
 <script lang="ts">
   import { X, Github, Bug, FolderOpen, Heart, RefreshCw, CircleCheck, CircleAlert, Download } from 'lucide-svelte'
   import { onMount } from 'svelte'
+  import { fade } from 'svelte/transition'
   import { t } from '../lib/i18n.svelte'
   import { GetBuildInfo, OpenConfigFolder, OpenBugReportURL, CheckForUpdates } from '../lib/api'
   import type { BuildInfo, UpdateCheckResult } from '../lib/types'
@@ -73,7 +74,7 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="overlay" role="presentation" onclick={handleOverlayClick}>
+<div class="overlay" role="presentation" onclick={handleOverlayClick} out:fade={{ duration: 150 }}>
   <div class="dialog" use:draggable={{ handle: '.dialog-header' }} use:focusTrap>
     <div class="dialog-header">
       <h2>{t('about.title')}</h2>
@@ -189,6 +190,7 @@
     align-items: center;
     justify-content: center;
     z-index: 1000;
+    animation: fade-in var(--duration-normal) var(--ease-out);
   }
 
   .dialog {
@@ -202,6 +204,7 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    animation: fade-in-scale var(--duration-moderate) var(--ease-out);
   }
 
   .dialog-header {

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '../lib/i18n.svelte'
+  import { fade } from 'svelte/transition'
   import { showToast } from '../lib/toast.svelte'
   import { focusTrap, portal, floatingDropdown } from '../lib/actions'
   import { draggable } from '../lib/draggable'
@@ -141,7 +142,7 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="overlay" role="presentation" use:portal onclick={handleOverlayClick}>
+<div class="overlay" role="presentation" use:portal onclick={handleOverlayClick} out:fade={{ duration: 150 }}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div class="dialog" role="dialog" tabindex="-1" aria-label={type ? t('card_type_editor.title_edit') : t('card_type_editor.title_create')} use:draggable={{ handle: '.dialog-header' }} use:focusTrap onclick={handleDialogClick}>
     <div class="dialog-header">
@@ -295,6 +296,7 @@
     align-items: center;
     justify-content: center;
     z-index: 200;
+    animation: fade-in var(--duration-normal) var(--ease-out);
   }
   .dialog {
     background: var(--bg-surface);
@@ -306,6 +308,7 @@
     flex-direction: column;
     overflow: visible;
     box-shadow: 0 8px 32px var(--shadow-lg);
+    animation: fade-in-scale var(--duration-moderate) var(--ease-out);
   }
   .dialog-header {
     display: flex;

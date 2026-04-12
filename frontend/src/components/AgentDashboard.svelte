@@ -317,7 +317,7 @@
     color: var(--text-body);
     font-size: 0.72rem;
     cursor: pointer;
-    transition: border-color 0.15s;
+    transition: border-color var(--duration-normal);
   }
   .header-btn:hover {
     border-color: var(--accent);
@@ -331,7 +331,7 @@
     cursor: pointer;
     padding: 0.25rem;
     border-radius: 4px;
-    transition: color 0.15s, background 0.15s;
+    transition: color var(--duration-normal), background var(--duration-normal);
   }
   .close-btn:hover {
     color: var(--text-strong);
@@ -384,7 +384,7 @@
     font-size: 0.78rem;
     text-align: left;
     cursor: pointer;
-    transition: background 0.1s;
+    transition: background var(--duration-fast);
     width: 100%;
     align-items: center;
   }
@@ -471,7 +471,7 @@
     border: none;
     border-radius: 4px;
     cursor: pointer;
-    transition: filter 0.1s;
+    transition: filter var(--duration-fast);
   }
   .action-run {
     background: var(--accent);

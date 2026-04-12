@@ -2,6 +2,7 @@
   import { confirmState, resolveConfirm } from '../lib/confirm.svelte'
   import { t } from '../lib/i18n.svelte'
   import { focusTrap } from '../lib/actions'
+  import { fade } from 'svelte/transition'
 
   function handleKeydown(e: KeyboardEvent) {
     if (!confirmState.visible) return
@@ -14,7 +15,7 @@
 
 {#if confirmState.visible}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="confirm-backdrop" role="presentation" onclick={() => resolveConfirm(false)}>
+  <div class="confirm-backdrop" role="presentation" onclick={() => resolveConfirm(false)} out:fade={{ duration: 150 }}>
     <div class="confirm-dialog" role="alertdialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} use:focusTrap>
       <p class="confirm-message">{confirmState.message}</p>
       <div class="confirm-actions">
@@ -34,6 +35,7 @@
     align-items: center;
     justify-content: center;
     z-index: 99990;
+    animation: fade-in var(--duration-normal) var(--ease-out);
   }
 
   .confirm-dialog {
@@ -44,6 +46,7 @@
     min-width: 300px;
     max-width: 420px;
     box-shadow: 0 8px 32px var(--shadow-lg);
+    animation: fade-in-scale var(--duration-moderate) var(--ease-out);
   }
 
   .confirm-message {

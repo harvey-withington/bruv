@@ -316,7 +316,30 @@ func (a *App) executeAgent(ctx context.Context, cardID string) error {
 				if backoff == 0 {
 					backoff = 5
 				}
-				retryAt := finishedAt.Add(time.Duration(backoff*af.Config.RetryCount) * time.Minute)
+				// Default: linear backoff based on retry count
+				retryDelay := time.Duration(backoff*af.Config.RetryCount) * time.Minute
+
+				// Rate-limit errors: ignore the user's backoff and honor
+				// the provider's rate-limit window. The error string is
+				// produced by llm.RateLimitError.Error() and looks like:
+				//   "openai rate limit (HTTP 429, retry after 2m0s): ..."
+				// We parse the "retry after X" hint if present, otherwise
+				// fall back to a 15-minute floor with exponential growth.
+				if isRateLimitErrorString(run.Error) {
+					hint := parseRetryAfterFromError(run.Error)
+					if hint <= 0 {
+						// No server hint — exponential backoff with 15min floor,
+						// doubling each retry up to 2 hours.
+						hint = 15 * time.Minute
+						for i := 1; i < af.Config.RetryCount && hint < 2*time.Hour; i++ {
+							hint *= 2
+						}
+					}
+					// Add 10% jitter so retries don't all align
+					retryDelay = hint + hint/10
+				}
+
+				retryAt := finishedAt.Add(retryDelay)
 				af.Config.NextRunAt = &retryAt
 				finalStatus = model.AgentStatusIdle // allow re-scheduling
 			}
@@ -1541,4 +1564,41 @@ func (a *App) ForceQuit() {
 		a.scheduler.Stop()
 	}
 	wailsRuntime.Quit(a.ctx)
+}
+
+// isRateLimitErrorString reports whether a run error text looks like a
+// provider rate-limit response. Matches the format produced by
+// llm.RateLimitError.Error() as well as raw HTTP 429 mentions.
+func isRateLimitErrorString(s string) bool {
+	if s == "" {
+		return false
+	}
+	lower := strings.ToLower(s)
+	return strings.Contains(lower, "rate limit") ||
+		strings.Contains(lower, "http 429") ||
+		strings.Contains(lower, "(429)") ||
+		strings.Contains(lower, "too many requests")
+}
+
+// parseRetryAfterFromError extracts the "retry after X" duration that
+// llm.RateLimitError.Error() embeds when the provider sent a Retry-After
+// header. Returns 0 if no hint is found or parsing fails.
+func parseRetryAfterFromError(s string) time.Duration {
+	const marker = "retry after "
+	lower := strings.ToLower(s)
+	idx := strings.Index(lower, marker)
+	if idx == -1 {
+		return 0
+	}
+	tail := s[idx+len(marker):]
+	// Find the end of the duration token (first ")" or ",")
+	end := strings.IndexAny(tail, "),")
+	if end == -1 {
+		return 0
+	}
+	dur, err := time.ParseDuration(strings.TrimSpace(tail[:end]))
+	if err != nil {
+		return 0
+	}
+	return dur
 }

@@ -138,7 +138,7 @@
     justify-content: center;
     background: var(--bg);
     cursor: pointer;
-    transition: max-height 0.2s ease;
+    transition: max-height var(--duration-moderate) ease;
   }
   .media-preview.expanded {
     max-height: none;

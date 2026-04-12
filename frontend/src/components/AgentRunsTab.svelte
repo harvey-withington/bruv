@@ -13,8 +13,8 @@
   let runs = $state<AgentRun[]>([])
   let expandedRun = $state<string | null>(null)
 
-  async function loadRuns() {
-    loading = true
+  async function loadRuns(silent: boolean = false) {
+    if (!silent) loading = true
     try {
       const af = await GetAgentConfig(cardId)
       runs = af.runs || []
@@ -89,8 +89,10 @@
   let cleanupFns: (() => void)[] = []
   onMount(() => {
     cleanupFns = [
-      EventsOn('agent:completed', (data: Record<string, string>) => { if (data?.cardID === cardId) loadRuns() }),
-      EventsOn('agent:failed', (data: Record<string, string>) => { if (data?.cardID === cardId) loadRuns() }),
+      // Silent reload — don't flash the loading placeholder every time
+      // an agent run completes while the Runs tab is open.
+      EventsOn('agent:completed', (data: Record<string, string>) => { if (data?.cardID === cardId) loadRuns(true) }),
+      EventsOn('agent:failed', (data: Record<string, string>) => { if (data?.cardID === cardId) loadRuns(true) }),
     ]
   })
   onDestroy(() => { for (const fn of cleanupFns) { if (typeof fn === 'function') fn() } })
@@ -212,7 +214,7 @@
     padding: 0.45rem 0.6rem; width: 100%;
     background: none; border: none; border-bottom: 1px solid var(--border-muted);
     color: var(--text-body); cursor: pointer; font-size: 0.8rem; text-align: left;
-    transition: background 0.1s;
+    transition: background var(--duration-fast);
   }
   .run-row:hover { background: var(--bg-hover); }
   .run-row:first-child { border-top: 1px solid var(--border-muted); }

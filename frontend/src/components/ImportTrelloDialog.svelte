@@ -1,5 +1,6 @@
 <script lang="ts">
   import { X, FileJson, UploadCloud } from 'lucide-svelte'
+  import { fade } from 'svelte/transition'
   import { t } from '../lib/i18n.svelte'
   import { focusTrap } from '../lib/actions'
   import { showToast } from '../lib/toast.svelte'
@@ -136,7 +137,7 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="import-backdrop" role="presentation" onclick={() => !importing && onClose()}>
+<div class="import-backdrop" role="presentation" onclick={() => !importing && onClose()} out:fade={{ duration: 150 }}>
   <div class="import-dialog" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} use:focusTrap>
     <header class="import-header">
       <FileJson size={16} />
@@ -216,6 +217,7 @@
     align-items: center;
     justify-content: center;
     z-index: 99990;
+    animation: fade-in var(--duration-normal) var(--ease-out);
   }
 
   .import-dialog {
@@ -228,6 +230,7 @@
     flex-direction: column;
     overflow: hidden;
     box-shadow: 0 12px 48px rgba(0, 0, 0, 0.35);
+    animation: fade-in-scale var(--duration-moderate) var(--ease-out);
   }
 
   .import-header {

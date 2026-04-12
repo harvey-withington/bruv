@@ -50,6 +50,15 @@ input[type="checkbox"] {
     /* Shadow */
     --shadow: rgba(0,0,0,0.3);
     --shadow-lg: rgba(0,0,0,0.5);
+
+    /* Animation tokens — consistent durations & easings */
+    --duration-fast: 0.1s;
+    --duration-normal: 0.15s;
+    --duration-moderate: 0.2s;
+    --duration-slow: 0.3s;
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);     /* snappy decelerate */
+    --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);    /* material standard  */
+    --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1); /* subtle overshoot */
 }
 
 [data-theme="light"] {
@@ -113,6 +122,21 @@ body {
 
 #app {
     height: 100vh;
+}
+
+/* Subtle press feedback for all clickable elements */
+button:not(:disabled):active,
+[role="button"]:not(:disabled):active {
+    transform: scale(0.97);
+}
+
+/* Reduce motion for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
 }
 
 /* --- Themed scrollbars --- */
@@ -278,6 +302,33 @@ body {
     color: var(--text-muted);
 }
 
+/* --- Shared animations --- */
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in-scale {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  from { background-position: -400px 0; }
+  to   { background-position: 400px 0; }
+}
+
 /* --- Shared UI utilities --- */
 
 /*
@@ -292,7 +343,7 @@ body {
     cursor: pointer;
     padding: 0.15rem 0.3rem;
     border-radius: 3px;
-    transition: color 0.1s, background 0.1s;
+    transition: color var(--duration-fast), background var(--duration-fast), opacity var(--duration-fast);
 }
 .action-reveal-parent:hover > .action-reveal,
 .action-reveal-parent:hover .action-reveal {
@@ -356,7 +407,7 @@ body {
     text-decoration: none;
     cursor: pointer;
     border-bottom: 1px dashed var(--accent-light);
-    transition: color 0.1s, border-color 0.1s;
+    transition: color var(--duration-fast), border-color var(--duration-fast);
 }
 .bruv-link::before {
     content: '⌘ ';

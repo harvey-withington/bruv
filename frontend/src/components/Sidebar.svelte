@@ -1220,7 +1220,7 @@
     font-size: 0.85rem;
     cursor: pointer;
     text-align: left;
-    transition: background 0.1s;
+    transition: background var(--duration-fast) var(--ease-out), color var(--duration-fast);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1257,10 +1257,13 @@
     width: 0.8rem;
     flex-shrink: 0;
     color: var(--text-muted);
+    display: inline-flex;
+    transition: transform var(--duration-moderate) var(--ease-out);
   }
 
   .tree-children {
     padding-left: 1rem;
+    animation: fade-in-up var(--duration-moderate) var(--ease-out);
   }
 
   .brand-item {

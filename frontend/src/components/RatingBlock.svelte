@@ -40,7 +40,7 @@
   .rating-block { display: flex; align-items: center; gap: 2px; }
   .star-btn {
     background: none; border: none; cursor: pointer; padding: 2px;
-    color: var(--text-muted); transition: color 0.15s, transform 0.15s;
+    color: var(--text-muted); transition: color var(--duration-normal), transform var(--duration-normal);
   }
   .star-btn.filled { color: var(--accent); }
   .star-btn:hover { transform: scale(1.2); }

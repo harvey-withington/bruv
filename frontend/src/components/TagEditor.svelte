@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick, onMount } from 'svelte'
+  import { fade } from 'svelte/transition'
   import { projectTags, nav, loadBoard } from '../lib/store.svelte'
   import { AddProjectLabel, RemoveProjectLabel, UpdateProjectLabel, SetProjectLabelIcon, ListCardIDsByTag, GetCard, UpdateCardTags } from '../lib/api'
   import { X, Plus, Trash2, Palette, Smile } from 'lucide-svelte'
@@ -145,7 +146,7 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="modal-backdrop" role="presentation" onclick={onClose} onkeydown={handleKeydown}>
+<div class="modal-backdrop" role="presentation" onclick={onClose} onkeydown={handleKeydown} out:fade={{ duration: 150 }}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div class="tag-editor" role="dialog" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={handleKeydown} use:focusTrap>
     <div class="editor-header">
@@ -258,6 +259,7 @@
     align-items: center;
     justify-content: center;
     z-index: 200;
+    animation: fade-in var(--duration-normal) var(--ease-out);
   }
 
   .tag-editor {
@@ -270,6 +272,7 @@
     display: flex;
     flex-direction: column;
     box-shadow: 0 8px 32px var(--shadow-lg);
+    animation: fade-in-scale var(--duration-moderate) var(--ease-out);
   }
 
   .editor-header {
@@ -358,7 +361,7 @@
     display: flex;
     gap: 0.15rem;
     opacity: 0;
-    transition: opacity 0.15s;
+    transition: opacity var(--duration-normal);
   }
   .tag-row:hover .tag-actions { opacity: 1; }
 
@@ -371,7 +374,7 @@
     border-radius: 3px;
     display: flex;
     align-items: center;
-    transition: color 0.15s;
+    transition: color var(--duration-normal);
   }
   .action-btn:hover { color: var(--accent); }
   .delete-btn:hover { color: var(--danger); }
@@ -400,7 +403,7 @@
     border-radius: 4px;
     border: 2px solid transparent;
     cursor: pointer;
-    transition: border-color 0.15s, transform 0.1s;
+    transition: border-color var(--duration-normal), transform var(--duration-fast);
   }
   .color-swatch:hover { transform: scale(1.15); }
   .color-swatch.active { border-color: var(--text-strong); }
@@ -419,7 +422,7 @@
     padding: 0.35rem 0.4rem;
     cursor: pointer;
     margin-top: 0.2rem;
-    transition: background 0.15s, border-color 0.15s;
+    transition: background var(--duration-normal), border-color var(--duration-normal);
   }
   .create-row:hover {
     background: var(--bg-elevated);
@@ -493,7 +496,7 @@
     font-size: 0.8rem;
     padding: 0.35rem 0.75rem;
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background var(--duration-normal);
   }
   .btn-ghost:hover {
     background: var(--bg-elevated);
@@ -508,7 +511,7 @@
     font-weight: 500;
     padding: 0.35rem 0.75rem;
     cursor: pointer;
-    transition: opacity 0.15s;
+    transition: opacity var(--duration-normal);
   }
   .btn-danger:hover {
     opacity: 0.85;

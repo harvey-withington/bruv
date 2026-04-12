@@ -132,7 +132,9 @@
     cursor: grab;
     text-align: left;
     width: 100%;
-    transition: border-color 0.15s, box-shadow 0.15s, opacity 0.15s;
+    transition: border-color var(--duration-normal) var(--ease-out),
+                box-shadow var(--duration-normal) var(--ease-out),
+                opacity var(--duration-normal);
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
@@ -148,12 +150,13 @@
 
   .card-item:hover {
     border-color: var(--border-hover);
-    box-shadow: 0 2px 8px var(--shadow);
+    box-shadow: 0 2px 8px var(--shadow), 0 0 0 1px var(--border-hover);
   }
 
   .card-item.search-collapsed {
     opacity: 0.35;
     gap: 0;
+    transform: scale(0.98);
   }
 
   .card-item.search-collapsed .card-header,
@@ -164,6 +167,13 @@
   .card-item.search-highlight {
     border-color: var(--accent-light);
     box-shadow: 0 0 8px var(--accent-glow-1), 0 0 20px var(--accent-glow-2), 0 0 40px var(--accent-glow-3);
+    animation: search-pulse 1.5s var(--ease-in-out) 1;
+  }
+
+  @keyframes search-pulse {
+    0%   { box-shadow: 0 0 8px var(--accent-glow-1), 0 0 20px var(--accent-glow-2), 0 0 40px var(--accent-glow-3); }
+    50%  { box-shadow: 0 0 12px var(--accent-glow-1), 0 0 28px var(--accent-glow-2), 0 0 56px var(--accent-glow-3); }
+    100% { box-shadow: 0 0 8px var(--accent-glow-1), 0 0 20px var(--accent-glow-2), 0 0 40px var(--accent-glow-3); }
   }
 
   .card-header {

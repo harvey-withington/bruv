@@ -24,7 +24,7 @@
     background: var(--bg-elevated);
     color: var(--text-secondary);
     cursor: pointer;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    transition: background var(--duration-normal), color var(--duration-normal), border-color var(--duration-normal);
   }
   .theme-toggle:hover {
     background: var(--bg-subtle-hover);

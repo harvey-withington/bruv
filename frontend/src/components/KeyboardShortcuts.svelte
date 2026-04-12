@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '../lib/i18n.svelte'
+  import { fade } from 'svelte/transition'
   import { X, Search } from 'lucide-svelte'
 
   let { onClose }: { onClose: () => void } = $props()
@@ -73,7 +74,7 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="shortcuts-overlay" onclick={onClose} onkeydown={handleKeydown}>
+<div class="shortcuts-overlay" onclick={onClose} onkeydown={handleKeydown} out:fade={{ duration: 150 }}>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div class="shortcuts-panel" onclick={(e) => e.stopPropagation()}>
@@ -124,6 +125,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    animation: fade-in var(--duration-normal) var(--ease-out);
   }
 
   .shortcuts-panel {
@@ -135,6 +137,7 @@
     display: flex;
     flex-direction: column;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    animation: fade-in-scale var(--duration-moderate) var(--ease-out);
   }
 
   .shortcuts-header {
@@ -162,7 +165,7 @@
     border-radius: 5px;
     background: var(--bg-surface);
     color: var(--text-muted);
-    transition: border-color 0.15s;
+    transition: border-color var(--duration-normal);
   }
   .search-box:focus-within {
     border-color: var(--accent);
@@ -185,7 +188,7 @@
     cursor: pointer;
     padding: 0.25rem;
     border-radius: 4px;
-    transition: color 0.15s, background 0.15s;
+    transition: color var(--duration-normal), background var(--duration-normal);
   }
   .close-btn:hover {
     color: var(--text-strong);

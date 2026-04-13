@@ -221,20 +221,6 @@ Open an issue on GitHub with:
 - Windows version
 - Anything interesting from the log folder (**About → Open log folder**)
 
-## oDrive sync reminder (dev-machine only)
-
-If you use oDrive to sync this repo on your dev machine, install the bundled VS Code extension that reminds you to resume sync when closing the editor:
-
-```powershell
-# For Windsurf:
-cmd /c mklink /J "%USERPROFILE%\.windsurf\extensions\odrive-reminder" "tools\odrive-reminder"
-
-# For VS Code:
-cmd /c mklink /J "%USERPROFILE%\.vscode\extensions\odrive-reminder" "tools\odrive-reminder"
-```
-
-Restart the editor after creating the junction.
-
 ## License
 
 By contributing, you agree your contributions are licensed under the [MIT License](LICENSE).

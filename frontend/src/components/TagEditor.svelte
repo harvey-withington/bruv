@@ -377,6 +377,7 @@
     transition: color var(--duration-normal);
   }
   .action-btn:hover { color: var(--accent); }
+  .icon-btn:hover { color: var(--icon-picker-accent); }
   .delete-btn:hover { color: var(--danger); }
 
   .edit-input {

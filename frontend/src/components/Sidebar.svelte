@@ -836,9 +836,9 @@
                   <span class="label" title={brand.description ? `${brand.name} — ${brand.description}` : brand.name}>{@html renderInline(brand.name)}</span>
                 </span>
               </button>
-              <button class="row-action action-reveal action-reveal--icon" onclick={(e) => openIconPicker(e, 'brand', brand.slug, '', '', brand.icon || '')} title={t('icon.pick')}><Smile size={12} /></button>
-              <button class="row-action action-reveal action-reveal--edit" onclick={(e) => startEdit(e, 'brand', brand.slug, brand.name, brand.slug, '', '', brand.description)} title={t('tooltip.rename_brand')}><Pencil size={12} /></button>
               <button class="row-action action-reveal action-reveal--danger" onclick={(e) => handleDeleteBrand(e, brand.slug)} title={t('tooltip.delete_brand')}><Trash2 size={12} /></button>
+              <button class="row-action action-reveal action-reveal--edit" onclick={(e) => startEdit(e, 'brand', brand.slug, brand.name, brand.slug, '', '', brand.description)} title={t('tooltip.rename_brand')}><Pencil size={12} /></button>
+              <button class="row-action action-reveal action-reveal--icon" onclick={(e) => openIconPicker(e, 'brand', brand.slug, '', '', brand.icon || '')} title={t('icon.pick')}><Smile size={12} /></button>
             {/if}
           </div>
 
@@ -883,9 +883,9 @@
                           <span class="label" title={stream.description ? `${stream.name} — ${stream.description}` : stream.name}>{@html renderInline(stream.name)}</span>
                         </span>
                       </button>
-                      <button class="row-action action-reveal action-reveal--icon" onclick={(e) => openIconPicker(e, 'stream', brand.slug, stream.slug, '', stream.icon || '')} title={t('icon.pick')}><Smile size={12} /></button>
-                      <button class="row-action action-reveal action-reveal--edit" onclick={(e) => startEdit(e, 'stream', `${brand.slug}/${stream.slug}`, stream.name, brand.slug, stream.slug, '', stream.description)} title={t('tooltip.rename_stream')}><Pencil size={12} /></button>
                       <button class="row-action action-reveal action-reveal--danger" onclick={(e) => handleDeleteStream(e, brand.slug, stream.slug)} title={t('tooltip.delete_stream')}><Trash2 size={12} /></button>
+                      <button class="row-action action-reveal action-reveal--edit" onclick={(e) => startEdit(e, 'stream', `${brand.slug}/${stream.slug}`, stream.name, brand.slug, stream.slug, '', stream.description)} title={t('tooltip.rename_stream')}><Pencil size={12} /></button>
+                      <button class="row-action action-reveal action-reveal--icon" onclick={(e) => openIconPicker(e, 'stream', brand.slug, stream.slug, '', stream.icon || '')} title={t('icon.pick')}><Smile size={12} /></button>
                     {/if}
                   </div>
 
@@ -932,9 +932,9 @@
                                 <span class="label" title={project.description ? `${project.name} — ${project.description}` : project.name}>{@html renderInline(project.name)}</span>
                               </span>
                             </button>
-                            <button class="row-action action-reveal action-reveal--icon" onclick={(e) => openIconPicker(e, 'project', brand.slug, stream.slug, project.slug, project.icon || '')} title={t('icon.pick')}><Smile size={12} /></button>
-                            <button class="row-action action-reveal action-reveal--edit" onclick={(e) => startEdit(e, 'project', `${brand.slug}/${stream.slug}/${project.slug}`, project.name, brand.slug, stream.slug, project.slug, project.description)} title={t('tooltip.rename_project')}><Pencil size={12} /></button>
                             <button class="row-action action-reveal action-reveal--danger" onclick={(e) => handleDeleteProject(e, brand.slug, stream.slug, project.slug)} title={t('tooltip.delete_project')}><Trash2 size={12} /></button>
+                            <button class="row-action action-reveal action-reveal--edit" onclick={(e) => startEdit(e, 'project', `${brand.slug}/${stream.slug}/${project.slug}`, project.name, brand.slug, stream.slug, project.slug, project.description)} title={t('tooltip.rename_project')}><Pencil size={12} /></button>
+                            <button class="row-action action-reveal action-reveal--icon" onclick={(e) => openIconPicker(e, 'project', brand.slug, stream.slug, project.slug, project.icon || '')} title={t('icon.pick')}><Smile size={12} /></button>
                           {/if}
                         </div>
                       {/each}
@@ -1224,14 +1224,15 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    position: relative;
   }
 
   .tree-item:hover {
-    background: var(--bg-elevated);
+    background: var(--accent-glow-2);
   }
 
   .tree-item.selected {
-    background: var(--border);
+    background: var(--accent-glow-1);
     color: var(--text-primary);
     font-weight: 500;
   }
@@ -1303,16 +1304,43 @@
     right: 0.25rem;
     top: 50%;
     transform: translateY(-50%);
-    background: var(--bg-primary);
+    background: transparent;
+    padding: 0.15rem 0.2rem;
+    transition: color var(--duration-fast), background var(--duration-fast);
+  }
+  /* Let hover events pass through the SVG so the button's title attribute
+     (HTML tooltip) applies — otherwise hovering the icon interior hits the
+     svg, which has no SVG <title> child, and no tooltip is shown. */
+  .row-action :global(svg) {
+    pointer-events: none;
   }
   .row-action + .row-action {
-    right: 1.6rem;
+    right: 1.3rem;
   }
   .row-action + .row-action + .row-action {
-    right: 2.95rem;
+    right: 2.35rem;
   }
-  .tree-row:hover .row-action {
-    background: var(--bg-elevated);
+  /* Keep backgrounds transparent on hover — icons overlay the row */
+  .tree-row .row-action:hover {
+    background: transparent;
+  }
+  /* Brighter idle icon color on the selected row so they read against the stronger purple */
+  .tree-row:has(.tree-item.selected):hover .row-action {
+    color: var(--text-primary);
+  }
+
+  /* Whole-row hover highlight (so action icons and label share the same background) */
+  .tree-row.action-reveal-parent:hover .tree-item:not(.selected) {
+    background: var(--accent-glow-2);
+  }
+
+  /* Fade the label text into the row background behind the revealed icons.
+     Masking the label-group (not the whole tree-item) keeps the button's
+     own background intact, so the fade ends in the exact row color without
+     stacking an extra translucent layer on top. */
+  .tree-row.action-reveal-parent:hover .label-group {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 3.75rem), transparent calc(100% - 2.75rem));
+    mask-image: linear-gradient(to right, #000 calc(100% - 3.75rem), transparent calc(100% - 2.75rem));
   }
 
   .empty-hint {

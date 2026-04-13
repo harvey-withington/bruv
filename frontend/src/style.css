@@ -47,6 +47,9 @@ input[type="checkbox"] {
     --danger: #ef4444;
     --danger-light: #f87171;
 
+    /* Icon picker accent — evocative of classic emoji yellow */
+    --icon-picker-accent: #f5b800;
+
     /* Shadow */
     --shadow: rgba(0,0,0,0.3);
     --shadow-lg: rgba(0,0,0,0.5);
@@ -382,6 +385,13 @@ button:not(:disabled):active,
 }
 .action-reveal--edit:hover {
     color: var(--accent-light, var(--accent)) !important;
+}
+
+.action-reveal--icon:focus-visible {
+    color: var(--icon-picker-accent);
+}
+.action-reveal--icon:hover {
+    color: var(--icon-picker-accent) !important;
 }
 
 /*

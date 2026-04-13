@@ -562,6 +562,7 @@
   }
   .column-header:hover .col-action-btn { opacity: 1; }
   .col-action-btn:hover { color: var(--accent); }
+  .col-icon-btn:hover { color: var(--icon-picker-accent); }
   .col-delete-btn:hover { color: var(--danger); }
 
   /* Category description */

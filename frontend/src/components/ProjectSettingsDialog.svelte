@@ -444,7 +444,7 @@
     transition: color 0.1s, background 0.1s;
   }
   .cat-icon-btn:hover {
-    color: var(--accent);
+    color: var(--icon-picker-accent);
     background: var(--bg-hover);
   }
 

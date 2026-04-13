@@ -124,10 +124,22 @@ body {
     height: 100vh;
 }
 
-/* Subtle press feedback for all clickable elements */
+/* Subtle press feedback for all clickable elements.
+   Uses a keyframe animation rather than a :active-triggered scale
+   transition so the pulse plays as a complete gesture regardless of
+   how long the mouse is held — a 20ms click feels the same as a
+   200ms hold. Uses the standalone `scale` property (not
+   `transform: scale()`) so it composes with any existing `transform`
+   on the element (e.g. sidebar row actions use
+   `transform: translateY(-50%)` for vertical centring). */
 button:not(:disabled):active,
 [role="button"]:not(:disabled):active {
-    transform: scale(0.97);
+    animation: button-press 140ms ease-out;
+}
+
+@keyframes button-press {
+    0%, 100% { scale: 1; }
+    40%      { scale: 0.94; }
 }
 
 /* Reduce motion for users who prefer it */

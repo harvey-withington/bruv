@@ -124,7 +124,16 @@ body {
 }
 
 #app {
+    /* dvh tracks the *dynamic* viewport height, so on mobile browsers
+       the layout stays flush with the bottom when the address bar
+       retracts. Falls back to 100vh in older engines. */
     height: 100vh;
+    height: 100dvh;
+    /* Keep content out from under display notches and home-indicator
+       bars via viewport-fit=cover's safe-area insets. Resolves to 0
+       on desktop so this is invisible there — pure mobile groundwork. */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    box-sizing: border-box;
 }
 
 /* Subtle press feedback for all clickable elements.
@@ -392,6 +401,18 @@ button:not(:disabled):active,
 }
 .action-reveal--icon:hover {
     color: var(--icon-picker-accent) !important;
+}
+
+/* Touch devices: hover doesn't exist, so the "visible only on parent
+   hover" pattern would hide every row action forever. (pointer:coarse)
+   matches phones and tablets; on those we reveal the buttons at a
+   muted-text weight by default — users can still see and tap them,
+   and :hover/:focus-visible boost them for the rare cases where a
+   touch device also has a pointer. Zero impact on desktop. */
+@media (pointer: coarse) {
+    .action-reveal {
+        color: var(--text-muted);
+    }
 }
 
 /*

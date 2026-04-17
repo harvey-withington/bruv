@@ -219,14 +219,24 @@
   })
   onDestroy(() => { for (const fn of notifCleanups) fn?.() })
 
+  // Declared as MouseEvent because Svelte 5's `onpointerdown` attribute
+  // type on HTMLElement is MouseEventHandler — PointerEvent extends
+  // MouseEvent at runtime so we can safely narrow inside.
   function onSplitterDown(e: MouseEvent) {
     if (nav.sidebarCollapsed) return
     e.preventDefault()
     resizing = true
     const startX = e.clientX
     const startW = nav.sidebarWidth
+    // Capture the pointer on the splitter element so move/up events
+    // keep firing even if the cursor leaves the splitter — essential
+    // for drag reliability on both mouse and touch.
+    const pe = e as PointerEvent
+    const target = e.currentTarget as HTMLElement | null
+    const pointerId = pe.pointerId
+    target?.setPointerCapture?.(pointerId)
 
-    function onMove(ev: MouseEvent) {
+    function onMove(ev: PointerEvent) {
       const delta = ev.clientX - startX
       nav.sidebarWidth = Math.max(160, Math.min(500, startW + delta))
     }
@@ -234,12 +244,15 @@
     function onUp() {
       resizing = false
       localStorage.setItem('bruv-sidebar-width', String(nav.sidebarWidth))
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
+      try { target?.releasePointerCapture?.(pointerId) } catch { /* already released */ }
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
     }
 
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
   }
 </script>
 
@@ -260,7 +273,7 @@
       role="separator"
       tabindex="-1"
       class:collapsed={nav.sidebarCollapsed}
-      onmousedown={onSplitterDown}
+      onpointerdown={onSplitterDown}
     ></div>
     <div class="main-area">
       <TopBar

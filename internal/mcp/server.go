@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bruv/internal/logging"
 	"context"
 	"errors"
 	"fmt"
@@ -331,6 +332,7 @@ func (s *ServerProcess) buildEnv() []string {
 // process exit. If the process exits while we didn't request a stop,
 // we attempt a restart up to maxRetries times before giving up.
 func (s *ServerProcess) supervise() {
+	defer logging.Recover("mcp-supervise-" + s.spec.Name)
 	s.mu.Lock()
 	cmd := s.cmd
 	s.mu.Unlock()

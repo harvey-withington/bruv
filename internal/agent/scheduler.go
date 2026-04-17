@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bruv/internal/logging"
 	"context"
 	"fmt"
 	"log"
@@ -46,6 +47,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
+		defer logging.Recover("agent-scheduler-poll")
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 
@@ -180,7 +182,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("agent scheduler: panic running card %s: %v\n", cardID, r)
+					logging.WriteCrash("agent-exec-"+cardID, r)
 				}
 				<-s.sem // release
 				s.mu.Lock()

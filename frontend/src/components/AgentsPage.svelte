@@ -22,24 +22,35 @@
   let analyticsHeight = $state(Number(localStorage.getItem(ANALYTICS_HEIGHT_KEY)) || 260)
   let splitterDragging = $state(false)
 
+  // Typed as MouseEvent because Svelte 5's `onpointerdown` on HTMLElement
+  // is typed as MouseEventHandler; PointerEvent extends MouseEvent so
+  // we can narrow for pointer-specific fields below. Pointer events give
+  // us touch/stylus support for free on mobile/tablet viewports.
   function onAnalyticsSplitterDown(e: MouseEvent) {
     e.preventDefault()
     splitterDragging = true
     const startY = e.clientY
     const startH = analyticsHeight
+    const pe = e as PointerEvent
+    const target = e.currentTarget as HTMLElement | null
+    const pointerId = pe.pointerId
+    target?.setPointerCapture?.(pointerId)
 
-    function onMove(ev: MouseEvent) {
+    function onMove(ev: PointerEvent) {
       const delta = startY - ev.clientY
       analyticsHeight = Math.max(MIN_PANE, startH + delta)
     }
     function onUp() {
       splitterDragging = false
       localStorage.setItem(ANALYTICS_HEIGHT_KEY, String(analyticsHeight))
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
+      try { target?.releasePointerCapture?.(pointerId) } catch { /* already released */ }
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
     }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
   }
 
   async function load() {
@@ -336,7 +347,7 @@
 
         <!-- Horizontal splitter -->
         <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-        <div class="h-splitter" role="separator" tabindex="-1" onmousedown={onAnalyticsSplitterDown}></div>
+        <div class="h-splitter" role="separator" tabindex="-1" onpointerdown={onAnalyticsSplitterDown}></div>
 
         <!-- Bottom pane: Analytics -->
         <div class="split-bottom" style="height: {analyticsHeight}px;">

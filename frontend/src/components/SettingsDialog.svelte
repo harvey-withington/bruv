@@ -143,6 +143,11 @@
     try {
       const ddThresholds = Object.entries(dueDateThresholds).filter(([, v]) => v).map(([k]) => k)
       const ddChannelStr = ['in-app', ...Object.entries(dueDateChannels).filter(([, v]) => v).map(([k]) => k)].join(',')
+      // Sync the live theme into prefs before persisting so whatever
+      // the user (or the sidebar footer toggle) chose is written to
+      // disk. setTheme itself is not called here — the dropdown's
+      // onchange already applies it live.
+      prefs.theme = theme.mode
       await Promise.all([
         SetPreferences(prefs),
         SetLLMConfig(llm),
@@ -150,7 +155,6 @@
         SaveLLMAccounts(llmAccounts),
         SaveDueDateSettings(dueDateEnabled, ddThresholds, ddChannelStr),
       ])
-      setTheme(prefs.theme as 'dark' | 'light')
       setLocale(prefs.locale)
       nav.sidebarWidth = prefs.sidebar_width
       localStorage.setItem('bruv-sidebar-width', String(prefs.sidebar_width))
@@ -293,7 +297,14 @@
           {#if fieldVisible('theme')}
             <label class="field">
               <span class="field-label">{t('prefs.theme')}</span>
-              <select bind:value={prefs.theme}>
+              <!-- Bound to the live theme store rather than prefs.theme
+                   so the dropdown always reflects the current theme
+                   even when the sidebar footer toggle changed it after
+                   this dialog opened. onchange calls setTheme which
+                   applies immediately + persists to localStorage;
+                   save() below syncs theme.mode into prefs for the
+                   Preferences-on-disk write. -->
+              <select value={theme.mode} onchange={(e) => setTheme((e.currentTarget as HTMLSelectElement).value as 'dark' | 'light')}>
                 <option value="dark">{t('prefs.theme_dark')}</option>
                 <option value="light">{t('prefs.theme_light')}</option>
               </select>

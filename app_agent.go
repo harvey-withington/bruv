@@ -4,6 +4,7 @@ import (
 	"bruv/internal/agent"
 	"bruv/internal/config"
 	"bruv/internal/llm"
+	"bruv/internal/logging"
 	"bruv/internal/mcp"
 	"bruv/internal/model"
 	"bruv/internal/notify"
@@ -1320,6 +1321,7 @@ func (a *App) TriggerAgent(cardID string) error {
 	if a.scheduler == nil {
 		// No scheduler — run directly
 		go func() {
+			defer logging.Recover("executeAgent-direct")
 			_ = a.executeAgent(a.ctx, cardID)
 		}()
 		return nil

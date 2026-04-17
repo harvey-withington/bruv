@@ -106,7 +106,11 @@
   let chatWidth = $state(Number(localStorage.getItem(CHAT_WIDTH_KEY)) || 380)
   let resizing = $state(false)
 
-  /** Splitter: redistributes space between main and chat, outer edges stay fixed */
+  /** Splitter: redistributes space between main and chat, outer edges stay fixed.
+   * Typed as MouseEvent because Svelte 5's `onpointerdown` attribute type
+   * is MouseEventHandler; PointerEvent extends MouseEvent at runtime so
+   * pointer-specific fields are narrowed below. Pointer events give us
+   * touch/stylus support for free on mobile/tablet viewports. */
   function onSplitterDown(e: MouseEvent) {
     e.preventDefault()
     resizing = true
@@ -114,8 +118,12 @@
     const startX = e.clientX
     const startChat = chatWidth
     const startMain = mainWidth
+    const pe = e as PointerEvent
+    const target = e.currentTarget as HTMLElement | null
+    const pointerId = pe.pointerId
+    target?.setPointerCapture?.(pointerId)
 
-    function onMove(ev: MouseEvent) {
+    function onMove(ev: PointerEvent) {
       const delta = ev.clientX - startX
       const newMain = startMain + delta
       const newChat = startChat - delta
@@ -129,11 +137,14 @@
       splitterDragging = false
       localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth))
       localStorage.setItem('bruv:mainPanelWidth', String(mainWidth))
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
+      try { target?.releasePointerCapture?.(pointerId) } catch { /* already released */ }
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
     }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
   }
 
   // Fixed-position tooltip for edit details (avoids scroll-container clipping)
@@ -555,7 +566,7 @@
 {#if visible}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div class="chat-panel" class:resizing style="width: {chatWidth}px; --chat-width: {chatWidth}px;" out:slideOutWidth={{ duration: 220 }}>
-    <div class="chat-resize-handle left" class:active={resizing} role="separator" tabindex="-1" onmousedown={onSplitterDown}></div>
+    <div class="chat-resize-handle left" class:active={resizing} role="separator" tabindex="-1" onpointerdown={onSplitterDown}></div>
     <!-- Inner wrapper is pinned to the final width, so children don't
          reflow while the outer .chat-panel animates from 0 → chatWidth.
          The overflow on the right is clipped by .modal's overflow:hidden. -->

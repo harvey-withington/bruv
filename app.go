@@ -100,6 +100,11 @@ func (a *App) startup(ctx context.Context) {
 		if _, err := logging.Init(cfgDir); err != nil {
 			log.Printf("warning: logging init failed: %v", err)
 		}
+		// Crash reports land in <configDir>/crashes/ — separate from
+		// the rolling daily log so they don't get pruned on retention.
+		// Version/build-date go in every report so users don't have to
+		// guess which build they were on when filing a bug.
+		logging.InitCrashReporting(cfgDir, AppVersion, BuildDate)
 	} else {
 		log.Printf("warning: resolve config dir for logging: %v", err)
 	}
@@ -148,6 +153,7 @@ func (a *App) domReady(ctx context.Context) {
 // bounds are preserved even if the app is killed rather than closed normally.
 func (a *App) startBoundsPoller() {
 	go func() {
+		defer logging.Recover("bounds-poller")
 		ticker := time.NewTicker(3 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -583,6 +589,7 @@ func (a *App) logActivityWithContext(cardID, action, field, cardTitle string, br
 		return
 	}
 	go func() {
+		defer logging.Recover("logActivityWithContext")
 		var actor, actorType string
 		if v, ok := a.llmActors.Load(cardID); ok {
 			actor = v.(string)
@@ -1075,20 +1082,14 @@ func (a *App) healTagColors() {
 	}
 
 	// Pre-build a categoryID → (brandSlug, streamSlug, projectSlug) lookup.
+	// Uses the shared flat walker so this path pays only one hierarchy
+	// traversal instead of recreating the nested walk that
+	// ListAllCategories already performs.
 	type hierKey struct{ brand, stream, project string }
 	catToHier := make(map[string]hierKey)
-	brands, _ := a.repo.ListBrands()
-	for _, b := range brands {
-		streams, _ := a.repo.ListStreams(b.Slug)
-		for _, s := range streams {
-			projects, _ := a.repo.ListProjects(b.Slug, s.Slug)
-			for _, p := range projects {
-				cats, _ := a.repo.ListCategories(b.Slug, s.Slug, p.Slug)
-				for _, c := range cats {
-					catToHier[c.ID] = hierKey{b.Slug, s.Slug, p.Slug}
-				}
-			}
-		}
+	flat, _ := a.repo.ListAllCategoriesFlat()
+	for _, f := range flat {
+		catToHier[f.Category.ID] = hierKey{f.Brand.Slug, f.Stream.Slug, f.Project.Slug}
 	}
 
 	// For each card, ensure every tag is present (with colour) in every pinned project.
@@ -1243,43 +1244,39 @@ type CategoryPath struct {
 
 // ListAllCategories returns every category across the entire hierarchy with full breadcrumb info.
 // Used by PinPicker to populate the flat searchable list of pin targets.
+//
+// Delegates to repo.ListAllCategoriesFlat so every call site that
+// needs "every category with parent chain" shares a single walk —
+// previously healTagColors and this method duplicated the nested
+// iteration, doubling the filesystem traffic on every startup.
 func (a *App) ListAllCategories() ([]CategoryPath, error) {
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
-	var results []CategoryPath
-	brands, err := a.repo.ListBrands()
+	flat, err := a.repo.ListAllCategoriesFlat()
 	if err != nil {
 		return nil, err
 	}
-	for _, b := range brands {
-		streams, _ := a.repo.ListStreams(b.Slug)
-		for _, s := range streams {
-			projects, _ := a.repo.ListProjects(b.Slug, s.Slug)
-			for _, p := range projects {
-				cats, _ := a.repo.ListCategories(b.Slug, s.Slug, p.Slug)
-				for _, c := range cats {
-					results = append(results, CategoryPath{
-						BrandSlug:           b.Slug,
-						StreamSlug:          s.Slug,
-						ProjectSlug:         p.Slug,
-						CategorySlug:        c.Slug,
-						BrandName:           b.Name,
-						StreamName:          s.Name,
-						ProjectName:         p.Name,
-						CategoryName:        c.Name,
-						BrandDescription:    b.Description,
-						StreamDescription:   s.Description,
-						ProjectDescription:  p.Description,
-						CategoryDescription: c.Description,
-						ProjectID:           p.ID,
-						CategoryID:          c.ID,
-						Breadcrumb:          b.Name + " / " + s.Name + " / " + p.Name + " / " + c.Name,
-						AcceptedTypes:       c.AcceptedTypes,
-					})
-				}
-			}
-		}
+	results := make([]CategoryPath, 0, len(flat))
+	for _, f := range flat {
+		results = append(results, CategoryPath{
+			BrandSlug:           f.Brand.Slug,
+			StreamSlug:          f.Stream.Slug,
+			ProjectSlug:         f.Project.Slug,
+			CategorySlug:        f.Category.Slug,
+			BrandName:           f.Brand.Name,
+			StreamName:          f.Stream.Name,
+			ProjectName:         f.Project.Name,
+			CategoryName:        f.Category.Name,
+			BrandDescription:    f.Brand.Description,
+			StreamDescription:   f.Stream.Description,
+			ProjectDescription:  f.Project.Description,
+			CategoryDescription: f.Category.Description,
+			ProjectID:           f.Project.ID,
+			CategoryID:          f.Category.ID,
+			Breadcrumb:          f.Brand.Name + " / " + f.Stream.Name + " / " + f.Project.Name + " / " + f.Category.Name,
+			AcceptedTypes:       f.Category.AcceptedTypes,
+		})
 	}
 	return results, nil
 }

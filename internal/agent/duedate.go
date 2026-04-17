@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bruv/internal/logging"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -66,6 +67,7 @@ func (s *DueDateScanner) Configure(enabled bool, thresholdStrs []string, channel
 // Start begins the scanner poll loop.
 func (s *DueDateScanner) Start() {
 	go func() {
+		defer logging.Recover("due-date-scanner")
 		ticker := time.NewTicker(60 * time.Second)
 		defer ticker.Stop()
 

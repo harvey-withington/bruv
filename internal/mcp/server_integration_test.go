@@ -34,10 +34,14 @@ func TestIntegrationServerProcessFilesystem(t *testing.T) {
 		Command:     "npx",
 		Args:        []string{"-y", "@modelcontextprotocol/server-filesystem", tmpDir},
 		Enabled:     true,
+		// Cold CI runners need to npm-install the server package
+		// before it can handshake — 90s covers that with headroom.
+		// The outer context below is sized to match.
+		InitTimeout: 90 * time.Second,
 	}
 
 	sp := NewServerProcess(spec, "test-repo-id", nil)
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
 	if err := sp.Start(ctx); err != nil {

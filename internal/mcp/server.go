@@ -68,7 +68,23 @@ type ServerSpec struct {
 	// Disabled servers remain in config but don't consume any
 	// resources and don't contribute tools to the agent catalogue.
 	Enabled bool `json:"enabled"`
+
+	// InitTimeout bounds how long we'll wait for the initialize
+	// handshake to complete. Zero means use the default. The first
+	// launch of an npx-based server has to download and install the
+	// package (tens of seconds on a cold machine), which is why the
+	// default is generous rather than millisecond-tight. Override
+	// this in tests that want a tighter bound, or for servers known
+	// to be pre-installed and thus expected to handshake fast.
+	InitTimeout time.Duration `json:"init_timeout,omitempty"`
 }
+
+// defaultInitTimeout covers cold-start npx installs on the slowest
+// reasonable target (Windows CI runners), where the first launch has
+// to npm-install the package before the server can talk to us. Warm
+// launches complete in milliseconds; the budget only matters on the
+// first run after an install.
+const defaultInitTimeout = 60 * time.Second
 
 // SecretResolver fetches secret env var values at spawn time. This
 // is an interface so the package doesn't directly depend on BRUV's
@@ -216,10 +232,14 @@ func (s *ServerProcess) spawnAndHandshake(ctx context.Context) error {
 	transport.Start()
 	client := NewClient(transport)
 
-	// Initialize handshake with a short timeout — well-behaved
-	// servers handshake in milliseconds, so 10s is plenty even
-	// over slow disk or cold-start conditions.
-	initCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// Initialize handshake. Warm launches complete in milliseconds;
+	// cold-start npx installs can take 30–60s while npm pulls the
+	// package. See ServerSpec.InitTimeout for the rationale.
+	initTimeout := s.spec.InitTimeout
+	if initTimeout == 0 {
+		initTimeout = defaultInitTimeout
+	}
+	initCtx, cancel := context.WithTimeout(ctx, initTimeout)
 	defer cancel()
 	if err := client.Initialize(initCtx); err != nil {
 		_ = transport.Close()

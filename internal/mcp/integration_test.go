@@ -40,7 +40,13 @@ func TestIntegrationFilesystemServer(t *testing.T) {
 	// Create a temp directory for the filesystem server to operate
 	// on — this is the server's "sandbox root" which it enforces
 	// as the outer boundary for all file operations.
-	tmpDir := t.TempDir()
+	//
+	// canonicalizeTempPath handles a Windows CI quirk: GitHub Actions'
+	// runneradmin user (>8 chars) triggers 8.3 short-name expansion,
+	// causing the MCP filesystem server to compare long-form allowed
+	// dir against short-form target paths and reject its own sandbox.
+	// See canonical_path_windows.go for the full explanation.
+	tmpDir := canonicalizeTempPath(t.TempDir())
 	if err := os.WriteFile(tmpDir+"/hello.txt", []byte("world"), 0o644); err != nil {
 		t.Fatalf("write test file: %v", err)
 	}

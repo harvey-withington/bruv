@@ -24,7 +24,9 @@ func TestIntegrationServerProcessFilesystem(t *testing.T) {
 		t.Skip("skipping integration test in -short mode")
 	}
 
-	tmpDir := t.TempDir()
+	// Canonicalize so Windows 8.3 short-name expansion doesn't trip
+	// the server's path-containment check. See canonical_path_windows.go.
+	tmpDir := canonicalizeTempPath(t.TempDir())
 
 	spec := ServerSpec{
 		Name:        "filesystem-test",

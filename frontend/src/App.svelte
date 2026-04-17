@@ -68,6 +68,24 @@
   let showProfile = $state(false)
   let showTagEditor = $state(false)
   let showProjectChat = $state(false)
+  // Project-chat DOM-lag flag — see CardDetail's chatInDom for the same
+  // pattern. ChatSection's slideOutWidth transition lives on its own
+  // inner `{#if visible}` element; if the OUTER {#if} here unmounts the
+  // component synchronously when the user closes the panel, the out
+  // transition never runs. Keeping projectChatInDom true for the
+  // transition duration lets the slide-out animation play before the
+  // component is torn down.
+  const PROJECT_CHAT_OUT_DURATION = 240
+  // svelte-ignore state_referenced_locally
+  let projectChatInDom = $state(showProjectChat)
+  $effect(() => {
+    if (showProjectChat) {
+      projectChatInDom = true
+    } else if (projectChatInDom) {
+      const timer = setTimeout(() => { projectChatInDom = false }, PROJECT_CHAT_OUT_DURATION)
+      return () => clearTimeout(timer)
+    }
+  })
   let showKeyboardShortcuts = $state(false)
   let showAbout = $state(false)
 
@@ -254,10 +272,10 @@
       />
       <div class="board-row">
         <Board />
-        {#if showProjectChat && nav.projectSlug}
+        {#if projectChatInDom && nav.projectSlug}
           <ChatSection
             cardId=""
-            visible={true}
+            visible={showProjectChat}
             projectMode={true}
             reloadKey={nav.projectSlug}
             loadFn={() => LoadProjectChatHistory(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!)}

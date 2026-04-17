@@ -232,6 +232,10 @@ func CardTools(cardTypes []string, categories []map[string]string, mcpToolIDs []
 		},
 	})
 
+	// Web browsing — shared with agents. The handlers in app.go
+	// delegate to agent.WebFetch / agent.WebSearch.
+	tools = append(tools, WebTools()...)
+
 	return tools
 }
 
@@ -547,6 +551,10 @@ func ProjectTools(cardTypes []string, categories []map[string]string) []ToolDef 
 			},
 		},
 	}
+
+	// Web browsing — shared with card chat and agents. The handlers
+	// in app.go delegate to agent.WebFetch / agent.WebSearch.
+	tools = append(tools, WebTools()...)
 
 	return tools
 }

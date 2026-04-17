@@ -26,6 +26,7 @@ export const unsubscribe = (...args: Parameters<ReturnType<typeof getBackend>['u
 export const Version = () => getBackend().Version()
 export const GetBuildInfo = () => getBackend().GetBuildInfo()
 export const OpenConfigFolder = () => getBackend().OpenConfigFolder()
+export const OpenLogsFolder = () => getBackend().OpenLogsFolder()
 export const OpenBugReportURL = () => getBackend().OpenBugReportURL()
 export const MarkLLMNudgeShown = () => getBackend().MarkLLMNudgeShown()
 export const CheckForUpdates = () => getBackend().CheckForUpdates()

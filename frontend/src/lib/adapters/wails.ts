@@ -3,57 +3,35 @@ import type { BackendAdapter, EventCallback } from '../types'
 import {
   Version, HasRepository, InitRepository, OpenRepository, CloseRepository,
   PickFolder, ListRecentRepos, RemoveRecentRepo,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   GetBuildInfo,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   OpenConfigFolder,
-  // @ts-ignore — generated after `wails generate` with updated Go code
+  OpenLogsFolder,
   OpenBugReportURL,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   MarkLLMNudgeShown,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   CheckForUpdates,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   ExportCardTypesToFile,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   ImportCardTypesFromFile,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   ImportCardTypesFromRepo,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   ListMCPServers,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   AddMCPServer,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   UpdateMCPServer,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   DeleteMCPServer,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   SetMCPServerSecret,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   GetMCPServerSecretStatus,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   RestartMCPServer,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   GetRepoDescription,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   UpdateRepoDescription,
   CreateBrand, GetBrand, ListBrands, RenameBrand, UpdateBrandDescription, DeleteBrand,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   UpdateBrandIcon,
   CreateStream, ListStreams, RenameStream, UpdateStreamDescription, DeleteStream,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   UpdateStreamIcon,
   CreateProject, ListProjects, RenameProject, UpdateProjectDescription, DeleteProject,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   UpdateProjectIcon,
   CreateCategory, ListCategories, RenameCategory, DeleteCategory, MoveCategoryCards, CopyCategory, UpdateCategoryAcceptedTypes,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   UpdateCategoryDescription,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   UpdateCategoryIcon,
   CreateCard, GetCard, ListCards, DeleteCard, DuplicateCard,
   UpdateCardTitle, UpdateCardType, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardLabels, UpdateCardDueDate,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   RefreshTypeBlocks,
   AddChecklistItem, ToggleChecklistItem, RemoveChecklistItem,
   PinCard, UnpinCard, GetCardPins, GetCardLocation, GetProjectLocation,
@@ -64,7 +42,6 @@ import {
   GetProjectLabels, AddProjectLabel, RemoveProjectLabel, UpdateProjectLabel, SetProjectLabelIcon,
   ListCardTypes, ValidateCardFields,
   CreateUserCardType, UpdateUserCardType, DeleteUserCardType, UpdateBuiltinCardType,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   UpdateUserCardTypeIcon,
   ListCardTemplates, CreateCardTemplate, UpdateCardTemplate, DeleteCardTemplate,
   SearchCards, SearchOrphanedCards, GetCardProjectContext, RebuildIndex, RefreshIndex,
@@ -72,105 +49,57 @@ import {
   GetPreferences, SetPreferences,
   GetProfile, SetProfile,
   GetAuthInfo, GetLLMConfig, SetLLMConfig,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   GetNotifyConfig,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   SetNotifyConfig,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   GetNotifications,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   MarkNotificationRead,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   MarkAllNotificationsRead,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   ClearAllNotifications,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   ListAgentCardIDs,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   GetCategoryAcceptedTypes,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   ValidateSchedulePreview,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   GetAgentConfig,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   SaveAgentConfig,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   GetAgentRuns,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   TriggerAgent,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   CancelAgent,
-  // @ts-ignore — generated after `wails generate`
   ClearAgentRuns,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   PauseAllAgents,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   ResumeAllAgents,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   GetAgentSchedulerStatus,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   GetAllAgents,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   GetAllAgentRuns,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   GetAgentAnalytics,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   ForceQuit,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   GetTokenPricing,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   SaveTokenPricing,
   LoadChatHistory, SendChatMessage,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   LoadProjectChatHistory,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   SendProjectChatMessage,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   ClearProjectChatHistory,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   ClearCardChatHistory,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   GetLLMAccounts,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   SaveLLMAccounts,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   TestLLMAccountConnection,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   TestSystemNotification,
   IsLLMConfigured, TestLLMConnection,
   AcceptPinSuggestion, RejectPinSuggestion,
   AcceptPendingEdit, RejectPendingEdit, AcceptAllPendingEdits, RejectAllPendingEdits, ApplyPendingEdits,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   ApplyProjectPendingEdits,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   AddCardAttachment,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   RemoveCardAttachment,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   GetDueDateSettings,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   SaveDueDateSettings,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   ListActivityLog,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   ListRecentlyUpdatedCards,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   PickFile,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   PickSaveFile,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   ImportTrelloBoard,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   ImportTrelloBoardFromJSON,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   ExportProjectToFile,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   ListCardComments,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   AddCardComment,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   UpdateCardComment,
-  // @ts-ignore — generated after `wails generate` with updated Go code
   DeleteCardComment,
 } from '../../../wailsjs/go/main/App.js'
 
@@ -193,6 +122,7 @@ export const wailsAdapter: BackendAdapter = {
   Version,
   GetBuildInfo: GetBuildInfo as unknown as BackendAdapter['GetBuildInfo'],
   OpenConfigFolder: OpenConfigFolder as unknown as BackendAdapter['OpenConfigFolder'],
+  OpenLogsFolder: OpenLogsFolder as unknown as BackendAdapter['OpenLogsFolder'],
   OpenBugReportURL: OpenBugReportURL as unknown as BackendAdapter['OpenBugReportURL'],
   MarkLLMNudgeShown: MarkLLMNudgeShown as unknown as BackendAdapter['MarkLLMNudgeShown'],
   CheckForUpdates: CheckForUpdates as unknown as BackendAdapter['CheckForUpdates'],

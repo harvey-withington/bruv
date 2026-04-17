@@ -48,6 +48,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     Version: async () => '0.1.0-test',
     GetBuildInfo: async () => ({ version: '0.1.0-test', build_date: 'test', os: 'test', arch: 'test', go_version: 'test' }),
     OpenConfigFolder: async () => {},
+    OpenLogsFolder: async () => {},
     OpenBugReportURL: async () => {},
     MarkLLMNudgeShown: async () => {},
     CheckForUpdates: async () => ({ status: 'up_to_date' as const, current_version: '0.1.0-test' }),

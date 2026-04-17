@@ -4,13 +4,13 @@ package llm
 var allAgentTools = []ToolDef{
 	{
 		Name:        "web_fetch",
-		Description: "Fetch a web page and return its text content. Use this to read specific URLs.",
+		Description: "Fetch a web page and return its text content. CALL THIS whenever the user shares a URL, or when you need to read the full contents of a page you've already found via web_search. Do not paraphrase or guess at content — actually fetch it. Returns plain text extracted from the HTML (up to 4000 chars).",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"url": map[string]any{
 					"type":        "string",
-					"description": "The URL to fetch",
+					"description": "The URL to fetch (must include http:// or https://)",
 				},
 			},
 			"required": []string{"url"},
@@ -18,13 +18,13 @@ var allAgentTools = []ToolDef{
 	},
 	{
 		Name:        "web_search",
-		Description: "Search the web and return results. Returns titles, URLs, and snippets for the top results.",
+		Description: "Search the public web via DuckDuckGo. CALL THIS — do NOT tell the user to search themselves — whenever the user asks about anything you don't already know: current events, recent news, prices, stock/crypto quotes, sports scores, weather, product info, documentation, 'what's happening with X', 'latest on Y', etc. Returns titles, URLs, and short snippets for up to 10 results. For 'why did X happen' questions, one search is often not enough: if the first results cover the effect (price moved, outage happened) but not the cause (news, geopolitics, macro, regulation), run a SECOND search targeting the likely cause before answering. Follow up with web_fetch on the most relevant result if snippets aren't enough.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"query": map[string]any{
 					"type":        "string",
-					"description": "The search query",
+					"description": "The search query — a short natural-language phrase works best",
 				},
 			},
 			"required": []string{"query"},
@@ -153,6 +153,22 @@ var allAgentTools = []ToolDef{
 			"required": []string{"method", "url"},
 		},
 	},
+}
+
+// WebTools returns just the web-browsing tool definitions (web_fetch
+// and web_search). Exposed so card and project chat can offer them
+// too — the underlying Go handlers (agent.WebFetch / agent.WebSearch)
+// are shared. http_request is intentionally excluded from chat: it's
+// arbitrary HTTP with any method, which is a bigger surface than
+// casual chat should default to granting.
+func WebTools() []ToolDef {
+	out := make([]ToolDef, 0, 2)
+	for _, t := range allAgentTools {
+		if t.Name == "web_fetch" || t.Name == "web_search" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // AgentTools returns the tool definitions for an agent, filtered by the allowed list.

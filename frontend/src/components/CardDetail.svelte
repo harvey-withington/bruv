@@ -31,6 +31,7 @@
   import CardComments from './CardComments.svelte'
   import SaveIndicator from './SaveIndicator.svelte'
   import { draggable } from '../lib/draggable'
+  import { computeReorder, wouldReorder, DROP_END as REORDER_END } from '../lib/reorder'
   import { fade } from 'svelte/transition'
   import { getCardTypeColor, getCardTypeTextColor } from '../lib/cardTypes'
   import { focusOnMount, focusTrap, inlineEdit, floatingDropdown } from '../lib/actions'
@@ -82,9 +83,20 @@
       return () => clearTimeout(timer)
     }
   })
+  // Persist the active tab across component remounts and app restarts.
+  // Without this, any event that causes CardDetail to re-render from
+  // scratch (e.g. an agent completing a run and the parent refreshing
+  // the board) bounces the user back to Details — confusing mid-flow.
+  // Follows the same pattern as CHAT_VISIBLE_KEY above.
+  const ACTIVE_TAB_KEY = 'bruv:cardDetailTab'
+  function readStoredTab(): 'details' | 'agent' | 'runs' | null {
+    const v = localStorage.getItem(ACTIVE_TAB_KEY)
+    return v === 'details' || v === 'agent' || v === 'runs' ? v : null
+  }
   // svelte-ignore state_referenced_locally
-  let activeTab = $state<'details' | 'agent' | 'runs'>(initialTab ?? 'details')
+  let activeTab = $state<'details' | 'agent' | 'runs'>(initialTab ?? readStoredTab() ?? 'details')
   $effect(() => { localStorage.setItem(CHAT_VISIBLE_KEY, String(showChat)) })
+  $effect(() => { localStorage.setItem(ACTIVE_TAB_KEY, activeTab) })
 
   // Splitter: redistributes space between main and chat when chat is open.
   // Default is 880px so Details/Agent/Runs tabs all render at the same
@@ -185,27 +197,32 @@
   let checklistInputEls = $state<Record<string, HTMLInputElement | null>>({})
   let newChecklistTexts = $state<Record<string, string>>({})
 
-  // Block drag-and-drop state
-  let draggingBlockIdx = $state<number | null>(null)
-  let dropBlockIdx = $state<number | null>(null)
+  // Block drag-and-drop state, keyed by stable block.id rather than
+  // array index. Indices shift on reorder/delete (see CLAUDE.md); IDs
+  // don't. dropBeforeBlockId either holds the id of the block the
+  // drop indicator appears ABOVE, the sentinel DROP_END for drop-
+  // after-last, or null when no drop target is active.
+  const DROP_END = REORDER_END
+  let draggingBlockId = $state<string | null>(null)
+  let dropBeforeBlockId = $state<string | null>(null)
   let blockCopyMode = $state(false)
   // CSS-only visual collapse during drag (avoids DOM restructure that kills drag state)
   let dragVisualCollapse = $state(false)
 
-  function handleBlockDragStart(e: DragEvent, idx: number) {
-    draggingBlockIdx = idx
+  function handleBlockDragStart(e: DragEvent, block: Block) {
+    draggingBlockId = block.id
     blockCopyMode = e.ctrlKey
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = 'copyMove'
-      e.dataTransfer.setData('text/plain', String(idx))
+      e.dataTransfer.setData('text/plain', block.id)
     }
     // Use CSS-only collapse — no DOM changes, preserves drag state
     requestAnimationFrame(() => { dragVisualCollapse = true })
   }
 
   function handleBlockDragEnd() {
-    draggingBlockIdx = null
-    dropBlockIdx = null
+    draggingBlockId = null
+    dropBeforeBlockId = null
     blockCopyMode = false
     dragVisualCollapse = false
     if (autoScrollRaf) {
@@ -214,8 +231,8 @@
     }
   }
 
-  function handleBlockDragOver(e: DragEvent, idx: number) {
-    if (draggingBlockIdx === null) return
+  function handleBlockDragOver(e: DragEvent, block: Block, idx: number) {
+    if (draggingBlockId === null) return
     e.preventDefault()
     e.stopPropagation()
     blockCopyMode = e.ctrlKey
@@ -223,19 +240,23 @@
 
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const midY = rect.top + rect.height / 2
-    dropBlockIdx = e.clientY < midY ? idx : idx + 1
+    const blocks = card?.blocks || []
+    let candidate: string | typeof DROP_END
+    if (e.clientY < midY) {
+      candidate = block.id
+    } else {
+      // Below midpoint = insert AFTER this block = before the next
+      // block, or at the end of the list if this is the last block.
+      const nextBlock = blocks[idx + 1]
+      candidate = nextBlock ? nextBlock.id : DROP_END
+    }
 
-    // Auto-scroll when near edges
-    startAutoScroll(e)
-  }
-
-  function handleBlockDragOverGap(e: DragEvent, gapIdx: number) {
-    if (draggingBlockIdx === null) return
-    e.preventDefault()
-    e.stopPropagation()
-    blockCopyMode = e.ctrlKey
-    if (e.dataTransfer) e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'
-    dropBlockIdx = gapIdx
+    // Only paint the drop indicator when the drop would actually
+    // change the order — otherwise the user sees a line that does
+    // nothing on release, which reads as a bug. (Covers "drop on
+    // self" and "drop into the slot immediately after self".)
+    const mode: 'move' | 'copy' = e.ctrlKey ? 'copy' : 'move'
+    dropBeforeBlockId = wouldReorder(blocks, draggingBlockId, candidate, mode) ? candidate : null
 
     // Auto-scroll when near edges
     startAutoScroll(e)
@@ -243,34 +264,27 @@
 
   async function handleBlockDrop(e: DragEvent) {
     e.preventDefault()
-    if (draggingBlockIdx === null || dropBlockIdx === null || !card) {
+    if (draggingBlockId === null || dropBeforeBlockId === null || !card) {
       handleBlockDragEnd()
       return
     }
 
     const copy = e.ctrlKey
-    const fromIdx = draggingBlockIdx
-    let toIdx = dropBlockIdx
-    const blocks = [...card.blocks]
+    const fromId = draggingBlockId
+    const toTarget = dropBeforeBlockId
 
-    draggingBlockIdx = null
-    dropBlockIdx = null
+    draggingBlockId = null
+    dropBeforeBlockId = null
     blockCopyMode = false
     dragVisualCollapse = false
     if (autoScrollRaf) { cancelAnimationFrame(autoScrollRaf); autoScrollRaf = null }
 
-    if (copy) {
-      // Duplicate block at drop position
-      const original = blocks[fromIdx]
-      const dup = { ...original, id: `blk-${crypto.randomUUID().slice(0, 8)}` }
-      blocks.splice(toIdx, 0, dup)
-    } else {
-      // Move: remove from old position, insert at new
-      if (fromIdx === toIdx || fromIdx === toIdx - 1) return // no-op
-      const [item] = blocks.splice(fromIdx, 1)
-      const adjustedTo = toIdx > fromIdx ? toIdx - 1 : toIdx
-      blocks.splice(adjustedTo, 0, item)
-    }
+    const blocks = computeReorder(card.blocks, fromId, toTarget, {
+      mode: copy ? 'copy' : 'move',
+      newId: () => `blk-${crypto.randomUUID().slice(0, 8)}`,
+    })
+    // computeReorder returns the same reference on a no-op; skip the save.
+    if (blocks === card.blocks) return
 
     try {
       card = await tracked(UpdateCardBlocks(cardId, blocks)) as Card
@@ -498,7 +512,7 @@
       blockDrafts = {}
       newChecklistTexts = {}
       for (const b of card.blocks) {
-        if (b.type === 'text') blockDrafts[b.id] = String(b.value ?? '')
+        if (b.type === 'text' || b.type === 'url') blockDrafts[b.id] = String(b.value ?? '')
       }
       restoreCollapsedFromMeta()
       if (autoEditTitle) editingTitle = true
@@ -619,6 +633,27 @@
     const blocks = card.blocks.map((b: Block) => b.id === blockId ? { ...b, label, key: labelToKey(label) } : b)
     try {
       card = await tracked(UpdateCardBlocks(cardId, blocks)) as Card
+    } catch (e) { showToast(t('error.save_failed'), 'error'); return }
+    onUpdated?.()
+  }
+
+  async function saveUrlBlock(blockId: string) {
+    if (editingBlockId !== blockId || !card) return
+    const raw = (blockDrafts[blockId] ?? '').trim()
+    const block = card.blocks.find((b: Block) => b.id === blockId)
+    // Normalise: add https:// if the user typed a bare host. Empty is fine — stores as empty.
+    const draft = raw && !/^https?:\/\//i.test(raw) && !raw.startsWith('/') ? `https://${raw}` : raw
+    if (draft === String(block?.value ?? '')) {
+      editingBlockId = null
+      return
+    }
+    const updatedBlocks = card.blocks.map((b: Block) =>
+      b.id === blockId && b.type === 'url' ? { ...b, value: draft } : b
+    )
+    try {
+      card = await tracked(UpdateCardBlocks(cardId, updatedBlocks)) as Card
+      blockDrafts[blockId] = draft
+      editingBlockId = null
     } catch (e) { showToast(t('error.save_failed'), 'error'); return }
     onUpdated?.()
   }
@@ -1271,11 +1306,11 @@
 
         <!-- Blocks (excluding description block) -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="blocks-list" class:drag-visual-collapse={dragVisualCollapse} role="list" ondrop={handleBlockDrop} ondragover={(e) => { if (draggingBlockIdx !== null) e.preventDefault() }} bind:this={blocksListEl}>
-          {#each (card.blocks || []) as block, blockIdx}
+        <div class="blocks-list" class:drag-visual-collapse={dragVisualCollapse} role="list" ondrop={handleBlockDrop} ondragover={(e) => { if (draggingBlockId !== null) e.preventDefault() }} bind:this={blocksListEl}>
+          {#each (card.blocks || []) as block, blockIdx (block.id)}
             {#if block.key !== 'description'}
               <!-- Drop indicator before this block -->
-              {#if draggingBlockIdx !== null && dropBlockIdx === blockIdx}
+              {#if draggingBlockId !== null && dropBeforeBlockId === block.id}
                 <div class="block-drop-indicator" class:copy-mode={blockCopyMode}></div>
               {/if}
 
@@ -1284,8 +1319,8 @@
               <div
                 class="block-wrapper"
                 class:block-collapsed={collapsedBlocks.has(block.id)}
-                class:block-dragging={draggingBlockIdx === blockIdx}
-                ondragover={(e) => handleBlockDragOver(e, blockIdx)}
+                class:block-dragging={draggingBlockId === block.id}
+                ondragover={(e) => handleBlockDragOver(e, block, blockIdx)}
                 onkeydown={(e) => handleBlockKeydown(e, blockIdx)}
                 data-block-id={block.id}
               >
@@ -1296,7 +1331,7 @@
                   role="presentation"
                   tabindex={-1}
                   draggable={true}
-                  ondragstart={(e) => handleBlockDragStart(e, blockIdx)}
+                  ondragstart={(e) => handleBlockDragStart(e, block)}
                   ondragend={handleBlockDragEnd}
                   title={t('tooltip.drag_block')}
                 ><GripVertical size={14} /></div>
@@ -1447,10 +1482,37 @@
                         />
 
                       {:else if block.type === 'url'}
-                        {#if block.value}
-                          <a href={String(block.value)} target="_blank" rel="noopener" class="block-link">{String(block.value)}</a>
+                        {#if editingBlockId === block.id}
+                          <input
+                            class="block-url-input"
+                            type="url"
+                            use:focusOnMount
+                            bind:value={blockDrafts[block.id]}
+                            placeholder={t('block.url_placeholder')}
+                            onkeydown={(e) => {
+                              if (e.key === 'Escape') {
+                                e.stopPropagation()
+                                blockDrafts[block.id] = String(block.value ?? '')
+                                editingBlockId = null
+                              } else if (e.key === 'Enter') {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                saveUrlBlock(block.id)
+                              }
+                            }}
+                            onblur={() => saveUrlBlock(block.id)}
+                          />
+                        {:else if block.value}
+                          <div class="block-url-row">
+                            <a href={String(block.value)} target="_blank" rel="noopener" class="block-link">{String(block.value)}</a>
+                            <button class="block-action-btn action-reveal action-reveal--edit" onclick={(e) => { e.stopPropagation(); editingBlockId = block.id; blockDrafts[block.id] = String(block.value ?? '') }} title={t('tooltip.edit_url')}><Pencil size={11} /></button>
+                          </div>
                         {:else}
-                          <span class="block-value">—</span>
+                          <!-- svelte-ignore a11y_no_static_element_interactions -->
+                          <span class="block-url-empty" role="button" tabindex={0}
+                            onclick={() => { editingBlockId = block.id; blockDrafts[block.id] = '' }}
+                            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editingBlockId = block.id; blockDrafts[block.id] = '' } }}
+                          >{t('block.url_placeholder')}</span>
                         {/if}
 
                       {:else if block.type === 'divider'}
@@ -1589,7 +1651,7 @@
           {/each}
 
           <!-- Drop indicator after last block -->
-          {#if draggingBlockIdx !== null && dropBlockIdx !== null && dropBlockIdx >= (card.blocks || []).length}
+          {#if draggingBlockId !== null && dropBeforeBlockId === DROP_END}
             <div class="block-drop-indicator" class:copy-mode={blockCopyMode}></div>
           {/if}
         </div>
@@ -1639,7 +1701,11 @@
    </div>
 
     {#if !loading && card}
-      <ChatSection {cardId} bind:visible={showChat} bind:mainWidth bind:splitterDragging onCardChanged={loadCard} />
+      <!-- Silent reload on LLM replies — otherwise `loading` flips
+           true, the outer {#if !loading && card} tears ChatSection
+           out of the DOM, and its slide-in animation replays every
+           time the assistant responds. -->
+      <ChatSection {cardId} bind:visible={showChat} bind:mainWidth bind:splitterDragging onCardChanged={() => loadCard(true)} />
     {/if}
 
     <div class="modal-actions">
@@ -2290,6 +2356,33 @@
     word-break: break-all;
   }
   .block-link:hover { text-decoration: underline; }
+
+  .block-url-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .block-url-empty {
+    font-size: 0.85rem;
+    color: var(--text-faint);
+    cursor: text;
+    padding: 0.25rem 0;
+    display: inline-block;
+  }
+  .block-url-empty:hover { color: var(--text-muted); }
+
+  .block-url-input {
+    width: 100%;
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.85rem;
+    outline: none;
+  }
+  .block-url-input:focus { border-color: var(--accent); }
 
   .block-toolbar-divider {
     position: relative;

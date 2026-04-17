@@ -485,6 +485,7 @@ export interface BackendAdapter {
   Version(): Promise<string>
   GetBuildInfo(): Promise<BuildInfo>
   OpenConfigFolder(): Promise<void>
+  OpenLogsFolder(): Promise<void>
   OpenBugReportURL(): Promise<void>
   MarkLLMNudgeShown(): Promise<void>
   CheckForUpdates(): Promise<UpdateCheckResult>

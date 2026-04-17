@@ -5,6 +5,7 @@
   import { loadNotifications, handleNewNotification } from './lib/notifications.svelte'
   import { EventsOn } from '../wailsjs/runtime/runtime'
   import { loadLocale, t } from './lib/i18n.svelte'
+  import { showToast } from './lib/toast.svelte'
   import WelcomeScreen from './components/WelcomeScreen.svelte'
   import Sidebar from './components/Sidebar.svelte'
   import TopBar from './components/TopBar.svelte'
@@ -177,11 +178,23 @@
 
   // Notification system (Wails events + persistent store)
   let notifCleanups: (() => void)[] = []
+  // One-shot breadcrumb so the user finds out their search index is
+  // stale without being spammed if multiple index writes fail in a row.
+  // The backend emits "index:stale" from logIdxErr whenever an index
+  // operation returns an error. Clearing the flag on rebuild is handled
+  // by the Rebuild button in AboutDialog (via the success toast) — a
+  // soft-reset fine for alpha; per-session re-warn is enough.
+  let indexStaleNotified = false
   onMount(() => {
     loadNotifications()
     notifCleanups = [
       EventsOn('notification:new', (data: any) => {
         handleNewNotification(data)
+      }),
+      EventsOn('index:stale', () => {
+        if (indexStaleNotified) return
+        indexStaleNotified = true
+        showToast(t('about.index_stale'), 'error')
       }),
       setupAgentEventListeners(),
     ]

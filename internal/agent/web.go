@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -24,6 +25,11 @@ var (
 
 // WebFetch fetches a URL and returns extracted text content.
 func WebFetch(fetchURL string) (string, error) {
+	// Audit log so we can see whether the model actually called this
+	// versus hallucinating a fetch. One line per call, from the single
+	// choke-point every caller (card chat, project chat, suggest mode,
+	// agent) funnels through.
+	slog.Info("web_fetch", "url", fetchURL)
 	if fetchURL == "" {
 		return "", fmt.Errorf("url is required")
 	}
@@ -66,6 +72,7 @@ func WebFetch(fetchURL string) (string, error) {
 
 // WebSearch searches DuckDuckGo and returns top results.
 func WebSearch(query string) (string, error) {
+	slog.Info("web_search", "query", query)
 	if query == "" {
 		return "", fmt.Errorf("query is required")
 	}
@@ -97,8 +104,13 @@ func WebSearch(query string) (string, error) {
 	}
 
 	var sb strings.Builder
+	// 10 results gives the model enough breadth to triangulate when
+	// chasing a "why" question — at 5 the first search tends to cluster
+	// around one angle (price action) and miss causal context (macro,
+	// geopolitics, regulatory). linkRe.FindAllStringSubmatch caps at
+	// 10 already, so this just uses everything it gathered.
 	for i, r := range results {
-		if i >= 5 {
+		if i >= 10 {
 			break
 		}
 		sb.WriteString(fmt.Sprintf("%d. %s\n   URL: %s\n   %s\n\n", i+1, r.title, r.url, r.snippet))

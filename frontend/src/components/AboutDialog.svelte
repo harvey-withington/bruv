@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { X, Github, Bug, FolderOpen, Heart, RefreshCw, CircleCheck, CircleAlert, Download } from 'lucide-svelte'
+  import { X, Github, Bug, FolderOpen, FileText, Heart, RefreshCw, CircleCheck, CircleAlert, Download, DatabaseBackup } from 'lucide-svelte'
   import { onMount } from 'svelte'
   import { fade } from 'svelte/transition'
   import { t } from '../lib/i18n.svelte'
-  import { GetBuildInfo, OpenConfigFolder, OpenBugReportURL, CheckForUpdates } from '../lib/api'
+  import { GetBuildInfo, OpenConfigFolder, OpenLogsFolder, OpenBugReportURL, CheckForUpdates, RebuildIndex } from '../lib/api'
   import type { BuildInfo, UpdateCheckResult } from '../lib/types'
   import { draggable } from '../lib/draggable'
   import { focusTrap } from '../lib/actions'
@@ -46,6 +46,27 @@
       await OpenConfigFolder()
     } catch {
       showToast(t('about.open_config_error'), 'error')
+    }
+  }
+
+  async function openLogs() {
+    try {
+      await OpenLogsFolder()
+    } catch {
+      showToast(t('about.open_logs_error'), 'error')
+    }
+  }
+
+  let rebuildingIndex = $state(false)
+  async function rebuildIndex() {
+    rebuildingIndex = true
+    try {
+      await RebuildIndex()
+      showToast(t('about.rebuild_index_done'), 'success')
+    } catch {
+      showToast(t('about.rebuild_index_error'), 'error')
+    } finally {
+      rebuildingIndex = false
     }
   }
 
@@ -128,6 +149,14 @@
           <FolderOpen size={16} />
           <span>{t('about.open_config_folder')}</span>
         </button>
+        <button type="button" class="action-btn" onclick={openLogs}>
+          <FileText size={16} />
+          <span>{t('about.open_logs_folder')}</span>
+        </button>
+        <button type="button" class="action-btn" onclick={rebuildIndex} disabled={rebuildingIndex}>
+          <DatabaseBackup size={16} class={rebuildingIndex ? 'spinning' : ''} />
+          <span>{rebuildingIndex ? t('about.rebuilding_index') : t('about.rebuild_index')}</span>
+        </button>
         <button type="button" class="action-btn" onclick={reportBug}>
           <Bug size={16} />
           <span>{t('about.report_bug')}</span>
@@ -185,7 +214,7 @@
   .overlay {
     position: fixed;
     inset: 0;
-    background: var(--overlay-bg, rgba(0, 0, 0, 0.5));
+    background: var(--bg-overlay);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -194,7 +223,14 @@
   }
 
   .dialog {
-    background: var(--bg-panel);
+    /* Partially transparent so backdrop-filter has something to
+       blur. --bg-surface is dark in dark mode and light in light
+       mode, so the same formula darkens the dialog in dark mode and
+       lightens it in light mode — contrast for the text without any
+       colour tint. */
+    background: color-mix(in srgb, var(--bg-surface) 85%, transparent);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     border: 1px solid var(--border);
     border-radius: 8px;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);

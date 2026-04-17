@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -268,7 +269,7 @@ func (a *App) executeAgent(ctx context.Context, cardID string) error {
 	af.Config.RunStartedAt = &now
 	_ = a.repo.SaveAgentConfig(cardID, af.Config)
 	if a.idx != nil {
-		_ = a.idx.UpdateAgentIndex(cardID, true, string(model.AgentStatusRunning), "")
+		a.logIdxErr("UpdateAgentIndex", a.idx.UpdateAgentIndex(cardID, true, string(model.AgentStatusRunning), ""))
 	}
 
 	// Create cancellable context for this agent run
@@ -825,7 +826,7 @@ func (a *App) executeAgentToolCall(cardID string, card *model.Card, tc llm.ToolC
 			return action.Result, action
 		}
 		if a.idx != nil {
-			_, _ = a.idx.IncrementalRefresh(a.repo.Root)
+			a.idxIncrementalRefresh()
 		}
 		// Notify any open card detail view so it re-fetches the new content.
 		a.emitCardUpdated(cardID)
@@ -855,7 +856,7 @@ func (a *App) executeAgentToolCall(cardID string, card *model.Card, tc llm.ToolC
 			return action.Result, action
 		}
 		if a.idx != nil {
-			_, _ = a.idx.IncrementalRefresh(a.repo.Root)
+			a.idxIncrementalRefresh()
 		}
 		action.Result = fmt.Sprintf("created card: %s (%s)", newCard.Title, newCard.ID)
 		return fmt.Sprintf("Created card '%s' with ID %s.", newCard.Title, newCard.ID), action
@@ -889,6 +890,26 @@ func (a *App) executeAgentToolCall(cardID string, card *model.Card, tc llm.ToolC
 // most MCP servers but bounded so a hung server can't stall an
 // entire agent run. Agents with legitimately long-running tool
 // needs will want a different transport anyway.
+// mcpOutputLimit caps the size of any single MCP tool response that
+// flows back into the LLM context. External MCP servers are user-
+// configured subprocesses outside our trust boundary, so we clamp
+// their output to prevent (a) token budget blowups from misbehaving
+// servers and (b) prompt-injection payloads being smuggled into the
+// agent loop via oversized tool returns. 8 KB comfortably fits any
+// reasonable tool result and still leaves room in a 200k-token
+// context for many tool calls per run.
+const mcpOutputLimit = 8 * 1024
+
+// truncateMCPOutput returns content verbatim if within the limit,
+// otherwise trims to the limit and appends a marker so the LLM
+// (and anyone reading the audit log) can see it was truncated.
+func truncateMCPOutput(content string) (string, bool) {
+	if len(content) <= mcpOutputLimit {
+		return content, false
+	}
+	return content[:mcpOutputLimit] + "\n\n[truncated: output exceeded 8KB limit]", true
+}
+
 func (a *App) executeMCPToolCall(tc llm.ToolCall, action *model.ToolAction) (string, *model.ToolAction) {
 	serverName, toolName := mcp.SplitNamespacedTool(tc.Name)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -896,12 +917,28 @@ func (a *App) executeMCPToolCall(tc llm.ToolCall, action *model.ToolAction) (str
 
 	result, err := a.mcpRegistry.CallTool(ctx, tc.Name, tc.Arguments)
 	if err != nil {
-		log.Printf("mcp[%s] tool %q: protocol error: %v", serverName, toolName, err)
+		slog.Warn("mcp tool protocol error",
+			"server", serverName, "tool", toolName, "err", err)
 		action.Result = fmt.Sprintf("mcp error: %s", err.Error())
 		return fmt.Sprintf("MCP tool %q failed: %s", tc.Name, err.Error()), action
 	}
 
-	content := mcp.FlattenContent(result.Content)
+	rawContent := mcp.FlattenContent(result.Content)
+	content, truncated := truncateMCPOutput(rawContent)
+
+	// Audit log: every MCP tool invocation, with argument + result
+	// sizes. Argument count is often more useful than value for
+	// diagnosing "the model called this with wrong params" bugs; we
+	// keep the payload small so the log stays readable.
+	slog.Info("mcp tool call",
+		"server", serverName,
+		"tool", toolName,
+		"arg_count", len(tc.Arguments),
+		"raw_bytes", len(rawContent),
+		"returned_bytes", len(content),
+		"truncated", truncated,
+		"is_error", result.IsError)
+
 	if result.IsError {
 		// Tool-level error — prefix with "Error:" so the LLM
 		// recognises this as a failure it should react to.
@@ -1269,7 +1306,7 @@ func (a *App) CancelAgent(cardID string) error {
 				if af.Config.NextRunAt != nil {
 					nextRun = af.Config.NextRunAt.Format(time.RFC3339)
 				}
-				_ = a.idx.UpdateAgentIndex(cardID, af.Config.Enabled, string(model.AgentStatusIdle), nextRun)
+				a.logIdxErr("UpdateAgentIndex", a.idx.UpdateAgentIndex(cardID, af.Config.Enabled, string(model.AgentStatusIdle), nextRun))
 			}
 			wailsRuntime.EventsEmit(a.ctx, "agent:completed", map[string]any{"cardID": cardID, "status": "cancelled"})
 			return nil

@@ -6,9 +6,11 @@ import (
 
 func TestCardToolsBaseCount(t *testing.T) {
 	tools := CardTools(nil, nil, nil)
-	// Base tools: set_title, set_due_date, set_card_type, set_fields, add_tags, add_field, suggest_pin, configure_agent
-	if len(tools) != 8 {
-		t.Errorf("expected 8 base tools, got %d", len(tools))
+	// Base tools: set_title, set_due_date, set_card_type, set_fields,
+	// add_tags, add_field, suggest_pin, configure_agent, web_fetch,
+	// web_search.
+	if len(tools) != 10 {
+		t.Errorf("expected 10 base tools, got %d", len(tools))
 	}
 }
 
@@ -166,6 +168,8 @@ func TestCardToolsExpectedNames(t *testing.T) {
 		"add_field":       true,
 		"suggest_pin":     true,
 		"configure_agent": true,
+		"web_fetch":       true,
+		"web_search":      true,
 	}
 	for _, tool := range tools {
 		if !expected[tool.Name] {
@@ -175,5 +179,37 @@ func TestCardToolsExpectedNames(t *testing.T) {
 	}
 	for name := range expected {
 		t.Errorf("missing expected tool: %q", name)
+	}
+}
+
+func TestWebToolsExposedToChat(t *testing.T) {
+	// Contract test — card and project chat must expose web_fetch and
+	// web_search, but never http_request (that's agent-only by design).
+	cards := CardTools(nil, nil, nil)
+	projects := ProjectTools(nil, nil)
+	for _, set := range []struct {
+		name  string
+		tools []ToolDef
+	}{{"CardTools", cards}, {"ProjectTools", projects}} {
+		hasFetch, hasSearch, hasHTTP := false, false, false
+		for _, tool := range set.tools {
+			switch tool.Name {
+			case "web_fetch":
+				hasFetch = true
+			case "web_search":
+				hasSearch = true
+			case "http_request":
+				hasHTTP = true
+			}
+		}
+		if !hasFetch {
+			t.Errorf("%s: missing web_fetch", set.name)
+		}
+		if !hasSearch {
+			t.Errorf("%s: missing web_search", set.name)
+		}
+		if hasHTTP {
+			t.Errorf("%s: must not expose http_request to chat (agent-only)", set.name)
+		}
 	}
 }

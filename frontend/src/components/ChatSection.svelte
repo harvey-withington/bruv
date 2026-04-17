@@ -291,6 +291,15 @@
       console.error('Failed to load chat:', e)
     }
     loading = false
+    // On initial load, jump the scroll container to the bottom
+    // unconditionally — the sticky-to-bottom $effect's "user scrolled
+    // up" heuristic would otherwise treat a fresh mount (scrollTop=0,
+    // scrollHeight huge) as a deliberate scroll-up and skip the jump.
+    // tick() waits for the new messages to render; the next rAF
+    // waits for layout, then we set scrollTop directly (no smooth
+    // behaviour — the user just opened the card, no animation needed).
+    await tick()
+    requestAnimationFrame(scrollToBottom)
   }
 
   async function toggleMode() {
@@ -378,6 +387,11 @@
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
+      // stopPropagation: the parent CardDetail treats Ctrl+Enter as
+      // "save-and-close". In chat, Ctrl+Enter should just submit the
+      // message — otherwise the card closes mid-request and the LLM
+      // reply is never seen.
+      e.stopPropagation()
       send()
     }
   }
@@ -461,15 +475,28 @@
     return Array.from(messagesContainerEl.querySelectorAll('.chat-msg-user'))
   }
 
+  // Offset of a user message relative to the scroll container's top,
+  // regardless of which element is each one's offsetParent. Using
+  // getBoundingClientRect + container scrollTop is robust to the
+  // .chat-messages container's positioning situation.
+  function userMsgOffsetFromContainerTop(el: HTMLElement): number {
+    if (!messagesContainerEl) return 0
+    const elRect = el.getBoundingClientRect()
+    const cRect = messagesContainerEl.getBoundingClientRect()
+    return elRect.top - cRect.top + messagesContainerEl.scrollTop
+  }
+
   function scrollToPrevQuestion() {
     const container = messagesContainerEl
     if (!container) return
     const userMsgs = getUserMessageEls()
     if (userMsgs.length === 0) return
     const scrollTop = container.scrollTop
+    // Walk from last to first; first user message whose top is
+    // strictly above the current scroll position is the one to land on.
+    // The 2px fudge is for sub-pixel rounding after smooth scrolls.
     for (let i = userMsgs.length - 1; i >= 0; i--) {
-      const top = userMsgs[i].offsetTop - container.offsetTop
-      if (top < scrollTop - 2) {
+      if (userMsgOffsetFromContainerTop(userMsgs[i]) < scrollTop - 2) {
         userMsgs[i].scrollIntoView({ behavior: 'smooth', block: 'start' })
         return
       }
@@ -484,8 +511,7 @@
     if (userMsgs.length === 0) return
     const scrollTop = container.scrollTop
     for (let i = 0; i < userMsgs.length; i++) {
-      const top = userMsgs[i].offsetTop - container.offsetTop
-      if (top > scrollTop + 2) {
+      if (userMsgOffsetFromContainerTop(userMsgs[i]) > scrollTop + 2) {
         userMsgs[i].scrollIntoView({ behavior: 'smooth', block: 'start' })
         return
       }
@@ -494,10 +520,23 @@
   }
 
   // Auto-scroll to bottom when messages change or sending state changes.
+  // GUARD: only follow the new message if the user was already near the
+  // bottom. Otherwise they've manually scrolled up (e.g. via the prev-
+  // question button) to re-read something, and yanking them back down
+  // every time the assistant appends a chunk is infuriating.
+  function isNearBottom(): boolean {
+    const c = messagesContainerEl
+    if (!c) return true
+    // 120px ≈ a couple of assistant-reply bubbles of slack — the user
+    // is clearly still "at the bottom" even if a new line pushed them
+    // up a touch.
+    return c.scrollHeight - c.scrollTop - c.clientHeight < 120
+  }
   $effect(() => {
     void messages.length
     void sending
-    tick().then(scrollToBottom)
+    const follow = isNearBottom()
+    tick().then(() => { if (follow) scrollToBottom() })
   })
 
   $effect(() => {
@@ -972,6 +1011,19 @@
   }
   .chat-msg-content :global(p + p) {
     margin-top: 4px;
+  }
+  /* Links rendered from markdown citations — default browser styling
+     reads as unpolished legacy blue, especially on dark backgrounds.
+     Match the rest of the app's link token. */
+  .chat-msg-content :global(a) {
+    color: var(--link);
+    text-decoration: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--link) 40%, transparent);
+    transition: color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out);
+  }
+  .chat-msg-content :global(a:hover) {
+    color: var(--link-hover);
+    border-bottom-color: var(--link-hover);
   }
 
   .chat-msg-time {

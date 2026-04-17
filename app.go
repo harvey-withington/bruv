@@ -6,6 +6,7 @@ import (
 	"bruv/internal/importer"
 	"bruv/internal/index"
 	"bruv/internal/llm"
+	"bruv/internal/logging"
 	"bruv/internal/mcp"
 	"bruv/internal/model"
 	"bruv/internal/notify"
@@ -16,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/url"
 	"os"
 	"os/exec"
@@ -90,21 +92,35 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
+	// Initialise file logging to <configDir>/logs/bruv-YYYY-MM-DD.log.
+	// Failure is non-fatal — stderr still gets everything — but we log
+	// the failure itself via the standard log package so a dev running
+	// the binary from a terminal can still see it.
+	if cfgDir, err := config.ConfigDir(); err == nil {
+		if _, err := logging.Init(cfgDir); err != nil {
+			log.Printf("warning: logging init failed: %v", err)
+		}
+	} else {
+		log.Printf("warning: resolve config dir for logging: %v", err)
+	}
+
 	// Load the card type schema registry
 	reg, err := schema.NewRegistry()
 	if err != nil {
-		log.Printf("warning: failed to load card type schemas: %v", err)
+		slog.Warn("card type schema load failed", "err", err)
 	}
 	a.registry = reg
 
 	// Migrate legacy single-provider config to multi-account
-	_ = config.MigrateLegacyLLMConfig()
+	if err := config.MigrateLegacyLLMConfig(); err != nil {
+		slog.Warn("legacy LLM config migration failed", "err", err)
+	}
 
 	// Upgrade any plaintext LLM API keys into the OS keychain. Idempotent
 	// and safe on every startup — no-op if keys are already migrated or
 	// the keychain is unavailable.
 	if err := config.MigrateLLMKeysToKeychain(); err != nil {
-		log.Printf("warning: LLM keychain migration failed: %v", err)
+		slog.Warn("LLM keychain migration failed", "err", err)
 	}
 }
 
@@ -183,12 +199,39 @@ func (a *App) beforeClose(ctx context.Context) bool {
 		a.stopScheduler()
 		a.stopDueDateScanner()
 		a.stopMCPRegistry()
+		logging.Close()
 		return false // allow quit
 	}
 
 	// Hide window instead of closing — agents keep running in background
 	wailsRuntime.WindowHide(ctx)
 	return true // prevent close
+}
+
+// logIdxErr logs a search-index operation failure without blocking the
+// caller. Index writes are best-effort: card/repo data is already
+// safely on disk by the time these call sites run, so a failed index
+// update just means the in-memory search and agent-presence indexes
+// are temporarily stale. We emit an "index:stale" event so the UI can
+// prompt the user to rebuild via Settings → Advanced. No-op when err
+// is nil so call sites can wrap unconditionally.
+func (a *App) logIdxErr(op string, err error) {
+	if err == nil {
+		return
+	}
+	slog.Warn("index update failed", "op", op, "err", err)
+	if a.ctx != nil {
+		wailsRuntime.EventsEmit(a.ctx, "index:stale", op)
+	}
+}
+
+// idxIncrementalRefresh wraps a.idx.IncrementalRefresh so call sites
+// stay one-line. The many existing "if a.idx != nil { ... }" guards
+// remain in place, so this helper assumes a.idx is non-nil.
+func (a *App) idxIncrementalRefresh() {
+	if _, err := a.idx.IncrementalRefresh(a.repo.Root); err != nil {
+		a.logIdxErr("IncrementalRefresh", err)
+	}
 }
 
 // Version returns the current application version
@@ -222,6 +265,28 @@ func (a *App) OpenConfigFolder() error {
 		return exec.Command("open", dir).Start()
 	default:
 		return exec.Command("xdg-open", dir).Start()
+	}
+}
+
+// OpenLogsFolder opens BRUV's logs directory in the user's native file
+// manager. Attached to the About dialog so users filing bug reports
+// can find and attach their recent log file.
+func (a *App) OpenLogsFolder() error {
+	cfgDir, err := config.ConfigDir()
+	if err != nil {
+		return fmt.Errorf("resolve config dir: %w", err)
+	}
+	logsDir := logging.LogsDir(cfgDir)
+	if err := os.MkdirAll(logsDir, 0o755); err != nil {
+		return fmt.Errorf("create logs dir: %w", err)
+	}
+	switch runtime.GOOS {
+	case "windows":
+		return exec.Command("explorer", logsDir).Start()
+	case "darwin":
+		return exec.Command("open", logsDir).Start()
+	default:
+		return exec.Command("xdg-open", logsDir).Start()
 	}
 }
 
@@ -507,347 +572,6 @@ func (a *App) UpdateRepoDescription(description string) error {
 	return a.repo.UpdateManifestDescription(description)
 }
 
-// --- Brand ---
-
-func (a *App) CreateBrand(name string) (*model.Brand, error) {
-	name = repo.SanitizeText(name)
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	return a.repo.CreateBrand(name)
-}
-
-func (a *App) GetBrand(slug string) (*model.Brand, error) {
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	return a.repo.GetBrand(slug)
-}
-
-func (a *App) ListBrands() ([]model.Brand, error) {
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	return a.repo.ListBrands()
-}
-
-func (a *App) RenameBrand(slug, newName string) (*model.Brand, error) {
-	newName = repo.SanitizeText(newName)
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	brand, err := a.repo.RenameBrand(slug, newName)
-	if err != nil {
-		return nil, err
-	}
-	if a.idx != nil {
-		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
-	}
-	return brand, nil
-}
-
-func (a *App) UpdateBrandDescription(slug, description string) (*model.Brand, error) {
-	description = repo.SanitizeText(description)
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	return a.repo.UpdateBrandDescription(slug, description)
-}
-
-func (a *App) UpdateBrandIcon(slug, icon string) (*model.Brand, error) {
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	return a.repo.UpdateBrandIcon(slug, icon)
-}
-
-func (a *App) DeleteBrand(slug string) error {
-	if a.repo == nil {
-		return fmt.Errorf("no repository open")
-	}
-	// Unpin cards from all streams/projects/categories in this brand
-	streams, _ := a.repo.ListStreams(slug)
-	for _, stream := range streams {
-		projects, _ := a.repo.ListProjects(slug, stream.Slug)
-		for _, proj := range projects {
-			cats, _ := a.repo.ListCategories(slug, stream.Slug, proj.Slug)
-			for _, cat := range cats {
-				pins, _ := a.repo.ListCardsInCategory(cat.ID, cat.ID)
-				for _, p := range pins {
-					_ = a.repo.UnpinCard(p.CardID, p.ProjectID, p.CategoryID)
-				}
-			}
-		}
-	}
-	err := a.repo.DeleteBrand(slug)
-	if err == nil && a.idx != nil {
-		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
-	}
-	return err
-}
-
-// --- Stream ---
-
-func (a *App) CreateStream(brandSlug, name string) (*model.Stream, error) {
-	name = repo.SanitizeText(name)
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	return a.repo.CreateStream(brandSlug, name)
-}
-
-func (a *App) ListStreams(brandSlug string) ([]model.Stream, error) {
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	return a.repo.ListStreams(brandSlug)
-}
-
-func (a *App) RenameStream(brandSlug, streamSlug, newName string) (*model.Stream, error) {
-	newName = repo.SanitizeText(newName)
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	stream, err := a.repo.RenameStream(brandSlug, streamSlug, newName)
-	if err != nil {
-		return nil, err
-	}
-	if a.idx != nil {
-		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
-	}
-	return stream, nil
-}
-
-func (a *App) UpdateStreamDescription(brandSlug, streamSlug, description string) (*model.Stream, error) {
-	description = repo.SanitizeText(description)
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	return a.repo.UpdateStreamDescription(brandSlug, streamSlug, description)
-}
-
-func (a *App) UpdateStreamIcon(brandSlug, streamSlug, icon string) (*model.Stream, error) {
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	return a.repo.UpdateStreamIcon(brandSlug, streamSlug, icon)
-}
-
-func (a *App) DeleteStream(brandSlug, streamSlug string) error {
-	if a.repo == nil {
-		return fmt.Errorf("no repository open")
-	}
-	// Unpin cards from all projects/categories in this stream
-	projects, _ := a.repo.ListProjects(brandSlug, streamSlug)
-	for _, proj := range projects {
-		cats, _ := a.repo.ListCategories(brandSlug, streamSlug, proj.Slug)
-		for _, cat := range cats {
-			pins, _ := a.repo.ListCardsInCategory(cat.ID, cat.ID)
-			for _, p := range pins {
-				_ = a.repo.UnpinCard(p.CardID, p.ProjectID, p.CategoryID)
-			}
-		}
-	}
-	err := a.repo.DeleteStream(brandSlug, streamSlug)
-	if err == nil && a.idx != nil {
-		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
-	}
-	return err
-}
-
-// --- Project ---
-
-func (a *App) CreateProject(brandSlug, streamSlug, name string) (*model.Project, error) {
-	name = repo.SanitizeText(name)
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	project, err := a.repo.CreateProject(brandSlug, streamSlug, name)
-	if err != nil {
-		return nil, err
-	}
-	// Auto-create a default category so the project is immediately usable for pinning
-	prefs, _ := config.LoadPreferences()
-	catName := prefs.DefaultCategoryName
-	if catName == "" {
-		catName = "Ideas"
-	}
-	a.repo.CreateCategory(brandSlug, streamSlug, project.Slug, catName, 0)
-	return project, nil
-}
-
-func (a *App) ListProjects(brandSlug, streamSlug string) ([]model.Project, error) {
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	return a.repo.ListProjects(brandSlug, streamSlug)
-}
-
-func (a *App) RenameProject(brandSlug, streamSlug, projectSlug, newName string) (*model.Project, error) {
-	newName = repo.SanitizeText(newName)
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	project, err := a.repo.RenameProject(brandSlug, streamSlug, projectSlug, newName)
-	if err != nil {
-		return nil, err
-	}
-	if a.idx != nil {
-		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
-	}
-	return project, nil
-}
-
-func (a *App) UpdateProjectDescription(brandSlug, streamSlug, projectSlug, description string) (*model.Project, error) {
-	description = repo.SanitizeText(description)
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	return a.repo.UpdateProjectDescription(brandSlug, streamSlug, projectSlug, description)
-}
-
-func (a *App) UpdateProjectIcon(brandSlug, streamSlug, projectSlug, icon string) (*model.Project, error) {
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	return a.repo.UpdateProjectIcon(brandSlug, streamSlug, projectSlug, icon)
-}
-
-func (a *App) DeleteProject(brandSlug, streamSlug, projectSlug string) error {
-	if a.repo == nil {
-		return fmt.Errorf("no repository open")
-	}
-
-	// Before deleting, unpin all cards from this project's categories
-	// so they become orphaned (appear in inbox) instead of silently deleted.
-	cats, _ := a.repo.ListCategories(brandSlug, streamSlug, projectSlug)
-	for _, cat := range cats {
-		pins, _ := a.repo.ListCardsInCategory(cat.ID, cat.ID)
-		for _, p := range pins {
-			_ = a.repo.UnpinCard(p.CardID, p.ProjectID, p.CategoryID)
-		}
-	}
-
-	err := a.repo.DeleteProject(brandSlug, streamSlug, projectSlug)
-	if err == nil && a.idx != nil {
-		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
-	}
-	return err
-}
-
-// --- Category ---
-
-func (a *App) CreateCategory(brandSlug, streamSlug, projectSlug, name string, position int) (*model.Category, error) {
-	name = repo.SanitizeText(name)
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	return a.repo.CreateCategory(brandSlug, streamSlug, projectSlug, name, position)
-}
-
-func (a *App) ListCategories(brandSlug, streamSlug, projectSlug string) ([]model.Category, error) {
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	return a.repo.ListCategories(brandSlug, streamSlug, projectSlug)
-}
-
-func (a *App) RenameCategory(brandSlug, streamSlug, projectSlug, categorySlug, newName string) (*model.Category, error) {
-	newName = repo.SanitizeText(newName)
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	cat, err := a.repo.RenameCategory(brandSlug, streamSlug, projectSlug, categorySlug, newName)
-	if err != nil {
-		return nil, err
-	}
-	if a.idx != nil {
-		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
-	}
-	return cat, nil
-}
-
-func (a *App) UpdateCategoryDescription(brandSlug, streamSlug, projectSlug, categorySlug, description string) (*model.Category, error) {
-	description = repo.SanitizeText(description)
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	return a.repo.UpdateCategoryDescription(brandSlug, streamSlug, projectSlug, categorySlug, description)
-}
-
-func (a *App) UpdateCategoryIcon(brandSlug, streamSlug, projectSlug, categorySlug, icon string) (*model.Category, error) {
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	return a.repo.UpdateCategoryIcon(brandSlug, streamSlug, projectSlug, categorySlug, icon)
-}
-
-func (a *App) DeleteCategory(brandSlug, streamSlug, projectSlug, categorySlug string) error {
-	if a.repo == nil {
-		return fmt.Errorf("no repository open")
-	}
-	// Prevent deleting the last category in a project
-	cats, _ := a.repo.ListCategories(brandSlug, streamSlug, projectSlug)
-	if len(cats) <= 1 {
-		return fmt.Errorf("cannot delete the last category in a project")
-	}
-
-	// Unpin cards from this category so they become orphaned (inbox) instead of invisible
-	cat, err := a.repo.GetCategory(brandSlug, streamSlug, projectSlug, categorySlug)
-	if err == nil {
-		pins, _ := a.repo.ListCardsInCategory(cat.ID, cat.ID)
-		for _, p := range pins {
-			_ = a.repo.UnpinCard(p.CardID, p.ProjectID, p.CategoryID)
-		}
-	}
-
-	err = a.repo.DeleteCategory(brandSlug, streamSlug, projectSlug, categorySlug)
-	if err == nil && a.idx != nil {
-		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
-	}
-	return err
-}
-
-// UpdateCategoryAcceptedTypes sets which card types a category will accept.
-// An empty or nil slice clears the restriction (all types accepted).
-func (a *App) UpdateCategoryAcceptedTypes(brandSlug, streamSlug, projectSlug, categorySlug string, acceptedTypes []string) (*model.Category, error) {
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	return a.repo.UpdateCategory(brandSlug, streamSlug, projectSlug, categorySlug, func(c *model.Category) {
-		c.AcceptedTypes = acceptedTypes
-	})
-}
-
-// MoveCategoryCards moves all card pins from one category to another, then deletes the source category.
-func (a *App) MoveCategoryCards(brandSlug, streamSlug, projectSlug, fromCategoryID, toCategoryID string) error {
-	if a.repo == nil {
-		return fmt.Errorf("no repository open")
-	}
-	if a.idx == nil {
-		return fmt.Errorf("no index available")
-	}
-
-	// Get all card IDs in the source category
-	cardIDs, err := a.idx.ListCardIDsInCategory(fromCategoryID, fromCategoryID)
-	if err != nil {
-		return fmt.Errorf("list cards in category: %w", err)
-	}
-
-	// Move each card's pin to the target category
-	for i, cardID := range cardIDs {
-		if err := a.repo.MoveCardToCategory(cardID, fromCategoryID, fromCategoryID, toCategoryID, i); err != nil {
-			return fmt.Errorf("move card %s: %w", cardID, err)
-		}
-		// Re-index pins
-		if pins, err := a.repo.GetCardPins(cardID); err == nil {
-			_ = a.idx.IndexPins(cardID, pins)
-		}
-	}
-
-	return nil
-}
-
 // --- Card ---
 
 // logActivity records a card action to the activity log asynchronously.
@@ -924,7 +648,7 @@ func (a *App) CreateCard(cardType, title string) (*model.Card, error) {
 		return nil, err
 	}
 	if a.idx != nil {
-		_ = a.idx.IndexCard(card, time.Now(), "")
+		a.logIdxErr("IndexCard", a.idx.IndexCard(card, time.Now(), ""))
 	}
 	a.logActivity(card.ID, model.ActivityCreated, "")
 	// Apply template blocks if a type was set at creation
@@ -965,7 +689,7 @@ func (a *App) DuplicateCard(cardID, categoryID string) (*model.Card, error) {
 		return nil, err
 	}
 	if a.idx != nil {
-		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
+		a.idxIncrementalRefresh()
 	}
 	return newCard, nil
 }
@@ -1011,7 +735,7 @@ func (a *App) CopyCategory(brandSlug, streamSlug, projectSlug, categorySlug stri
 				_ = a.repo.MoveCardInCategory(newCard.ID, newCat.ID, newCat.ID, i)
 			}
 		}
-		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
+		a.idxIncrementalRefresh()
 	}
 
 	return newCat, nil
@@ -1034,7 +758,7 @@ func (a *App) DeleteCard(id string) error {
 	// doesn't know about it, so we clean it up here alongside the card.
 	_ = config.DeleteChatFor(a.repo.Manifest.ID, id)
 	if a.idx != nil {
-		_ = a.idx.RemoveCard(id)
+		a.logIdxErr("RemoveCard", a.idx.RemoveCard(id))
 	}
 	a.logActivityWithContext(id, model.ActivityDeleted, "", cardTitle, breadcrumbs)
 	return nil
@@ -1051,7 +775,7 @@ func (a *App) UpdateCardTitle(id, title string) (*model.Card, error) {
 	})
 	if err == nil {
 		if a.idx != nil {
-			_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
+			a.logIdxErr("IndexCard", a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID)))
 		}
 		a.logActivity(id, model.ActivityUpdatedTitle, "title")
 	}
@@ -1073,7 +797,7 @@ func (a *App) UpdateCardType(id, cardType string) (*model.Card, error) {
 		return nil, err
 	}
 	if a.idx != nil {
-		_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
+		a.logIdxErr("IndexCard", a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID)))
 	}
 	a.logActivity(id, model.ActivityUpdatedType, cardType)
 	if cardType != "" {
@@ -1101,7 +825,7 @@ func (a *App) UpdateCardFields(id string, fields map[string]any) (*model.Card, e
 		c.Fields = fields
 	})
 	if err == nil && a.idx != nil {
-		_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
+		a.logIdxErr("IndexCard", a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID)))
 	}
 	return card, err
 }
@@ -1115,7 +839,7 @@ func (a *App) UpdateCardBlocks(id string, blocks []model.Block) (*model.Card, er
 	card, err := a.repo.UpdateCardBlocks(id, blocks)
 	if err == nil {
 		if a.idx != nil {
-			_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
+			a.logIdxErr("IndexCard", a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID)))
 		}
 		a.logActivity(id, model.ActivityUpdatedField, "content")
 	}
@@ -1129,7 +853,7 @@ func (a *App) AddCardAttachment(cardID, name, data string) (*model.Card, error) 
 	}
 	card, err := a.repo.AddCardAttachment(cardID, name, data)
 	if err == nil && a.idx != nil {
-		_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
+		a.logIdxErr("IndexCard", a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID)))
 	}
 	return card, err
 }
@@ -1141,7 +865,7 @@ func (a *App) RemoveCardAttachment(cardID, attachmentID string) (*model.Card, er
 	}
 	card, err := a.repo.RemoveCardAttachment(cardID, attachmentID)
 	if err == nil && a.idx != nil {
-		_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
+		a.logIdxErr("IndexCard", a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID)))
 	}
 	return card, err
 }
@@ -1159,7 +883,7 @@ func (a *App) UpdateCardTags(id string, tags []string) (*model.Card, error) {
 	})
 	if err == nil {
 		if a.idx != nil {
-			_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
+			a.logIdxErr("IndexCard", a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID)))
 		}
 		a.syncTagsToAllPinnedProjects(id)
 		a.logActivity(id, model.ActivityUpdatedTags, "tags")
@@ -1206,7 +930,7 @@ func (a *App) UpdateCardDueDate(id, dueDate string) (*model.Card, error) {
 	})
 	if err == nil {
 		if a.idx != nil {
-			_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
+			a.logIdxErr("IndexCard", a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID)))
 		}
 		a.logActivity(id, model.ActivityUpdatedDate, "due date")
 	}
@@ -1304,7 +1028,7 @@ func (a *App) PinCard(cardID, projectID, categoryID string) error {
 	if a.idx != nil {
 		pins, err := a.repo.GetCardPins(cardID)
 		if err == nil {
-			_ = a.idx.IndexPins(cardID, pins)
+			a.logIdxErr("IndexPins", a.idx.IndexPins(cardID, pins))
 		}
 	}
 	// Sync card tags to the target project's tag definitions
@@ -1416,7 +1140,7 @@ func (a *App) UnpinCard(cardID, projectID, categoryID string) error {
 	if a.idx != nil {
 		pins, err := a.repo.GetCardPins(cardID)
 		if err == nil {
-			_ = a.idx.IndexPins(cardID, pins)
+			a.logIdxErr("IndexPins", a.idx.IndexPins(cardID, pins))
 		}
 	}
 	return nil
@@ -1602,7 +1326,7 @@ func (a *App) MoveCardInCategory(cardID, projectID, categoryID string, newPositi
 	if a.idx != nil {
 		pins, err := a.repo.GetCardPins(cardID)
 		if err == nil {
-			_ = a.idx.IndexPins(cardID, pins)
+			a.logIdxErr("IndexPins", a.idx.IndexPins(cardID, pins))
 		}
 	}
 	return nil
@@ -1622,7 +1346,7 @@ func (a *App) MoveCardToCategory(cardID, projectID, fromCategoryID, toCategoryID
 	if a.idx != nil {
 		pins, err := a.repo.GetCardPins(cardID)
 		if err == nil {
-			_ = a.idx.IndexPins(cardID, pins)
+			a.logIdxErr("IndexPins", a.idx.IndexPins(cardID, pins))
 		}
 	}
 	return nil
@@ -1723,7 +1447,7 @@ func (a *App) CopyBrand(brandSlug string) (*model.Brand, error) {
 	}
 
 	if a.idx != nil {
-		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
+		a.idxIncrementalRefresh()
 	}
 	return result, nil
 }
@@ -1760,7 +1484,7 @@ func (a *App) CopyStream(fromBrand, streamSlug, toBrand string) (*model.Stream, 
 	}
 
 	if a.idx != nil {
-		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
+		a.idxIncrementalRefresh()
 	}
 	return result, nil
 }
@@ -1784,7 +1508,7 @@ func (a *App) CopyProject(fromBrand, fromStream, projectSlug, toBrand, toStream 
 	a.duplicateCardsForProject(oldCatIDs, newCatIDs)
 
 	if a.idx != nil {
-		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
+		a.idxIncrementalRefresh()
 	}
 	return result, nil
 }
@@ -1896,7 +1620,7 @@ func (a *App) UpdateCardLabels(id string, labelIDs []string) (*model.Card, error
 		c.Labels = labelIDs
 	})
 	if err == nil && a.idx != nil {
-		_ = a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID))
+		a.logIdxErr("IndexCard", a.idx.IndexCard(card, time.Now(), a.idx.GetCardProjectContext(card.ID)))
 	}
 	return card, err
 }
@@ -3029,7 +2753,7 @@ func (a *App) SaveAgentConfig(cardID string, cfg model.AgentConfig) error {
 		if cfg.NextRunAt != nil {
 			nextRun = cfg.NextRunAt.Format(time.RFC3339)
 		}
-		_ = a.idx.UpdateAgentIndex(cardID, cfg.Enabled, string(cfg.Status), nextRun)
+		a.logIdxErr("UpdateAgentIndex", a.idx.UpdateAgentIndex(cardID, cfg.Enabled, string(cfg.Status), nextRun))
 	}
 	return nil
 }
@@ -3591,6 +3315,10 @@ func (a *App) buildProjectSystemPrompt(brandSlug, streamSlug, projectSlug string
 	sb.WriteString("- `add_tags_to_cards` — bulk-tag many cards in one call.\n")
 	sb.WriteString("- `move_card` — move a card between categories.\n")
 	sb.WriteString("- `configure_agent` — set a card's agent schedule, goal, enabled state, or tool whitelist.\n\n")
+	sb.WriteString("Web:\n")
+	sb.WriteString("- `web_fetch` — fetch a URL and read its text. Use for known links.\n")
+	sb.WriteString("- `web_search` — search the web via DuckDuckGo. Use for open-ended lookups; follow up with `web_fetch` on the best result if you need full content.\n")
+	sb.WriteString("- YOU HAVE WEB ACCESS. If the user asks about current events, prices, news, or anything external to the project, CALL `web_search` — do NOT tell the user to look it up themselves. Cite source URLs in your reply.\n\n")
 	sb.WriteString("Project metadata:\n")
 	sb.WriteString("- `update_project` — change the project's name, description, or icon.\n\n")
 	sb.WriteString("Project tags (the tag vocabulary, listed above):\n")
@@ -3897,11 +3625,18 @@ func (a *App) SendChatMessage(cardID, userMessage string) (*model.ChatFile, erro
 		return tools
 	}
 
-	// In chat-only mode skip all tools
+	// Chat mode: the user has opted out of card-mutating tools, but
+	// web research is still fair game (doesn't touch the card) — else
+	// "can you look this up" is permanently broken in chat mode.
+	// Edit/suggest modes get the full card-tool surface.
 	var toolDefs []llm.ToolDef
-	if cfg.AIMode != "chat" {
+	if cfg.AIMode == "chat" {
+		toolDefs = llm.WebTools()
+	} else {
 		toolDefs = buildToolDefs(card)
 	}
+	slog.Info("card chat tools assembled",
+		"cardID", cardID, "ai_mode", cfg.AIMode, "tool_count", len(toolDefs))
 
 	modelName := cfg.Model
 	if modelName == "" {
@@ -3914,7 +3649,12 @@ func (a *App) SendChatMessage(cardID, userMessage string) (*model.ChatFile, erro
 		chatID:       cardID,
 		systemPrompt: systemPrompt,
 		tools:        toolDefs,
-		maxIter:      3,
+		// 6 iterations comfortably covers web_search → web_fetch →
+		// summarise, or a couple of card-tool rounds plus a final
+		// message. Previously 3, which was too tight for research
+		// flows — the loop would exhaust before the model got to
+		// speak, triggering the fallbackContent lie below.
+		maxIter: 6,
 		suggestMode:  cfg.AIMode == "suggest",
 		stageTool: func(tc llm.ToolCall) (string, []model.PendingEdit) {
 			return a.stageToolCall(tc, allCats)
@@ -3984,7 +3724,13 @@ func (a *App) SendChatMessage(cardID, userMessage string) (*model.ChatFile, erro
 
 			return tools, nudges
 		},
-		fallbackContent: "I've made the changes to your card.",
+		// Fallback is only reached when the model keeps calling tools
+		// without ever producing a final text reply. Previously this
+		// said "I've made the changes to your card." — actively
+		// misleading when the model was researching, not editing.
+		// Honest + generic: the user can see the tool actions that
+		// fired above this message and ask a follow-up if needed.
+		fallbackContent: "I hit my tool-call limit before I could write a reply. The tools above show what ran — ask again or narrow the request if you'd like a summary.",
 	})
 }
 
@@ -4854,6 +4600,22 @@ func (a *App) executeToolCall(cardID string, card *model.Card, tc llm.ToolCall, 
 		action := &model.ToolAction{Tool: "configure_agent", Input: tc.Arguments, Result: summary}
 		return summary, action, nil
 
+	case "web_fetch":
+		url, _ := tc.Arguments["url"].(string)
+		result, err := agent.WebFetch(url)
+		if err != nil {
+			return "error: " + err.Error(), &model.ToolAction{Tool: "web_fetch", Input: tc.Arguments, Result: "error: " + err.Error()}, nil
+		}
+		return result, &model.ToolAction{Tool: "web_fetch", Input: tc.Arguments, Result: "fetched " + url}, nil
+
+	case "web_search":
+		query, _ := tc.Arguments["query"].(string)
+		result, err := agent.WebSearch(query)
+		if err != nil {
+			return "error: " + err.Error(), &model.ToolAction{Tool: "web_search", Input: tc.Arguments, Result: "error: " + err.Error()}, nil
+		}
+		return result, &model.ToolAction{Tool: "web_search", Input: tc.Arguments, Result: "searched: " + query}, nil
+
 	default:
 		return "error: unknown tool " + tc.Name, nil, nil
 	}
@@ -5376,6 +5138,22 @@ func (a *App) executeProjectToolCall(tc llm.ToolCall, scope projectChatScope) (s
 		result := "Deleted category"
 		action := &model.ToolAction{Tool: "delete_category", Input: tc.Arguments, Result: result}
 		return result, action
+
+	case "web_fetch":
+		url, _ := tc.Arguments["url"].(string)
+		result, err := agent.WebFetch(url)
+		if err != nil {
+			return "error: " + err.Error(), &model.ToolAction{Tool: "web_fetch", Input: tc.Arguments, Result: "error: " + err.Error()}
+		}
+		return result, &model.ToolAction{Tool: "web_fetch", Input: tc.Arguments, Result: "fetched " + url}
+
+	case "web_search":
+		query, _ := tc.Arguments["query"].(string)
+		result, err := agent.WebSearch(query)
+		if err != nil {
+			return "error: " + err.Error(), &model.ToolAction{Tool: "web_search", Input: tc.Arguments, Result: "error: " + err.Error()}
+		}
+		return result, &model.ToolAction{Tool: "web_search", Input: tc.Arguments, Result: "searched: " + query}
 
 	default:
 		return "error: unknown tool " + tc.Name, nil
@@ -5920,6 +5698,26 @@ func (a *App) stageToolCall(tc llm.ToolCall, allCats []CategoryPath) (string, []
 		detail := fmt.Sprintf("Enabled: %v, Schedule: %s\nGoal: %s", enabled, schedule, goal)
 		return "Agent configuration staged", one(tc.Name, tc.Arguments, label, detail)
 
+	// Read-only tools bypass suggest-mode staging: there's nothing to
+	// preview or approve — fetching a page or searching the web can't
+	// mutate the card. Execute directly and feed the real content back
+	// to the model so it can reason over it on the next iteration.
+	case "web_fetch":
+		url, _ := tc.Arguments["url"].(string)
+		result, err := agent.WebFetch(url)
+		if err != nil {
+			return "error: " + err.Error(), nil
+		}
+		return result, nil
+
+	case "web_search":
+		query, _ := tc.Arguments["query"].(string)
+		result, err := agent.WebSearch(query)
+		if err != nil {
+			return "error: " + err.Error(), nil
+		}
+		return result, nil
+
 	default:
 		return "Staged unknown tool " + tc.Name, nil
 	}
@@ -6326,6 +6124,23 @@ func (a *App) stageProjectToolCall(tc llm.ToolCall, scope projectChatScope) (str
 			ID: uuid.New().String(), Tool: "delete_category", Input: tc.Arguments,
 			Label: "Delete category — " + catLabel, Detail: "Cards will be unpinned to inbox", Status: "pending",
 		}}
+
+	// Read-only tools execute even in suggest mode — nothing to stage.
+	case "web_fetch":
+		url, _ := tc.Arguments["url"].(string)
+		result, err := agent.WebFetch(url)
+		if err != nil {
+			return "error: " + err.Error(), nil
+		}
+		return result, nil
+
+	case "web_search":
+		query, _ := tc.Arguments["query"].(string)
+		result, err := agent.WebSearch(query)
+		if err != nil {
+			return "error: " + err.Error(), nil
+		}
+		return result, nil
 
 	default:
 		return "Staged unknown tool " + tc.Name, nil
@@ -6846,13 +6661,20 @@ func defaultModelForProvider(provider string) string {
 func (a *App) buildSystemPrompt(card *model.Card, cfg config.LLMConfig) string {
 	var parts []string
 
-	parts = append(parts, fmt.Sprintf(`You are BRUV AI, a card organizer. Today is %s.
+	parts = append(parts, fmt.Sprintf(`You are BRUV AI. You help the user both ORGANISE this card (edit title, tags, fields, pin location, agent config) AND RESEARCH anything relevant to it (look up live information on the web). Today is %s.
+
+FIRST, decide which mode the user's message is in:
+  - ORGANISE: they're describing the card's content or asking you to edit it ("this is about X", "add Y", "set due date…", "tag it Z"). In ORGANISE mode, call all applicable card tools at once: type, title, fields, tags, AND pin.
+  - RESEARCH: they're asking about something external — current events, prices, news, looking up a URL, explaining why something happened. In RESEARCH mode, call web_search and/or web_fetch, then reply with the answer. Do NOT also call card-organising tools unless the user explicitly asks you to save the findings to the card.
+  - CHAT: they're asking a general question that needs no tool. Just reply.
+When in doubt between ORGANISE and RESEARCH, prefer RESEARCH — it's less disruptive to call the wrong web tool than to rewrite the card's title/tags.
 
 RULES:
-- On the FIRST message, call ALL applicable tools at once: type, title, fields, tags, AND pin. Do not wait for follow-up messages.
 - NEVER call a tool if the value is already correct (check current card state below).
 - NEVER call the same tool twice in one response.
-- After using tools, briefly describe what you changed.
+- After using tools, briefly describe what you changed or what you found.
+- When researching, ALWAYS cite the source URLs returned by web_search in your final reply.
+- YOU HAVE WEB ACCESS via web_search and web_fetch. If the user asks about anything you don't already know, CALL those tools. Do NOT say "I can't search the web" or "use a search engine yourself" — those responses are wrong.
 
 TOOLS:
 - set_card_type — Pick the best type. Only if type is not set or wrong.
@@ -6862,7 +6684,9 @@ TOOLS:
 - suggest_pin — ALWAYS pin the card. STRONGLY prefer an existing category_id from the list below. The hierarchy is: Brand > Stream > Project > Category (e.g. "Big Ideas / YouTube Channels / Channel Brainstorm / Ideas"). Do NOT use the card title as a brand name. Only create new names if NOTHING existing fits.
 - add_tags — Add relevant tags. Prefer existing project tags listed below, but you may create new short, descriptive tags if none fit.
 - add_field — Add a NEW field to the card (e.g. a checklist, extra notes, a checkbox). Use when the user asks for a field that does not already exist. You can provide an initial value, or use set_fields afterward to populate it.
-- configure_agent — Set up or modify the card's autonomous agent. Provide enabled, goal, schedule, and allowed_tools. The agent runs in the background and can fetch web pages, search, notify the user, and update this card. Use this when the user asks to "set up an agent", "run this on a schedule", "check daily", etc.`, time.Now().Format("2006-01-02 (Monday)"), time.Now().Format("2006-01-02")))
+- configure_agent — Set up or modify the card's autonomous agent. Provide enabled, goal, schedule, and allowed_tools. The agent runs in the background and can fetch web pages, search, notify the user, and update this card. Use this when the user asks to "set up an agent", "run this on a schedule", "check daily", etc.
+- web_fetch — Fetch a specific URL and read its text content. Use when the user gives you a link or when you need up-to-date info from a known page.
+- web_search — Search the web via DuckDuckGo. Use for "look up…", "find the latest…", "what's happening with…" style asks. Returns titles, URLs, and snippets; follow up with web_fetch on the most relevant result if you need the full content.`, time.Now().Format("2006-01-02 (Monday)"), time.Now().Format("2006-01-02")))
 
 	if cfg.Context != "" {
 		parts = append(parts, "User context:\n"+cfg.Context)
@@ -7185,7 +7009,7 @@ func (a *App) importTrelloBytes(brandSlug, streamSlug string, data []byte, archi
 		return nil, err
 	}
 	if a.idx != nil {
-		_, _ = a.idx.IncrementalRefresh(a.repo.Root)
+		a.idxIncrementalRefresh()
 	}
 	return result, nil
 }

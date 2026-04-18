@@ -1,43 +1,32 @@
 <script lang="ts">
   import { GetCard, UpdateCardTitle, UpdateCardType, RefreshTypeBlocks, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
-    DeleteCard, CreateCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, AddProjectLabel, GetProjectLabels, GetProjectLocation, GetCategoryAcceptedTypes, GetAgentConfig } from '../lib/api'
+    DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, AddProjectLabel, GetProjectLabels, GetCategoryAcceptedTypes, GetAgentConfig } from '../lib/api'
   import { EventsOn } from '../../wailsjs/runtime/runtime'
   import { projectTags, nav, getTagColor, getTagIcon, cardTypes } from '../lib/store.svelte'
   import DynamicIcon from './DynamicIcon.svelte'
-  import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, GripVertical, Pencil, MapPin, MapPinOff, MoveRight, BotMessageSquare, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, Maximize2, ArrowLeftRight, Hash, Calendar, Star, ListTree, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell, ClipboardList } from 'lucide-svelte'
-  import { renderMarkdown, renderInline } from '../lib/markdown'
+  import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, BotMessageSquare, ChevronDown, ChevronsUpDown, ChevronsDownUp, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell, ClipboardList } from 'lucide-svelte'
+  import { renderMarkdown } from '../lib/markdown'
   import { t } from '../lib/i18n.svelte'
   import MentionPicker from './MentionPicker.svelte'
   import PinPicker from './PinPicker.svelte'
+  import PinPanel from './PinPanel.svelte'
+  import BlockItem from './BlockItem.svelte'
+  import CardHeader from './CardHeader.svelte'
+  import DescriptionSection from './DescriptionSection.svelte'
   import ChatSection from './ChatSection.svelte'
   import AgentTab from './AgentTab.svelte'
   import AgentRunsTab from './AgentRunsTab.svelte'
-  import EditableChecklist from './EditableChecklist.svelte'
-  import EditableList from './EditableList.svelte'
-  import MediaBlock from './MediaBlock.svelte'
   import CardAttachments from './CardAttachments.svelte'
   import { showOptionsEditor } from '../lib/optionsEditor.svelte'
-  import SelectBlock from './SelectBlock.svelte'
-  import NumberBlock from './NumberBlock.svelte'
-  import DateBlock from './DateBlock.svelte'
-  import RatingBlock from './RatingBlock.svelte'
-  import CheckboxBlock from './CheckboxBlock.svelte'
-  import RadioBlock from './RadioBlock.svelte'
-  import CheckboxGroupBlock from './CheckboxGroupBlock.svelte'
-  import ImageBlock from './ImageBlock.svelte'
-  import ProgressBlock from './ProgressBlock.svelte'
-  import AlarmBlock from './AlarmBlock.svelte'
-  import SurveyBlock from './SurveyBlock.svelte'
   import CardComments from './CardComments.svelte'
   import SaveIndicator from './SaveIndicator.svelte'
   import { draggable } from '../lib/draggable'
   import { computeReorder, wouldReorder, DROP_END as REORDER_END } from '../lib/reorder'
   import { fade } from 'svelte/transition'
-  import { getCardTypeColor, getCardTypeTextColor } from '../lib/cardTypes'
-  import { focusOnMount, focusTrap, inlineEdit, floatingDropdown } from '../lib/actions'
+  import { focusOnMount, focusTrap, floatingDropdown } from '../lib/actions'
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
-  import type { Card, Block, BlockMeta, CardPin, ChecklistItem, ListItem, MediaItem, SurveyQuestion } from '../lib/types'
+  import type { Card, Block, BlockMeta, CardPin } from '../lib/types'
 
 
   let { cardId, currentCategoryId, currentCategoryName, categoryAcceptedTypes, onClose, onUpdated, onPin, autoEditTitle, initialTab }: {
@@ -103,7 +92,6 @@
   // width — users used to see a jump from 720→880 when switching to the
   // Agent or Runs tabs, which was distracting.
   const MAIN_WIDTH_KEY = 'bruv:mainPanelWidth'
-  const MIN_PANEL = 350
   let mainWidth = $state(Number(localStorage.getItem(MAIN_WIDTH_KEY)) || 880)
   let splitterDragging = $state(false)
 
@@ -365,16 +353,6 @@
     if (next.has(blockId)) next.delete(blockId)
     else next.add(blockId)
     expandedTextBlocks = next
-  }
-
-  // Persist collapsed state in block meta
-  function syncCollapsedToMeta() {
-    if (!card) return
-    for (const block of card.blocks) {
-      const isCollapsed = collapsedBlocks.has(block.id)
-      if (!block.meta) block.meta = {}
-      block.meta.collapsed = isCollapsed || undefined
-    }
   }
 
   // Restore collapsed state from block meta on load
@@ -694,11 +672,6 @@
   function handleTextBlockInput(e: Event, blockId: string) {
     const el = e.target as HTMLTextAreaElement
     checkForMention(el, { type: 'text', blockId })
-  }
-
-  function handleChecklistInputEvent(e: Event, blockId: string) {
-    const el = e.target as HTMLInputElement
-    checkForMention(el, { type: 'checklist', blockId })
   }
 
   function checkForMention(el: HTMLTextAreaElement | HTMLInputElement, target: { type: 'desc' } | { type: 'text'; blockId: string } | { type: 'checklist'; blockId: string }) {
@@ -1094,117 +1067,37 @@
     {#if loading}
       <div class="modal-loading">{t('app.loading')}</div>
     {:else if card}
-      <div class="modal-header">
-        <div class="type-picker-wrap" bind:this={typePickerEl}>
-          <button
-            class="type-badge type-badge-btn"
-            bind:this={typeBadgeBtnEl}
-            style="background: {getCardTypeColor(card.type, cardTypes.list)}; color: {getCardTypeTextColor(card.type)}"
-            onclick={openTypePicker}
-            title={t('tooltip.change_card_type')}
-          >{cardTypes.list.find(t => t.id === card!.type)?.label || card!.type || t('card.type_none')}{#if card!.type}<span class="refresh-type-btn" role="button" tabindex="-1" onclick={(e) => { e.stopPropagation(); refreshType() }} title={t('tooltip.refresh_type')}><ArrowLeftRight size={10} /></span>{/if}<ChevronDown size={10} class="type-chevron" /></button>
-          {#if showTypePicker && typeBadgeBtnEl}
-            {@const filteredTypes = acceptedTypes?.length
-              ? cardTypes.list.filter(ct => acceptedTypes!.includes(ct.id))
-              : cardTypes.list}
-            <div class="type-picker-dropdown" use:floatingDropdown={{ trigger: typeBadgeBtnEl }}>
-              <button
-                class="type-picker-option"
-                class:active={!card.type}
-                onclick={() => selectType('')}
-              >
-                <span class="type-option-badge" style="background: var(--bg-elevated); color: var(--text-muted)">{t('card.type_none')}</span>
-              </button>
-              {#each filteredTypes as ct}
-                <button
-                  class="type-picker-option"
-                  class:active={card.type === ct.id}
-                  onclick={() => selectType(ct.id)}
-                >
-                  <span class="type-option-badge" style="background: {ct.color}">{ct.label}</span>
-                </button>
-              {/each}
-            </div>
-          {/if}
-        </div>
+      <CardHeader
+        {card}
+        cardTypesList={cardTypes.list}
+        {acceptedTypes}
+        bind:editingTitle
+        bind:titleDraft
+        bind:showTypePicker
+        bind:typePickerEl
+        bind:typeBadgeBtnEl
+        onSaveTitle={saveTitle}
+        onTitleKeydown={handleTitleKeydown}
+        onOpenTypePicker={openTypePicker}
+        onSelectType={selectType}
+        onRefreshType={refreshType}
+      />
 
-        {#if editingTitle}
-          <input
-            class="title-input"
-            use:focusOnMount={true}
-            bind:value={titleDraft}
-            onkeydown={handleTitleKeydown}
-            onblur={saveTitle}
-          />
-        {:else}
-          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-        <h2 class="modal-title" tabindex="0" onclick={() => { editingTitle = true }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editingTitle = true } }} title={t('tooltip.edit_title')}>
-            {@html renderInline(card.title)}
-          </h2>
-        {/if}
-
-      </div>
-
-      <div class="modal-subheader">
-        {#if effectiveCategoryId}
-          <!-- Current-category toggle -->
-          <button
-            class="pin-toggle"
-            class:pinned={isPinnedHere}
-            onclick={toggleCurrentPin}
-            disabled={pinActionLoading}
-            title={isPinnedHere ? `${t('tooltip.unpin')} "${effectiveCategoryName}"` : `${t('card.pin_to')} "${effectiveCategoryName}"`}
-          >
-            {#if isPinnedHere}
-              <MapPin size={11} />
-            {:else}
-              <MapPinOff size={11} />
-            {/if}
-            <span class="pin-toggle-name">{effectiveCategoryName}</span>
-          </button>
-          {#if currentPin}
-            <button class="btn-pin-action" onclick={() => openMovePicker(currentPin)} disabled={pinActionLoading} title={t('tooltip.move_pin')} aria-label={t('tooltip.move_pin')}><MoveRight size={11} /></button>
-          {/if}
-
-          <!-- Other pins expandable -->
-          <button
-            class="btn-other-pins"
-            class:expanded={showOtherPins}
-            onclick={() => showOtherPins = !showOtherPins}
-            disabled={pinActionLoading}
-          >
-            {t('card.other_pins')} ({otherPins.length}) {showOtherPins ? '▲' : '▼'}
-          </button>
-
-        {:else}
-          <!-- No context category (inbox) — show pins list directly -->
-          {#if pinBreadcrumbs.length === 0}
-            <button class="btn-pin" onclick={openPinPicker} disabled={pinActionLoading}><MapPin size={11} /> {t('card.pin_to')}</button>
-          {:else}
-            {#each pinBreadcrumbs as pin}
-              <div class="location-pin">
-                <button class="location-breadcrumb" onclick={() => navigateToPinnedProject(pin)} title={t('tooltip.go_to_project')}><MapPin size={11} />{pin.breadcrumb}</button>
-                <button class="btn-pin-action btn-unpin" onclick={() => handleUnpin(pin)} disabled={pinActionLoading} title={t('tooltip.unpin')} aria-label={t('tooltip.unpin')}><MapPinOff size={11} /></button>
-              </div>
-            {/each}
-            <button class="btn-pin" onclick={openPinPicker} disabled={pinActionLoading}>{t('card.pin_to_category')}</button>
-          {/if}
-        {/if}
-
-        <!-- Expanded pin editor (other pins panel) -->
-        {#if showOtherPins}
-          <div class="other-pins-panel">
-            {#each otherPins as pin}
-              <div class="location-pin">
-                <button class="location-breadcrumb" onclick={() => navigateToPinnedProject(pin)} title={t('tooltip.go_to_project')}><MapPin size={11} />{pin.breadcrumb}</button>
-                <button class="btn-pin-action btn-unpin" onclick={() => handleUnpin(pin)} disabled={pinActionLoading} title={t('tooltip.unpin')} aria-label={t('tooltip.unpin')}><MapPinOff size={11} /></button>
-              </div>
-            {/each}
-            <button class="btn-pin" onclick={openPinPicker} disabled={pinActionLoading}>{t('card.pin_to_category')}</button>
-          </div>
-        {/if}
-      </div>
+      <PinPanel
+        {pinBreadcrumbs}
+        {currentPin}
+        {isPinnedHere}
+        {otherPins}
+        {effectiveCategoryId}
+        {effectiveCategoryName}
+        {pinActionLoading}
+        bind:showOtherPins
+        onToggleCurrentPin={toggleCurrentPin}
+        onOpenMovePicker={openMovePicker}
+        onOpenPinPicker={openPinPicker}
+        onUnpin={handleUnpin}
+        onNavigateToPinnedProject={navigateToPinnedProject}
+      />
 
       <!-- Tab bar: Details / Agent -->
       <div class="card-tab-bar">
@@ -1265,30 +1158,15 @@
           </div>
         </div>
 
-        <!-- Description (standard field, always present) -->
-        <section class="section">
-          <h3 class="section-title">{t('card.description')}</h3>
-          {#if editingDescription}
-            <textarea
-              class="desc-textarea"
-              use:focusOnMount
-              bind:this={descTextareaEl}
-              bind:value={descriptionDraft}
-              onkeydown={handleDescKeydown}
-              oninput={handleDescInput}
-              onblur={handleDescBlur}
-              rows="4"
-            ></textarea>
-          {:else}
-            <div class="desc-display" role="button" tabindex="0" onclick={(e) => { if ((e.target as HTMLElement).closest('a')) return; editingDescription = true }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editingDescription = true } }} title={t('tooltip.edit_description')}>
-              {#if card.fields?.description}
-                <div class="markdown-content">{@html renderMarkdown(card.fields.description)}</div>
-              {:else}
-                <p class="placeholder">{t('card.description_placeholder')}</p>
-              {/if}
-            </div>
-          {/if}
-        </section>
+        <DescriptionSection
+          {card}
+          bind:editingDescription
+          bind:descriptionDraft
+          bind:descTextareaEl
+          onKeydown={handleDescKeydown}
+          onInput={handleDescInput}
+          onBlur={handleDescBlur}
+        />
 
         <!-- Block toolbar: divider line with expand/collapse when multiple blocks -->
         <div class="block-toolbar-divider">
@@ -1314,339 +1192,41 @@
                 <div class="block-drop-indicator" class:copy-mode={blockCopyMode}></div>
               {/if}
 
-              <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-              <div
-                class="block-wrapper"
-                class:block-collapsed={collapsedBlocks.has(block.id)}
-                class:block-dragging={draggingBlockId === block.id}
-                ondragover={(e) => handleBlockDragOver(e, block, blockIdx)}
-                onkeydown={(e) => handleBlockKeydown(e, blockIdx)}
-                data-block-id={block.id}
-              >
-                <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-                <div
-                  class="block-drag-handle"
-                  role="presentation"
-                  tabindex={-1}
-                  draggable={true}
-                  ondragstart={(e) => handleBlockDragStart(e, block)}
-                  ondragend={handleBlockDragEnd}
-                  title={t('tooltip.drag_block')}
-                ><GripVertical size={14} /></div>
-
-                <section class="section block-content">
-                  <!-- Editable block label with collapse toggle -->
-                  {#if editingBlockLabelId === block.id}
-                    <input
-                      class="block-label-input"
-                      use:focusOnMount={true}
-                      bind:value={blockLabelDraft}
-                      use:inlineEdit={{ onCommit: () => renameBlockLabel(block.id), onCancel: () => { editingBlockLabelId = null } }}
-                    />
-                  {:else}
-                    <div class="section-title block-label-row action-reveal-parent">
-                      {#if block.type !== 'divider'}
-                        <button class="block-collapse-btn" onclick={() => toggleBlockCollapse(block.id)} title={collapsedBlocks.has(block.id) ? t('tooltip.expand_block') : t('tooltip.collapse_block')}>
-                          {#if collapsedBlocks.has(block.id)}<ChevronRight size={14} />{:else}<ChevronDown size={14} />{/if}
-                        </button>
-                      {/if}
-                      <!-- svelte-ignore a11y_no_static_element_interactions -->
-                      <span class="block-label-text" tabindex={0} role="button" onclick={() => { editingBlockLabelId = block.id; blockLabelDraft = block.label || '' }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editingBlockLabelId = block.id; blockLabelDraft = block.label || '' } }}>{block.label || block.key || block.type}</span>
-                      {#if block.type === 'checklist'}
-                        {@const items = (Array.isArray(block.value) ? block.value : []) as ChecklistItem[]}
-                        {#if items.length > 0}
-                          <span class="checklist-progress">{items.filter(c => c.done).length}/{items.length}</span>
-                        {/if}
-                      {:else if block.type === 'list'}
-                        {@const items = Array.isArray(block.value) ? block.value : []}
-                        {#if items.length > 0}
-                          <span class="checklist-progress">{items.length}</span>
-                        {/if}
-                      {:else if block.type === 'media'}
-                        {@const items = Array.isArray(block.value) ? block.value : []}
-                        {#if items.length > 0}
-                          <span class="checklist-progress">{items.length}</span>
-                        {/if}
-                      {/if}
-                      <span class="block-actions">
-                        {#if block.type === 'select' || block.type === 'radio' || block.type === 'checkbox_group'}
-                          <button class="block-action-btn action-reveal action-reveal--edit" onclick={(e) => { e.stopPropagation(); openOptionsEditor(block) }} title={t('block.edit_options')}><ListTree size={11} /></button>
-                        {/if}
-                        {#if block.type !== 'divider' && !isBlockEmpty(block)}
-                          <button class="block-action-btn action-reveal" onclick={(e) => { e.stopPropagation(); clearBlockValue(block) }} title={t('tooltip.clear_block')}><X size={11} /></button>
-                        {/if}
-                        <button class="block-action-btn action-reveal action-reveal--edit" onclick={(e) => { e.stopPropagation(); editingBlockLabelId = block.id; blockLabelDraft = block.label || '' }} title={t('tooltip.rename_block')}><Pencil size={11} /></button>
-                        <button class="block-action-btn action-reveal action-reveal--danger" onclick={(e) => { e.stopPropagation(); deleteBlock(block.id) }} title={t('tooltip.delete_block')}><Trash2 size={11} /></button>
-                      </span>
-                    </div>
-                  {/if}
-
-                  <!-- Block body (hidden when collapsed, except divider) -->
-                  {#if !collapsedBlocks.has(block.id) || block.type === 'divider'}
-                    <div class="block-body">
-                      {#if block.type === 'text'}
-                        {#if editingBlockId === block.id}
-                          <textarea
-                            class="desc-textarea"
-                            use:focusOnMount
-                            bind:this={blockTextareaEls[block.id]}
-                            bind:value={blockDrafts[block.id]}
-                            onkeydown={(e) => handleTextBlockKeydown(e, block.id)}
-                            oninput={(e) => handleTextBlockInput(e, block.id)}
-                            onblur={() => { if (!mentionVisible) saveTextBlock(block.id) }}
-                            rows="4"
-                          ></textarea>
-                        {:else}
-                          <div class="text-scroll-wrap">
-                            <div
-                              class="desc-display"
-                              class:text-scroll={!expandedTextBlocks.has(block.id)}
-                              bind:this={textBlockEls[block.id]}
-                              role="button"
-                              tabindex={0}
-                              onclick={(e) => { if ((e.target as HTMLElement).closest('a') || (e.target as HTMLElement).closest('.text-expand-btn')) return; editingBlockId = block.id }}
-                              onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editingBlockId = block.id } }}
-                              title={t('tooltip.edit_description')}
-                            >
-                              {#if block.value}
-                                <div class="markdown-content">{@html renderMarkdown(String(block.value))}</div>
-                              {:else}
-                                <p class="placeholder">{t('block.text_placeholder')}</p>
-                              {/if}
-                            </div>
-                            {#if textBlockOverflows.has(block.id) && !expandedTextBlocks.has(block.id)}
-                              <div class="text-scroll-gradient"></div>
-                            {/if}
-                          </div>
-                          {#if textBlockOverflows.has(block.id) && !expandedTextBlocks.has(block.id)}
-                            <button class="text-expand-btn" onclick={() => toggleTextExpand(block.id)}>
-                              <Maximize2 size={11} /> {t('block.scroll_expand')}
-                            </button>
-                          {/if}
-                          {#if expandedTextBlocks.has(block.id)}
-                            <button class="text-expand-btn" onclick={() => toggleTextExpand(block.id)}>
-                              {t('block.collapse')}
-                            </button>
-                          {/if}
-                        {/if}
-
-                      {:else if block.type === 'checklist'}
-                        <EditableChecklist
-                          items={Array.isArray(block.value) ? block.value as ChecklistItem[] : []}
-                          onUpdate={async (updated) => {
-                            if (!card) return
-                            const blocks = card.blocks.map((b: Block) => b.id === block.id ? { ...b, value: updated } : b)
-                            try {
-                              card = await tracked(UpdateCardBlocks(cardId, blocks)) as Card
-                              onUpdated?.()
-                            } catch (e) { showToast(t('error.save_failed'), 'error') }
-                          }}
-                          onPromote={async (text) => {
-                            try {
-                              const newCard = await CreateCard(card?.type || 'task', text)
-                              if (newCard && currentCategoryId) {
-                                await PinCard(newCard.id, currentCategoryId, currentCategoryId)
-                              }
-                              showToast(t('card.promoted_to_card', { title: text }), 'success')
-                              onUpdated?.()
-                            } catch (e) { showToast(t('error.save_failed'), 'error') }
-                          }}
-                        />
-
-                      {:else if block.type === 'list'}
-                        <EditableList
-                          items={Array.isArray(block.value) ? block.value as ListItem[] : []}
-                          onUpdate={async (updated) => {
-                            if (!card) return
-                            const blocks = card.blocks.map((b: Block) => b.id === block.id ? { ...b, value: updated } : b)
-                            try {
-                              card = await tracked(UpdateCardBlocks(cardId, blocks)) as Card
-                              onUpdated?.()
-                            } catch (e) { showToast(t('error.save_failed'), 'error') }
-                          }}
-                        />
-
-                      {:else if block.type === 'media'}
-                        <MediaBlock
-                          items={Array.isArray(block.value) ? block.value as MediaItem[] : []}
-                          onUpdate={async (updated) => {
-                            if (!card) return
-                            const blocks = card.blocks.map((b: Block) => b.id === block.id ? { ...b, value: updated } : b)
-                            try {
-                              card = await tracked(UpdateCardBlocks(cardId, blocks)) as Card
-                              onUpdated?.()
-                            } catch (e) { showToast(t('error.save_failed'), 'error') }
-                          }}
-                        />
-
-                      {:else if block.type === 'url'}
-                        {#if editingBlockId === block.id}
-                          <input
-                            class="block-url-input"
-                            type="url"
-                            use:focusOnMount
-                            bind:value={blockDrafts[block.id]}
-                            placeholder={t('block.url_placeholder')}
-                            onkeydown={(e) => {
-                              if (e.key === 'Escape') {
-                                e.stopPropagation()
-                                blockDrafts[block.id] = String(block.value ?? '')
-                                editingBlockId = null
-                              } else if (e.key === 'Enter') {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                saveUrlBlock(block.id)
-                              }
-                            }}
-                            onblur={() => saveUrlBlock(block.id)}
-                          />
-                        {:else if block.value}
-                          <div class="block-url-row">
-                            <a href={String(block.value)} target="_blank" rel="noopener" class="block-link">{String(block.value)}</a>
-                            <button class="block-action-btn action-reveal action-reveal--edit" onclick={(e) => { e.stopPropagation(); editingBlockId = block.id; blockDrafts[block.id] = String(block.value ?? '') }} title={t('tooltip.edit_url')}><Pencil size={11} /></button>
-                          </div>
-                        {:else}
-                          <!-- svelte-ignore a11y_no_static_element_interactions -->
-                          <span class="block-url-empty" role="button" tabindex={0}
-                            onclick={() => { editingBlockId = block.id; blockDrafts[block.id] = '' }}
-                            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editingBlockId = block.id; blockDrafts[block.id] = '' } }}
-                          >{t('block.url_placeholder')}</span>
-                        {/if}
-
-                      {:else if block.type === 'divider'}
-                        <hr class="block-divider" />
-
-                      {:else if block.type === 'select'}
-                        <SelectBlock
-                          value={block.value as string | string[]}
-                          meta={block.meta || { options: [] }}
-                          onUpdate={(val, newMeta) => {
-                            if (!card) return
-                            block.value = val
-                            if (newMeta) block.meta = { ...block.meta, ...newMeta }
-                            tracked(UpdateCardBlocks(cardId, card.blocks))
-                            onUpdated?.()
-                          }}
-                        />
-                      {:else if block.type === 'number'}
-                        <NumberBlock
-                          value={block.value as number | null}
-                          meta={block.meta || {}}
-                          onUpdate={(val) => {
-                            if (!card) return
-                            block.value = val
-                            tracked(UpdateCardBlocks(cardId, card.blocks))
-                            onUpdated?.()
-                          }}
-                        />
-                      {:else if block.type === 'date'}
-                        <DateBlock
-                          value={block.value as string | null}
-                          meta={block.meta || {}}
-                          onUpdate={(val) => {
-                            if (!card) return
-                            block.value = val
-                            tracked(UpdateCardBlocks(cardId, card.blocks))
-                            onUpdated?.()
-                          }}
-                        />
-                      {:else if block.type === 'rating'}
-                        <RatingBlock
-                          value={(block.value as number) || 0}
-                          meta={block.meta || {}}
-                          onUpdate={(val) => {
-                            if (!card) return
-                            block.value = val
-                            tracked(UpdateCardBlocks(cardId, card.blocks))
-                            onUpdated?.()
-                          }}
-                        />
-
-                      {:else if block.type === 'checkbox'}
-                        <CheckboxBlock
-                          value={!!block.value}
-                          onUpdate={(val) => {
-                            if (!card) return
-                            block.value = val
-                            tracked(UpdateCardBlocks(cardId, card.blocks))
-                            onUpdated?.()
-                          }}
-                        />
-                      {:else if block.type === 'radio'}
-                        <RadioBlock
-                          value={(block.value as string) || ''}
-                          meta={block.meta || { options: [] }}
-                          onUpdate={(val) => {
-                            if (!card) return
-                            block.value = val
-                            tracked(UpdateCardBlocks(cardId, card.blocks))
-                            onUpdated?.()
-                          }}
-                        />
-                      {:else if block.type === 'checkbox_group'}
-                        <CheckboxGroupBlock
-                          value={(block.value as string[]) || []}
-                          meta={block.meta || { options: [] }}
-                          onUpdate={(val) => {
-                            if (!card) return
-                            block.value = val
-                            tracked(UpdateCardBlocks(cardId, card.blocks))
-                            onUpdated?.()
-                          }}
-                        />
-                      {:else if block.type === 'image'}
-                        <ImageBlock
-                          value={block.value as string | { url: string; caption?: string } | null}
-                          onUpdate={(val) => {
-                            if (!card) return
-                            block.value = val
-                            tracked(UpdateCardBlocks(cardId, card.blocks))
-                            onUpdated?.()
-                          }}
-                        />
-                      {:else if block.type === 'progress'}
-                        <ProgressBlock
-                          value={(block.value as number) || 0}
-                          onUpdate={(val) => {
-                            if (!card) return
-                            block.value = val
-                            tracked(UpdateCardBlocks(cardId, card.blocks))
-                            onUpdated?.()
-                          }}
-                        />
-                      {:else if block.type === 'alarm'}
-                        <AlarmBlock
-                          value={block.value as string | null}
-                          meta={block.meta || {}}
-                          onUpdate={(val, newMeta) => {
-                            if (!card) return
-                            block.value = val
-                            if (newMeta) block.meta = { ...block.meta, ...newMeta }
-                            tracked(UpdateCardBlocks(cardId, card.blocks))
-                            onUpdated?.()
-                          }}
-                        />
-                      {:else if block.type === 'survey'}
-                        <SurveyBlock
-                          value={(block.value as SurveyQuestion[]) || []}
-                          onUpdate={(val) => {
-                            if (!card) return
-                            block.value = val
-                            tracked(UpdateCardBlocks(cardId, card.blocks))
-                            onUpdated?.()
-                          }}
-                        />
-
-                      {:else}
-                        <!-- Legacy/unknown block type: show value as read-only text -->
-                        <span class="block-value">{block.value ?? ''}</span>
-                      {/if}
-                    </div>
-                  {/if}
-                </section>
-              </div>
+              <BlockItem
+                {block}
+                {blockIdx}
+                {card}
+                {cardId}
+                {currentCategoryId}
+                bind:editingBlockId
+                bind:editingBlockLabelId
+                bind:blockLabelDraft
+                bind:blockDrafts
+                {collapsedBlocks}
+                {expandedTextBlocks}
+                {draggingBlockId}
+                {mentionVisible}
+                {textBlockOverflows}
+                bind:blockTextareaEls
+                bind:textBlockEls
+                {tracked}
+                {onUpdated}
+                onDragStart={handleBlockDragStart}
+                onDragEnd={handleBlockDragEnd}
+                onDragOver={handleBlockDragOver}
+                onKeydown={handleBlockKeydown}
+                onToggleCollapse={toggleBlockCollapse}
+                onRenameLabel={renameBlockLabel}
+                onOpenOptionsEditor={openOptionsEditor}
+                onClearValue={clearBlockValue}
+                onDelete={deleteBlock}
+                onTextKeydown={handleTextBlockKeydown}
+                onTextInput={handleTextBlockInput}
+                onSaveText={saveTextBlock}
+                onSaveUrl={saveUrlBlock}
+                onToggleTextExpand={toggleTextExpand}
+                {isBlockEmpty}
+              />
             {/if}
           {/each}
 
@@ -1816,14 +1396,6 @@
     animation: fade-in var(--duration-moderate) var(--ease-out);
   }
 
-  .modal-header {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 1rem 1.25rem;
-    border-bottom: 1px solid var(--border-muted);
-  }
-
   .card-tab-bar {
     display: flex;
     gap: 0;
@@ -1857,268 +1429,6 @@
     background: var(--accent);
     margin-left: 0.3rem;
     vertical-align: middle;
-  }
-
-  .modal-subheader {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.35rem 0.5rem;
-    padding: 0.35rem 1.25rem;
-    border-bottom: 1px solid var(--border-muted);
-    background: var(--bg-elevated);
-    font-size: 0.73rem;
-    min-height: 2rem;
-    position: relative;
-  }
-
-  /* Current-category pin toggle */
-  .pin-toggle {
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-    padding: 0.2rem 0.55rem;
-    border-radius: 5px;
-    border: 1px solid var(--border-muted);
-    background: var(--bg-surface);
-    color: var(--text-muted);
-    font-size: 0.73rem;
-    cursor: pointer;
-    transition: background var(--duration-fast), border-color var(--duration-fast), color var(--duration-fast);
-  }
-  .pin-toggle.pinned {
-    border-color: var(--accent);
-    color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 10%, transparent);
-  }
-  .pin-toggle:hover:not(:disabled) {
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-  .pin-toggle.pinned:hover:not(:disabled) {
-    border-color: #eb5a46;
-    color: #eb5a46;
-    background: color-mix(in srgb, #eb5a46 8%, transparent);
-  }
-  .pin-toggle:disabled { opacity: 0.5; cursor: default; }
-
-  .pin-toggle-name {
-    max-width: 180px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  /* "Other pins (N)" button */
-  .btn-other-pins {
-    font-size: 0.7rem;
-    padding: 0.15rem 0.45rem;
-    border-radius: 4px;
-    border: 1px solid transparent;
-    background: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    margin-left: auto;
-  }
-  .btn-other-pins:hover { color: var(--text-body); background: var(--bg-surface); }
-  .btn-other-pins.expanded { color: var(--text-body); }
-  .btn-other-pins:disabled { opacity: 0.5; cursor: default; }
-
-  /* Inbox / summary label (unused but kept for potential re-enable) */
-  /* svelte-ignore css_unused_selector */
-  :global(.location-inbox) {
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-    color: var(--text-muted);
-    font-style: italic;
-  }
-
-  /* Expanded other-pins panel — full width below the toggle row */
-  .other-pins-panel {
-    width: 100%;
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-    padding: 0.35rem 0 0.1rem;
-    border-top: 1px solid var(--border-muted);
-    margin-top: 0.1rem;
-  }
-
-  .location-pin {
-    display: flex;
-    align-items: center;
-    gap: 0.2rem;
-    background: var(--bg-surface);
-    border: 1px solid var(--border-muted);
-    border-radius: 4px;
-    padding: 0.1rem 0.2rem 0.1rem 0.45rem;
-    max-width: 100%;
-  }
-
-  .location-breadcrumb {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    color: var(--text-body);
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    background: none;
-    border: none;
-    padding: 0;
-    font-size: inherit;
-    font-family: inherit;
-    cursor: pointer;
-    text-align: left;
-  }
-  .location-breadcrumb:hover {
-    color: var(--accent);
-    text-decoration: underline;
-  }
-
-  .btn-pin {
-    font-size: 0.7rem;
-    padding: 0.15rem 0.45rem;
-    border-radius: 4px;
-    border: 1px solid var(--border);
-    background: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    line-height: 1.4;
-    align-self: flex-start;
-  }
-  .btn-pin:hover { border-color: var(--accent); color: var(--accent); }
-  .btn-pin:disabled { opacity: 0.5; cursor: default; }
-
-  .btn-pin-action {
-    background: none;
-    border: none;
-    padding: 0.15rem 0.2rem;
-    color: var(--text-muted);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    flex-shrink: 0;
-    line-height: 1;
-  }
-  .btn-pin-action:hover { color: var(--text-primary); }
-  .btn-unpin:hover { color: #eb5a46; }
-
-  .type-picker-wrap {
-    position: relative;
-    flex-shrink: 0;
-  }
-
-  .type-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    font-size: 0.7rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    padding: 0.2rem 0.55rem;
-    border-radius: 3px;
-    color: #fff;
-    flex-shrink: 0;
-  }
-
-  .type-badge-btn {
-    border: 1px solid transparent;
-    cursor: pointer;
-    transition: opacity var(--duration-normal), border-color var(--duration-normal);
-  }
-  .type-badge-btn:hover {
-    opacity: 0.85;
-    border-color: var(--border);
-  }
-
-  .refresh-type-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.1rem 0.2rem;
-    margin: -0.1rem 0;
-    border: none;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.75);
-    cursor: pointer;
-    border-radius: 2px;
-    transition: color var(--duration-normal), background var(--duration-normal);
-    flex-shrink: 0;
-  }
-  .refresh-type-btn:hover {
-    color: #fff;
-    background: rgba(255, 255, 255, 0.2);
-  }
-  :global(.type-chevron) {
-    color: rgba(255, 255, 255, 0.5);
-    margin-left: -0.1rem;
-    flex-shrink: 0;
-  }
-
-  .type-picker-dropdown {
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    box-shadow: 0 4px 16px var(--shadow-lg);
-    min-width: 120px;
-    overflow: hidden;
-  }
-
-  .type-picker-option {
-    display: flex;
-    align-items: center;
-    width: 100%;
-    padding: 0.4rem 0.6rem;
-    background: none;
-    border: none;
-    cursor: pointer;
-    transition: background var(--duration-fast);
-  }
-  .type-picker-option:hover, .type-picker-option.active {
-    background: var(--bg-elevated);
-  }
-
-  .type-option-badge {
-    font-size: 0.65rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    padding: 0.15rem 0.5rem;
-    border-radius: 3px;
-    color: #fff;
-    white-space: nowrap;
-  }
-
-  .modal-title {
-    margin: 0;
-    margin-right: 56px;
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: var(--text-primary);
-    flex: 1;
-    cursor: text;
-    line-height: 1.3;
-  }
-  .modal-title:hover {
-    color: var(--accent-light);
-  }
-
-  .title-input {
-    flex: 1;
-    font-size: 1.1rem;
-    font-weight: 600;
-    background: var(--bg-elevated);
-    border: 1px solid var(--accent);
-    border-radius: 4px;
-    color: var(--text-primary);
-    padding: 0.3rem 0.5rem;
-    outline: none;
-    margin-right: 56px;
   }
 
   .modal-actions {
@@ -2172,7 +1482,11 @@
     display: none;
   }
 
-  .section-title {
+  /* Shared description/text-block styles. Marked :global so they
+     apply both to the DescriptionSection component and to text
+     blocks rendered inside BlockItem — both use the same .desc-*
+     class names and should look identical. */
+  :global(.section-title) {
     font-size: 0.8rem;
     font-weight: 600;
     color: var(--text-secondary);
@@ -2184,18 +1498,17 @@
     gap: 0.5rem;
   }
 
-  .desc-display {
+  :global(.desc-display) {
     cursor: text;
     padding: 0.5rem;
     border-radius: 6px;
     transition: background var(--duration-fast);
   }
-  .desc-display:hover { background: var(--bg-elevated); }
-  .desc-display p { margin: 0; color: var(--text-body); font-size: 0.9rem; line-height: 1.5; }
-  .desc-display .placeholder { white-space: pre-wrap; }
-  .desc-display .placeholder { color: var(--text-faint); font-style: italic; }
+  :global(.desc-display:hover) { background: var(--bg-elevated); }
+  :global(.desc-display p) { margin: 0; color: var(--text-body); font-size: 0.9rem; line-height: 1.5; }
+  :global(.desc-display .placeholder) { white-space: pre-wrap; color: var(--text-faint); font-style: italic; }
 
-  .desc-textarea {
+  :global(.desc-textarea) {
     width: 100%;
     padding: 0.5rem;
     border-radius: 6px;
@@ -2208,7 +1521,7 @@
     outline: none;
     box-sizing: border-box;
   }
-  .desc-textarea:focus { border-color: var(--accent); }
+  :global(.desc-textarea:focus) { border-color: var(--accent); }
 
   .date-input {
     padding: 0.4rem 0.6rem;
@@ -2300,12 +1613,6 @@
     flex-shrink: 1;
   }
 
-  .checklist-progress {
-    font-size: 0.7rem;
-    color: var(--text-muted);
-    font-weight: 400;
-  }
-
   .card-attachments-pinned {
     flex-shrink: 0;
     padding: 0 1.25rem;
@@ -2341,48 +1648,6 @@
     cursor: pointer;
   }
   .btn-delete:hover { color: var(--danger-light); background: rgba(248, 113, 113, 0.1); }
-
-  .block-value {
-    font-size: 0.85rem;
-    color: var(--text-body);
-    padding: 0.25rem 0;
-    display: inline-block;
-  }
-
-  .block-link {
-    font-size: 0.85rem;
-    color: var(--accent-light);
-    text-decoration: none;
-    word-break: break-all;
-  }
-  .block-link:hover { text-decoration: underline; }
-
-  .block-url-row {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-  }
-
-  .block-url-empty {
-    font-size: 0.85rem;
-    color: var(--text-faint);
-    cursor: text;
-    padding: 0.25rem 0;
-    display: inline-block;
-  }
-  .block-url-empty:hover { color: var(--text-muted); }
-
-  .block-url-input {
-    width: 100%;
-    background: var(--bg-elevated);
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 0.35rem 0.5rem;
-    font-size: 0.85rem;
-    outline: none;
-  }
-  .block-url-input:focus { border-color: var(--accent); }
 
   .block-toolbar-divider {
     position: relative;
@@ -2477,184 +1742,10 @@
   }
   :global(.add-block-picker .block-picker-item:hover) { background: var(--bg-elevated); color: var(--text-primary); }
 
-  .block-label-row {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin: 0 0 0.5rem;
-  }
-  .block-label-text {
-    cursor: text;
-    padding: 0.1rem 0.2rem;
-    border-radius: 3px;
-  }
-  .block-label-text:hover {
-    color: var(--accent-light);
-    background: var(--bg-elevated);
-  }
-
-  .block-actions {
-    margin-left: auto;
-    display: flex;
-    gap: 0.15rem;
-    opacity: 0;
-    transition: opacity var(--duration-fast);
-  }
-  .block-wrapper:hover .block-actions {
-    opacity: 1;
-  }
-
-  .block-action-btn {
-    padding: 0.15rem;
-    line-height: 1;
-    display: flex;
-    align-items: center;
-  }
-
-  .block-label-input {
-    font-size: 0.8rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-secondary);
-    background: var(--bg-elevated);
-    border: 1px solid var(--accent);
-    border-radius: 4px;
-    padding: 0.15rem 0.4rem;
-    outline: none;
-    margin-bottom: 0.5rem;
-  }
-
   .blocks-list {
     display: flex;
     flex-direction: column;
     gap: var(--block-gap, 0.75rem);
-  }
-
-  .block-wrapper {
-    display: flex;
-    align-items: flex-start;
-    gap: 0;
-    position: relative;
-    transition: opacity var(--duration-normal);
-    border-radius: 6px;
-  }
-  .block-wrapper:focus-within {
-    outline: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
-    outline-offset: 2px;
-  }
-
-  /* Collapsed blocks only show the header (rule handled by .block-collapsed visibility below) */
-
-  .block-wrapper.block-dragging {
-    opacity: 0.35;
-  }
-
-  /* CSS-only visual collapse during drag — hides block bodies without removing DOM nodes */
-  .blocks-list.drag-visual-collapse .block-wrapper:not(.block-dragging) .block-body {
-    max-height: 0;
-    overflow: hidden;
-    opacity: 0;
-    margin: 0;
-    padding: 0;
-    transition: max-height var(--duration-normal) ease, opacity var(--duration-fast) ease;
-  }
-
-  .block-drag-handle {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    align-self: stretch;
-    color: transparent;
-    cursor: grab;
-    flex-shrink: 0;
-    border-radius: 4px;
-    transition: color var(--duration-fast), background var(--duration-fast);
-    margin-right: 2px;
-  }
-  .block-wrapper:hover .block-drag-handle {
-    color: var(--text-muted);
-  }
-  .block-drag-handle:hover {
-    color: var(--text-secondary) !important;
-    background: var(--bg-elevated);
-  }
-  .block-drag-handle:active {
-    cursor: grabbing;
-  }
-
-  .block-content {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .block-collapse-btn {
-    background: none;
-    border: none;
-    cursor: pointer;
-    color: var(--text-muted);
-    padding: 0.25rem;
-    line-height: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    border-radius: 4px;
-    margin: -0.25rem 0;
-    transition: background var(--duration-fast), color var(--duration-fast);
-  }
-  .block-collapse-btn:hover {
-    color: var(--text-primary);
-    background: var(--bg-elevated);
-  }
-
-  .block-body {
-    padding-left: 22px; /* indent content past the drag-handle column */
-  }
-
-  .text-scroll-wrap {
-    position: relative;
-  }
-
-  .desc-display.text-scroll {
-    max-height: 200px;
-    overflow-y: auto;
-  }
-
-  .text-scroll-gradient {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 32px;
-    background: linear-gradient(transparent, var(--bg-surface));
-    pointer-events: none;
-    z-index: 1;
-  }
-
-  .text-expand-btn {
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-    background: none;
-    border: none;
-    cursor: pointer;
-    color: var(--text-muted);
-    font-size: 0.7rem;
-    padding: 0.2rem 0;
-  }
-  .text-expand-btn:hover { color: var(--accent); }
-
-  .block-divider {
-    border: none;
-    border-top: 1px solid var(--border-muted);
-    margin: 0.25rem 0;
   }
 
   .block-drop-indicator {

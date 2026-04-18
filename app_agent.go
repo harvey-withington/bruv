@@ -310,37 +310,15 @@ func (a *App) executeAgent(ctx context.Context, cardID string) error {
 			finalStatus = model.AgentStatusFailed
 		}
 
-		// Retry logic for failed runs
+		// Retry logic for failed runs — the retry-delay math (linear
+		// backoff for generic failures, Retry-After-hint-aware +
+		// exponential for rate limits) is extracted into
+		// internal/agent/retry.go so the policy is covered by unit
+		// tests rather than trusting inline logic.
 		if run.Status == "failure" && af.Config.MaxRetries > 0 {
 			af.Config.RetryCount++
 			if af.Config.RetryCount <= af.Config.MaxRetries {
-				backoff := af.Config.RetryBackoffMins
-				if backoff == 0 {
-					backoff = 5
-				}
-				// Default: linear backoff based on retry count
-				retryDelay := time.Duration(backoff*af.Config.RetryCount) * time.Minute
-
-				// Rate-limit errors: ignore the user's backoff and honor
-				// the provider's rate-limit window. The error string is
-				// produced by llm.RateLimitError.Error() and looks like:
-				//   "openai rate limit (HTTP 429, retry after 2m0s): ..."
-				// We parse the "retry after X" hint if present, otherwise
-				// fall back to a 15-minute floor with exponential growth.
-				if isRateLimitErrorString(run.Error) {
-					hint := parseRetryAfterFromError(run.Error)
-					if hint <= 0 {
-						// No server hint — exponential backoff with 15min floor,
-						// doubling each retry up to 2 hours.
-						hint = 15 * time.Minute
-						for i := 1; i < af.Config.RetryCount && hint < 2*time.Hour; i++ {
-							hint *= 2
-						}
-					}
-					// Add 10% jitter so retries don't all align
-					retryDelay = hint + hint/10
-				}
-
+				retryDelay := agent.RetryDelay(run.Error, af.Config.RetryBackoffMins, af.Config.RetryCount)
 				retryAt := finishedAt.Add(retryDelay)
 				af.Config.NextRunAt = &retryAt
 				finalStatus = model.AgentStatusIdle // allow re-scheduling
@@ -374,13 +352,14 @@ func (a *App) executeAgent(ctx context.Context, cardID string) error {
 			}
 		}
 
-		// Track estimated cost
+		// Track estimated cost + budget enforcement. BudgetExceeded
+		// encapsulates the "0 means unlimited" sentinel, kept as a
+		// named helper so the sentinel contract is test-covered.
 		if run.TokensUsed > 0 {
 			runCost := config.EstimateCost(run.ModelUsed, run.TokensUsed)
 			af.Config.CostSpentUSD += runCost
 
-			// Budget enforcement
-			if af.Config.CostBudgetUSD > 0 && af.Config.CostSpentUSD >= af.Config.CostBudgetUSD {
+			if agent.BudgetExceeded(af.Config.CostSpentUSD, af.Config.CostBudgetUSD) {
 				af.Config.Enabled = false
 				af.Config.Status = model.AgentStatusDisabled
 				cardTitle := ""
@@ -411,16 +390,12 @@ func (a *App) executeAgent(ctx context.Context, cardID string) error {
 		}
 		wailsRuntime.EventsEmit(a.ctx, eventName, eventData)
 
-		// Dispatch notifications based on agent config
-		shouldNotify := false
-		for _, trigger := range af.Config.NotifyOn {
-			if (trigger == "success" && run.Status == "success") ||
-				(trigger == "failure" && run.Status == "failure") {
-				shouldNotify = true
-				break
-			}
-		}
-		if shouldNotify && af.Config.NotifyChannel != "" {
+		// Dispatch notifications based on agent config. The
+		// status-vs-triggers decision is extracted to
+		// agent.ShouldNotifyForStatus so it's unit-tested against
+		// every combination (success/failure/cancelled + each
+		// trigger shape) rather than re-derived inline.
+		if agent.ShouldNotifyForStatus(run.Status, af.Config.NotifyOn) && af.Config.NotifyChannel != "" {
 			cardTitle := ""
 			if c, err := a.repo.GetCard(cardID); err == nil {
 				cardTitle = c.Title
@@ -1605,39 +1580,8 @@ func (a *App) ForceQuit() {
 	wailsRuntime.Quit(a.ctx)
 }
 
-// isRateLimitErrorString reports whether a run error text looks like a
-// provider rate-limit response. Matches the format produced by
-// llm.RateLimitError.Error() as well as raw HTTP 429 mentions.
-func isRateLimitErrorString(s string) bool {
-	if s == "" {
-		return false
-	}
-	lower := strings.ToLower(s)
-	return strings.Contains(lower, "rate limit") ||
-		strings.Contains(lower, "http 429") ||
-		strings.Contains(lower, "(429)") ||
-		strings.Contains(lower, "too many requests")
-}
-
-// parseRetryAfterFromError extracts the "retry after X" duration that
-// llm.RateLimitError.Error() embeds when the provider sent a Retry-After
-// header. Returns 0 if no hint is found or parsing fails.
-func parseRetryAfterFromError(s string) time.Duration {
-	const marker = "retry after "
-	lower := strings.ToLower(s)
-	idx := strings.Index(lower, marker)
-	if idx == -1 {
-		return 0
-	}
-	tail := s[idx+len(marker):]
-	// Find the end of the duration token (first ")" or ",")
-	end := strings.IndexAny(tail, "),")
-	if end == -1 {
-		return 0
-	}
-	dur, err := time.ParseDuration(strings.TrimSpace(tail[:end]))
-	if err != nil {
-		return 0
-	}
-	return dur
-}
+// Rate-limit classification + Retry-After parsing moved to
+// internal/agent/retry.go (see agent.IsRateLimitError,
+// agent.ParseRetryAfter, agent.RetryDelay) so the policy is
+// unit-testable and shared with any future caller that needs to
+// reason about rate-limit behaviour.

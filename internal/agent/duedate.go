@@ -4,7 +4,7 @@ import (
 	"bruv/internal/logging"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -256,7 +256,7 @@ func (s *DueDateScanner) saveNotified() {
 	data, err := json.MarshalIndent(s.notified, "", "  ")
 	s.mu.Unlock()
 	if err != nil {
-		log.Printf("duedate: marshal notified error: %v\n", err)
+		slog.Warn("duedate marshal notified failed", "err", err)
 		return
 	}
 	_ = os.WriteFile(s.notifiedPath, data, 0o644)

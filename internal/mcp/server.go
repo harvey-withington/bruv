@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"runtime"
@@ -272,8 +272,12 @@ func (s *ServerProcess) spawnAndHandshake(ctx context.Context) error {
 	s.startedAt = time.Now()
 	s.mu.Unlock()
 
-	log.Printf("mcp[%s]: ready, %d tools (protocol %s, server %s %s)",
-		s.spec.Name, len(tools), s.protoVer, s.serverInfo.Name, s.serverInfo.Version)
+	slog.Info("mcp server ready",
+		"server", s.spec.Name,
+		"tools", len(tools),
+		"protocol", s.protoVer,
+		"server_name", s.serverInfo.Name,
+		"server_version", s.serverInfo.Version)
 	return nil
 }
 
@@ -355,9 +359,13 @@ func (s *ServerProcess) supervise() {
 	s.mu.Unlock()
 
 	if waitErr != nil {
-		log.Printf("mcp[%s]: subprocess exited unexpectedly: %v (fail %d/%d)", name, waitErr, failCount, retries)
+		slog.Warn("mcp subprocess exited unexpectedly",
+			"server", name, "err", waitErr,
+			"fail", failCount, "retries", retries)
 	} else {
-		log.Printf("mcp[%s]: subprocess exited cleanly but we didn't ask it to (fail %d/%d)", name, failCount, retries)
+		slog.Warn("mcp subprocess exited unprompted",
+			"server", name,
+			"fail", failCount, "retries", retries)
 	}
 
 	if failCount > retries {
@@ -380,7 +388,7 @@ func (s *ServerProcess) supervise() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := s.spawnAndHandshake(ctx); err != nil {
-		log.Printf("mcp[%s]: restart failed: %v", name, err)
+		slog.Warn("mcp restart failed", "server", name, "err", err)
 		s.mu.Lock()
 		s.status = HealthFailed
 		s.lastError = err.Error()

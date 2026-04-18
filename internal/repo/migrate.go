@@ -33,7 +33,7 @@ import (
 	"bruv/internal/model"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -89,7 +89,8 @@ func (r *Repository) MigrateOnOpen(globalCardTypes GlobalCardTypesProvider, move
 				if err := os.MkdirAll(filepath.Dir(r.cardTypesPath()), 0o755); err == nil {
 					if err := os.WriteFile(r.cardTypesPath(), raw, 0o644); err == nil {
 						stats.CardTypesSeeded = true
-						log.Printf("repo migrate: seeded %s from global card_types.json", r.cardTypesPath())
+						slog.Info("repo migrate: seeded card types from global",
+							"path", r.cardTypesPath())
 					}
 				}
 			}
@@ -115,19 +116,22 @@ func (r *Repository) MigrateOnOpen(globalCardTypes GlobalCardTypesProvider, move
 
 				data, err := os.ReadFile(srcPath)
 				if err != nil {
-					log.Printf("repo migrate: read chat %q: %v", srcPath, err)
+					slog.Warn("repo migrate: read chat failed",
+						"path", srcPath, "err", err)
 					stats.ChatFilesFailed++
 					continue
 				}
 				var cf model.ChatFile
 				if err := json.Unmarshal(data, &cf); err != nil {
-					log.Printf("repo migrate: parse chat %q: %v", srcPath, err)
+					slog.Warn("repo migrate: parse chat failed",
+						"path", srcPath, "err", err)
 					stats.ChatFilesFailed++
 					continue
 				}
 
 				if err := moveChat(r.Manifest.ID, chatID, &cf); err != nil {
-					log.Printf("repo migrate: persist chat %q: %v", chatID, err)
+					slog.Warn("repo migrate: persist chat failed",
+						"chat_id", chatID, "err", err)
 					stats.ChatFilesFailed++
 					continue
 				}
@@ -136,7 +140,8 @@ func (r *Repository) MigrateOnOpen(globalCardTypes GlobalCardTypesProvider, move
 				// succeeds. Failures leave the file in place so the
 				// next open can retry.
 				if err := os.Remove(srcPath); err != nil {
-					log.Printf("repo migrate: remove source chat %q: %v", srcPath, err)
+					slog.Warn("repo migrate: remove source chat failed",
+						"path", srcPath, "err", err)
 					// The chat is now in both places — not ideal, but
 					// not lossy either. Count as success.
 				}

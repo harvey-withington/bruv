@@ -10,7 +10,6 @@ import (
 	"bruv/internal/notify"
 	"context"
 	"fmt"
-	"log"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -69,7 +68,9 @@ func (a *App) queryDueAgentsFromDisk() ([]agent.DueAgent, error) {
 			// No active goroutine — check if stuck for >10 min
 			stuckThreshold := 10 * time.Minute
 			if af.Config.RunStartedAt != nil && time.Since(*af.Config.RunStartedAt) > stuckThreshold {
-				log.Printf("agent scheduler: resetting stuck agent %s (running since %s)", cardID, af.Config.RunStartedAt.Format(time.RFC3339))
+				slog.Warn("agent scheduler resetting stuck agent",
+					"card_id", cardID,
+					"running_since", af.Config.RunStartedAt.Format(time.RFC3339))
 				af.Config.Status = model.AgentStatusIdle
 				af.Config.RunStartedAt = nil
 				_ = a.repo.SaveAgentConfig(cardID, af.Config)
@@ -188,7 +189,7 @@ func (a *App) markAlarmBlockFired(cardID, blockID string) {
 	}
 	card, err := a.repo.GetCard(cardID)
 	if err != nil {
-		log.Printf("alarm: failed to load card %s: %v", cardID, err)
+		slog.Warn("alarm: load card failed", "card_id", cardID, "err", err)
 		return
 	}
 	for i := range card.Blocks {
@@ -201,7 +202,7 @@ func (a *App) markAlarmBlockFired(cardID, blockID string) {
 		}
 	}
 	if _, err := a.repo.UpdateCardBlocks(cardID, card.Blocks); err != nil {
-		log.Printf("alarm: failed to save card %s: %v", cardID, err)
+		slog.Warn("alarm: save card failed", "card_id", cardID, "err", err)
 		return
 	}
 	a.emitCardUpdated(cardID)
@@ -767,7 +768,8 @@ func (a *App) executeAgentToolCall(cardID string, card *model.Card, tc llm.ToolC
 				if b.Key == key || strings.EqualFold(b.Label, key) {
 					coerced, cerr := coerceBlockValueForBlock(&updatedCard.Blocks[i], rawValue)
 					if cerr != nil {
-						log.Printf("update_self: block %q (%s): %v", key, b.Type, cerr)
+						slog.Warn("update_self coerce failed",
+							"block_key", key, "block_type", b.Type, "err", cerr)
 						action.Result = fmt.Sprintf("error: block %q: %v", key, cerr)
 						return action.Result, action
 					}

@@ -35,7 +35,7 @@ package config
 
 import (
 	"errors"
-	"log"
+	"log/slog"
 
 	"github.com/zalando/go-keyring"
 )
@@ -66,12 +66,12 @@ var (
 func probeKeychain() {
 	const probeKey = "__probe__"
 	if err := keyring.Set(keychainService, probeKey, "probe"); err != nil {
-		log.Printf("keychain: probe write failed, falling back to plaintext: %v", err)
+		slog.Warn("keychain probe write failed, falling back to plaintext", "err", err)
 		keychainWorks = false
 		return
 	}
 	if _, err := keyring.Get(keychainService, probeKey); err != nil {
-		log.Printf("keychain: probe read failed, falling back to plaintext: %v", err)
+		slog.Warn("keychain probe read failed, falling back to plaintext", "err", err)
 		keychainWorks = false
 		return
 	}
@@ -131,6 +131,6 @@ func deleteKeychainSecret(accountID string) {
 	}
 	err := keyring.Delete(keychainService, keychainKey(accountID))
 	if err != nil && !errors.Is(err, keyring.ErrNotFound) {
-		log.Printf("keychain: delete %q failed: %v", accountID, err)
+		slog.Warn("keychain delete failed", "account_id", accountID, "err", err)
 	}
 }

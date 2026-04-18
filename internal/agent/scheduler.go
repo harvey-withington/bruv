@@ -4,7 +4,7 @@ import (
 	"bruv/internal/logging"
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -125,7 +125,6 @@ func (s *Scheduler) TriggerNow(ctx context.Context, cardID string) error {
 	s.mu.Unlock()
 
 	s.wg.Add(1)
-	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
 		s.sem <- struct{}{} // acquire
@@ -135,7 +134,7 @@ func (s *Scheduler) TriggerNow(ctx context.Context, cardID string) error {
 
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("agent scheduler: panic running card %s: %v\n", cardID, r)
+				logging.WriteCrash("agent-trigger-"+cardID, r)
 			}
 			<-s.sem // release
 			s.mu.Lock()
@@ -159,7 +158,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 
 	agents, err := s.queryFn()
 	if err != nil {
-		log.Printf("agent scheduler: query error: %v\n", err)
+		slog.Warn("agent scheduler query failed", "err", err)
 		return
 	}
 

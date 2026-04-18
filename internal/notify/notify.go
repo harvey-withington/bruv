@@ -6,7 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/smtp"
 	"time"
@@ -80,7 +80,7 @@ func (d *Dispatcher) Send(req Request) {
 
 func (d *Dispatcher) sendInApp(n config.Notification) {
 	if err := config.AppendNotification(n); err != nil {
-		log.Printf("notify: in-app persist error: %v\n", err)
+		slog.Warn("notify in-app persist failed", "err", err)
 	}
 	if d.emitEvent != nil {
 		d.emitEvent("notification:new", n)
@@ -94,9 +94,9 @@ func (d *Dispatcher) sendSystem(n config.Notification) {
 	// per-app notification master switch (Settings → Notifications → BRUV),
 	// so the in-app gate was redundant. Per-caller channel selection is now
 	// authoritative — if a channel requests system, we try to deliver.
-	log.Printf("notify: sending system notification: %q", n.Title)
+	slog.Info("notify sending system", "title", n.Title)
 	if err := beeep.Notify(n.Title, n.Body, ""); err != nil {
-		log.Printf("notify: system notification error: %v", err)
+		slog.Warn("notify system failed", "err", err)
 	}
 }
 
@@ -130,7 +130,7 @@ func (d *Dispatcher) sendEmail(n config.Notification) {
 		err = smtp.SendMail(addr, auth, from, []string{to}, []byte(msg))
 	}
 	if err != nil {
-		log.Printf("notify: email error: %v\n", err)
+		slog.Warn("notify email failed", "err", err)
 	}
 }
 
@@ -183,13 +183,13 @@ func (d *Dispatcher) sendWebhook(req Request, n config.Notification) {
 		"timestamp":  n.CreatedAt.Format(time.RFC3339),
 	})
 	if err != nil {
-		log.Printf("notify: webhook marshal error: %v\n", err)
+		slog.Warn("notify webhook marshal failed", "err", err)
 		return
 	}
 
 	httpReq, err := http.NewRequest("POST", d.cfg.WebhookURL, bytes.NewReader(payload))
 	if err != nil {
-		log.Printf("notify: webhook request error: %v\n", err)
+		slog.Warn("notify webhook request build failed", "err", err)
 		return
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -201,12 +201,12 @@ func (d *Dispatcher) sendWebhook(req Request, n config.Notification) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		log.Printf("notify: webhook error: %v\n", err)
+		slog.Warn("notify webhook call failed", "err", err)
 		return
 	}
 	resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		log.Printf("notify: webhook returned HTTP %d\n", resp.StatusCode)
+		slog.Warn("notify webhook non-2xx", "status", resp.StatusCode)
 	}
 }
 

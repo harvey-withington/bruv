@@ -3,7 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"sync"
 )
@@ -66,7 +66,7 @@ func (r *Registry) LoadAndStart(ctx context.Context, specs []ServerSpec) map[str
 	// the "reload config after user edit" flow trivial.
 	for name, sp := range r.servers {
 		if err := sp.Stop(); err != nil {
-			log.Printf("mcp: stop %q during reload: %v", name, err)
+			slog.Warn("mcp stop during reload failed", "server", name, "err", err)
 		}
 	}
 	r.servers = make(map[string]*ServerProcess)
@@ -90,7 +90,7 @@ func (r *Registry) LoadAndStart(ctx context.Context, specs []ServerSpec) map[str
 		}
 		if err := sp.Start(ctx); err != nil {
 			errs[spec.Name] = err
-			log.Printf("mcp[%s]: failed to start: %v", spec.Name, err)
+			slog.Warn("mcp server start failed", "server", spec.Name, "err", err)
 			continue
 		}
 		r.indexServerTools(sp)
@@ -115,7 +115,7 @@ func (r *Registry) Shutdown() {
 	defer r.mu.Unlock()
 	for name, sp := range r.servers {
 		if err := sp.Stop(); err != nil {
-			log.Printf("mcp[%s]: shutdown: %v", name, err)
+			slog.Warn("mcp shutdown stop failed", "server", name, "err", err)
 		}
 	}
 	r.servers = make(map[string]*ServerProcess)

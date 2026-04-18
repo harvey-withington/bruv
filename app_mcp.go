@@ -13,7 +13,7 @@ import (
 	"bruv/internal/mcp"
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 )
@@ -209,7 +209,8 @@ func (a *App) DeleteMCPServer(name string) error {
 	// process.
 	for _, envName := range deleted.EnvNames {
 		if err := config.DeleteMCPSecret(a.repo.Manifest.ID, deleted.Name, envName); err != nil {
-			log.Printf("mcp[%s]: delete secret %q: %v", deleted.Name, envName, err)
+			slog.Warn("mcp delete secret failed",
+				"server", deleted.Name, "env", envName, "err", err)
 		}
 	}
 
@@ -298,7 +299,7 @@ func (a *App) reloadMCPRegistry() {
 	}
 	store, err := a.repo.LoadMCPServerStore()
 	if err != nil {
-		log.Printf("mcp: reload: load store: %v", err)
+		slog.Warn("mcp reload: load store failed", "err", err)
 		return
 	}
 	reg := mcp.NewRegistry(a.repo.Manifest.ID, config.MCPSecretResolver{})
@@ -306,7 +307,7 @@ func (a *App) reloadMCPRegistry() {
 	defer cancel()
 	errs := reg.LoadAndStart(ctx, store.Servers)
 	for name, err := range errs {
-		log.Printf("mcp[%s]: reload: %v", name, err)
+		slog.Warn("mcp reload failed", "server", name, "err", err)
 	}
 	a.mcpRegistry = reg
 }

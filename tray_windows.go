@@ -4,7 +4,7 @@ import (
 	"bruv/internal/config"
 	_ "embed"
 	"fmt"
-	"log"
+	"log/slog"
 	"runtime"
 
 	"github.com/energye/systray"
@@ -94,7 +94,7 @@ func (a *App) setupTray() {
 			mConfig.Click(func() {
 				go func() {
 					if err := a.OpenConfigFolder(); err != nil {
-						log.Printf("tray: open config folder failed: %v", err)
+						slog.Warn("tray open config folder failed", "err", err)
 					}
 				}()
 			})
@@ -103,7 +103,7 @@ func (a *App) setupTray() {
 			mBug.Click(func() {
 				go func() {
 					if err := a.OpenBugReportURL(); err != nil {
-						log.Printf("tray: open bug report failed: %v", err)
+						slog.Warn("tray open bug report failed", "err", err)
 					}
 				}()
 			})

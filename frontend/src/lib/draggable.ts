@@ -26,7 +26,13 @@ export function draggable(node: HTMLElement, opts?: { handle?: string; persistKe
     const tag = el.tagName
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'BUTTON' || tag === 'SELECT' || tag === 'A') return true
     if (el.isContentEditable) return true
-    if (el.closest('button, input, textarea, select, a, [contenteditable]')) return true
+    // Include non-native clickables: elements opted into the tab order
+    // (tabindex="0" or positive) and elements with a button/link role.
+    // tabindex="-1" is excluded because that's the convention for
+    // programmatically-focusable-but-not-interactive (e.g., the dialog
+    // root itself for focus trapping), and we still want to be able to
+    // drag by clicking into such a wrapper.
+    if (el.closest('button, input, textarea, select, a, [contenteditable], [tabindex]:not([tabindex="-1"]), [role="button"], [role="link"]')) return true
     return false
   }
 

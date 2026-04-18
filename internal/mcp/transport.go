@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"sync"
 )
 
@@ -121,7 +121,8 @@ func (t *Transport) readLoop() {
 		}
 		var msg Response
 		if err := json.Unmarshal(line, &msg); err != nil {
-			log.Printf("mcp[%s]: malformed message: %v: %s", t.name, err, string(line))
+			slog.Warn("mcp malformed message",
+				"server", t.name, "err", err, "raw", string(line))
 			continue
 		}
 
@@ -140,7 +141,8 @@ func (t *Transport) readLoop() {
 			// for chatty servers. Drop silently.
 			continue
 		default:
-			log.Printf("mcp[%s]: unclassifiable message: %s", t.name, string(line))
+			slog.Warn("mcp unclassifiable message",
+				"server", t.name, "raw", string(line))
 		}
 	}
 
@@ -148,7 +150,7 @@ func (t *Transport) readLoop() {
 	// any pending requests with a transport-error response so callers
 	// don't block forever.
 	if err := scanner.Err(); err != nil {
-		log.Printf("mcp[%s]: read loop error: %v", t.name, err)
+		slog.Warn("mcp read loop error", "server", t.name, "err", err)
 	}
 	t.drainPending(errors.New("transport closed"))
 }
@@ -160,7 +162,7 @@ func (t *Transport) stderrLoop() {
 	scanner := bufio.NewScanner(t.stderr)
 	scanner.Buffer(make([]byte, 64*1024), maxMessageSize)
 	for scanner.Scan() {
-		log.Printf("mcp[%s] stderr: %s", t.name, scanner.Text())
+		slog.Info("mcp stderr", "server", t.name, "line", scanner.Text())
 	}
 }
 
@@ -190,7 +192,8 @@ func (t *Transport) handleIncomingRequest(req *Response) {
 		resp.Result = json.RawMessage(`{}`)
 	}
 	if err := t.writeJSON(&resp); err != nil {
-		log.Printf("mcp[%s]: failed to send response to incoming request %q: %v", t.name, req.Method, err)
+		slog.Warn("mcp response send failed",
+			"server", t.name, "method", req.Method, "err", err)
 	}
 }
 
@@ -207,7 +210,8 @@ func (t *Transport) deliverResponse(resp *Response) {
 	}
 	t.pendingMu.Unlock()
 	if !ok {
-		log.Printf("mcp[%s]: response for unknown or cancelled request id %d", t.name, id)
+		slog.Warn("mcp response for unknown request",
+			"server", t.name, "id", id)
 		return
 	}
 	// Non-blocking send — the receiver owns the channel and we

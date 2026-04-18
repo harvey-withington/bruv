@@ -16,7 +16,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"log/slog"
 	"net/url"
 	"os"
@@ -98,7 +97,7 @@ func (a *App) startup(ctx context.Context) {
 	// the binary from a terminal can still see it.
 	if cfgDir, err := config.ConfigDir(); err == nil {
 		if _, err := logging.Init(cfgDir); err != nil {
-			log.Printf("warning: logging init failed: %v", err)
+			slog.Warn("logging init failed", "err", err)
 		}
 		// Crash reports land in <configDir>/crashes/ — separate from
 		// the rolling daily log so they don't get pruned on retention.
@@ -106,7 +105,7 @@ func (a *App) startup(ctx context.Context) {
 		// guess which build they were on when filing a bug.
 		logging.InitCrashReporting(cfgDir, AppVersion, BuildDate)
 	} else {
-		log.Printf("warning: resolve config dir for logging: %v", err)
+		slog.Warn("resolve config dir for logging failed", "err", err)
 	}
 
 	// Load the card type schema registry
@@ -412,7 +411,7 @@ func (a *App) InitRepository(basePath, name string) (string, error) {
 
 	// Open the SQLite index and do an initial (empty) rebuild
 	if err := a.openIndex(r.Root); err != nil {
-		log.Printf("warning: failed to open index: %v\n", err)
+		slog.Warn("open index failed", "repo", r.Root, "err", err)
 	}
 
 	// Add to recent repos
@@ -457,21 +456,21 @@ func (a *App) OpenRepository(path string) error {
 			return config.SaveChatFor(repoID, cf)
 		},
 	)
-	log.Printf("repo migrate: %s", migrateStats)
+	slog.Info("repo migrate", "stats", migrateStats.String())
 
 	// Revalidate repo data (remove stale pins, orphaned files, etc.)
 	if repairStats, err := r.Revalidate(); err != nil {
-		log.Printf("warning: revalidation failed: %v\n", err)
+		slog.Warn("revalidation failed", "err", err)
 	} else {
-		log.Printf("revalidate: %s\n", repairStats)
+		slog.Info("revalidate ok", "stats", repairStats.String())
 	}
 
 	// Open the SQLite index and do an incremental refresh
 	if err := a.openIndex(path); err != nil {
-		log.Printf("warning: failed to open index: %v\n", err)
+		slog.Warn("open index failed", "repo", path, "err", err)
 	} else if a.idx != nil {
 		if _, err := a.idx.IncrementalRefresh(path); err != nil {
-			log.Printf("warning: index refresh failed: %v\n", err)
+			slog.Warn("index refresh failed", "repo", path, "err", err)
 		}
 	}
 
@@ -508,7 +507,7 @@ func (a *App) startMCPRegistry() {
 	}
 	store, err := a.repo.LoadMCPServerStore()
 	if err != nil {
-		log.Printf("mcp: load server store: %v", err)
+		slog.Warn("mcp load server store failed", "err", err)
 		return
 	}
 	reg := mcp.NewRegistry(a.repo.Manifest.ID, config.MCPSecretResolver{})
@@ -518,7 +517,7 @@ func (a *App) startMCPRegistry() {
 	defer cancel()
 	errs := reg.LoadAndStart(startCtx, store.Servers)
 	for name, err := range errs {
-		log.Printf("mcp[%s]: startup: %v", name, err)
+		slog.Warn("mcp server startup failed", "server", name, "err", err)
 	}
 	a.mcpRegistry = reg
 }

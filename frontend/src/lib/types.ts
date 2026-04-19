@@ -353,7 +353,6 @@ export type LLMConfig = {
   model: string
   api_key: string
   base_url: string
-  auto_pin: string
   ai_mode: string
   min_confidence: string
 }

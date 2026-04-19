@@ -36,7 +36,6 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
       model: '',
       api_key: '',
       base_url: '',
-      auto_pin: 'off',
       ai_mode: 'edit',
       min_confidence: '',
     }),

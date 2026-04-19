@@ -14,7 +14,6 @@ type LLMConfig struct {
 	APIKey           string `json:"api_key,omitempty"`             // plain text (legacy, prefer accounts)
 	BaseURL          string `json:"base_url,omitempty"`            // custom endpoint override (legacy, prefer accounts)
 	DefaultAccountID string `json:"default_account_id,omitempty"` // references LLMAccount.ID
-	AutoPin          string `json:"auto_pin,omitempty"`            // "auto", "suggest", "off"
 	AIMode           string `json:"ai_mode,omitempty"`             // "edit" (default), "suggest", or "chat"
 	MinConfidence    string `json:"min_confidence,omitempty"`      // "high", "medium", "low", "" (any)
 }

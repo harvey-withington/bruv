@@ -3656,7 +3656,7 @@ func (a *App) SendChatMessage(cardID, userMessage string) (*model.ChatFile, erro
 			return a.stageToolCall(tc, allCats)
 		},
 		executeTool: func(tc llm.ToolCall) (string, *model.ToolAction, *model.PinSuggestion) {
-			return a.executeToolCall(cardID, card, tc, allCats, cfg.AutoPin)
+			return a.executeToolCall(cardID, card, tc, allCats)
 		},
 		minConfidence: cfg.MinConfidence,
 		afterToolsRun: func(calls []llm.ToolCall, tools []llm.ToolDef, pin *model.PinSuggestion, edits []model.PendingEdit) ([]llm.ToolDef, []llm.Message) {
@@ -4191,7 +4191,7 @@ func coerceNumber(val any) float64 {
 }
 
 // executeToolCall runs a single tool and returns (result string, action record, pin suggestion).
-func (a *App) executeToolCall(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath, autoPinMode string) (string, *model.ToolAction, *model.PinSuggestion) {
+func (a *App) executeToolCall(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath) (string, *model.ToolAction, *model.PinSuggestion) {
 	switch tc.Name {
 	case "set_title":
 		title, _ := tc.Arguments["title"].(string)
@@ -4471,35 +4471,24 @@ func (a *App) executeToolCall(cardID string, card *model.Card, tc llm.ToolCall, 
 			}
 		}
 
-		// Auto-pin mode: pin directly without user confirmation
-		if autoPinMode == "auto" {
-			// Pin convention: projectID == categoryID
-			if err := a.PinCard(cardID, catID, catID); err != nil {
-				return "error pinning card: " + err.Error(), nil, nil
-			}
-			ps := &model.PinSuggestion{
-				CategoryID:   catID,
-				CategoryName: catName,
-				Breadcrumb:   breadcrumb,
-				Reason:       reason,
-				Confidence:   confidence,
-				Status:       "accepted",
-			}
-			action := &model.ToolAction{Tool: "suggest_pin", Input: tc.Arguments, Result: "Pinned to " + breadcrumb}
-			return "Card pinned to " + breadcrumb, action, ps
+		// Edit mode pins directly — consistent with every other card tool
+		// (set_title, set_fields, add_tags all mutate without an extra
+		// approval step). Suggest mode stages the call via the separate
+		// executeToolCallSuggest path, so this branch only runs when the
+		// user has opted into direct edits.
+		if err := a.PinCard(cardID, catID, catID); err != nil {
+			return "error pinning card: " + err.Error(), nil, nil
 		}
-
-		// Suggest mode: create suggestion for user to accept/reject
 		ps := &model.PinSuggestion{
 			CategoryID:   catID,
 			CategoryName: catName,
 			Breadcrumb:   breadcrumb,
 			Reason:       reason,
 			Confidence:   confidence,
-			Status:       "pending",
+			Status:       "accepted",
 		}
-		action := &model.ToolAction{Tool: "suggest_pin", Input: tc.Arguments, Result: "Suggested pin to " + breadcrumb}
-		return "Pin suggestion created for " + breadcrumb, action, ps
+		action := &model.ToolAction{Tool: "suggest_pin", Input: tc.Arguments, Result: "Pinned to " + breadcrumb}
+		return "Card pinned to " + breadcrumb, action, ps
 
 	case "configure_agent":
 		enabled, _ := tc.Arguments["enabled"].(bool)
@@ -5654,7 +5643,22 @@ func (a *App) stageToolCall(tc llm.ToolCall, allCats []CategoryPath) (string, []
 	case "add_field":
 		label, _ := tc.Arguments["label"].(string)
 		fieldType, _ := tc.Arguments["field_type"].(string)
-		return "Field staged: " + label, one(tc.Name, tc.Arguments, "Add field: "+label, "Type: "+fieldType)
+		detail := "Type: " + fieldType
+		// If the LLM supplied an inline value, include a preview so the
+		// user can see what the new field will contain before approving.
+		// Long text values are truncated in the preview — the full value
+		// still flows through tc.Arguments and is applied on accept.
+		if rawVal, ok := tc.Arguments["value"]; ok && rawVal != nil {
+			preview := fmt.Sprintf("%v", rawVal)
+			const maxPreview = 200
+			if len(preview) > maxPreview {
+				preview = preview[:maxPreview] + "…"
+			}
+			if preview != "" {
+				detail += "\nValue: " + preview
+			}
+		}
+		return "Field staged: " + label, one(tc.Name, tc.Arguments, "Add field: "+label, detail)
 
 	case "suggest_pin":
 		reason, _ := tc.Arguments["reason"].(string)
@@ -6399,12 +6403,7 @@ func (a *App) AcceptPendingEdit(cardID, msgID, editID string) (*model.ChatFile, 
 				return cf, nil
 			}
 			tc := llm.ToolCall{ID: editID, Name: edit.Tool, Arguments: edit.Input}
-			// For suggest_pin, force "auto" so the card is actually pinned
-			autoPinMode := ""
-			if edit.Tool == "suggest_pin" {
-				autoPinMode = "auto"
-			}
-			result, _, _ := a.executeToolCall(cardID, card, tc, allCats, autoPinMode)
+			result, _, _ := a.executeToolCall(cardID, card, tc, allCats)
 			if strings.HasPrefix(result, "error:") {
 				return nil, fmt.Errorf("could not apply edit: %s", result)
 			}
@@ -6668,7 +6667,7 @@ TOOLS:
 - set_due_date — YYYY-MM-DD format. Resolve relative dates from today (%s).
 - suggest_pin — ALWAYS pin the card. STRONGLY prefer an existing category_id from the list below. The hierarchy is: Brand > Stream > Project > Category (e.g. "Big Ideas / YouTube Channels / Channel Brainstorm / Ideas"). Do NOT use the card title as a brand name. Only create new names if NOTHING existing fits.
 - add_tags — Add relevant tags. Prefer existing project tags listed below, but you may create new short, descriptive tags if none fit.
-- add_field — Add a NEW field to the card (e.g. a checklist, extra notes, a checkbox). Use when the user asks for a field that does not already exist. You can provide an initial value, or use set_fields afterward to populate it.
+- add_field — Add a NEW field to the card (e.g. a checklist, extra notes, a checkbox). Use when the user asks for a field that does not already exist. ALWAYS pass the 'value' parameter in the same call when the user described what should go in the field — do NOT split into add_field followed by set_fields, that pattern frequently leaves the field empty. Only use set_fields afterward to update an EXISTING field.
 - configure_agent — Set up or modify the card's autonomous agent. Provide enabled, goal, schedule, and allowed_tools. The agent runs in the background and can fetch web pages, search, notify the user, and update this card. Use this when the user asks to "set up an agent", "run this on a schedule", "check daily", etc.
 - web_fetch — Fetch a specific URL and read its text content. Use when the user gives you a link or when you need up-to-date info from a known page.
 - web_search — Search the web via DuckDuckGo. Use for "look up…", "find the latest…", "what's happening with…" style asks. Returns titles, URLs, and snippets; follow up with web_fetch on the most relevant result if you need the full content.`, time.Now().Format("2006-01-02 (Monday)"), time.Now().Format("2006-01-02")))

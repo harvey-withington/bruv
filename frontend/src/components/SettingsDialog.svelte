@@ -43,7 +43,6 @@
     model: '',
     api_key: '',
     base_url: '',
-    auto_pin: 'off',
     ai_mode: 'edit',
     min_confidence: '',
   })
@@ -109,7 +108,6 @@
         llm.model = c.model || ''
         llm.api_key = c.api_key || ''
         llm.base_url = c.base_url || ''
-        llm.auto_pin = c.auto_pin || 'off'
         llm.ai_mode = c.ai_mode || 'edit'
         llm.min_confidence = c.min_confidence || ''
       }
@@ -193,7 +191,6 @@
     { tab: 'general', key: 'sidebar_collapse_default', label: 'sidebar collapsed collapse tree startup' },
     { tab: 'ai', key: 'accounts', label: 'ai accounts provider openai anthropic ollama api key model' },
     { tab: 'ai', key: 'ai_mode', label: 'ai mode chat edit card fields' },
-    { tab: 'ai', key: 'auto_pin', label: 'auto pin behavior' },
     { tab: 'ai', key: 'min_confidence', label: 'minimum confidence ai suggestion pin threshold' },
     { tab: 'ai', key: 'context', label: 'ai context additional' },
     { tab: 'notifications', key: 'system_enabled', label: 'desktop system notifications test' },
@@ -415,17 +412,6 @@
                 <option value="edit">{t('llm.ai_mode_edit')}</option>
                 <option value="suggest">{t('llm.ai_mode_suggest')}</option>
                 <option value="chat">{t('llm.ai_mode_chat')}</option>
-              </select>
-            </label>
-          {/if}
-
-          {#if fieldVisible('auto_pin')}
-            <label class="field">
-              <span class="field-label">{t('llm.auto_pin')}</span>
-              <select bind:value={llm.auto_pin}>
-                <option value="off">{t('llm.auto_pin_off')}</option>
-                <option value="suggest">{t('llm.auto_pin_suggest')}</option>
-                <option value="auto">{t('llm.auto_pin_auto')}</option>
               </select>
             </label>
           {/if}

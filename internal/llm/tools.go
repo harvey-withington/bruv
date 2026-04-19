@@ -116,7 +116,7 @@ func CardTools(cardTypes []string, categories []map[string]string, mcpToolIDs []
 	// add_field: lets the LLM append new blocks to a card beyond its schema
 	tools = append(tools, ToolDef{
 		Name:        "add_field",
-		Description: "Add a new field to the card. Use this when the user asks for a field that does not already exist (e.g. a checklist, extra notes, a checkbox). The field is appended after existing fields. After adding, use set_fields to populate it.",
+		Description: "Add a new field to the card. Use this when the user asks for a field that does not already exist (e.g. a checklist, extra notes, a checkbox). If the user described what should go in the field, ALWAYS pass the `value` parameter in this same call — never split into add_field followed by set_fields to fill it in, that leaves the field empty if you forget the follow-up. Only omit `value` if the user explicitly wants an empty field to fill in themselves.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -134,7 +134,7 @@ func CardTools(cardTypes []string, categories []map[string]string, mcpToolIDs []
 					"description": "The type of field to add. Use 'text' for freeform text, 'checklist' for a list of items with checkboxes, 'checkbox' for a boolean toggle, 'number' for numeric values, 'date' for dates, 'url' for links.",
 				},
 				"value": map[string]any{
-					"description": "Initial value for the field. For text: a string. For checklist: an array of strings. For checkbox: a boolean. For number: a number. May be omitted to leave empty.",
+					"description": "Initial value for the field. REQUIRED when the user described what should go in the field — do not defer it to a follow-up call. For text: a string. For checklist: an array of strings. For checkbox: a boolean. For number: a number. For date: a YYYY-MM-DD string. Only omit if the user explicitly wants an empty field.",
 				},
 			},
 			"required": []string{"key", "label", "field_type"},

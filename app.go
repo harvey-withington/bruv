@@ -6455,32 +6455,21 @@ func (a *App) ApplyPendingEdits(cardID, msgID string, acceptIDs []string) (*mode
 	if a.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
-	acceptSet := make(map[string]bool, len(acceptIDs))
-	for _, id := range acceptIDs {
-		acceptSet[id] = true
-	}
 
 	cf, err := config.LoadChatFor(a.repo.Manifest.ID,cardID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Collect pending IDs in message order, split into accept/reject
+	// Find the message and split its pending edits via the shared
+	// helper so the accept/reject partition is covered by tests in
+	// internal/repo/pending_test.go.
 	var toAccept, toReject []string
 	for _, m := range cf.Messages {
 		if m.ID != msgID {
 			continue
 		}
-		for _, e := range m.PendingEdits {
-			if e.Status != "pending" {
-				continue
-			}
-			if acceptSet[e.ID] {
-				toAccept = append(toAccept, e.ID)
-			} else {
-				toReject = append(toReject, e.ID)
-			}
-		}
+		toAccept, toReject = repo.SplitPendingEdits(m.PendingEdits, acceptIDs)
 		break
 	}
 

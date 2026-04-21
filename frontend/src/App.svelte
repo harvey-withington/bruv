@@ -48,7 +48,7 @@
       nav.repoId = last.path
     } catch { /* silently fall back to welcome screen */ }
     finally {
-      // Card types are repo-scoped as of v1.0b — the backend returns
+      // Card types are repo-scoped as of v1.0a — the backend returns
       // only built-ins until a repo is open, so defer the fetch until
       // after OpenRepository() has either succeeded or given up.
       loadCardTypes()

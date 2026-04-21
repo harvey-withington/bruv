@@ -92,7 +92,7 @@
       await loadUsageCounts()
       // Refresh board so card items drop the removed tag
       if (nav.brandSlug && nav.streamSlug && nav.projectSlug) {
-        await loadBoard(nav.brandSlug, nav.streamSlug, nav.projectSlug)
+        await loadBoard(nav.brandSlug, nav.streamSlug, nav.projectSlug, { silent: true })
       }
     } catch (e) { console.error('Remove tag:', e) }
   }
@@ -134,7 +134,7 @@
       iconPickerTagId = null
       // Refresh board so card-item tag chips pick up the new icon
       if (nav.brandSlug && nav.streamSlug && nav.projectSlug) {
-        await loadBoard(nav.brandSlug, nav.streamSlug, nav.projectSlug)
+        await loadBoard(nav.brandSlug, nav.streamSlug, nav.projectSlug, { silent: true })
       }
     } catch (e) { console.error('Change icon:', e) }
   }

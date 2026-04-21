@@ -1,6 +1,6 @@
 // Package mcp implements a Model Context Protocol client for BRUV.
 //
-// Scope for v1.0b:
+// Scope for v1.0a:
 //
 //   - Stdio transport only (subprocess with newline-delimited JSON on
 //     stdin/stdout, logs on stderr).

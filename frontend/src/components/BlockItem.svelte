@@ -239,9 +239,14 @@
             items={Array.isArray(block.value) ? block.value as ChecklistItem[] : []}
             onUpdate={async (updated) => {
               if (!card) return
-              const blocks = card.blocks.map((b: Block) => b.id === block.id ? { ...b, value: updated } : b)
+              // Mutate block.value in place so Svelte 5's $state proxy on
+              // card.blocks sees the change and the UI re-renders. Building
+              // a fresh blocks array via map() would persist but leave the
+              // parent's card state stale — toggles would save but not
+              // visibly update until the card was reopened.
+              block.value = updated
               try {
-                await tracked(UpdateCardBlocks(cardId, blocks))
+                await tracked(UpdateCardBlocks(cardId, card.blocks))
                 onUpdated?.()
               } catch (e) { showToast(t('error.save_failed'), 'error') }
             }}
@@ -262,9 +267,9 @@
             items={Array.isArray(block.value) ? block.value as ListItem[] : []}
             onUpdate={async (updated) => {
               if (!card) return
-              const blocks = card.blocks.map((b: Block) => b.id === block.id ? { ...b, value: updated } : b)
+              block.value = updated
               try {
-                await tracked(UpdateCardBlocks(cardId, blocks))
+                await tracked(UpdateCardBlocks(cardId, card.blocks))
                 onUpdated?.()
               } catch (e) { showToast(t('error.save_failed'), 'error') }
             }}
@@ -275,9 +280,9 @@
             items={Array.isArray(block.value) ? block.value as MediaItem[] : []}
             onUpdate={async (updated) => {
               if (!card) return
-              const blocks = card.blocks.map((b: Block) => b.id === block.id ? { ...b, value: updated } : b)
+              block.value = updated
               try {
-                await tracked(UpdateCardBlocks(cardId, blocks))
+                await tracked(UpdateCardBlocks(cardId, card.blocks))
                 onUpdated?.()
               } catch (e) { showToast(t('error.save_failed'), 'error') }
             }}

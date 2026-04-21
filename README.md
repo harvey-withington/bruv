@@ -10,7 +10,7 @@
   An AI-native, local-first productivity app that pairs a kanban-style board with an LLM assistant and autonomous agents — all running on your machine, with your data, under your control.
 </p>
 
-> **Status:** public beta (v1.0b). Windows only for now. No telemetry, no account, no cloud. Built with ❤ by Harvey and 🤖 Claude.
+> **Status:** public alpha (v1.0a). Windows only for now. No telemetry, no account, no cloud. Built with ❤ by Harvey and 🤖 Claude.
 
 ---
 
@@ -29,7 +29,7 @@
 
 **Windows:** Grab the latest installer from the [Releases page](https://github.com/harvey-withington/bruv/releases).
 
-> ⚠️ **SmartScreen warning during the beta.** BRUV is not yet code-signed, so Windows SmartScreen will warn you when you run the installer for the first time. This is expected. Click **More info → Run anyway**. The warning will go away in the v1.0 final release once we're code-signed via [SignPath Foundation](https://signpath.org/) (their free OSS sponsorship — no ongoing cost to BRUV, so it stays free for you). See [SmartScreen and signing](#smartscreen-and-signing) below for why.
+> ⚠️ **SmartScreen warning during the alpha.** BRUV is not yet code-signed, so Windows SmartScreen will warn you when you run the installer for the first time. This is expected. Click **More info → Run anyway**. The warning will go away in the v1.0 final release once we're code-signed via [SignPath Foundation](https://signpath.org/) (their free OSS sponsorship — no ongoing cost to BRUV, so it stays free for you). See [SmartScreen and signing](#smartscreen-and-signing) below for why.
 
 **macOS / Linux:** not supported yet. See [Platform status](#platform-status).
 
@@ -71,7 +71,7 @@ Full details, including what files live where, what agents can access, and how t
 
 BRUV is fully open source and free. Windows code-signing certificates cost real money every year, which doesn't fit a free OSS project maintained by one person. Instead, we're applying to the [SignPath Foundation](https://signpath.org/) — a service that provides free code signing to qualifying open-source projects. Once approved, releases will be signed and SmartScreen will stop warning.
 
-Until then: beta builds ship unsigned. If you'd rather not click through a SmartScreen warning, you can:
+Until then: alpha builds ship unsigned. If you'd rather not click through a SmartScreen warning, you can:
 
 - **Verify the binary yourself** against the source — everything here is MIT-licensed and buildable from a clean checkout (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 - **Build from source** — clone the repo and run `wails build`.
@@ -79,19 +79,21 @@ Until then: beta builds ship unsigned. If you'd rather not click through a Smart
 
 This isn't a workaround — it's the honest cost of running an unfunded OSS project. Thanks for your patience.
 
+The alpha releases use the `v1.0a` tag family; betas will become `v1.0b` once we're signed and ready for a wider audience.
+
 ## Platform status
 
 | Platform | Build | Installer | Tray | Notes |
 |---|---|---|---|---|
-| Windows 10 / 11 | ✅ | ✅ NSIS | ✅ | Primary release target. Public beta. |
+| Windows 10 / 11 | ✅ | ✅ NSIS | ✅ | Primary release target. Public alpha. |
 | Linux | ✅ | ⚠️ none | ❌ | Backend cross-compiles cleanly; CI smoke-tests every push. No official installer or tray support yet — build from source if you want to try it. Contributions welcome. |
-| macOS | ✅ | ❌ | ❌ | Backend cross-compiles and CI smoke-tests every push. No code-signed release because Apple's developer program is $99/year, which doesn't fit the no-recurring-costs model of this beta. Deferred until sponsorship or paid-tier funding covers it. |
+| macOS | ✅ | ❌ | ❌ | Backend cross-compiles and CI smoke-tests every push. No code-signed release because Apple's developer program is $99/year, which doesn't fit the no-recurring-costs model of this alpha. Deferred until sponsorship or paid-tier funding covers it. |
 
 The tray icon is a Windows-only feature for now. On macOS and Linux, BRUV runs as a normal windowed app — the agent scheduler and all other features work identically.
 
 ## Support the project
 
-BRUV is free and will stay free. If it saves you time and you'd like to chip in, there'll be a "Buy me a coffee" link in the About dialog at v1.0b. No subscriptions, no locked features.
+BRUV is free and will stay free. If it saves you time and you'd like to chip in, there'll be a "Buy me a coffee" link in the About dialog at v1.0 final. No subscriptions, no locked features.
 
 A future optional hosted sync service is on the roadmap — the desktop app is architected for it via an [adapter pattern](CONTRIBUTING.md#backend-adapter-architecture). The app itself will remain free and local-first forever; the hosted service would be a separate, optional paid add-on.
 

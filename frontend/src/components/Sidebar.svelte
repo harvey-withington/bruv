@@ -304,7 +304,8 @@
 
   export function refreshBoard() {
     if (nav.brandSlug && nav.streamSlug && nav.projectSlug) {
-      loadBoard(nav.brandSlug, nav.streamSlug, nav.projectSlug)
+      // Same-project refresh: silent so in-place edits don't flash loading.
+      loadBoard(nav.brandSlug, nav.streamSlug, nav.projectSlug, { silent: true })
     }
   }
 

@@ -96,7 +96,7 @@ bruv-1.0/
 
 ### Repo format contract
 
-BRUV repos are designed to be self-contained and portable. The format is stable from v1.0b onward — any future additions must preserve this invariant: **the repo folder contains everything needed to render the project, and nothing personal to the user who created it**.
+BRUV repos are designed to be self-contained and portable. The format is stable from v1.0a onward — any future additions must preserve this invariant: **the repo folder contains everything needed to render the project, and nothing personal to the user who created it**.
 
 ```
 <repo>/

@@ -134,7 +134,7 @@ When someone else opens your shared repo, they get a fresh chat history and an e
 
 ### Before sharing
 
-If you've been running agents in your copy of a repo, the `.agent.json` files contain run history that includes token counts, timestamps, and any recorded outputs. This is not sensitive in most cases but you may want to clear it before sharing. You can do this today by opening each agent card → **Clear run history**. A one-click "prepare for sharing" sweep is tracked in the backlog for a post-v1.0b release.
+If you've been running agents in your copy of a repo, the `.agent.json` files contain run history that includes token counts, timestamps, and any recorded outputs. This is not sensitive in most cases but you may want to clear it before sharing. You can do this today by opening each agent card → **Clear run history**. A one-click "prepare for sharing" sweep is tracked in the backlog for a post-v1.0a release.
 
 ## How to wipe everything
 

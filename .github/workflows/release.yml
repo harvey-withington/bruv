@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Version tag to build (e.g. v1.0b)
+        description: Version tag to build (e.g. v1.0a)
         required: true
 
 # GitHub's default GITHUB_TOKEN has read-only `contents` permission since

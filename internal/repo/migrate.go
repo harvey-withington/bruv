@@ -1,6 +1,6 @@
 package repo
 
-// Pre-v1.0b repo portability migration.
+// Pre-v1.0a repo portability migration.
 //
 // Older BRUV repos were created before the repo folder was designed to be
 // portable. Three things need moving on first open of an older repo so
@@ -62,7 +62,7 @@ type GlobalCardTypesProvider func() ([]byte, error)
 // failed count but does not abort the whole migration.
 type ChatMover func(repoID, chatID string, cf *model.ChatFile) error
 
-// MigrateOnOpen runs the pre-v1.0b portability migration for a
+// MigrateOnOpen runs the pre-v1.0a portability migration for a
 // freshly-opened repo. Safe to call every open; any step that's already
 // done is a no-op.
 //

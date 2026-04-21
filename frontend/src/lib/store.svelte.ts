@@ -156,8 +156,18 @@ export const boardSearch = $state({
 
 // --- Board loading (single source of truth) ---
 
-export async function loadBoard(brandSlug: string, streamSlug: string, projectSlug: string) {
-  board.loading = true
+// loadBoard fetches a project's categories and cards and replaces
+// board.categories atomically. Pass { silent: true } for refreshes
+// triggered by in-place edits (card mutation, tag change) so the
+// existing cards stay visible while new data loads — otherwise the
+// user sees a black/"Loading…" flash over whatever was just edited,
+// which is jarring for something as minor as a checklist toggle.
+// The loading state is still used on genuine project switches and
+// the first load where there's nothing to show yet.
+export async function loadBoard(brandSlug: string, streamSlug: string, projectSlug: string, opts: { silent?: boolean } = {}) {
+  if (!opts.silent) {
+    board.loading = true
+  }
   try {
     try { projectTags.list = await GetProjectLabels(brandSlug, streamSlug, projectSlug) || [] } catch { projectTags.list = [] }
 
@@ -205,7 +215,9 @@ export async function loadBoard(brandSlug: string, streamSlug: string, projectSl
   } catch {
     board.categories = []
   }
-  board.loading = false
+  if (!opts.silent) {
+    board.loading = false
+  }
 }
 
 // Set up Wails event listeners for agent running state.

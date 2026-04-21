@@ -372,7 +372,10 @@
 
   async function refreshBoard() {
     if (!nav.brandSlug || !nav.streamSlug || !nav.projectSlug) return
-    await loadBoard(nav.brandSlug, nav.streamSlug, nav.projectSlug)
+    // Silent: keep the current cards visible while the fetch runs so
+    // minor edits (checklist toggle, tag add) don't flash the board's
+    // loading state. First-load and project switches still show it.
+    await loadBoard(nav.brandSlug, nav.streamSlug, nav.projectSlug, { silent: true })
     // matchingIds are kept current by the $effect below
   }
 

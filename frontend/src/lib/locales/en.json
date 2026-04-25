@@ -4,7 +4,6 @@
   "app.loading": "Loading board…",
   "app.no_project": "Select a project from the sidebar to view its board.",
   "app.no_project_breadcrumb": "No project selected",
-
   "about.title": "About BRUV",
   "about.tagline": "Your most organised best bud",
   "about.description": "BRUV is an AI-native, local-first productivity app that combines a kanban board with an LLM assistant and autonomous agents. All your data stays on your machine.",
@@ -37,12 +36,10 @@
   "about.update_release_notes": "Release notes",
   "about.update_download": "Download update",
   "about.update_error": "Could not check for updates",
-
   "firstrun.llm_title": "Add an AI provider to unlock agents and chat",
   "firstrun.llm_body": "BRUV works without one, but AI chat and agents won't be available until you add an Anthropic, OpenAI, or Ollama account in Settings.",
   "firstrun.llm_cta": "Open settings",
   "firstrun.llm_dismiss": "Not now",
-
   "welcome.title": "Welcome to BRUV",
   "welcome.subtitle": "Your most organised best bud",
   "welcome.create_repo": "Create New Repository",
@@ -67,7 +64,6 @@
   "welcome.choose_repo_folder": "Choose repository folder",
   "welcome.back": "Back",
   "welcome.cloud_coming_soon": "Cloud workspace support coming soon.",
-
   "sidebar.inbox": "Inbox",
   "sidebar.no_brands": "No brands yet.",
   "sidebar.add_brand": "+ Add brand",
@@ -82,9 +78,7 @@
   "sidebar.confirm_delete_brand": "Delete brand \"{name}\" and all its streams/projects?",
   "sidebar.confirm_delete_stream": "Delete stream \"{name}\" and all its projects?",
   "sidebar.confirm_delete_project": "Delete project \"{name}\"?",
-
   "column.descriptionPlaceholder": "What belongs in this category?",
-
   "board.add_category": "Add category",
   "board.add_category_long": "+ Add another category",
   "board.category_placeholder": "Enter category title...",
@@ -134,15 +128,12 @@
   "activity.updated_due_date": "updated due date on",
   "activity.pinned": "pinned",
   "activity.unpinned": "unpinned",
-
   "column.accepted_types": "Accepted Types",
   "column.all_types": "All types",
   "column.add_card": "Add card",
   "column.add_card_long": "+ Add a card",
   "column.card_placeholder": "Enter a title for this card...",
-
   "search.placeholder": "Search cards…",
-
   "card.delete_confirm": "Delete this card? This cannot be undone.",
   "card.delete": "Delete Card",
   "card.save": "Save",
@@ -167,7 +158,6 @@
   "card.confirm_unpin_last": "Unpin from \"{name}\"? The card will move to Inbox.",
   "card.pin_count": "{count} pin",
   "card.pin_count_plural": "{count} pins",
-
   "chat.title": "Chat",
   "chat.project_title": "Project Chat",
   "chat.context_label": "Context",
@@ -175,7 +165,7 @@
   "chat.context_metadata": "Titles",
   "chat.context_none": "None",
   "chat.context_all_hint": "Include every card with full details (titles, types, tags, due dates, descriptions). Best for general queries about the board.",
-  "chat.context_metadata_hint": "Include category and card titles only \u2014 no descriptions or tags. Reduces token usage while keeping a rough map of the board.",
+  "chat.context_metadata_hint": "Include category and card titles only — no descriptions or tags. Reduces token usage while keeping a rough map of the board.",
   "chat.context_none_hint": "Hide all card details. The AI sees only brand, stream, and project metadata. Use for pure-generation tasks.",
   "chat.open_card": "Open card",
   "chat.loading": "Loading...",
@@ -206,13 +196,11 @@
   "chat.apply": "Apply",
   "chat.edit_accepted": "Accepted",
   "chat.edit_rejected": "Rejected",
-
   "pin.title": "Pin to category",
   "pin.search_placeholder": "Search categories...",
   "pin.loading": "Loading categories...",
   "pin.no_results": "No categories found",
   "pin.start_typing": "Start typing to search",
-
   "tags.title": "Project Tags",
   "tags.search_placeholder": "Search or create tag...",
   "tags.empty": "No tags yet",
@@ -223,11 +211,9 @@
   "tags.confirm_delete_title": "Delete tag \"{name}\"?",
   "tags.confirm_delete_msg": "This tag is used on {count} card(s). It will be removed from all of them.",
   "tags.delete": "Delete",
-
   "theme.toggle": "Toggle theme",
   "theme.light": "Light",
   "theme.dark": "Dark",
-
   "prefs.title": "Settings",
   "prefs.search_placeholder": "Search settings…",
   "prefs.tab_general": "General",
@@ -253,7 +239,6 @@
   "prefs.inbox_activity_limit_hint": "Maximum activity entries shown in the inbox feed",
   "prefs.sidebar_collapse_default": "Start sidebar tree collapsed",
   "prefs.saved": "Settings saved",
-
   "profile.title": "User Profile",
   "profile.display_name": "Display Name",
   "profile.display_name_placeholder": "Your name",
@@ -264,7 +249,6 @@
   "profile.expertise": "Areas of Expertise",
   "profile.expertise_placeholder": "Add an area of expertise…",
   "profile.saved": "Profile saved",
-
   "llm.title": "AI Settings",
   "llm.provider": "Provider",
   "llm.provider_none": "None (disabled)",
@@ -293,12 +277,10 @@
   "llm.test_connection": "Test Connection",
   "llm.test_success": "Connected",
   "llm.test_failed": "Connection failed",
-
   "toolbar.tags": "Tags",
   "toolbar.project_settings": "Project Settings",
   "toolbar.ai_chat": "AI Chat",
   "toolbar.project_chat": "Project AI Chat",
-
   "common.save": "Save",
   "common.saving": "Saving…",
   "common.saved": "Saved",
@@ -307,7 +289,6 @@
   "common.confirm": "Confirm",
   "common.apply": "Apply",
   "common.clear": "Clear",
-
   "error.save_failed": "Failed to save changes",
   "error.edit_apply_failed": "Could not apply this edit — try accepting Set type first",
   "error.edit_apply_some_failed": "{count} edit(s) failed — see highlighted rows for details",
@@ -317,13 +298,11 @@
   "error.type_failed": "Failed to update type",
   "error.tag_failed": "Failed to update tags",
   "error.date_failed": "Failed to update due date",
-
   "default.brand_name": "New Brand",
   "default.stream_name": "New Stream",
   "default.project_name": "New Project",
   "default.category_name": "New Category",
   "default.card_name": "New Card",
-
   "tooltip.collapse_sidebar": "Collapse sidebar",
   "tooltip.expand_sidebar": "Expand sidebar",
   "tooltip.close_repo": "Close the current repository",
@@ -375,7 +354,6 @@
   "tooltip.cancel": "Cancel",
   "tooltip.llm_settings": "AI settings",
   "tooltip.go_to_project": "Switch to this project",
-
   "project_settings.title": "Project Settings",
   "project_settings.info": "Project Info",
   "project_settings.name": "Name",
@@ -387,12 +365,9 @@
   "project_settings.category_description": "Description",
   "project_settings.accepted_types": "Accepted Card Types",
   "project_settings.accepted_types_hint": "Unchecked types cannot be pinned to this category. All checked = no restriction.",
-
   "toolbar.card_types": "Card Types",
-
   "mention.placeholder": "Search cards & projects…",
   "mention.no_results": "No results found",
-
   "card_types.title": "Card Types",
   "card_types.export_tooltip": "Export card types to a portable file",
   "card_types.import_tooltip": "Import card types from another repo or file",
@@ -423,7 +398,6 @@
   "card_types.import_result_templates_overwritten": "{count} template(s) overwritten",
   "card_types.import_result_templates_skipped": "{count} template(s) skipped",
   "card_types.import_result_nothing": "Nothing to import",
-
   "mcp.title": "MCP Servers",
   "mcp.intro": "MCP (Model Context Protocol) servers expose external tools to agents in this repo. Servers run as local subprocesses and their configuration travels with the repo — API keys stay on your machine in the OS keychain.",
   "mcp.add": "Add MCP server",
@@ -487,7 +461,6 @@
   "card_types.builtin_badge": "Built-in",
   "card_types.confirm_delete": "Delete card type \"{label}\"? Existing cards of this type will keep their blocks.",
   "card_types.empty": "No custom card types yet.",
-
   "card_type_editor.title_create": "New Card Type",
   "card_type_editor.title_edit": "Edit Card Type",
   "card_type_editor.label": "Label",
@@ -504,7 +477,6 @@
   "card_type_editor.template_new": "Create new template…",
   "card_type_editor.template_edit": "Edit template",
   "card_type_editor.save": "Save Type",
-
   "template_editor.title_create": "New Template",
   "template_editor.title_edit": "Edit Template",
   "template_editor.name": "Template Name",
@@ -520,9 +492,8 @@
   "template_editor.prepopulate_text_placeholder": "Default text content…",
   "template_editor.prepopulate_checklist_placeholder": "Add a default item…",
   "template_editor.prepopulate_list_placeholder": "Add a default item…",
-
-  "block.text_placeholder": "Add some text\u2026",
-  "block.url_placeholder": "Paste a link\u2026",
+  "block.text_placeholder": "Add some text…",
+  "block.url_placeholder": "Paste a link…",
   "block.text": "Text",
   "block.checklist": "Checklist",
   "block.list": "List",
@@ -553,16 +524,15 @@
   "block.edit_options": "Edit options",
   "block.add_option": "Add option",
   "block.remove_option": "Remove option",
-  "block.option_placeholder": "Option text\u2026",
+  "block.option_placeholder": "Option text…",
   "block.no_options": "No options defined",
   "block.multi_select": "Allow multiple selections",
   "block.min_value": "Min",
   "block.max_value": "Max",
   "block.suffix": "Suffix",
   "block.max_stars": "Max stars",
-  "block.select_placeholder": "Select\u2026",
+  "block.select_placeholder": "Select…",
   "block.no_date": "No date set",
-
   "options_editor.multi_select": "Allow multiple selections",
   "options_editor.layout": "Layout",
   "options_editor.vertical": "Vertical",
@@ -583,31 +553,25 @@
   "block.media_empty": "No media yet. Add a URL below.",
   "block.list_placeholder": "Add an item…",
   "block.list_add": "Add",
-
   "attachment.title": "Attachments",
   "attachment.drop_hint": "Drop files here or click to attach",
   "attachment.empty": "No attachments",
   "attachment.remove_confirm": "Remove attachment \"{name}\"?",
   "attachment.upload_failed": "Failed to upload attachment",
   "attachment.remove_failed": "Failed to remove attachment",
-
   "tooltip.collapse_block": "Collapse block",
   "tooltip.expand_block": "Expand block",
-
   "error.card_type_save_failed": "Failed to save card type",
   "error.template_save_failed": "Failed to save template",
   "error.card_type_delete_failed": "Failed to delete card type",
   "error.template_delete_failed": "Failed to delete template",
   "error.attachment_failed": "Failed to update attachment",
-
   "card.tab_details": "Details",
   "card.tab_agent": "Agent",
   "card.tab_runs": "Runs",
-
   "agent.step_setup": "Setup",
   "agent.step_schedule": "Schedule",
   "agent.step_permissions": "Permissions",
-
   "agent.enable": "Enable Agent",
   "agent.status": "Status",
   "agent.status_idle": "Idle",
@@ -672,7 +636,6 @@
   "agent.tool_read_card_desc": "Read another card's content",
   "agent.tool_http_request": "HTTP Request",
   "agent.tool_http_request_desc": "Make an HTTP request to an external API",
-
   "toolbar.notifications": "Notifications",
   "toolbar.agents": "All Agents",
   "prefs.tab_notifications": "Notifications",
@@ -699,7 +662,6 @@
   "notifications.test_system_ok": "Desktop notification sent — check your taskbar",
   "notifications.test_system_fail": "Desktop notification failed",
   "notifications.channels_hint": "In-app notifications are always enabled",
-
   "llm.accounts_title": "AI Accounts",
   "llm.accounts_empty": "No AI accounts configured. Add one to enable AI features.",
   "llm.account_add": "Add Account",
@@ -718,13 +680,11 @@
   "llm.account_api_key": "API Key",
   "llm.account_base_url": "Base URL",
   "llm.behavior_title": "AI Behavior",
-
   "agent.llm_account": "AI Model",
   "agent.llm_account_default": "Default ({label})",
   "agent.llm_account_none": "No accounts configured",
   "agent.llm_model_placeholder": "Account default",
   "agent.channel_hint": "In-app is always on",
-
   "shortcuts.title": "Keyboard Shortcuts",
   "shortcuts.search_placeholder": "Search shortcuts...",
   "shortcuts.no_results": "No matching shortcuts found",
@@ -742,9 +702,7 @@
   "shortcuts.save_field": "Save current field",
   "shortcuts.send_message": "Send chat message",
   "shortcuts.newline": "New line in chat",
-
   "sidebar.agents": "Agents",
-
   "agents_page.stat_active": "Active Agents",
   "agents_page.stat_runs": "Total Runs",
   "agents_page.stat_success_rate": "Success Rate",
@@ -767,7 +725,6 @@
   "agents_page.chart_daily_tokens": "Daily Token Usage",
   "agents_page.chart_token_breakdown": "Token Usage by Agent",
   "agents_page.no_token_data": "No token usage data recorded yet.",
-
   "dashboard.title": "All Agents",
   "dashboard.enabled": "enabled",
   "dashboard.running": "running",
@@ -781,7 +738,6 @@
   "dashboard.col_card": "Card",
   "dashboard.col_last_run": "Last Run",
   "dashboard.col_next_run": "Next Run",
-
   "agent.safety": "Safety & Limits",
   "agent.token_budget": "Token Budget",
   "agent.token_budget_placeholder": "50000",
@@ -803,7 +759,6 @@
   "agent.cost_reset": "Reset",
   "agent.cost_reset_confirm": "Reset cost tracking to $0.00?",
   "agent.cost_reset_done": "Cost tracking reset",
-
   "agent.start_date": "Start Date",
   "agent.end_date": "End Date",
   "agent.active_window": "Active Window",
@@ -814,7 +769,6 @@
   "agent.timezone_local": "Local (system)",
   "agent.schedule_preview": "Upcoming Runs",
   "agent.no_upcoming": "No upcoming runs",
-
   "prefs.due_date_title": "Due Date Notifications",
   "prefs.due_date_enabled": "Enable due date notifications",
   "prefs.due_date_thresholds": "Notify me",
@@ -824,9 +778,8 @@
   "prefs.due_date_overdue": "When overdue",
   "prefs.due_date_channels": "Notification channels",
   "prefs.due_date_saved": "Due date settings saved",
-
   "icon.pick": "Pick icon",
-  "icon.search": "Search icons\u2026",
+  "icon.search": "Search icons…",
   "icon.clear": "Remove icon",
   "icon.none": "No icon",
   "icon.tab_builtin": "Built-in Icon",
@@ -837,28 +790,26 @@
   "icon.color_default": "Using default colour",
   "icon.color_reset": "Use default colour",
   "icon.dropzone_title": "Drop an image, paste, or click to browse",
-  "icon.dropzone_hint": "PNG, JPEG, WebP, GIF or SVG \u2014 up to 1\u202fMB",
+  "icon.dropzone_hint": "PNG, JPEG, WebP, GIF or SVG — up to 1 MB",
   "icon.scale": "Scale",
   "icon.reset": "Reset",
   "icon.reset_position": "Reset position and scale",
   "icon.replace": "Replace",
   "icon.replace_image": "Replace image",
   "icon.editor_hint": "Drag to reposition. Pick a colour to tint the shape via its alpha channel.",
-  "icon.upload": "Upload image\u2026",
-  "icon.upload_too_large": "Image is too large (max 1\u202fMB)",
-  "icon.upload_unsupported": "That file type isn\u2019t supported",
-  "icon.upload_failed": "Couldn\u2019t process that image",
-
+  "icon.upload": "Upload image…",
+  "icon.upload_too_large": "Image is too large (max 1 MB)",
+  "icon.upload_unsupported": "That file type isn’t supported",
+  "icon.upload_failed": "Couldn’t process that image",
   "color.title": "Pick a colour",
   "color.current": "Current colour",
   "color.palette": "Colour palette",
   "color.recents": "Recent",
-
   "block.survey": "Survey",
   "block.survey.empty": "No questions yet. Add one below.",
   "block.survey.add_question": "Add question",
-  "block.survey.question_placeholder": "Question\u2026",
-  "block.survey.answer_placeholder": "Your answer\u2026",
+  "block.survey.question_placeholder": "Question…",
+  "block.survey.answer_placeholder": "Your answer…",
   "block.survey.option_placeholder": "Option",
   "block.survey.add_option": "+ Option",
   "block.survey.type_text": "Text",
@@ -866,10 +817,9 @@
   "block.survey.type_choice": "Choice",
   "block.survey.multi_select": "Allow multiple",
   "block.survey.remove_question": "Remove question",
-
   "comments.title": "Comments",
   "comments.empty": "No comments yet.",
-  "comments.add_placeholder": "Add a comment\u2026",
+  "comments.add_placeholder": "Add a comment…",
   "comments.add_hint": "Ctrl+Enter to post",
   "comments.post": "Post",
   "comments.edit": "Edit",
@@ -877,20 +827,18 @@
   "comments.save": "Save",
   "comments.cancel": "Cancel",
   "comments.confirm_delete": "Delete this comment? This cannot be undone.",
-  "comments.load_failed": "Couldn\u2019t load comments",
-  "comments.post_failed": "Couldn\u2019t post the comment",
-  "comments.edit_failed": "Couldn\u2019t save the edit",
-  "comments.delete_failed": "Couldn\u2019t delete the comment",
+  "comments.load_failed": "Couldn’t load comments",
+  "comments.post_failed": "Couldn’t post the comment",
+  "comments.edit_failed": "Couldn’t save the edit",
+  "comments.delete_failed": "Couldn’t delete the comment",
   "comments.edited_suffix": "(edited)",
-
-  "sidebar.new_menu": "Create\u2026",
+  "sidebar.new_menu": "Create…",
   "sidebar.new_project": "New project",
-  "sidebar.import_trello": "Import from Trello\u2026",
-
+  "sidebar.import_trello": "Import from Trello…",
   "import.trello.title": "Import from Trello",
   "import.trello.target": "Target",
   "import.trello.source": "Source file",
-  "import.trello.choose_file": "Choose Trello JSON\u2026",
+  "import.trello.choose_file": "Choose Trello JSON…",
   "import.trello.drop_hint": "Or drop a Trello export (.json) here",
   "import.trello.archive": "Archived cards & lists",
   "import.trello.archive.archive": "Import to Archive category",
@@ -899,20 +847,35 @@
   "import.trello.archive.skip_hint": "Closed cards and lists are dropped.",
   "import.trello.archive.inline": "Import as normal",
   "import.trello.archive.inline_hint": "Closed content imports alongside active content.",
-  "import.trello.importing": "Importing\u2026",
+  "import.trello.importing": "Importing…",
   "import.trello.import_btn": "Import",
   "import.trello.cancel_btn": "Cancel",
-  "import.trello.pick_failed": "Couldn\u2019t open the file picker",
-  "import.trello.read_failed": "Couldn\u2019t read that file",
-  "import.trello.parse_failed": "That doesn\u2019t look like a valid Trello export",
+  "import.trello.pick_failed": "Couldn’t open the file picker",
+  "import.trello.read_failed": "Couldn’t read that file",
+  "import.trello.parse_failed": "That doesn’t look like a valid Trello export",
   "import.trello.failed": "Import failed",
   "import.trello.success": "Imported {project}: {cards} cards in {categories} categories",
   "import.trello.no_file": "Pick a Trello JSON export file first",
   "import.trello.no_target": "Pick a brand and stream first",
-
   "project_settings.export_section": "Backup & portability",
-  "project_settings.export_project": "Export project\u2026",
+  "project_settings.export_project": "Export project…",
   "project_settings.export_hint": "Save this project (cards, categories, comments) as a single JSON file.",
   "project_settings.export_success": "Exported to {path}",
-  "project_settings.export_failed": "Couldn\u2019t export the project"
+  "project_settings.export_failed": "Couldn’t export the project",
+  "enrol.title": "Connect to BRUV",
+  "enrol.subtitle": "Enter the address of your BRUV server and the one-time bootstrap token the operator shared with you. You only need to do this once per device.",
+  "enrol.server_url": "Server URL",
+  "enrol.server_url_hint": "The address of your BRUV server, including port.",
+  "enrol.bootstrap_token": "Bootstrap token",
+  "enrol.bootstrap_token_placeholder": "Paste bootstrap token…",
+  "enrol.bootstrap_token_hint": "Find this in bootstrap-token.txt in the server config directory. It is only used once.",
+  "enrol.device_name": "Device name",
+  "enrol.device_name_placeholder": "e.g. Harveys MacBook",
+  "enrol.device_name_hint": "Shown in the server device list so you can revoke access later if needed.",
+  "enrol.submit": "Connect",
+  "enrol.submitting": "Connecting…",
+  "enrol.err_url_required": "Server URL is required.",
+  "enrol.err_token_required": "Bootstrap token is required.",
+  "enrol.err_no_token_in_response": "Server did not return a device token.",
+  "enrol.err_network": "Could not reach the server. Check the URL and try again."
 }

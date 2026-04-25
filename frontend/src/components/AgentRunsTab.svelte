@@ -5,7 +5,7 @@
   import type { AgentRun } from '../lib/types'
   import { Clock, CircleCheck, CircleX, TriangleAlert, Square, Trash2, Timer } from 'lucide-svelte'
   import { onMount, onDestroy } from 'svelte'
-  import { EventsOn } from '../../wailsjs/runtime/runtime'
+  import { onEvent } from '../lib/events'
 
   let { cardId }: { cardId: string } = $props()
 
@@ -91,8 +91,8 @@
     cleanupFns = [
       // Silent reload — don't flash the loading placeholder every time
       // an agent run completes while the Runs tab is open.
-      EventsOn('agent:completed', (data: Record<string, string>) => { if (data?.cardID === cardId) loadRuns(true) }),
-      EventsOn('agent:failed', (data: Record<string, string>) => { if (data?.cardID === cardId) loadRuns(true) }),
+      onEvent<{ cardID?: string }>('agent:completed', (data) => { if (data?.cardID === cardId) loadRuns(true) }),
+      onEvent<{ cardID?: string }>('agent:failed', (data) => { if (data?.cardID === cardId) loadRuns(true) }),
     ]
   })
   onDestroy(() => { for (const fn of cleanupFns) { if (typeof fn === 'function') fn() } })

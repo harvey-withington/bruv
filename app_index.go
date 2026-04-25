@@ -1,15 +1,15 @@
 package main
 
-// SQLite index wiring: open/close, search, rebuild/refresh, and the
-// convenience list methods that read directly from the index rather
-// than walking the repo. Also hosts ListRecentlyUpdatedCards and
-// ListActivityLog because both are presentation-layer queries that
-// enrich index/repo data into flattened rows for the Inbox and
-// activity feed views.
+// Wails-bound surface for search, index lifecycle, and two cross-cutting
+// queries (ListActivityLog, ListRecentlyUpdatedCards) that read directly
+// from repo + enrich with category context for the Inbox and activity
+// feed views.
 //
-// Extracted from app.go so index lifecycle and its Wails-bound
-// read-side sit next to each other instead of being split across the
-// god-file.
+// Most methods here are thin forwarders to core/services/search — see
+// that package for the domain logic. openIndex, ListActivityLog, and
+// ListRecentlyUpdatedCards remain on App until their neighbouring
+// services are extracted (repository lifecycle + inbox/activity,
+// respectively).
 
 import (
 	"bruv/internal/index"
@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-// --- Index / Search ---
+// --- Index lifecycle (stays on App until repository-service extraction) ---
 
 func (a *App) openIndex(repoPath string) error {
 	if a.idx != nil {
@@ -35,68 +35,46 @@ func (a *App) openIndex(repoPath string) error {
 	return nil
 }
 
+// --- Search / index-backed lookups (forwarders to core/services/search) ---
+
 // GetCardProjectContext returns the stored project hierarchy path for a card (e.g. "Brand > Stream > Project").
 func (a *App) GetCardProjectContext(cardID string) string {
-	if a.idx == nil {
-		return ""
-	}
-	return a.idx.GetCardProjectContext(cardID)
+	return a.search.GetCardProjectContext(cardID)
 }
 
 // SearchCards performs a full-text search across all indexed cards.
 func (a *App) SearchCards(query string, limit int) ([]index.SearchResult, error) {
-	if a.idx == nil {
-		return nil, fmt.Errorf("no index available")
-	}
-	return a.idx.Search(query, limit)
+	return a.search.SearchCards(query, limit)
 }
 
 // SearchOrphanedCards performs a full-text search limited to orphaned (inbox) cards.
 func (a *App) SearchOrphanedCards(query string, limit int) ([]index.SearchResult, error) {
-	if a.idx == nil {
-		return nil, fmt.Errorf("no index available")
-	}
-	return a.idx.SearchOrphanedCards(query, limit)
+	return a.search.SearchOrphanedCards(query, limit)
 }
 
 // RebuildIndex drops and rebuilds the entire SQLite index from disk.
 func (a *App) RebuildIndex() (*index.RebuildStats, error) {
-	if a.idx == nil || a.repo == nil {
-		return nil, fmt.Errorf("no repository or index open")
-	}
-	return a.idx.FullRebuild(a.repo.Root)
+	return a.search.RebuildIndex()
 }
 
 // RefreshIndex incrementally updates the index for changed/new/deleted cards.
 func (a *App) RefreshIndex() (*index.RebuildStats, error) {
-	if a.idx == nil || a.repo == nil {
-		return nil, fmt.Errorf("no repository or index open")
-	}
-	return a.idx.IncrementalRefresh(a.repo.Root)
+	return a.search.RefreshIndex()
 }
 
 // ListCardIDsInCategory returns card IDs pinned to a project/category via the index.
 func (a *App) ListCardIDsInCategory(projectID, categoryID string) ([]string, error) {
-	if a.idx == nil {
-		return nil, fmt.Errorf("no index available")
-	}
-	return a.idx.ListCardIDsInCategory(projectID, categoryID)
+	return a.search.ListCardIDsInCategory(projectID, categoryID)
 }
 
 // ListOrphanedCardIDs returns IDs of cards that have no pins (Inbox cards).
 func (a *App) ListOrphanedCardIDs() ([]string, error) {
-	if a.idx == nil {
-		return nil, fmt.Errorf("no index available")
-	}
-	return a.idx.ListOrphanedCardIDs()
+	return a.search.ListOrphanedCardIDs()
 }
 
 // ListCardIDsByTag returns card IDs with a given tag via the index.
 func (a *App) ListCardIDsByTag(tag string) ([]string, error) {
-	if a.idx == nil {
-		return nil, fmt.Errorf("no index available")
-	}
-	return a.idx.ListCardIDsByTag(tag)
+	return a.search.ListCardIDsByTag(tag)
 }
 
 // ListActivityLog returns the most-recent limit activity entries, newest first.

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { GetCard, UpdateCardTitle, UpdateCardType, RefreshTypeBlocks, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
     DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, AddProjectLabel, GetProjectLabels, GetCategoryAcceptedTypes, GetAgentConfig } from '../lib/api'
-  import { EventsOn } from '../../wailsjs/runtime/runtime'
+  import { onEvent } from '../lib/events'
   import { projectTags, nav, getTagColor, getTagIcon, cardTypes } from '../lib/store.svelte'
   import DynamicIcon from './DynamicIcon.svelte'
   import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, BotMessageSquare, ChevronDown, ChevronsUpDown, ChevronsDownUp, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell, ClipboardList } from 'lucide-svelte'
@@ -467,7 +467,7 @@
   // change when they finish editing or navigate away.
   $effect(() => {
     const watchedCardId = cardId
-    const unsubscribe = EventsOn('card:updated', (data: { cardID?: string } | undefined) => {
+    const unsubscribe = onEvent<{ cardID?: string }>('card:updated', (data) => {
       if (!data || data.cardID !== watchedCardId) return
       if (editingTitle || editingDescription || editingBlockId !== null || editingBlockLabelId !== null) return
       // Silent refresh — don't wipe the visible card with the loading
@@ -1242,30 +1242,32 @@
       </div>
 
       <!-- Card-level attachments (pinned between scrollable body and footer) -->
-      <div class="card-attachments-pinned">
-        <div class="add-block-toolbar">
-          <button class="add-block-btn" bind:this={addBlockBtnEl} onclick={() => showBlockPicker = !showBlockPicker} title={t('tooltip.add_block')}>
-            <Plus size={12} />
-            <span>{t('tooltip.add_block')}</span>
-          </button>
-          {#if showBlockPicker && addBlockBtnEl}
-            <div class="add-block-picker" use:floatingDropdown={{ trigger: addBlockBtnEl }}>
-              {#each BLOCK_OPTIONS as opt}
-                {@const Icon = BLOCK_ICON_MAP[opt.icon]}
-                <button class="block-picker-item" onclick={() => { addBlock(opt.type); showBlockPicker = false }} title={opt.label}>
-                  <Icon size={14} />
-                  <span>{opt.label}</span>
-                </button>
-              {/each}
-            </div>
-          {/if}
+      {#if activeTab === 'details'}
+        <div class="card-attachments-pinned">
+          <div class="add-block-toolbar">
+            <button class="add-block-btn" bind:this={addBlockBtnEl} onclick={() => showBlockPicker = !showBlockPicker} title={t('tooltip.add_block')}>
+              <Plus size={12} />
+              <span>{t('tooltip.add_block')}</span>
+            </button>
+            {#if showBlockPicker && addBlockBtnEl}
+              <div class="add-block-picker" use:floatingDropdown={{ trigger: addBlockBtnEl }}>
+                {#each BLOCK_OPTIONS as opt}
+                  {@const Icon = BLOCK_ICON_MAP[opt.icon]}
+                  <button class="block-picker-item" onclick={() => { addBlock(opt.type); showBlockPicker = false }} title={opt.label}>
+                    <Icon size={14} />
+                    <span>{opt.label}</span>
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
+          <CardAttachments
+            {cardId}
+            attachments={card.file_attachments || []}
+            onCardUpdated={handleAttachmentUpdate}
+          />
         </div>
-        <CardAttachments
-          {cardId}
-          attachments={card.file_attachments || []}
-          onCardUpdated={handleAttachmentUpdate}
-        />
-      </div>
+      {/if}
 
       <div class="modal-footer">
         <button class="btn-delete" onclick={handleDelete} title={t('tooltip.delete_card')}><Trash2 size={14} /> {t('card.delete')}</button>

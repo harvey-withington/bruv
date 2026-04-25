@@ -176,7 +176,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     ListOrphanedCardIDs: async () => [],
     ListCardIDsByTag: async () => [],
 
-    ListAgentCardIDs: async () => [],
+    ListAgentCardStates: async () => ({}),
     GetNotifyConfig: async () => ({ system_enabled: false, smtp_host: '', smtp_port: 587, smtp_username: '', smtp_password: '', smtp_from_addr: '', smtp_to_addr: '', smtp_tls: true, webhook_url: '', webhook_auth_header: '' }),
     SetNotifyConfig: async () => {},
     GetNotifications: async () => [],

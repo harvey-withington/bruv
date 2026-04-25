@@ -17,6 +17,7 @@ package main
 // are the per-message resolutions of those.
 
 import (
+	"bruv/core/runtime/tools"
 	"bruv/internal/config"
 	"bruv/internal/llm"
 	"bruv/internal/model"
@@ -54,16 +55,16 @@ func (a *App) ApplyProjectPendingEdits(brandSlug, streamSlug, projectSlug, msgID
 	// project (moved or deleted between staging and apply), in addition to
 	// the original LLM-hallucination defence.
 	categories, _ := a.repo.ListCategories(brandSlug, streamSlug, projectSlug)
-	applyScope := projectChatScope{
-		brandSlug:   brandSlug,
-		streamSlug:  streamSlug,
-		projectSlug: projectSlug,
-		cardIDs:     make(map[string]bool),
+	applyScope := tools.ProjectChatScope{
+		BrandSlug:   brandSlug,
+		StreamSlug:  streamSlug,
+		ProjectSlug: projectSlug,
+		CardIDs:     make(map[string]bool),
 	}
 	for _, cat := range categories {
 		pins, _ := a.repo.ListCardsInCategory(cat.ID, cat.ID)
 		for _, p := range pins {
-			applyScope.cardIDs[p.CardID] = true
+			applyScope.CardIDs[p.CardID] = true
 		}
 	}
 

@@ -1,6 +1,6 @@
 // Reactive app state using Svelte 5 module-level $state
-import { ListCategories, GetCard, ListCardIDsInCategory, GetProjectLabels, ListCardTypes, GetTagColors, ListAgentCardIDs } from './api'
-import { EventsOn } from '../../wailsjs/runtime/runtime'
+import { ListCategories, GetCard, ListCardIDsInCategory, GetProjectLabels, ListCardTypes, GetTagColors, ListAgentCardStates } from './api'
+import { onEvent } from './events'
 import type { CardTypeInfo } from './types'
 
 // Navigation state
@@ -48,7 +48,11 @@ export const board = $state({
     }>
   }>,
   loading: false,
-  agentCardIds: {} as Record<string, boolean>,
+  // cardID → enabled. Present for every card with an agent
+  // configuration on disk; absent for cards that have never been
+  // configured. Lets the UI distinguish "no agent" from "agent
+  // configured but disabled".
+  agentCardStates: {} as Record<string, boolean>,
   runningAgentIds: {} as Record<string, boolean>,
 })
 
@@ -204,13 +208,10 @@ export async function loadBoard(brandSlug: string, streamSlug: string, projectSl
         cards: cards.filter((c): c is NonNullable<typeof c> => c !== null),
       }
     }))
-    // Load agent card IDs before setting categories so indicators are ready when cards render
+    // Load agent card states before setting categories so indicators are ready when cards render
     try {
-      const ids = await ListAgentCardIDs() || []
-      const map: Record<string, boolean> = {}
-      for (const id of ids) map[id] = true
-      board.agentCardIds = map
-    } catch { board.agentCardIds = {} }
+      board.agentCardStates = (await ListAgentCardStates()) || {}
+    } catch { board.agentCardStates = {} }
     board.categories = populated
   } catch {
     board.categories = []
@@ -223,18 +224,18 @@ export async function loadBoard(brandSlug: string, streamSlug: string, projectSl
 // Set up Wails event listeners for agent running state.
 // Returns cleanup function. Call once from App.svelte onMount.
 export function setupAgentEventListeners(): () => void {
-  const unsub1 = EventsOn('agent:started', (data: any) => {
+  const unsub1 = onEvent<{ cardID?: string }>('agent:started', (data) => {
     if (data?.cardID) {
       board.runningAgentIds = { ...board.runningAgentIds, [data.cardID]: true }
     }
   })
-  const unsub2 = EventsOn('agent:completed', (data: any) => {
+  const unsub2 = onEvent<{ cardID?: string }>('agent:completed', (data) => {
     if (data?.cardID) {
       const { [data.cardID]: _, ...rest } = board.runningAgentIds
       board.runningAgentIds = rest
     }
   })
-  const unsub3 = EventsOn('agent:failed', (data: any) => {
+  const unsub3 = onEvent<{ cardID?: string }>('agent:failed', (data) => {
     if (data?.cardID) {
       const { [data.cardID]: _, ...rest } = board.runningAgentIds
       board.runningAgentIds = rest

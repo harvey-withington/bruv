@@ -1,7 +1,24 @@
 package main
 
 import (
-	"bruv/internal/agent"
+	"bruv/core/events"
+	"bruv/core/reposync"
+	agentrt "bruv/core/runtime/agent"
+	chatrt "bruv/core/runtime/chat"
+	"bruv/core/runtime/prompts"
+	"bruv/core/runtime/tools"
+	agentsvc "bruv/core/services/agentsvc"
+	"bruv/core/services/card"
+	"bruv/core/services/catalog"
+	chatsvc "bruv/core/services/chat"
+	reposvc "bruv/core/services/repository"
+	transporthttp "bruv/transport/http"
+	llmsvc "bruv/core/services/llm"
+	"bruv/core/services/mcpsvc"
+	"bruv/core/services/notify"
+	projectsvc "bruv/core/services/project"
+	"bruv/core/services/search"
+	"bruv/core/services/settings"
 	"bruv/internal/config"
 	"bruv/internal/index"
 	"bruv/internal/logging"
@@ -60,12 +77,10 @@ type App struct {
 	// llmActors tracks active LLM chat sessions by cardID → model name.
 	// Set during SendChatMessage so logActivity can attribute edits to the correct actor.
 	llmActors sync.Map
-	// Agent scheduler
-	scheduler      *agent.Scheduler
-	dueDateScanner *agent.DueDateScanner
-	agentCancels   sync.Map // cardID → context.CancelFunc
-	forceQuit      bool
-	trayPauseItem  interface{ Check(); Uncheck(); Checked() bool } // system tray "Pause Agents" menu item
+	// Scheduler, due-date scanner, and agent cancel map moved onto the
+	// agent runtime (see core/runtime/agent). Access via a.agentRT.
+	forceQuit     bool
+	trayPauseItem interface{ Check(); Uncheck(); Checked() bool } // system tray "Pause Agents" menu item
 	// mcpRegistry manages external MCP server subprocesses for the
 	// currently open repo. Nil when no repo is open. Tools exposed by
 	// MCP servers appear in the agent tool catalogue alongside
@@ -73,17 +88,242 @@ type App struct {
 	// path via a namespaced ID prefix. See internal/mcp for the full
 	// architecture and docs/mcp-servers.md for user-facing docs.
 	mcpRegistry *mcp.Registry
+	// Service registry — each extracted service lives in core/services/<name>.
+	// App retains domain coordination (repo lifecycle, window, tray) and
+	// forwards Wails-bound methods to the matching service.
+	search     *search.Service
+	notify     *notify.Service
+	mcpService *mcpsvc.Service
+	llmService *llmsvc.Service
+	settings   *settings.Service
+	catalog     *catalog.Service
+	project     *projectsvc.Service
+	cardService  *card.Service
+	chat         *chatsvc.Service
+	agentService *agentsvc.Service
+	repoService  *reposvc.Service
+
+	// tools is the LLM tool dispatcher, extracted from app_tools.go
+	// in the LLM-runtime-extraction stage-1 pass. See core/runtime/tools.
+	tools *tools.Dispatcher
+
+	// prompts is the LLM system-prompt builder (card / project / agent),
+	// extracted from app_chat.go + app_agent.go in stage 2 of the
+	// LLM-runtime extraction. See core/runtime/prompts.
+	prompts *prompts.Builder
+
+	// chatRT is the chat runtime — runChatLoop + SendCard + SendProject,
+	// extracted from app_chat.go in stage 3. See core/runtime/chat.
+	chatRT *chatrt.Runtime
+
+	// agentRT is the agent execution runtime — scheduler + due-date
+	// scanner + executeAgent + MCP tool bridging, extracted from
+	// app_agent.go in stage 4. See core/runtime/agent.
+	agentRT *agentrt.Runtime
+
+	// bus is the transport-agnostic event bus. Domain code publishes
+	// to it via a.bus.Publish; at startup a bridge goroutine subscribes
+	// and forwards every event to wailsRuntime.EventsEmit. When a
+	// WebSocket transport lands in phase 3 it becomes a second
+	// subscriber — no domain code changes.
+	bus         *events.MemBus
+	busUnsub    func()
+	busStopOnce sync.Once
+
+	// httpServer is the HTTP + SSE transport. Boots on a random
+	// 127.0.0.1 port from the Wails desktop in phase 3 so the
+	// frontend can migrate to speaking HTTP in phase 4 without any
+	// new server code. Remote deployment (Modes A/B) will bind the
+	// same server to the tailnet interface instead of loopback.
+	httpServer *transporthttp.Server
+
+	// repoWatcher is the file-system watcher for the currently-open
+	// repo. It publishes card:updated/project:updated/etc events when
+	// files change externally (git pull, Syncthing, hand-edit), which
+	// is how sync-based collaboration flows to the UI. Nil when no
+	// repo is open.
+	repoWatcher *reposync.Watcher
 }
+
+// repositoryDeps adapts App to reposvc.Deps.
+type repositoryDeps struct{ app *App }
+
+func (d repositoryDeps) Repo() *repo.Repository { return d.app.repo }
+func (d repositoryDeps) Index() *index.Index    { return d.app.idx }
+
+// agentServiceDeps adapts App to agentsvc.Deps.
+type agentServiceDeps struct{ app *App }
+
+func (d agentServiceDeps) Repo() *repo.Repository { return d.app.repo }
+func (d agentServiceDeps) Index() *index.Index    { return d.app.idx }
+
+// chatDeps adapts App to chatsvc.Deps.
+type chatDeps struct{ app *App }
+
+func (d chatDeps) Repo() *repo.Repository { return d.app.repo }
+
+// cardDeps adapts App to card.Deps. LogActivity bridges to the
+// user-or-LLM actor resolution that still lives on App; ApplyTypeBlocks
+// bridges to the catalog service so card service doesn't need to know
+// about schema.
+type cardDeps struct{ app *App }
+
+func (d cardDeps) Repo() *repo.Repository { return d.app.repo }
+func (d cardDeps) Index() *index.Index    { return d.app.idx }
+func (d cardDeps) ApplyTypeBlocks(cardID, cardType string) {
+	d.app.catalog.ApplyTypeBlocks(cardID, cardType)
+}
+func (d cardDeps) LogActivity(cardID, action, field string) {
+	d.app.logActivity(cardID, action, field)
+}
+func (d cardDeps) LogActivityWithContext(cardID, action, field, cardTitle string, breadcrumbs []card.CategoryPath) {
+	d.app.logActivityWithContext(cardID, action, field, cardTitle, breadcrumbs)
+}
+func (d cardDeps) Publish(topic string, payload any) { d.app.bus.Publish(topic, payload) }
+
+// projectDeps adapts App to projectsvc.Deps.
+type projectDeps struct{ app *App }
+
+func (d projectDeps) Repo() *repo.Repository         { return d.app.repo }
+func (d projectDeps) Index() *index.Index            { return d.app.idx }
+func (d projectDeps) Publish(topic string, p any)    { d.app.bus.Publish(topic, p) }
+
+// catalogDeps adapts App to catalog.Deps. UpdateCardBlocks is exposed
+// because catalog's template-merge path writes back to card blocks;
+// it delegates to the App method, which will forward to card service
+// once that lands.
+type catalogDeps struct{ app *App }
+
+func (d catalogDeps) Repo() *repo.Repository     { return d.app.repo }
+func (d catalogDeps) Registry() *schema.Registry { return d.app.registry }
+func (d catalogDeps) Index() *index.Index        { return d.app.idx }
+func (d catalogDeps) UpdateCardBlocks(id string, blocks []model.Block) (*model.Card, error) {
+	return d.app.UpdateCardBlocks(id, blocks)
+}
+func (d catalogDeps) Publish(topic string, payload any) { d.app.bus.Publish(topic, payload) }
+
+// llmDeps adapts App to llmsvc.Deps — exposes the Wails-bound ctx
+// that test-connection probes use for their 30s timeout.
+type llmDeps struct{ app *App }
+
+func (d llmDeps) Ctx() context.Context { return d.app.ctx }
+
+// searchDeps adapts App to the search.Deps interface without exposing
+// repo/index on App's public surface (which would bind them to Wails).
+type searchDeps struct{ app *App }
+
+func (d searchDeps) Repo() *repo.Repository { return d.app.repo }
+func (d searchDeps) Index() *index.Index    { return d.app.idx }
 
 // NewApp creates a new App application struct
 func NewApp() *App {
-	return &App{}
+	a := &App{}
+	a.bus = events.NewMemBus(128)
+	a.search = search.New(searchDeps{app: a})
+	a.notify = notify.New()
+	a.mcpService = mcpsvc.New(mcpDeps{app: a})
+	a.llmService = llmsvc.New(llmDeps{app: a})
+	a.settings = settings.New()
+	a.catalog = catalog.New(catalogDeps{app: a})
+	a.project = projectsvc.New(projectDeps{app: a})
+	a.cardService = card.New(cardDeps{app: a})
+	a.chat = chatsvc.New(chatDeps{app: a})
+	a.agentService = agentsvc.New(agentServiceDeps{app: a})
+	a.repoService = reposvc.New(repositoryDeps{app: a})
+	a.tools = tools.New(toolsDeps{app: a})
+	a.prompts = prompts.New(promptsDeps{app: a})
+	a.chatRT = chatrt.New(chatDepsRT{app: a})
+	a.agentRT = agentrt.New(agentDepsRT{app: a})
+	return a
 }
+
+// chatDepsRT adapts App to chatrt.Deps — exposes repo + schema,
+// context + the LLM / card services, the tool dispatcher + prompt
+// builder, and the two mutable state handles (MCP registry + the
+// llmActors sync.Map) the chat loop threads through.
+//
+// Named chatDepsRT so it doesn't collide with the existing `chatDeps`
+// used for the chat-history service adapter (see core/services/chat).
+type chatDepsRT struct{ app *App }
+
+func (d chatDepsRT) Repo() *repo.Repository            { return d.app.repo }
+func (d chatDepsRT) Registry() *schema.Registry        { return d.app.registry }
+func (d chatDepsRT) Ctx() context.Context              { return d.app.ctx }
+func (d chatDepsRT) LLM() *llmsvc.Service              { return d.app.llmService }
+func (d chatDepsRT) Card() *card.Service               { return d.app.cardService }
+func (d chatDepsRT) Tools() *tools.Dispatcher          { return d.app.tools }
+func (d chatDepsRT) Prompts() *prompts.Builder         { return d.app.prompts }
+func (d chatDepsRT) MCPRegistry() *mcp.Registry        { return d.app.mcpRegistry }
+func (d chatDepsRT) LLMActors() *sync.Map              { return &d.app.llmActors }
+
+// agentDepsRT adapts App to agentrt.Deps — exposes the full set of
+// handles the agent runtime needs: repo + index + schema + ctx, the
+// event bus (for agent:started/completed/card:updated/scheduler:paused
+// notifications), the four services the built-in tool dispatch writes
+// through, the two sub-runtimes (prompts + chat), and the mutable
+// runtime state (MCP registry + llmActors).
+type agentDepsRT struct{ app *App }
+
+func (d agentDepsRT) Repo() *repo.Repository            { return d.app.repo }
+func (d agentDepsRT) Index() *index.Index               { return d.app.idx }
+func (d agentDepsRT) Registry() *schema.Registry        { return d.app.registry }
+func (d agentDepsRT) Ctx() context.Context              { return d.app.ctx }
+func (d agentDepsRT) Publish(topic string, payload any) { d.app.bus.Publish(topic, payload) }
+func (d agentDepsRT) LLM() *llmsvc.Service              { return d.app.llmService }
+func (d agentDepsRT) Card() *card.Service               { return d.app.cardService }
+func (d agentDepsRT) Project() *projectsvc.Service      { return d.app.project }
+func (d agentDepsRT) Catalog() *catalog.Service         { return d.app.catalog }
+func (d agentDepsRT) Prompts() *prompts.Builder         { return d.app.prompts }
+func (d agentDepsRT) ChatRT() *chatrt.Runtime           { return d.app.chatRT }
+func (d agentDepsRT) MCPRegistry() *mcp.Registry        { return d.app.mcpRegistry }
+func (d agentDepsRT) LLMActors() *sync.Map              { return &d.app.llmActors }
+
+// toolsDeps adapts App to tools.Deps — exposes repo, schema registry,
+// bus publish, and the three services the tool dispatcher mutates
+// through. Matches the per-service-adapter pattern used elsewhere.
+type toolsDeps struct{ app *App }
+
+func (d toolsDeps) Repo() *repo.Repository                   { return d.app.repo }
+func (d toolsDeps) Registry() *schema.Registry               { return d.app.registry }
+func (d toolsDeps) Publish(topic string, payload any)        { d.app.bus.Publish(topic, payload) }
+func (d toolsDeps) Card() *card.Service                      { return d.app.cardService }
+func (d toolsDeps) Project() *projectsvc.Service             { return d.app.project }
+func (d toolsDeps) Catalog() *catalog.Service                { return d.app.catalog }
+
+// promptsDeps adapts App to prompts.Deps — prompt builders read repo
+// metadata, the schema registry, and the card + search services.
+// They never mutate, so no Publish or Project/Catalog handles are
+// needed here.
+type promptsDeps struct{ app *App }
+
+func (d promptsDeps) Repo() *repo.Repository     { return d.app.repo }
+func (d promptsDeps) Registry() *schema.Registry { return d.app.registry }
+func (d promptsDeps) Card() *card.Service        { return d.app.cardService }
+func (d promptsDeps) Search() *search.Service    { return d.app.search }
 
 // startup is called when the app starts. The context is saved
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+
+	// Start the event-bus → Wails bridge. The goroutine drains the
+	// bus subscription and forwards every published event to the
+	// frontend via wailsRuntime.EventsEmit. This is the only place
+	// Wails IPC touches the event stream — once an HTTP transport
+	// lands, it becomes a second subscriber alongside this one.
+	a.startBusBridge()
+
+	// Start the HTTP transport on loopback. Phase 3 boots it for
+	// parity testing; phase 4 migrates the frontend to call through
+	// it instead of Wails IPC. Bind failures are non-fatal — the
+	// Wails desktop still works without the HTTP surface.
+	a.startHTTPTransport()
+
+	// Self-enrol as a device against the newly-started server so
+	// the frontend has a valid bearer token before it makes its
+	// first RPC call. Runs only once per install — the resulting
+	// device token is cached in clientdata/device-token.txt.
+	a.ensureDesktopDeviceToken()
 
 	// Initialise file logging to <configDir>/logs/bruv-YYYY-MM-DD.log.
 	// Failure is non-fatal — stderr still gets everything — but we log
@@ -195,9 +435,11 @@ func (a *App) beforeClose(ctx context.Context) bool {
 	a.saveCurrentBounds()
 
 	if a.forceQuit {
-		a.stopScheduler()
-		a.stopDueDateScanner()
+		a.agentRT.StopScheduler()
+		a.agentRT.StopDueDateScanner()
 		a.stopMCPRegistry()
+		a.stopHTTPTransport()
+		a.stopBusBridge()
 		logging.Close()
 		return false // allow quit
 	}
@@ -205,6 +447,146 @@ func (a *App) beforeClose(ctx context.Context) bool {
 	// Hide window instead of closing — agents keep running in background
 	wailsRuntime.WindowHide(ctx)
 	return true // prevent close
+}
+
+// startBusBridge begins draining the event bus and forwarding every
+// published event to the frontend via wailsRuntime.EventsEmit. Must be
+// called after a.ctx is populated (the Wails runtime methods require
+// a valid context). Idempotent — calling twice replaces the prior
+// subscription and cancels the old goroutine.
+func (a *App) startBusBridge() {
+	// Drop any prior subscription (e.g. on a hot reload in dev).
+	if a.busUnsub != nil {
+		a.busUnsub()
+	}
+	ch, unsub := a.bus.Subscribe()
+	a.busUnsub = unsub
+	a.busStopOnce = sync.Once{}
+
+	ctx := a.ctx
+	go func() {
+		defer logging.Recover("busBridge")
+		for ev := range ch {
+			// Preserve existing wire shape: frontend EventsOn
+			// handlers receive the payload directly, not a wrapped
+			// Event envelope. A future HTTP/WS transport will carry
+			// the full envelope (ID, At) for resume-cursor support.
+			wailsRuntime.EventsEmit(ctx, ev.Topic, ev.Payload)
+
+			// Tray tooltip reflects unread notification count. The
+			// agent runtime no longer refreshes the tray directly (it
+			// must stay host-agnostic), so we piggy-back on the event
+			// stream here — any source of notification:new keeps the
+			// tooltip accurate on Windows.
+			if ev.Topic == "notification:new" {
+				go a.refreshTrayTooltip()
+			}
+		}
+	}()
+}
+
+// stopBusBridge cancels the bus subscription and lets the forwarder
+// goroutine exit. Safe to call multiple times.
+func (a *App) stopBusBridge() {
+	a.busStopOnce.Do(func() {
+		if a.busUnsub != nil {
+			a.busUnsub()
+			a.busUnsub = nil
+		}
+	})
+}
+
+// startHTTPTransport binds the HTTP server to a random loopback port.
+// Failures are logged but non-fatal — the Wails desktop still runs
+// without the HTTP surface. Token + resolved addr go into slog so a
+// developer tail-ing the log can hit the server from curl.
+//
+// The Svelte bundle is passed through as an embedded FS so the
+// server can serve it at /app/* (Mode B). The desktop Wails shell
+// still loads the bundle directly from its own embed; the HTTP path
+// is there so a browser on the tailnet can reach the UI too.
+func (a *App) startHTTPTransport() {
+	cfgDir, err := config.ConfigDir()
+	if err != nil {
+		slog.Warn("http transport: resolve config dir failed", "err", err)
+		return
+	}
+	srv, err := transporthttp.New(transporthttp.Config{
+		Addr:         "127.0.0.1:0",
+		ConfigDir:    cfgDir,
+		Version:      AppVersion,
+		BuildDate:    BuildDate,
+		StaticAssets: assets,
+	}, a, a.bus)
+	if err != nil {
+		slog.Warn("http transport: construct failed", "err", err)
+		return
+	}
+	if err := srv.Start(); err != nil {
+		slog.Warn("http transport: start failed", "err", err)
+		return
+	}
+	a.httpServer = srv
+}
+
+// stopHTTPTransport shuts the HTTP server down. Safe to call when the
+// server never started (no-op).
+func (a *App) stopHTTPTransport() {
+	if a.httpServer == nil {
+		return
+	}
+	if err := a.httpServer.Stop(); err != nil {
+		slog.Warn("http transport: shutdown failed", "err", err)
+	}
+	a.httpServer = nil
+}
+
+// GetHTTPTransportInfo returns the backend endpoint + bearer token
+// the frontend should use. Resolution order (highest precedence
+// first):
+//
+//  1. BRUV_REMOTE_URL + BRUV_REMOTE_TOKEN env vars — Mode B2
+//     (Wails shell points at a tailnet-hosted remote server). User
+//     obtains the token out-of-band today; the Phase 5 enrolment
+//     wizard will automate this later.
+//  2. Local loopback HTTP server + self-enrolled device token —
+//     the normal desktop-only case.
+//
+// Returns empty strings when neither is available (server didn't
+// start + no remote configured), which the cloud adapter surfaces
+// as a "transport unavailable" error.
+func (a *App) GetHTTPTransportInfo() map[string]string {
+	if remoteURL := os.Getenv("BRUV_REMOTE_URL"); remoteURL != "" {
+		if token := os.Getenv("BRUV_REMOTE_TOKEN"); token != "" {
+			// Strip scheme if present — the cloud adapter expects
+			// just host:port and adds http:// itself.
+			addr := strings.TrimPrefix(strings.TrimPrefix(remoteURL, "https://"), "http://")
+			return map[string]string{
+				"addr":   addr,
+				"token":  token,
+				"scheme": schemeFromURL(remoteURL),
+				"remote": "true",
+			}
+		}
+		slog.Warn("BRUV_REMOTE_URL set without BRUV_REMOTE_TOKEN — falling back to loopback")
+	}
+	if a.httpServer == nil {
+		return map[string]string{"addr": "", "token": ""}
+	}
+	return map[string]string{
+		"addr":   a.httpServer.Addr(),
+		"token":  desktopDeviceToken,
+		"scheme": "http",
+		"remote": "false",
+	}
+}
+
+// schemeFromURL returns "https" if the URL is https://..., else "http".
+func schemeFromURL(u string) string {
+	if strings.HasPrefix(u, "https://") {
+		return "https"
+	}
+	return "http"
 }
 
 // logIdxErr logs a search-index operation failure without blocking the
@@ -219,9 +601,7 @@ func (a *App) logIdxErr(op string, err error) {
 		return
 	}
 	slog.Warn("index update failed", "op", op, "err", err)
-	if a.ctx != nil {
-		wailsRuntime.EventsEmit(a.ctx, "index:stale", op)
-	}
+	a.bus.Publish("index:stale", op)
 }
 
 // idxIncrementalRefresh wraps a.idx.IncrementalRefresh so call sites
@@ -334,16 +714,9 @@ func (a *App) CheckForUpdates() update.Result {
 }
 
 // MarkLLMNudgeShown persists a flag so the first-run LLM-configuration
-// nudge only fires once per install. Intentionally writes via the
-// existing Preferences store so it survives across restarts but resets
-// when the user wipes their config directory (desired behaviour).
+// nudge only fires once per install.
 func (a *App) MarkLLMNudgeShown() error {
-	p, err := config.LoadPreferences()
-	if err != nil {
-		return err
-	}
-	p.LLMNudgeShown = true
-	return config.SavePreferences(p)
+	return a.settings.MarkLLMNudgeShown()
 }
 
 // PickFolder opens a native folder picker dialog and returns the selected path.
@@ -408,11 +781,34 @@ func (a *App) InitRepository(basePath, name string) (string, error) {
 		slog.Warn("open index failed", "repo", r.Root, "err", err)
 	}
 
+	// Ship the sync-hygiene files so users who put this repo under
+	// git / Syncthing / Dropbox don't accidentally sync derived state.
+	if err := repo.EnsureSyncHygiene(r.Root); err != nil {
+		slog.Warn("init: ensure sync hygiene failed", "err", err)
+	}
+
+	// Point the repo at its server-side runs directory so agent
+	// run history stays out of the synced repo tree.
+	if err := a.configureRunsDir(r); err != nil {
+		slog.Warn("init: configure runs dir failed", "err", err)
+	}
+
+	// Acquire the repo lock so a second BRUV process can't mutate the
+	// same repo concurrently. Failure here is non-fatal on a fresh
+	// init — but surface it so the user knows.
+	if err := a.acquireRepoLock(r.Root); err != nil {
+		slog.Warn("init: repo lock failed", "err", err)
+	}
+
 	// Add to recent repos
 	_ = config.AddRecent(r.Root, name)
 
 	// Heal tag colours in the background — no-op for a fresh repo, safe to run.
 	go a.healTagColors()
+
+	// Start watching the repo for external file changes so a sync
+	// tool's writes (git pull, Syncthing) surface to the UI.
+	a.startRepoWatcher()
 
 	return r.Root, nil
 }
@@ -475,10 +871,10 @@ func (a *App) OpenRepository(path string) error {
 	go a.healTagColors()
 
 	// Start agent scheduler
-	a.startScheduler()
+	a.agentRT.StartScheduler()
 
 	// Start due-date notification scanner
-	a.startDueDateScanner()
+	a.agentRT.StartDueDateScanner()
 
 	// Start MCP registry for this repo. Failures here don't block
 	// opening the repo — servers that can't start are surfaced in
@@ -486,6 +882,31 @@ func (a *App) OpenRepository(path string) error {
 	// agent catalogue. A broken MCP config must never prevent
 	// access to the card data.
 	a.startMCPRegistry()
+
+	// Make sure the sync-hygiene files are present (older repos
+	// predate this). Best-effort.
+	if err := repo.EnsureSyncHygiene(r.Root); err != nil {
+		slog.Warn("open: ensure sync hygiene failed", "err", err)
+	}
+
+	// Wire up the server-side runs directory. The first
+	// GetAgentConfig call on each card will migrate embedded runs
+	// out of the in-repo .agent.json if necessary (one-shot per card).
+	if err := a.configureRunsDir(r); err != nil {
+		slog.Warn("open: configure runs dir failed", "err", err)
+	}
+
+	// Acquire the repo lock. If another BRUV process already holds
+	// it, OpenRepository still proceeds (we log) — hard-refusing
+	// would make concurrent same-user sessions intolerable. The lock
+	// is advisory: it exists so users can detect stale-process
+	// conditions and as a hook for future stronger guarantees.
+	if err := a.acquireRepoLock(r.Root); err != nil {
+		slog.Warn("open: repo lock failed", "err", err)
+	}
+
+	// Start watching the repo for external file changes.
+	a.startRepoWatcher()
 
 	return nil
 }
@@ -534,9 +955,11 @@ func (a *App) HasRepository() bool {
 
 // CloseRepository closes the current repository and its index.
 func (a *App) CloseRepository() {
-	a.stopScheduler()
-	a.stopDueDateScanner()
+	a.agentRT.StopScheduler()
+	a.agentRT.StopDueDateScanner()
 	a.stopMCPRegistry()
+	a.stopRepoWatcher()
+	a.releaseRepoLock()
 	if a.idx != nil {
 		a.idx.Close()
 		a.idx = nil
@@ -544,31 +967,40 @@ func (a *App) CloseRepository() {
 	a.repo = nil
 }
 
+// startRepoWatcher kicks off the external-change file watcher for the
+// currently-open repo. Publishes into the same event bus that domain
+// mutations use — subscribers don't care whether the change came from
+// a local mutation or a sync-tool pull.
+func (a *App) startRepoWatcher() {
+	if a.repo == nil {
+		return
+	}
+	w, err := reposync.Start(a.repo.Root, a.bus)
+	if err != nil {
+		slog.Warn("repo watcher: start failed", "err", err)
+		return
+	}
+	a.repoWatcher = w
+}
+
+// stopRepoWatcher tears down the file watcher. Safe to call when the
+// watcher never started.
+func (a *App) stopRepoWatcher() {
+	if a.repoWatcher == nil {
+		return
+	}
+	a.repoWatcher.Stop()
+	a.repoWatcher = nil
+}
+
 // ListRecentRepos returns recently opened repositories.
-func (a *App) ListRecentRepos() ([]config.RecentRepo, error) {
-	return config.LoadRecent()
-}
+// --- Repository forwarders (core/services/repository) ---
 
-// RemoveRecentRepo removes a path from the recent repos list.
-func (a *App) RemoveRecentRepo(path string) error {
-	return config.RemoveRecent(path)
-}
-
-// --- Repository metadata ---
-
-func (a *App) GetRepoDescription() (string, error) {
-	if a.repo == nil {
-		return "", fmt.Errorf("no repository open")
-	}
-	return a.repo.Manifest.Description, nil
-}
-
+func (a *App) ListRecentRepos() ([]config.RecentRepo, error) { return a.repoService.ListRecentRepos() }
+func (a *App) RemoveRecentRepo(path string) error            { return a.repoService.RemoveRecentRepo(path) }
+func (a *App) GetRepoDescription() (string, error)           { return a.repoService.GetDescription() }
 func (a *App) UpdateRepoDescription(description string) error {
-	description = repo.SanitizeText(description)
-	if a.repo == nil {
-		return fmt.Errorf("no repository open")
-	}
-	return a.repo.UpdateManifestDescription(description)
+	return a.repoService.UpdateDescription(description)
 }
 
 // --- Card ---
@@ -639,243 +1071,62 @@ func (a *App) logActivity(cardID, action, field string) {
 }
 
 
-// --- Move & Copy ---
+// --- Move / Copy / Reorder (forwarders to core/services/project) ---
 
-// MoveProject moves a project from one stream to another.
 func (a *App) MoveProject(fromBrand, fromStream, projectSlug, toBrand, toStream string) error {
-	if a.repo == nil {
-		return fmt.Errorf("no repository open")
-	}
-	_, err := a.repo.MoveProject(fromBrand, fromStream, projectSlug, toBrand, toStream)
-	return err
+	return a.project.MoveProject(fromBrand, fromStream, projectSlug, toBrand, toStream)
 }
-
-// MoveStream moves a stream from one brand to another.
 func (a *App) MoveStream(fromBrand, streamSlug, toBrand string) error {
-	if a.repo == nil {
-		return fmt.Errorf("no repository open")
-	}
-	_, err := a.repo.MoveStream(fromBrand, streamSlug, toBrand)
-	return err
+	return a.project.MoveStream(fromBrand, streamSlug, toBrand)
 }
-
-// duplicateCardsForProject duplicates all cards in source categories and pins them
-// to the corresponding destination categories. Uses the index to find cards.
-// oldCatIDs and newCatIDs map category slug → category ID.
-func (a *App) duplicateCardsForProject(oldCatIDs, newCatIDs map[string]string) {
-	if a.idx == nil || a.repo == nil {
-		return
-	}
-	for slug, oldCatID := range oldCatIDs {
-		newCatID, ok := newCatIDs[slug]
-		if !ok {
-			continue
-		}
-		// Frontend convention: projectID == categoryID in pins
-		cardIDs, err := a.idx.ListCardIDsInCategory(oldCatID, oldCatID)
-		if err != nil || len(cardIDs) == 0 {
-			continue
-		}
-		for i, cardID := range cardIDs {
-			newCard, err := a.repo.DuplicateCard(cardID)
-			if err != nil {
-				continue
-			}
-			// Pin with categoryID for both projectID and categoryID, preserving position
-			_ = a.repo.PinCardAt(newCard.ID, newCatID, newCatID, i)
-		}
-	}
-}
-
-// snapshotCatIDs returns a map of category slug → category ID for a project.
-func (a *App) snapshotCatIDs(brand, stream, project string) map[string]string {
-	cats, _ := a.repo.ListCategories(brand, stream, project)
-	m := make(map[string]string, len(cats))
-	for _, c := range cats {
-		m[c.Slug] = c.ID
-	}
-	return m
-}
-
-// CopyBrand deep-copies a brand and all its contents, including cards.
 func (a *App) CopyBrand(brandSlug string) (*model.Brand, error) {
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-
-	// Snapshot all source category IDs before copy
-	type projCatSnapshot struct {
-		streamSlug  string
-		projectSlug string
-		catIDs      map[string]string
-	}
-	var snapshots []projCatSnapshot
-	srcStreams, _ := a.repo.ListStreams(brandSlug)
-	for _, s := range srcStreams {
-		projects, _ := a.repo.ListProjects(brandSlug, s.Slug)
-		for _, p := range projects {
-			snapshots = append(snapshots, projCatSnapshot{
-				streamSlug:  s.Slug,
-				projectSlug: p.Slug,
-				catIDs:      a.snapshotCatIDs(brandSlug, s.Slug, p.Slug),
-			})
-		}
-	}
-
-	result, err := a.repo.CopyBrand(brandSlug)
-	if err != nil {
-		return nil, err
-	}
-
-	// Duplicate cards for each project using new category IDs
-	for _, snap := range snapshots {
-		newCatIDs := a.snapshotCatIDs(result.Slug, snap.streamSlug, snap.projectSlug)
-		a.duplicateCardsForProject(snap.catIDs, newCatIDs)
-	}
-
-	if a.idx != nil {
-		a.idxIncrementalRefresh()
-	}
-	return result, nil
+	return a.project.CopyBrand(brandSlug)
 }
-
-// CopyStream deep-copies a stream into the target brand, including cards.
 func (a *App) CopyStream(fromBrand, streamSlug, toBrand string) (*model.Stream, error) {
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-
-	// Snapshot source category IDs
-	type projCatSnapshot struct {
-		projectSlug string
-		catIDs      map[string]string
-	}
-	var snapshots []projCatSnapshot
-	srcProjects, _ := a.repo.ListProjects(fromBrand, streamSlug)
-	for _, p := range srcProjects {
-		snapshots = append(snapshots, projCatSnapshot{
-			projectSlug: p.Slug,
-			catIDs:      a.snapshotCatIDs(fromBrand, streamSlug, p.Slug),
-		})
-	}
-
-	result, err := a.repo.CopyStream(fromBrand, streamSlug, toBrand)
-	if err != nil {
-		return nil, err
-	}
-
-	// Duplicate cards for each project
-	for _, snap := range snapshots {
-		newCatIDs := a.snapshotCatIDs(toBrand, result.Slug, snap.projectSlug)
-		a.duplicateCardsForProject(snap.catIDs, newCatIDs)
-	}
-
-	if a.idx != nil {
-		a.idxIncrementalRefresh()
-	}
-	return result, nil
+	return a.project.CopyStream(fromBrand, streamSlug, toBrand)
 }
-
-// CopyProject deep-copies a project into the target stream, including cards.
 func (a *App) CopyProject(fromBrand, fromStream, projectSlug, toBrand, toStream string, position int) (*model.Project, error) {
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-
-	// Snapshot source category IDs
-	oldCatIDs := a.snapshotCatIDs(fromBrand, fromStream, projectSlug)
-
-	result, err := a.repo.CopyProject(fromBrand, fromStream, projectSlug, toBrand, toStream, position)
-	if err != nil {
-		return nil, err
-	}
-
-	// Duplicate cards
-	newCatIDs := a.snapshotCatIDs(toBrand, toStream, result.Slug)
-	a.duplicateCardsForProject(oldCatIDs, newCatIDs)
-
-	if a.idx != nil {
-		a.idxIncrementalRefresh()
-	}
-	return result, nil
+	return a.project.CopyProject(fromBrand, fromStream, projectSlug, toBrand, toStream, position)
 }
-
-// --- Reorder ---
-
-// ReorderBrands updates brand positions based on the given ordered slug list.
 func (a *App) ReorderBrands(orderedSlugs []string) error {
-	if a.repo == nil {
-		return fmt.Errorf("no repository open")
-	}
-	return a.repo.ReorderBrands(orderedSlugs)
+	return a.project.ReorderBrands(orderedSlugs)
 }
-
-// ReorderStreams updates stream positions within a brand based on the given ordered slug list.
 func (a *App) ReorderStreams(brandSlug string, orderedSlugs []string) error {
-	if a.repo == nil {
-		return fmt.Errorf("no repository open")
-	}
-	return a.repo.ReorderStreams(brandSlug, orderedSlugs)
+	return a.project.ReorderStreams(brandSlug, orderedSlugs)
 }
-
-// ReorderProjects updates project positions within a stream based on the given ordered slug list.
 func (a *App) ReorderProjects(brandSlug, streamSlug string, orderedSlugs []string) error {
-	if a.repo == nil {
-		return fmt.Errorf("no repository open")
-	}
-	return a.repo.ReorderProjects(brandSlug, streamSlug, orderedSlugs)
+	return a.project.ReorderProjects(brandSlug, streamSlug, orderedSlugs)
 }
-
-// ReorderCategories updates category positions based on the given ordered slug list.
 func (a *App) ReorderCategories(brandSlug, streamSlug, projectSlug string, orderedSlugs []string) error {
-	if a.repo == nil {
-		return fmt.Errorf("no repository open")
-	}
-	return a.repo.ReorderCategories(brandSlug, streamSlug, projectSlug, orderedSlugs)
+	return a.project.ReorderCategories(brandSlug, streamSlug, projectSlug, orderedSlugs)
 }
 
 // --- Tag Colors ---
 
-// --- User Preferences ---
+// --- Settings forwarders (core/services/settings) ---
 
-func (a *App) GetPreferences() (config.Preferences, error) {
-	return config.LoadPreferences()
-}
+func (a *App) GetPreferences() (config.Preferences, error) { return a.settings.GetPreferences() }
+func (a *App) SetPreferences(p config.Preferences) error   { return a.settings.SetPreferences(p) }
+func (a *App) GetAuthInfo() config.AuthInfo                { return a.settings.GetAuthInfo() }
+func (a *App) GetProfile() (config.UserProfile, error)     { return a.settings.GetProfile() }
+func (a *App) SetProfile(p config.UserProfile) error       { return a.settings.SetProfile(p) }
 
-func (a *App) SetPreferences(p config.Preferences) error {
-	return config.SavePreferences(p)
-}
-
-// --- Auth Info ---
-
-func (a *App) GetAuthInfo() config.AuthInfo {
-	return config.GetLocalAuthInfo()
-}
-
-// --- User Profile ---
-
-func (a *App) GetProfile() (config.UserProfile, error) {
-	return config.LoadProfile()
-}
-
-func (a *App) SetProfile(p config.UserProfile) error {
-	return config.SaveProfile(p)
-}
-
-// ListAgentCardIDs returns IDs of all cards that have agents enabled.
-// Scans agent config files on disk rather than relying on the index,
-// to ensure accuracy even if the index is stale.
-func (a *App) ListAgentCardIDs() ([]string, error) {
+// ListAgentCardStates returns a map of cardID → enabled for every
+// card with an agent configuration on disk. Cards that have never had
+// an agent configured are absent from the map; cards that were
+// configured then disabled appear with value false. Scans the cards
+// directory rather than the index so the result is accurate even if
+// the index is stale.
+func (a *App) ListAgentCardStates() (map[string]bool, error) {
+	states := map[string]bool{}
 	if a.repo == nil {
-		return []string{}, nil
+		return states, nil
 	}
-	// Scan for .agent.json files in the cards directory
 	cardsDir := filepath.Join(a.repo.Root, "cards")
 	entries, err := os.ReadDir(cardsDir)
 	if err != nil {
-		return []string{}, nil
+		return states, nil
 	}
-	var ids []string
 	for _, e := range entries {
 		name := e.Name()
 		if !strings.HasSuffix(name, ".agent.json") {
@@ -883,24 +1134,22 @@ func (a *App) ListAgentCardIDs() ([]string, error) {
 		}
 		cardID := strings.TrimSuffix(name, ".agent.json")
 		af, err := a.repo.GetAgentConfig(cardID)
-		if err == nil && af.Config.Enabled {
-			ids = append(ids, cardID)
+		if err != nil {
+			continue
 		}
+		states[cardID] = af.Config.Enabled
 	}
-	if ids == nil {
-		ids = []string{}
-	}
-	return ids, nil
+	return states, nil
 }
 
-// --- Notifications ---
+// --- Notifications (forwarders to core/services/notify) ---
 
 func (a *App) GetNotifyConfig() (config.NotifyConfig, error) {
-	return config.LoadNotifyConfig()
+	return a.notify.GetConfig()
 }
 
 func (a *App) SetNotifyConfig(c config.NotifyConfig) error {
-	return config.SaveNotifyConfig(c)
+	return a.notify.SetConfig(c)
 }
 
 // GetDueDateSettings returns the current due-date notification settings.
@@ -929,18 +1178,18 @@ func (a *App) SaveDueDateSettings(enabled bool, thresholds []string, channels st
 		return err
 	}
 	// Update live scanner
-	if a.dueDateScanner != nil {
-		a.dueDateScanner.Configure(enabled, thresholds, channels)
+	if s := a.agentRT.DueDateScanner(); s != nil {
+		s.Configure(enabled, thresholds, channels)
 	}
 	return nil
 }
 
 func (a *App) GetNotifications() ([]config.Notification, error) {
-	return config.LoadNotifications()
+	return a.notify.List()
 }
 
 func (a *App) MarkNotificationRead(id string) error {
-	err := config.MarkNotificationRead(id)
+	err := a.notify.MarkRead(id)
 	if err == nil {
 		go a.refreshTrayTooltip()
 	}
@@ -948,7 +1197,7 @@ func (a *App) MarkNotificationRead(id string) error {
 }
 
 func (a *App) MarkAllNotificationsRead() error {
-	err := config.MarkAllNotificationsRead()
+	err := a.notify.MarkAllRead()
 	if err == nil {
 		go a.refreshTrayTooltip()
 	}
@@ -956,7 +1205,7 @@ func (a *App) MarkAllNotificationsRead() error {
 }
 
 func (a *App) ClearAllNotifications() error {
-	err := config.ClearAllNotifications()
+	err := a.notify.ClearAll()
 	if err == nil {
 		go a.refreshTrayTooltip()
 	}
@@ -965,111 +1214,25 @@ func (a *App) ClearAllNotifications() error {
 
 // --- Agent ---
 
+// --- Agent config forwarders (core/services/agentsvc) ---
+
 func (a *App) GetAgentConfig(cardID string) (*model.AgentFile, error) {
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	return a.repo.GetAgentConfig(cardID)
+	return a.agentService.GetConfig(cardID)
 }
-
 func (a *App) SaveAgentConfig(cardID string, cfg model.AgentConfig) error {
-	if a.repo == nil {
-		return fmt.Errorf("no repository open")
-	}
-	// Never accept 'running' status from the frontend — only the executor sets that
-	if cfg.Status == model.AgentStatusRunning {
-		cfg.Status = model.AgentStatusIdle
-	}
-	// Calculate NextRunAt when enabled with a schedule
-	if cfg.Enabled && cfg.Schedule != "" {
-		opts := agent.ScheduleOpts{
-			StartDate:         cfg.StartDate,
-			EndDate:           cfg.EndDate,
-			ActiveWindowStart: cfg.ActiveWindowStart,
-			ActiveWindowEnd:   cfg.ActiveWindowEnd,
-			OneShot:           cfg.OneShot,
-			LastRunAt:         cfg.LastRunAt,
-			Timezone:          cfg.Timezone,
-		}
-		if next, err := agent.NextRunTimeWithOpts(cfg.Schedule, time.Now(), opts); err == nil {
-			cfg.NextRunAt = &next
-		}
-		if cfg.Status == model.AgentStatusDisabled {
-			cfg.Status = model.AgentStatusIdle
-		}
-	} else if !cfg.Enabled {
-		cfg.Status = model.AgentStatusDisabled
-		cfg.NextRunAt = nil
-	}
-	if err := a.repo.SaveAgentConfig(cardID, cfg); err != nil {
-		return err
-	}
-	// Update index with agent state
-	if a.idx != nil {
-		nextRun := ""
-		if cfg.NextRunAt != nil {
-			nextRun = cfg.NextRunAt.Format(time.RFC3339)
-		}
-		a.logIdxErr("UpdateAgentIndex", a.idx.UpdateAgentIndex(cardID, cfg.Enabled, string(cfg.Status), nextRun))
-	}
-	return nil
+	return a.agentService.SaveConfig(cardID, cfg)
 }
-
-// ValidateSchedulePreview returns the next N run times for a given schedule config.
-func (a *App) ValidateSchedulePreview(schedule string, startDate string, endDate string, timezone string, count int) ([]string, error) {
-	if schedule == "" {
-		return nil, fmt.Errorf("empty schedule")
-	}
-	if count <= 0 || count > 10 {
-		count = 5
-	}
-
-	var sd, ed *time.Time
-	if startDate != "" {
-		t, err := time.Parse(time.RFC3339, startDate)
-		if err == nil {
-			sd = &t
-		}
-	}
-	if endDate != "" {
-		t, err := time.Parse(time.RFC3339, endDate)
-		if err == nil {
-			ed = &t
-		}
-	}
-
-	opts := agent.ScheduleOpts{
-		StartDate: sd,
-		EndDate:   ed,
-		Timezone:  timezone,
-	}
-
-	var result []string
-	from := time.Now()
-	for i := 0; i < count; i++ {
-		next, err := agent.NextRunTimeWithOpts(schedule, from, opts)
-		if err != nil {
-			break
-		}
-		result = append(result, next.Format(time.RFC3339))
-		from = next.Add(time.Second) // advance past this run
-	}
-	return result, nil
+func (a *App) ValidateSchedulePreview(schedule, startDate, endDate, timezone string, count int) ([]string, error) {
+	return a.agentService.ValidateSchedulePreview(schedule, startDate, endDate, timezone, count)
 }
 
 func (a *App) GetAgentRuns(cardID string) ([]model.AgentRun, error) {
-	if a.repo == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	return a.repo.GetAgentRuns(cardID)
+	return a.agentService.GetRuns(cardID)
 }
 
 // ClearAgentRuns removes all run history for a card's agent.
 func (a *App) ClearAgentRuns(cardID string) error {
-	if a.repo == nil {
-		return fmt.Errorf("no repository open")
-	}
-	return a.repo.ClearAgentRuns(cardID)
+	return a.agentService.ClearRuns(cardID)
 }
 
 

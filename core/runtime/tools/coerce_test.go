@@ -1,4 +1,4 @@
-package main
+package tools
 
 import (
 	"bruv/internal/model"
@@ -242,12 +242,12 @@ func TestNormaliseDateValue(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// coerceBlockValueForBlock — meta-aware constraints
+// CoerceBlockValueForBlock — meta-aware constraints
 // ---------------------------------------------------------------------------
 
 func TestCoerceBlockValueForBlock_SelectValid(t *testing.T) {
 	b := &model.Block{Type: model.BlockSelect, Meta: map[string]any{"options": []any{"red", "green", "blue"}}}
-	got, err := coerceBlockValueForBlock(b, "green")
+	got, err := CoerceBlockValueForBlock(b, "green")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestCoerceBlockValueForBlock_SelectValid(t *testing.T) {
 
 func TestCoerceBlockValueForBlock_SelectInvalid(t *testing.T) {
 	b := &model.Block{Type: model.BlockSelect, Meta: map[string]any{"options": []any{"red", "green", "blue"}}}
-	_, err := coerceBlockValueForBlock(b, "purple")
+	_, err := CoerceBlockValueForBlock(b, "purple")
 	if err == nil {
 		t.Fatal("expected error for invalid select option")
 	}
@@ -266,7 +266,7 @@ func TestCoerceBlockValueForBlock_SelectInvalid(t *testing.T) {
 
 func TestCoerceBlockValueForBlock_RadioValid(t *testing.T) {
 	b := &model.Block{Type: model.BlockRadio, Meta: map[string]any{"options": []any{"yes", "no"}}}
-	got, err := coerceBlockValueForBlock(b, "yes")
+	got, err := CoerceBlockValueForBlock(b, "yes")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestCoerceBlockValueForBlock_RadioValid(t *testing.T) {
 
 func TestCoerceBlockValueForBlock_RadioInvalid(t *testing.T) {
 	b := &model.Block{Type: model.BlockRadio, Meta: map[string]any{"options": []any{"yes", "no"}}}
-	_, err := coerceBlockValueForBlock(b, "maybe")
+	_, err := CoerceBlockValueForBlock(b, "maybe")
 	if err == nil {
 		t.Fatal("expected error for invalid radio option")
 	}
@@ -298,7 +298,7 @@ func TestCoerceBlockValueForBlock_RatingClamp(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, _ := coerceBlockValueForBlock(b, tt.in)
+			got, _ := CoerceBlockValueForBlock(b, tt.in)
 			if got != tt.want {
 				t.Errorf("got %v, want %v", got, tt.want)
 			}
@@ -308,11 +308,11 @@ func TestCoerceBlockValueForBlock_RatingClamp(t *testing.T) {
 
 func TestCoerceBlockValueForBlock_RatingCustomMax(t *testing.T) {
 	b := &model.Block{Type: model.BlockRating, Meta: map[string]any{"max": float64(10)}}
-	got, _ := coerceBlockValueForBlock(b, float64(8))
+	got, _ := CoerceBlockValueForBlock(b, float64(8))
 	if got != float64(8) {
 		t.Errorf("got %v, want 8", got)
 	}
-	got, _ = coerceBlockValueForBlock(b, float64(15))
+	got, _ = CoerceBlockValueForBlock(b, float64(15))
 	if got != float64(10) {
 		t.Errorf("got %v, want 10 (clamped)", got)
 	}
@@ -333,7 +333,7 @@ func TestCoerceBlockValueForBlock_ProgressClamp(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, _ := coerceBlockValueForBlock(b, tt.in)
+			got, _ := CoerceBlockValueForBlock(b, tt.in)
 			if got != tt.want {
 				t.Errorf("got %v, want %v", got, tt.want)
 			}
@@ -343,7 +343,7 @@ func TestCoerceBlockValueForBlock_ProgressClamp(t *testing.T) {
 
 func TestCoerceBlockValueForBlock_DateNormalisation(t *testing.T) {
 	b := &model.Block{Type: model.BlockDate}
-	got, err := coerceBlockValueForBlock(b, "2026-04-12T10:30:00Z")
+	got, err := CoerceBlockValueForBlock(b, "2026-04-12T10:30:00Z")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -354,7 +354,7 @@ func TestCoerceBlockValueForBlock_DateNormalisation(t *testing.T) {
 
 func TestCoerceBlockValueForBlock_DateTimeFormat(t *testing.T) {
 	b := &model.Block{Type: model.BlockDate, Meta: map[string]any{"format": "date-time"}}
-	got, err := coerceBlockValueForBlock(b, "2026-04-12T10:30:00Z")
+	got, err := CoerceBlockValueForBlock(b, "2026-04-12T10:30:00Z")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestCoerceBlockValueForBlock_DateTimeFormat(t *testing.T) {
 
 func TestCoerceBlockValueForBlock_DateInvalid(t *testing.T) {
 	b := &model.Block{Type: model.BlockDate}
-	_, err := coerceBlockValueForBlock(b, "not a date")
+	_, err := CoerceBlockValueForBlock(b, "not a date")
 	if err == nil {
 		t.Fatal("expected error for invalid date")
 	}
@@ -374,7 +374,7 @@ func TestCoerceBlockValueForBlock_DateInvalid(t *testing.T) {
 func TestCoerceBlockValueForBlock_SelectNoOptions(t *testing.T) {
 	// No meta options = no constraint, anything passes
 	b := &model.Block{Type: model.BlockSelect}
-	got, err := coerceBlockValueForBlock(b, "anything")
+	got, err := CoerceBlockValueForBlock(b, "anything")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -386,7 +386,7 @@ func TestCoerceBlockValueForBlock_SelectNoOptions(t *testing.T) {
 func TestCoerceBlockValueForBlock_CheckboxGroup(t *testing.T) {
 	// checkbox_group passes through (not specially handled)
 	b := &model.Block{Type: model.BlockCheckboxGroup}
-	got, err := coerceBlockValueForBlock(b, []any{"opt1", "opt2"})
+	got, err := CoerceBlockValueForBlock(b, []any{"opt1", "opt2"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

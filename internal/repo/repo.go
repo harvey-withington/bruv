@@ -14,6 +14,15 @@ import (
 type Repository struct {
 	Root     string
 	Manifest *model.Manifest
+
+	// RunsDir is the server-side directory holding agent run history
+	// (one <cardID>.json per card). Kept OUTSIDE the repo tree so
+	// runs don't travel with the repo when users share via git /
+	// Syncthing. Empty string = legacy merged-file storage (runs
+	// embedded in the in-repo .agent.json). Set via SetRunsDir
+	// after Open/Init; see internal/repo/agent.go for the split
+	// rationale.
+	RunsDir string
 }
 
 // Directory layout constants

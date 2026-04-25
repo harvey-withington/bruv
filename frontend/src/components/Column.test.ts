@@ -18,7 +18,7 @@ describe('Column drag-drop', () => {
     dnd.overCategoryId = null
     dnd.overCardIndex = null
     dnd.copyMode = false
-    board.agentCardIds = {}
+    board.agentCardStates = {}
     board.runningAgentIds = {}
     cardTypes.list = []
   })

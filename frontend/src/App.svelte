@@ -3,7 +3,7 @@
   import { onMount, onDestroy } from 'svelte'
   import { loadTheme } from './lib/theme.svelte'
   import { loadNotifications, handleNewNotification } from './lib/notifications.svelte'
-  import { EventsOn } from '../wailsjs/runtime/runtime'
+  import { onEvent } from './lib/events'
   import { loadLocale, t } from './lib/i18n.svelte'
   import { showToast } from './lib/toast.svelte'
   import WelcomeScreen from './components/WelcomeScreen.svelte'
@@ -206,10 +206,10 @@
   onMount(() => {
     loadNotifications()
     notifCleanups = [
-      EventsOn('notification:new', (data: any) => {
+      onEvent('notification:new', (data: any) => {
         handleNewNotification(data)
       }),
-      EventsOn('index:stale', () => {
+      onEvent('index:stale', () => {
         if (indexStaleNotified) return
         indexStaleNotified = true
         showToast(t('about.index_stale'), 'error')

@@ -1,8 +1,10 @@
 import './style.css'
 import { mount } from 'svelte'
 import { initBackend } from './lib/adapters'
+import { NeedsEnrolmentError } from './lib/adapters/cloud'
 import { GetCardProjectContext } from './lib/api'
 import App from './App.svelte'
+import EnrolmentScreen from './components/EnrolmentScreen.svelte'
 
 // Global link click interceptor
 document.addEventListener('click', (e) => {
@@ -76,8 +78,24 @@ const observer = new MutationObserver((mutations) => {
 })
 observer.observe(document.body, { childList: true, subtree: true })
 
-initBackend().then(() => {
-  const app = mount(App, {
-    target: document.getElementById('app')!
+// Boot the backend adapter. If the cloud adapter reports that the
+// user hasn't enrolled yet (browser mode, no Wails shell, no saved
+// credentials), render the enrolment wizard instead of the main app
+// shell. On successful enrolment the wizard reloads the page and
+// this path resolves through to App normally.
+initBackend()
+  .then(() => {
+    mount(App, { target: document.getElementById('app')! })
   })
-})
+  .catch((err) => {
+    if (err instanceof NeedsEnrolmentError) {
+      mount(EnrolmentScreen, { target: document.getElementById('app')! })
+      return
+    }
+    // Any other error is a real startup failure — surface it.
+    console.error('[bruv] backend init failed:', err)
+    const target = document.getElementById('app')
+    if (target) {
+      target.innerHTML = `<pre style="padding:24px;color:#f87171">BRUV failed to start: ${String(err?.message ?? err)}</pre>`
+    }
+  })

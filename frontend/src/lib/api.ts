@@ -173,8 +173,8 @@ export const ListCardIDsInCategory = (...args: Parameters<ReturnType<typeof getB
 export const ListOrphanedCardIDs = () => getBackend().ListOrphanedCardIDs()
 export const ListCardIDsByTag = (...args: Parameters<ReturnType<typeof getBackend>['ListCardIDsByTag']>) => getBackend().ListCardIDsByTag(...args)
 
-// Agent card IDs
-export const ListAgentCardIDs = () => getBackend().ListAgentCardIDs()
+// Agent card states — cardID → enabled (configured cards only)
+export const ListAgentCardStates = () => getBackend().ListAgentCardStates()
 
 // Notifications
 export const GetNotifyConfig = () => getBackend().GetNotifyConfig()

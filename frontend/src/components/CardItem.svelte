@@ -21,7 +21,9 @@
   let { card, categoryId, onclick }: { card: CardData; categoryId: string; onclick?: () => void } = $props()
 
   const draggable = $derived(categoryId !== '__recent__')
-  let hasAgent = $derived(!!board.agentCardIds[card.id])
+  let agentState = $derived(board.agentCardStates[card.id])
+  let hasAgent = $derived(agentState !== undefined)
+  let agentEnabled = $derived(agentState === true)
   let isRunning = $derived(!!board.runningAgentIds[card.id])
 
   function handleDragStart(e: DragEvent) {
@@ -40,6 +42,13 @@
   async function handleAgentAction(e: MouseEvent) {
     e.stopPropagation()
     e.preventDefault()
+    if (!agentEnabled) {
+      // Configured-but-disabled: clicking the indicator should not
+      // implicitly enable + run. Let the card click open the detail
+      // dialog so the user can re-enable explicitly.
+      onclick?.()
+      return
+    }
     try {
       if (isRunning) {
         await CancelAgent(card.id)
@@ -72,18 +81,23 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <span
       class="agent-indicator"
-      class:running={isRunning}
+      class:running={agentEnabled && isRunning}
+      class:disabled={!agentEnabled}
       role="button"
       tabindex="-1"
-      title={isRunning ? t('agent.cancel') : t('agent.run_now')}
+      title={!agentEnabled
+        ? t('agent.status_disabled')
+        : isRunning ? t('agent.cancel') : t('agent.run_now')}
       onclick={handleAgentAction}
       onkeydown={(e) => { if (e.key === 'Enter') handleAgentAction(e as any) }}
     >
-      {#if isRunning}
+      {#if agentEnabled && isRunning}
         <Square size={10} />
       {:else}
         <Timer size={14} class="icon-bot" />
-        <Play size={12} class="icon-play" />
+        {#if agentEnabled}
+          <Play size={12} class="icon-play" />
+        {/if}
       {/if}
     </span>
   {/if}
@@ -227,8 +241,20 @@
 
   /* Idle: bot visible, play hidden — swap on hover */
   .agent-indicator :global(.icon-play) { display: none; }
-  .agent-indicator:not(.running):hover :global(.icon-bot) { display: none; }
-  .agent-indicator:not(.running):hover :global(.icon-play) { display: block; }
+  .agent-indicator:not(.running):not(.disabled):hover :global(.icon-bot) { display: none; }
+  .agent-indicator:not(.running):not(.disabled):hover :global(.icon-play) { display: block; }
+
+  /* Disabled: muted appearance, no hover swap. Distinguishes
+     "agent configured but turned off" from "no agent at all". */
+  .agent-indicator.disabled {
+    background: color-mix(in srgb, var(--text-muted) 12%, transparent);
+    color: var(--text-muted);
+    opacity: 0.7;
+  }
+  .agent-indicator.disabled:hover {
+    background: color-mix(in srgb, var(--text-muted) 22%, transparent);
+    transform: scale(1.1);
+  }
 
   /* Running: neon AI gradient glow animation */
   .agent-indicator.running {

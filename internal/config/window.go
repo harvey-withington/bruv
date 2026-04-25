@@ -7,6 +7,8 @@ import (
 )
 
 // WindowBounds stores the last known window position and size.
+// Client-owned: each device has its own screen geometry, so this
+// lives under clientdata/ (see paths.go for the split rationale).
 type WindowBounds struct {
 	X         int  `json:"x"`
 	Y         int  `json:"y"`
@@ -15,12 +17,19 @@ type WindowBounds struct {
 	Maximised bool `json:"maximised"`
 }
 
+const windowFileName = "window.json"
+
 func windowFilePath() (string, error) {
-	dir, err := configDir()
+	// One-shot migration: older builds wrote window.json at the root
+	// of the config dir. Move it into clientdata/ the first time we
+	// resolve the path, so existing users don't lose their bounds.
+	migrateToClientData(windowFileName)
+
+	dir, err := ClientDataDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "window.json"), nil
+	return filepath.Join(dir, windowFileName), nil
 }
 
 // LoadWindowBounds reads the saved window bounds. Returns nil if none saved.

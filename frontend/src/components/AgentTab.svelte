@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { GetAgentConfig, SaveAgentConfig, TriggerAgent, CancelAgent, IsLLMConfigured, ListAgentCardIDs, GetLLMAccounts, ListMCPServers } from '../lib/api'
+  import { GetAgentConfig, SaveAgentConfig, TriggerAgent, CancelAgent, IsLLMConfigured, ListAgentCardStates, GetLLMAccounts, ListMCPServers } from '../lib/api'
   import type { MCPServerView } from '../lib/types'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
@@ -8,7 +8,7 @@
   import { Timer, Play, Square } from 'lucide-svelte'
   import LLMAccountSelect from './LLMAccountSelect.svelte'
   import { onMount, onDestroy } from 'svelte'
-  import { EventsOn } from '../../wailsjs/runtime/runtime'
+  import { onEvent } from '../lib/events'
 
   let { cardId }: { cardId: string } = $props()
 
@@ -203,12 +203,9 @@
         timezone,
       }
       await SaveAgentConfig(cardId, config)
-      // Refresh board's agent card IDs so indicators update
+      // Refresh board's agent card states so indicators update
       try {
-        const ids = await ListAgentCardIDs() || []
-        const map: Record<string, boolean> = {}
-        for (const id of ids) map[id] = true
-        board.agentCardIds = map
+        board.agentCardStates = (await ListAgentCardStates()) || {}
       } catch { /* ignore */ }
       showToast(t('agent.saved'), 'success')
       dirty = false
@@ -280,13 +277,13 @@
 
   onMount(() => {
     cleanupFns = [
-      EventsOn('agent:started', (data: any) => {
+      onEvent<{ cardID?: string }>('agent:started', (data) => {
         if (data?.cardID === cardId) { status = 'running' }
       }),
-      EventsOn('agent:completed', (data: any) => {
+      onEvent<{ cardID?: string }>('agent:completed', (data) => {
         if (data?.cardID === cardId && !dirty) { loadConfig(true) }
       }),
-      EventsOn('agent:failed', (data: any) => {
+      onEvent<{ cardID?: string }>('agent:failed', (data) => {
         if (data?.cardID === cardId && !dirty) { loadConfig(true) }
       }),
       // Re-fetch config when the card is updated externally — this
@@ -297,7 +294,7 @@
       // Skip reload when the user has unsaved edits to avoid losing them.
       // Silent reload — no loading placeholder, so the tab doesn't
       // flash every time the running agent writes back to the card.
-      EventsOn('card:updated', (data: any) => {
+      onEvent<{ cardID?: string }>('card:updated', (data) => {
         if (data?.cardID === cardId && !dirty) { loadConfig(true) }
       }),
     ]

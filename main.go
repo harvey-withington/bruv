@@ -41,8 +41,11 @@ func main() {
 		OnStartup:        app.startup,
 		OnDomReady:       app.domReady,
 		OnBeforeClose:    app.beforeClose,
+		// Only the shell-bridge surface is exposed to the frontend via
+		// Wails IPC; the full domain API (~130 methods) is reached over
+		// HTTP+SSE through core/services + transport/http. See shell_bridge.go.
 		Bind: []interface{}{
-			app,
+			newShellAPI(app),
 		},
 	})
 

@@ -5,7 +5,7 @@
   import { showToast } from '../lib/toast.svelte'
   import { Timer, Play, Square, Pause, CirclePlay, CircleCheck, CircleX, TriangleAlert, Clock, X } from 'lucide-svelte'
   import { onMount, onDestroy } from 'svelte'
-  import { EventsOn } from '../../wailsjs/runtime/runtime'
+  import { onEvent } from '../lib/events'
 
   let { onClose, onOpenCard }: {
     onClose: () => void
@@ -117,10 +117,10 @@
   onMount(() => {
     load()
     cleanupFns = [
-      EventsOn('agent:started', () => load()),
-      EventsOn('agent:completed', () => load()),
-      EventsOn('agent:failed', () => load()),
-      EventsOn('scheduler:paused', (data: { paused: boolean }) => { schedulerPaused = data.paused }),
+      onEvent('agent:started', () => load()),
+      onEvent('agent:completed', () => load()),
+      onEvent('agent:failed', () => load()),
+      onEvent<{ paused: boolean }>('scheduler:paused', (data) => { schedulerPaused = data.paused }),
     ]
   })
 

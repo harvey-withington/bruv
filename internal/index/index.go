@@ -241,23 +241,6 @@ func (idx *Index) QueryDueAgents(now time.Time) ([]DueAgent, error) {
 	return agents, rows.Err()
 }
 
-// ListAgentCardIDs returns the IDs of all cards with agents enabled.
-func (idx *Index) ListAgentCardIDs() ([]string, error) {
-	rows, err := idx.db.Query("SELECT id FROM cards WHERE agent_enabled = 1")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err == nil {
-			ids = append(ids, id)
-		}
-	}
-	return ids, rows.Err()
-}
-
 // ResetStaleAgentStatus clears any 'running' status left over from a previous crash.
 // Called on startup before the scheduler begins polling.
 func (idx *Index) ResetStaleAgentStatus() {

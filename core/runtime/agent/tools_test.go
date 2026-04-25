@@ -1,23 +1,59 @@
-package main
+package agent
 
 import (
+	"context"
+	"strings"
+	"sync"
+	"testing"
+
+	chatrt "bruv/core/runtime/chat"
+	"bruv/core/runtime/prompts"
+	"bruv/core/services/card"
+	"bruv/core/services/catalog"
+	llmsvc "bruv/core/services/llm"
+	projectsvc "bruv/core/services/project"
+	"bruv/internal/index"
 	"bruv/internal/llm"
+	"bruv/internal/mcp"
 	"bruv/internal/model"
 	"bruv/internal/repo"
-	"strings"
-	"testing"
+	"bruv/internal/schema"
 )
 
-// testApp creates a minimal App with a real repo for agent tool tests.
-func testApp(t *testing.T) (*App, *repo.Repository) {
+// toolsTestDeps is the minimal Deps stub needed to drive
+// executeAgentToolCall through its built-in-tool switch. The tool
+// dispatch path only needs the repository — the LLM / scheduler /
+// chat runtime are unused by the update_self / read_card / create_card
+// branches that this test file exercises.
+type toolsTestDeps struct {
+	repo *repo.Repository
+}
+
+func (d *toolsTestDeps) Repo() *repo.Repository       { return d.repo }
+func (d *toolsTestDeps) Index() *index.Index          { return nil }
+func (d *toolsTestDeps) Registry() *schema.Registry   { return nil }
+func (d *toolsTestDeps) Ctx() context.Context         { return context.Background() }
+func (d *toolsTestDeps) Publish(string, any)          {}
+func (d *toolsTestDeps) LLM() *llmsvc.Service         { return nil }
+func (d *toolsTestDeps) Card() *card.Service          { return nil }
+func (d *toolsTestDeps) Project() *projectsvc.Service { return nil }
+func (d *toolsTestDeps) Catalog() *catalog.Service    { return nil }
+func (d *toolsTestDeps) Prompts() *prompts.Builder    { return nil }
+func (d *toolsTestDeps) ChatRT() *chatrt.Runtime      { return nil }
+func (d *toolsTestDeps) MCPRegistry() *mcp.Registry   { return nil }
+func (d *toolsTestDeps) LLMActors() *sync.Map         { return &sync.Map{} }
+
+// testRuntime creates a minimal Runtime bound to a real on-disk repo
+// for tool-dispatch tests.
+func testRuntime(t *testing.T) (*Runtime, *repo.Repository) {
 	t.Helper()
 	dir := t.TempDir()
 	r, err := repo.Init(dir, "test")
 	if err != nil {
 		t.Fatalf("repo.Init: %v", err)
 	}
-	a := &App{repo: r}
-	return a, r
+	rt := New(&toolsTestDeps{repo: r})
+	return rt, r
 }
 
 // testCard creates a card with the given blocks and returns its ID.
@@ -67,7 +103,7 @@ func blockItems(t *testing.T, val any) []map[string]any {
 // ---------------------------------------------------------------------------
 
 func TestUpdateSelf_Title(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	id := testCard(t, r, "Old Title", nil)
 
 	card, _ := r.GetCard(id)
@@ -88,7 +124,7 @@ func TestUpdateSelf_Title(t *testing.T) {
 }
 
 func TestUpdateSelf_TitleEmpty_NoChange(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	id := testCard(t, r, "Keep This", nil)
 
 	card, _ := r.GetCard(id)
@@ -104,7 +140,7 @@ func TestUpdateSelf_TitleEmpty_NoChange(t *testing.T) {
 }
 
 func TestUpdateSelf_TitleAndBlocks(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	blocks := []model.Block{
 		{ID: "b1", Type: model.BlockText, Key: "description", Label: "Description", Value: "old"},
 	}
@@ -128,10 +164,7 @@ func TestUpdateSelf_TitleAndBlocks(t *testing.T) {
 }
 
 func TestUpdateSelf_TitleViaUpdatesArray(t *testing.T) {
-	// LLMs frequently put {"key": "title", "value": "..."} in the updates
-	// array instead of using the top-level title parameter. This must still
-	// set card.Title, not create a text block called "title".
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	id := testCard(t, r, "Old Title", nil)
 
 	card, _ := r.GetCard(id)
@@ -145,7 +178,6 @@ func TestUpdateSelf_TitleViaUpdatesArray(t *testing.T) {
 	if updated.Title != "Bitcoin Price: $71,005.87" {
 		t.Errorf("title = %q, want 'Bitcoin Price: $71,005.87'", updated.Title)
 	}
-	// Should NOT create a text block called "title"
 	for _, b := range updated.Blocks {
 		if strings.EqualFold(b.Key, "title") || strings.EqualFold(b.Label, "title") {
 			t.Errorf("should not create a block for title, found block: %+v", b)
@@ -158,7 +190,7 @@ func TestUpdateSelf_TitleViaUpdatesArray(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpdateSelf_DueDate_TopLevel(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	id := testCard(t, r, "Card", nil)
 
 	card, _ := r.GetCard(id)
@@ -176,7 +208,7 @@ func TestUpdateSelf_DueDate_TopLevel(t *testing.T) {
 }
 
 func TestUpdateSelf_DueDate_RFC3339(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	id := testCard(t, r, "Card", nil)
 
 	card, _ := r.GetCard(id)
@@ -194,7 +226,7 @@ func TestUpdateSelf_DueDate_RFC3339(t *testing.T) {
 }
 
 func TestUpdateSelf_DueDateViaUpdatesArray(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	id := testCard(t, r, "Card", nil)
 
 	card, _ := r.GetCard(id)
@@ -223,7 +255,7 @@ func TestUpdateSelf_DueDateViaUpdatesArray(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpdateSelf_Tags_TopLevel(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	id := testCard(t, r, "Card", nil)
 
 	card, _ := r.GetCard(id)
@@ -241,7 +273,7 @@ func TestUpdateSelf_Tags_TopLevel(t *testing.T) {
 }
 
 func TestUpdateSelf_TagsViaUpdatesArray(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	id := testCard(t, r, "Card", nil)
 
 	card, _ := r.GetCard(id)
@@ -263,8 +295,7 @@ func TestUpdateSelf_TagsViaUpdatesArray(t *testing.T) {
 }
 
 func TestUpdateSelf_TagsViaUpdatesArray_String(t *testing.T) {
-	// LLM sends a single tag as a string instead of array
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	id := testCard(t, r, "Card", nil)
 
 	card, _ := r.GetCard(id)
@@ -281,9 +312,7 @@ func TestUpdateSelf_TagsViaUpdatesArray_String(t *testing.T) {
 }
 
 func TestUpdateSelf_TagsBlockTakesPriority(t *testing.T) {
-	// If a card has a real block called "tags", the update should go to
-	// the block, not the intrinsic tags field.
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	blocks := []model.Block{
 		{ID: "b1", Type: model.BlockText, Key: "tags", Label: "Tags", Value: ""},
 	}
@@ -297,7 +326,6 @@ func TestUpdateSelf_TagsBlockTakesPriority(t *testing.T) {
 	}))
 
 	updated, _ := r.GetCard(id)
-	// Block should be updated, not intrinsic tags
 	if updated.Blocks[0].Value != "custom block value" {
 		t.Errorf("block value = %v, want 'custom block value'", updated.Blocks[0].Value)
 	}
@@ -311,7 +339,7 @@ func TestUpdateSelf_TagsBlockTakesPriority(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpdateSelf_AllIntrinsicFields(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	blocks := []model.Block{
 		{ID: "b1", Type: model.BlockText, Key: "notes", Label: "Notes", Value: ""},
 	}
@@ -347,7 +375,7 @@ func TestUpdateSelf_AllIntrinsicFields(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpdateSelf_TextBlock(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	blocks := []model.Block{
 		{ID: "b1", Type: model.BlockText, Key: "notes", Label: "Notes", Value: ""},
 	}
@@ -371,7 +399,7 @@ func TestUpdateSelf_TextBlock(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpdateSelf_NumberBlock(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	blocks := []model.Block{
 		{ID: "b1", Type: model.BlockNumber, Key: "price", Label: "Price", Value: float64(0)},
 	}
@@ -391,7 +419,7 @@ func TestUpdateSelf_NumberBlock(t *testing.T) {
 }
 
 func TestUpdateSelf_NumberBlock_StringCoercion(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	blocks := []model.Block{
 		{ID: "b1", Type: model.BlockNumber, Key: "count", Label: "Count", Value: float64(0)},
 	}
@@ -415,7 +443,7 @@ func TestUpdateSelf_NumberBlock_StringCoercion(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpdateSelf_ListBlock_Array(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	blocks := []model.Block{
 		{ID: "b1", Type: model.BlockList, Key: "items", Label: "Items", Value: nil},
 	}
@@ -439,7 +467,7 @@ func TestUpdateSelf_ListBlock_Array(t *testing.T) {
 }
 
 func TestUpdateSelf_ListBlock_String(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	blocks := []model.Block{
 		{ID: "b1", Type: model.BlockList, Key: "items", Label: "Items", Value: nil},
 	}
@@ -464,7 +492,7 @@ func TestUpdateSelf_ListBlock_String(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpdateSelf_ChecklistBlock_StringArray(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	blocks := []model.Block{
 		{ID: "b1", Type: model.BlockChecklist, Key: "tasks", Label: "Tasks", Value: nil},
 	}
@@ -488,7 +516,7 @@ func TestUpdateSelf_ChecklistBlock_StringArray(t *testing.T) {
 }
 
 func TestUpdateSelf_ChecklistBlock_MapArray(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	blocks := []model.Block{
 		{ID: "b1", Type: model.BlockChecklist, Key: "tasks", Label: "Tasks", Value: nil},
 	}
@@ -519,7 +547,7 @@ func TestUpdateSelf_ChecklistBlock_MapArray(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpdateSelf_CheckboxBlock(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	blocks := []model.Block{
 		{ID: "b1", Type: model.BlockCheckbox, Key: "active", Label: "Active", Value: false},
 	}
@@ -543,7 +571,7 @@ func TestUpdateSelf_CheckboxBlock(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpdateSelf_DateBlock(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	blocks := []model.Block{
 		{ID: "b1", Type: model.BlockDate, Key: "deadline", Label: "Deadline", Value: ""},
 	}
@@ -567,7 +595,7 @@ func TestUpdateSelf_DateBlock(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpdateSelf_SelectBlock_Valid(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	blocks := []model.Block{
 		{ID: "b1", Type: model.BlockSelect, Key: "status", Label: "Status", Value: "",
 			Meta: map[string]any{"options": []any{"open", "closed", "pending"}}},
@@ -591,7 +619,7 @@ func TestUpdateSelf_SelectBlock_Valid(t *testing.T) {
 }
 
 func TestUpdateSelf_SelectBlock_Invalid(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	blocks := []model.Block{
 		{ID: "b1", Type: model.BlockSelect, Key: "status", Label: "Status", Value: "",
 			Meta: map[string]any{"options": []any{"open", "closed"}}},
@@ -614,7 +642,7 @@ func TestUpdateSelf_SelectBlock_Invalid(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpdateSelf_RatingBlock(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	blocks := []model.Block{
 		{ID: "b1", Type: model.BlockRating, Key: "score", Label: "Score", Value: float64(0),
 			Meta: map[string]any{"max": float64(5)}},
@@ -635,7 +663,7 @@ func TestUpdateSelf_RatingBlock(t *testing.T) {
 }
 
 func TestUpdateSelf_RatingBlock_Clamped(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	blocks := []model.Block{
 		{ID: "b1", Type: model.BlockRating, Key: "score", Label: "Score", Value: float64(0),
 			Meta: map[string]any{"max": float64(5)}},
@@ -660,7 +688,7 @@ func TestUpdateSelf_RatingBlock_Clamped(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpdateSelf_ProgressBlock(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	blocks := []model.Block{
 		{ID: "b1", Type: model.BlockProgress, Key: "progress", Label: "Progress", Value: float64(0)},
 	}
@@ -680,7 +708,7 @@ func TestUpdateSelf_ProgressBlock(t *testing.T) {
 }
 
 func TestUpdateSelf_ProgressBlock_Clamped(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	blocks := []model.Block{
 		{ID: "b1", Type: model.BlockProgress, Key: "progress", Label: "Progress", Value: float64(0)},
 	}
@@ -704,7 +732,7 @@ func TestUpdateSelf_ProgressBlock_Clamped(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpdateSelf_MatchByLabel(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	blocks := []model.Block{
 		{ID: "b1", Type: model.BlockText, Key: "my_notes", Label: "My Notes", Value: ""},
 	}
@@ -728,7 +756,7 @@ func TestUpdateSelf_MatchByLabel(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpdateSelf_CreateNewBlock(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	id := testCard(t, r, "Card", nil)
 
 	card, _ := r.GetCard(id)
@@ -761,7 +789,7 @@ func TestUpdateSelf_CreateNewBlock(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpdateSelf_InvalidCardID(t *testing.T) {
-	a, _ := testApp(t)
+	a, _ := testRuntime(t)
 	result, action := a.executeAgentToolCall("nonexistent", nil, call("update_self", map[string]any{
 		"title": "Won't work",
 	}))
@@ -774,8 +802,7 @@ func TestUpdateSelf_InvalidCardID(t *testing.T) {
 }
 
 func TestUpdateSelf_NoUpdatesNoTitle(t *testing.T) {
-	// Should still succeed — just a no-op save
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	id := testCard(t, r, "Card", nil)
 
 	card, _ := r.GetCard(id)
@@ -790,7 +817,7 @@ func TestUpdateSelf_NoUpdatesNoTitle(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestReadCard(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	blocks := []model.Block{
 		{ID: "b1", Type: model.BlockText, Key: "desc", Label: "Description", Value: "Some content"},
 	}
@@ -809,7 +836,7 @@ func TestReadCard(t *testing.T) {
 }
 
 func TestReadCard_NotFound(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	id := testCard(t, r, "Card", nil)
 
 	card, _ := r.GetCard(id)
@@ -826,7 +853,7 @@ func TestReadCard_NotFound(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateCard(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	seedID := testCard(t, r, "Seed", nil)
 
 	card, _ := r.GetCard(seedID)
@@ -846,7 +873,7 @@ func TestCreateCard(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpdateSelf_RadioBlock_Valid(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	blocks := []model.Block{
 		{ID: "b1", Type: model.BlockRadio, Key: "priority", Label: "Priority", Value: "",
 			Meta: map[string]any{"options": []any{"low", "medium", "high"}}},
@@ -871,7 +898,7 @@ func TestUpdateSelf_RadioBlock_Valid(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpdateSelf_MultipleBlocks(t *testing.T) {
-	a, r := testApp(t)
+	a, r := testRuntime(t)
 	blocks := []model.Block{
 		{ID: "b1", Type: model.BlockText, Key: "summary", Label: "Summary", Value: ""},
 		{ID: "b2", Type: model.BlockNumber, Key: "count", Label: "Count", Value: float64(0)},

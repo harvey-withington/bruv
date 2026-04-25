@@ -633,8 +633,9 @@ export interface BackendAdapter {
   ListOrphanedCardIDs(): Promise<string[]>
   ListCardIDsByTag(tag: string): Promise<string[]>
 
-  // Agent card IDs
-  ListAgentCardIDs(): Promise<string[]>
+  // Agent card states — cardID → enabled, present for every
+  // card with an agent configuration on disk (enabled or disabled).
+  ListAgentCardStates(): Promise<Record<string, boolean>>
 
   // Notifications
   GetNotifyConfig(): Promise<NotifyConfig>

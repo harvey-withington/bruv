@@ -105,11 +105,6 @@ export const UpdateCardTags = (...args: Parameters<ReturnType<typeof getBackend>
 export const UpdateCardLabels = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardLabels']>) => getBackend().UpdateCardLabels(...args)
 export const UpdateCardDueDate = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardDueDate']>) => getBackend().UpdateCardDueDate(...args)
 
-// Checklist
-export const AddChecklistItem = (...args: Parameters<ReturnType<typeof getBackend>['AddChecklistItem']>) => getBackend().AddChecklistItem(...args)
-export const ToggleChecklistItem = (...args: Parameters<ReturnType<typeof getBackend>['ToggleChecklistItem']>) => getBackend().ToggleChecklistItem(...args)
-export const RemoveChecklistItem = (...args: Parameters<ReturnType<typeof getBackend>['RemoveChecklistItem']>) => getBackend().RemoveChecklistItem(...args)
-
 // Pins
 export const PinCard = (...args: Parameters<ReturnType<typeof getBackend>['PinCard']>) => getBackend().PinCard(...args)
 export const UnpinCard = (...args: Parameters<ReturnType<typeof getBackend>['UnpinCard']>) => getBackend().UnpinCard(...args)

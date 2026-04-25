@@ -7,7 +7,11 @@
 
   let { onClose }: { onClose: () => void } = $props()
 
+  // user_id is owned by the backend (machine-local stable UUID).
+  // The form never lets the user edit it; we round-trip the loaded
+  // value verbatim so saving doesn't accidentally clear it.
   let profile = $state({
+    user_id: '',
     display_name: '',
     role: '',
     bio: '',
@@ -26,6 +30,7 @@
     try {
       const p = await GetProfile()
       if (p) {
+        profile.user_id = p.user_id || ''
         profile.display_name = p.display_name || ''
         profile.role = p.role || ''
         profile.bio = p.bio || ''

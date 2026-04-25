@@ -8,15 +8,20 @@ import (
 	"github.com/google/uuid"
 )
 
-const labelsFile = "labels.json"
+// On-disk filename for per-project tag definitions. The Go-side type
+// (model.Label) keeps its historical name so the rest of the codebase
+// doesn't churn — only the user-facing artefact (the file) is "tags".
+const projectTagsFile = "tags.json"
 
-// projectLabelsFile is the on-disk format for per-project labels.
+// projectLabelsFile is the on-disk format for per-project tag definitions.
+// Field name "labels" is preserved on disk for backwards compatibility
+// with existing repos that already have data written under that key.
 type projectLabelsFile struct {
 	Labels []model.Label `json:"labels"`
 }
 
 func (r *Repository) labelsPath(brandSlug, streamSlug, projectSlug string) string {
-	return filepath.Join(r.projectPath(brandSlug, streamSlug, projectSlug), labelsFile)
+	return filepath.Join(r.projectPath(brandSlug, streamSlug, projectSlug), projectTagsFile)
 }
 
 // GetProjectLabels loads labels for a project. Returns empty slice if file doesn't exist.

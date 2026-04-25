@@ -22,6 +22,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     }),
 
     GetProfile: async () => ({
+      user_id: 'test-user-id',
       display_name: 'Test User',
       role: '',
       bio: '',
@@ -117,10 +118,6 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     UpdateCardTags: async () => ({}),
     UpdateCardLabels: async () => ({}),
     UpdateCardDueDate: async () => ({}),
-
-    AddChecklistItem: async () => ({}),
-    ToggleChecklistItem: async () => ({}),
-    RemoveChecklistItem: async () => ({}),
 
     PinCard: async () => {},
     UnpinCard: async () => {},

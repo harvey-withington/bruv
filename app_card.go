@@ -55,18 +55,6 @@ func (a *App) UpdateCardDueDate(id, dueDate string) (*model.Card, error) {
 	return a.cardService.UpdateDueDate(id, dueDate)
 }
 
-// --- Checklist ---
-
-func (a *App) AddChecklistItem(cardID, text string) (*model.Card, error) {
-	return a.cardService.AddChecklistItem(cardID, text)
-}
-func (a *App) ToggleChecklistItem(cardID, itemID string) (*model.Card, error) {
-	return a.cardService.ToggleChecklistItem(cardID, itemID)
-}
-func (a *App) RemoveChecklistItem(cardID, itemID string) (*model.Card, error) {
-	return a.cardService.RemoveChecklistItem(cardID, itemID)
-}
-
 // --- Category helpers / pins / moves ---
 
 func (a *App) GetCategoryAcceptedTypes(categoryID string) ([]string, error) {

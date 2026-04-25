@@ -17,6 +17,7 @@ import (
 	"bruv/internal/repo"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -291,14 +292,38 @@ func (s *Service) UpdateFields(id string, fields map[string]any) (*model.Card, e
 	if r == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
+	// Snapshot the previous fields so we can log only the keys whose
+	// values actually changed. Without this every save would log every
+	// field, because the frontend always sends the full map.
+	var before map[string]any
+	if prev, perr := r.GetCard(id); perr == nil && prev != nil {
+		before = prev.Fields
+	}
 	card, err := r.UpdateCard(id, func(c *model.Card) { c.Fields = fields })
 	if err == nil {
 		if idx := s.deps.Index(); idx != nil {
 			s.logIdxErr("IndexCard", idx.IndexCard(card, time.Now(), idx.GetCardProjectContext(card.ID)))
 		}
+		for key, newVal := range fields {
+			if !reflect.DeepEqual(before[key], newVal) {
+				s.deps.LogActivity(id, model.ActivityUpdatedField, fieldDisplayLabel(key))
+			}
+		}
 		s.emitCardUpdated(card)
 	}
 	return card, err
+}
+
+// fieldDisplayLabel returns a human-readable label for a card field
+// key, used in the activity log. Falls back to the raw key for any
+// field we don't have a friendlier name for.
+func fieldDisplayLabel(key string) string {
+	switch key {
+	case "description":
+		return "description"
+	default:
+		return key
+	}
 }
 
 func (s *Service) UpdateBlocks(id string, blocks []model.Block) (*model.Card, error) {
@@ -388,45 +413,6 @@ func (s *Service) UpdateDueDate(id, dueDate string) (*model.Card, error) {
 			s.logIdxErr("IndexCard", idx.IndexCard(card, time.Now(), idx.GetCardProjectContext(card.ID)))
 		}
 		s.deps.LogActivity(id, model.ActivityUpdatedDate, "due date")
-		s.emitCardUpdated(card)
-	}
-	return card, err
-}
-
-// --- Checklist ---
-
-func (s *Service) AddChecklistItem(cardID, text string) (*model.Card, error) {
-	text = repo.SanitizeText(text)
-	r := s.deps.Repo()
-	if r == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	card, err := r.AddChecklistItem(cardID, text)
-	if err == nil {
-		s.emitCardUpdated(card)
-	}
-	return card, err
-}
-
-func (s *Service) ToggleChecklistItem(cardID, itemID string) (*model.Card, error) {
-	r := s.deps.Repo()
-	if r == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	card, err := r.ToggleChecklistItem(cardID, itemID)
-	if err == nil {
-		s.emitCardUpdated(card)
-	}
-	return card, err
-}
-
-func (s *Service) RemoveChecklistItem(cardID, itemID string) (*model.Card, error) {
-	r := s.deps.Repo()
-	if r == nil {
-		return nil, fmt.Errorf("no repository open")
-	}
-	card, err := r.RemoveChecklistItem(cardID, itemID)
-	if err == nil {
 		s.emitCardUpdated(card)
 	}
 	return card, err

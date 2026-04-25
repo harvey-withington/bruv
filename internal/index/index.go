@@ -515,24 +515,37 @@ func formatNullableTime(t *time.Time) *string {
 	return &s
 }
 
+// buildSearchContent flattens the searchable text out of a card's
+// blocks for the FTS index. Walks every block: text/url block values
+// contribute their string verbatim; checklist/list block items
+// contribute their per-item text. Anything else (numbers, dates,
+// media URLs) is intentionally skipped — searching for "42" across
+// every numeric field would be more noise than signal.
 func buildSearchContent(card *model.Card) string {
 	var parts []string
-	for _, v := range card.Fields {
-		if s, ok := v.(string); ok {
-			parts = append(parts, s)
+	for _, b := range card.Blocks {
+		switch b.Type {
+		case model.BlockText, model.BlockURL:
+			if s, ok := b.Value.(string); ok && s != "" {
+				parts = append(parts, s)
+			}
+		case model.BlockChecklist, model.BlockList:
+			items, ok := b.Value.([]any)
+			if !ok {
+				continue
+			}
+			for _, raw := range items {
+				m, ok := raw.(map[string]any)
+				if !ok {
+					continue
+				}
+				if t, _ := m["text"].(string); t != "" {
+					parts = append(parts, t)
+				}
+			}
 		}
 	}
-	for _, item := range card.Checklist {
-		parts = append(parts, item.Text)
-	}
-	result := ""
-	for i, p := range parts {
-		if i > 0 {
-			result += " "
-		}
-		result += p
-	}
-	return result
+	return strings.Join(parts, " ")
 }
 
 func joinTags(tags []string) string {

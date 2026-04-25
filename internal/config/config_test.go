@@ -193,59 +193,6 @@ func TestLoadProfileMissingFileAutoPopulatesDisplayName(t *testing.T) {
 	}
 }
 
-func TestProfileLegacyContextMigration(t *testing.T) {
-	path, err := profilePath()
-	if err != nil {
-		t.Skip("cannot resolve config dir")
-	}
-	llmPath, err := llmConfigPath()
-	if err != nil {
-		t.Skip("cannot resolve config dir")
-	}
-
-	// Backup existing files
-	pBackup := path + ".test-backup"
-	lBackup := llmPath + ".test-backup"
-	if _, err := os.Stat(path); err == nil {
-		os.Rename(path, pBackup)
-	}
-	if _, err := os.Stat(llmPath); err == nil {
-		os.Rename(llmPath, lBackup)
-	}
-	defer func() {
-		os.Remove(path)
-		os.Remove(llmPath)
-		if _, err := os.Stat(pBackup); err == nil {
-			os.Rename(pBackup, path)
-		}
-		if _, err := os.Stat(lBackup); err == nil {
-			os.Rename(lBackup, llmPath)
-		}
-	}()
-
-	// Write a legacy profile.json that includes "context"
-	legacy := `{"display_name":"Legacy User","role":"Dev","context":"Use Go idioms"}`
-	os.MkdirAll(filepath.Dir(path), 0o755)
-	os.WriteFile(path, []byte(legacy), 0o644)
-
-	p, err := LoadProfile()
-	if err != nil {
-		t.Fatalf("LoadProfile: %v", err)
-	}
-	if p.DisplayName != "Legacy User" {
-		t.Errorf("DisplayName = %q, want %q", p.DisplayName, "Legacy User")
-	}
-
-	// Context should have been migrated to llm_config.json
-	c, err := LoadLLMConfig()
-	if err != nil {
-		t.Fatalf("LoadLLMConfig: %v", err)
-	}
-	if c.Context != "Use Go idioms" {
-		t.Errorf("LLMConfig.Context = %q, want %q", c.Context, "Use Go idioms")
-	}
-}
-
 // --- LLMConfig ---
 
 func TestLLMConfigSaveLoad(t *testing.T) {

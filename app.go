@@ -825,29 +825,6 @@ func (a *App) OpenRepository(path string) error {
 		_ = a.registry.LoadExternalTypes(path + "/types")
 	}
 
-	// Pre-v1.0a portability migration: seed the repo-scoped card types
-	// store from the user's old global location (if any), and move any
-	// in-repo chat files out to the config folder so they stop following
-	// the repo around when it's shared. Idempotent — a no-op on repos
-	// that have already been migrated or are already in the new layout.
-	migrateStats := r.MigrateOnOpen(
-		func() ([]byte, error) {
-			// Read the old global card_types.json directly. We don't
-			// go through config.LoadUserTypeStore because that would
-			// return a decoded struct and we want to hand the raw JSON
-			// to the migration so it can be dropped in verbatim.
-			dir, dErr := config.ConfigDir()
-			if dErr != nil {
-				return nil, dErr
-			}
-			return os.ReadFile(filepath.Join(dir, "card_types.json"))
-		},
-		func(repoID, chatID string, cf *model.ChatFile) error {
-			return config.SaveChatFor(repoID, cf)
-		},
-	)
-	slog.Info("repo migrate", "stats", migrateStats.String())
-
 	// Revalidate repo data (remove stale pins, orphaned files, etc.)
 	if repairStats, err := r.Revalidate(); err != nil {
 		slog.Warn("revalidation failed", "err", err)
@@ -1015,9 +992,15 @@ func (a *App) logActivityWithContext(cardID, action, field, cardTitle string, br
 	}
 	go func() {
 		defer logging.Recover("logActivityWithContext")
-		var actor, actorType string
+		var actorID, actor, actorType string
 		if v, ok := a.llmActors.Load(cardID); ok {
 			actor = v.(string)
+			// LLM model name is stable enough to use as the shard key —
+			// every machine running the same model writes to the same
+			// shard, but they're never running the same agent at the
+			// same time (the scheduler enforces single-flight per card),
+			// so no append race.
+			actorID = actor
 			actorType = "llm"
 		} else {
 			p, _ := config.LoadProfile()
@@ -1025,12 +1008,14 @@ func (a *App) logActivityWithContext(cardID, action, field, cardTitle string, br
 			if actor == "" {
 				actor = "User"
 			}
+			actorID = p.UserID
 			actorType = "user"
 		}
 
 		entry := model.ActivityEntry{
 			ID:        uuid.New().String(),
 			Timestamp: time.Now().UTC(),
+			ActorID:   actorID,
 			Actor:     actor,
 			ActorType: actorType,
 			Action:    action,

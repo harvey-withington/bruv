@@ -27,6 +27,10 @@ type Repository struct {
 
 // Directory layout constants
 const (
+	// bruvDir holds derived state only (SQLite index, advisory lock,
+	// future caches). Authoritative data lives at the repo root so it
+	// travels when the repo is shared via git/Dropbox/Syncthing — the
+	// .bruv/ folder is fully gitignored by EnsureSyncHygiene.
 	bruvDir       = ".bruv"
 	manifestFile  = "manifest.json"
 	brandsDir     = "brands"
@@ -36,6 +40,7 @@ const (
 	streamsDir    = "streams"
 	projectsDir   = "projects"
 	categoriesDir = "categories"
+	activityDir   = "activity"
 )
 
 // Init creates a new BRUV repository inside a subfolder of basePath,
@@ -52,13 +57,11 @@ func Init(basePath string, name string) (*Repository, error) {
 	}
 	root := filepath.Join(basePath, slug)
 
-	metaDir := filepath.Join(root, bruvDir)
-	if fileExists(filepath.Join(metaDir, manifestFile)) {
+	if fileExists(filepath.Join(root, manifestFile)) || fileExists(filepath.Join(root, bruvDir, manifestFile)) {
 		return nil, fmt.Errorf("repository already exists at %s", root)
 	}
 
 	dirs := []string{
-		metaDir,
 		filepath.Join(root, brandsDir),
 		filepath.Join(root, cardsDir),
 		filepath.Join(root, pinsDir),
@@ -79,8 +82,7 @@ func Init(basePath string, name string) (*Repository, error) {
 		UpdatedAt: now,
 	}
 
-	mpath := filepath.Join(metaDir, manifestFile)
-	if err := writeJSON(mpath, manifest); err != nil {
+	if err := writeJSON(filepath.Join(root, manifestFile), manifest); err != nil {
 		return nil, fmt.Errorf("write manifest: %w", err)
 	}
 
@@ -94,7 +96,7 @@ func Open(root string) (*Repository, error) {
 		return nil, fmt.Errorf("resolve path: %w", err)
 	}
 
-	mpath := filepath.Join(root, bruvDir, manifestFile)
+	mpath := filepath.Join(root, manifestFile)
 	if !fileExists(mpath) {
 		return nil, fmt.Errorf("no BRUV repository found at %s", root)
 	}
@@ -126,8 +128,7 @@ func Open(root string) (*Repository, error) {
 func (r *Repository) UpdateManifestDescription(description string) error {
 	r.Manifest.Description = description
 	r.Manifest.UpdatedAt = time.Now().UTC()
-	mpath := filepath.Join(r.Root, bruvDir, manifestFile)
-	if err := writeJSON(mpath, r.Manifest); err != nil {
+	if err := writeJSON(filepath.Join(r.Root, manifestFile), r.Manifest); err != nil {
 		return fmt.Errorf("write manifest: %w", err)
 	}
 	return nil
@@ -188,9 +189,10 @@ func (r *Repository) cardFilePath(id string) string {
 }
 
 // cardTypesPath returns the location of the repo-scoped card types store.
+// Lives at the repo root so it travels when the repo is shared.
 // See internal/repo/card_types.go for the Load/Save API.
 func (r *Repository) cardTypesPath() string {
-	return filepath.Join(r.Root, bruvDir, "card_types.json")
+	return filepath.Join(r.Root, "card_types.json")
 }
 
 func (r *Repository) pinsDirPath(cardID string) string {

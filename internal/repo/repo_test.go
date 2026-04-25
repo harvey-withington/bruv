@@ -27,12 +27,19 @@ func TestInitCreatesDirectoryStructure(t *testing.T) {
 		t.Fatalf("Init: %v", err)
 	}
 
-	// Verify directories exist
-	for _, sub := range []string{".bruv", "brands", "cards", "pins", "types"} {
+	// Verify directories exist. .bruv/ is intentionally NOT pre-created
+	// — it's a derived-state cache and gets created on demand by the
+	// SQLite index and the lock file.
+	for _, sub := range []string{"brands", "cards", "pins", "types"} {
 		path := filepath.Join(r.Root, sub)
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			t.Errorf("expected directory %s to exist", sub)
 		}
+	}
+
+	// Manifest lives at the repo root, not under .bruv/.
+	if _, err := os.Stat(filepath.Join(r.Root, "manifest.json")); err != nil {
+		t.Errorf("expected manifest.json at repo root: %v", err)
 	}
 
 	// Verify manifest
@@ -529,75 +536,6 @@ func TestCardCRUD(t *testing.T) {
 }
 
 // --- Checklist ---
-
-func TestChecklist(t *testing.T) {
-	r := setupTestRepo(t)
-	card, _ := r.CreateCard("brainstorm", "Ideas")
-
-	// Add items
-	card, err := r.AddChecklistItem(card.ID, "Research competitors")
-	if err != nil {
-		t.Fatalf("AddChecklistItem: %v", err)
-	}
-	card, _ = r.AddChecklistItem(card.ID, "Draft proposal")
-
-	if len(card.Checklist) != 2 {
-		t.Fatalf("checklist count = %d, want 2", len(card.Checklist))
-	}
-
-	// Toggle
-	itemID := card.Checklist[0].ID
-	card, err = r.ToggleChecklistItem(card.ID, itemID)
-	if err != nil {
-		t.Fatalf("ToggleChecklistItem: %v", err)
-	}
-	if !card.Checklist[0].Done {
-		t.Error("expected item to be done")
-	}
-
-	// Toggle back
-	card, _ = r.ToggleChecklistItem(card.ID, itemID)
-	if card.Checklist[0].Done {
-		t.Error("expected item to be undone")
-	}
-
-	// Remove
-	card, err = r.RemoveChecklistItem(card.ID, itemID)
-	if err != nil {
-		t.Fatalf("RemoveChecklistItem: %v", err)
-	}
-	if len(card.Checklist) != 1 {
-		t.Errorf("after remove, count = %d, want 1", len(card.Checklist))
-	}
-}
-
-func TestPromoteChecklistItem(t *testing.T) {
-	r := setupTestRepo(t)
-	card, _ := r.CreateCard("brainstorm", "Ideas")
-	card, _ = r.AddChecklistItem(card.ID, "Build kanban board")
-
-	itemID := card.Checklist[0].ID
-	promoted, err := r.PromoteChecklistItem(card.ID, itemID, "feature")
-	if err != nil {
-		t.Fatalf("PromoteChecklistItem: %v", err)
-	}
-
-	if promoted.Title != "Build kanban board" {
-		t.Errorf("promoted title = %q", promoted.Title)
-	}
-	if promoted.Type != "feature" {
-		t.Errorf("promoted type = %q", promoted.Type)
-	}
-	if promoted.Fields["promoted_from"] != card.ID {
-		t.Error("missing promoted_from reference")
-	}
-
-	// Parent card should no longer have the checklist item
-	parent, _ := r.GetCard(card.ID)
-	if len(parent.Checklist) != 0 {
-		t.Errorf("parent checklist count = %d, want 0", len(parent.Checklist))
-	}
-}
 
 // --- Pins ---
 

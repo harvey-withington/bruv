@@ -13,7 +13,7 @@
    * Extracted from CardDetail to get the 2600-line god-component under
    * the 300-line limit — this file is the biggest single win in that split.
    */
-  import { X, Trash2, GripVertical, Pencil, ChevronDown, ChevronRight, Maximize2, ListTree } from 'lucide-svelte'
+  import { X, Trash2, GripVertical, Pencil, ChevronDown, ChevronRight, Maximize2, Minimize2, ListTree } from 'lucide-svelte'
   import { renderMarkdown } from '../lib/markdown'
   import { t } from '../lib/i18n.svelte'
   import { focusOnMount, inlineEdit } from '../lib/actions'
@@ -229,7 +229,7 @@
             {/if}
             {#if expandedTextBlocks.has(block.id)}
               <button class="text-expand-btn" onclick={() => onToggleTextExpand(block.id)}>
-                {t('block.collapse')}
+                <Minimize2 size={11} /> {t('block.collapse')}
               </button>
             {/if}
           {/if}

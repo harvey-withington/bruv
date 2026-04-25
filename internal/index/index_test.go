@@ -63,9 +63,10 @@ func TestIndexCard(t *testing.T) {
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
 		ContextLevel: model.ContextProject,
-		Fields:       map[string]any{"description": "Cards should be pinnable to multiple boards"},
-		Checklist:    []model.ChecklistItem{},
-		Tags:         []string{"core", "architecture"},
+		Blocks: []model.Block{
+			{ID: "b1", Type: model.BlockText, Key: "description", Value: "Cards should be pinnable to multiple boards"},
+		},
+		Tags: []string{"core", "architecture"},
 	}
 
 	if err := idx.IndexCard(card, time.Now().UTC(), ""); err != nil {
@@ -85,8 +86,7 @@ func TestRemoveCard(t *testing.T) {
 		ID: "card-001", Type: "task", Title: "Test",
 		CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
 		ContextLevel: model.ContextIsolated,
-		Fields:       map[string]any{}, Checklist: []model.ChecklistItem{},
-		Tags: []string{"test"},
+		Tags:         []string{"test"},
 	}
 	idx.IndexCard(card, time.Now().UTC(), "")
 
@@ -110,22 +110,28 @@ func TestFullTextSearch(t *testing.T) {
 			ID: "card-001", Type: "feature", Title: "Kanban board drag and drop",
 			CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
 			ContextLevel: model.ContextProject,
-			Fields:       map[string]any{"description": "Implement drag and drop for cards between categories"},
-			Checklist:    []model.ChecklistItem{}, Tags: []string{"ui", "core"},
+			Blocks: []model.Block{
+				{ID: "b1", Type: model.BlockText, Key: "description", Value: "Implement drag and drop for cards between categories"},
+			},
+			Tags: []string{"ui", "core"},
 		},
 		{
 			ID: "card-002", Type: "reference", Title: "Bitcoin self-custody guide",
 			CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
 			ContextLevel: model.ContextBrand,
-			Fields:       map[string]any{"content": "A comprehensive guide to Bitcoin self-custody wallets"},
-			Checklist:    []model.ChecklistItem{}, Tags: []string{"bitcoin", "reference"},
+			Blocks: []model.Block{
+				{ID: "b1", Type: model.BlockText, Key: "content", Value: "A comprehensive guide to Bitcoin self-custody wallets"},
+			},
+			Tags: []string{"bitcoin", "reference"},
 		},
 		{
 			ID: "card-003", Type: "task", Title: "Fix card rendering bug",
 			CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
 			ContextLevel: model.ContextIsolated,
-			Fields:       map[string]any{"description": "Cards don't render correctly when dragged"},
-			Checklist:    []model.ChecklistItem{}, Tags: []string{"bug", "ui"},
+			Blocks: []model.Block{
+				{ID: "b1", Type: model.BlockText, Key: "description", Value: "Cards don't render correctly when dragged"},
+			},
+			Tags: []string{"bug", "ui"},
 		},
 	}
 
@@ -173,12 +179,10 @@ func TestListCardIDsByTag(t *testing.T) {
 	idx.IndexCard(&model.Card{
 		ID: "c1", Type: "task", Title: "A", Tags: []string{"ui", "core"},
 		CreatedAt: now, UpdatedAt: now, ContextLevel: model.ContextProject,
-		Fields: map[string]any{}, Checklist: []model.ChecklistItem{},
 	}, now, "")
 	idx.IndexCard(&model.Card{
 		ID: "c2", Type: "task", Title: "B", Tags: []string{"backend"},
 		CreatedAt: now, UpdatedAt: now, ContextLevel: model.ContextProject,
-		Fields: map[string]any{}, Checklist: []model.ChecklistItem{},
 	}, now, "")
 
 	ids, err := idx.ListCardIDsByTag("ui")
@@ -198,13 +202,11 @@ func TestListCardIDsByType(t *testing.T) {
 
 	idx.IndexCard(&model.Card{
 		ID: "c1", Type: "feature", Title: "F1",
-		CreatedAt: now, UpdatedAt: now, ContextLevel: model.ContextProject,
-		Fields: map[string]any{}, Checklist: []model.ChecklistItem{}, Tags: []string{},
+		CreatedAt: now, UpdatedAt: now, ContextLevel: model.ContextProject, Tags: []string{},
 	}, now, "")
 	idx.IndexCard(&model.Card{
 		ID: "c2", Type: "task", Title: "T1",
-		CreatedAt: now, UpdatedAt: now, ContextLevel: model.ContextProject,
-		Fields: map[string]any{}, Checklist: []model.ChecklistItem{}, Tags: []string{},
+		CreatedAt: now, UpdatedAt: now, ContextLevel: model.ContextProject, Tags: []string{},
 	}, now, "")
 
 	ids, _ := idx.ListCardIDsByType("feature")

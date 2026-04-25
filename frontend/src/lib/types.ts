@@ -121,7 +121,10 @@ export type CardPin = {
 }
 
 // --- Identity: who the user is (editable, visible to collaborators & LLMs) ---
+// user_id is a stable machine-local UUID generated on first profile load;
+// never displayed, used by the activity log to shard each user's writes.
 export type UserProfile = {
+  user_id: string
   display_name: string
   role: string
   bio: string
@@ -172,7 +175,8 @@ export type CardTemplate = {
 export type ActivityEntry = {
   id: string
   timestamp: string        // ISO 8601
-  actor: string            // display name of the user or LLM model
+  actor_id?: string        // stable identity (UserProfile.user_id for users, model name for LLMs)
+  actor: string            // display name snapshot at write time
   actor_type: 'user' | 'llm'
   action: string           // e.g. "created", "updated_title", "updated_field", "pinned"
   field: string            // human label of the changed field (may be empty)
@@ -564,11 +568,6 @@ export interface BackendAdapter {
   UpdateCardTags(id: string, tags: string[]): Promise<any>
   UpdateCardLabels(id: string, labelIDs: string[]): Promise<any>
   UpdateCardDueDate(id: string, dueDate: string): Promise<any>
-
-  // Checklist
-  AddChecklistItem(cardID: string, text: string): Promise<any>
-  ToggleChecklistItem(cardID: string, itemID: string): Promise<any>
-  RemoveChecklistItem(cardID: string, itemID: string): Promise<any>
 
   // Pins
   PinCard(cardID: string, projectID: string, categoryID: string): Promise<void>

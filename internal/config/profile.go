@@ -5,10 +5,20 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+
+	"github.com/google/uuid"
 )
 
 // UserProfile holds the user's editable identity, visible to collaborators and LLMs.
+//
+// UserID is a machine-local stable identifier — a UUID generated on
+// first profile load and persisted forever after. It's the key used
+// by the activity log to shard each user's writes into their own
+// file (avoids merge conflicts when a repo is shared) and is never
+// shown to the user. The DisplayName is the human-friendly name and
+// is mutable; UserID stays stable across renames.
 type UserProfile struct {
+	UserID      string   `json:"user_id"`
 	DisplayName string   `json:"display_name"`
 	Role        string   `json:"role"`         // e.g. "Software Engineer", "Content Creator"
 	Bio         string   `json:"bio"`          // Short personal description
@@ -26,6 +36,9 @@ func profilePath() (string, error) {
 
 // LoadProfile reads the user profile from disk.
 // On first load (no file), auto-populates DisplayName from the OS account.
+// UserID is auto-generated on first load OR backfilled on existing
+// profiles that pre-date the field, then persisted immediately so
+// subsequent loads return a stable value.
 func LoadProfile() (UserProfile, error) {
 	var p UserProfile
 	path, err := profilePath()
@@ -36,35 +49,21 @@ func LoadProfile() (UserProfile, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			p.DisplayName = osDisplayName()
+			p.UserID = uuid.NewString()
+			_ = SaveProfile(p) // best effort: a failed write here just means the next load regenerates
 			return p, nil
 		}
 		return p, err
 	}
-
-	// Unmarshal into a raw map first to detect legacy "context" field
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return UserProfile{}, err
-	}
-
-	// Migrate legacy "context" field to llm_config.json
-	if ctxRaw, ok := raw["context"]; ok {
-		var ctxStr string
-		if json.Unmarshal(ctxRaw, &ctxStr) == nil && ctxStr != "" {
-			existing, _ := LoadLLMConfig()
-			if existing.Context == "" {
-				existing.Context = ctxStr
-				_ = SaveLLMConfig(existing)
-			}
-		}
-		delete(raw, "context")
-		// Re-marshal without context and rewrite profile
-		cleaned, _ := json.MarshalIndent(raw, "", "  ")
-		_ = os.WriteFile(path, cleaned, 0o644)
-	}
-
 	if err := json.Unmarshal(data, &p); err != nil {
 		return UserProfile{}, err
+	}
+	// UserID is a required field; if it's missing on an existing
+	// profile, generate one and persist immediately so the activity
+	// log gets a stable shard key from the very next write.
+	if p.UserID == "" {
+		p.UserID = uuid.NewString()
+		_ = SaveProfile(p)
 	}
 	return p, nil
 }

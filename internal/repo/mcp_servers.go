@@ -31,10 +31,10 @@ type MCPServerStore struct {
 }
 
 // mcpServersPath returns the location of the repo-scoped MCP server
-// store. Parallel to cardTypesPath — both live under .bruv/ so they
-// travel with the project data.
+// store. Lives at the repo root so the project's tool definitions
+// travel when the repo is shared (secrets stay in the OS keychain).
 func (r *Repository) mcpServersPath() string {
-	return filepath.Join(r.Root, bruvDir, "mcp_servers.json")
+	return filepath.Join(r.Root, "mcp_servers.json")
 }
 
 // LoadMCPServerStore reads the repo-scoped MCP server store. Returns

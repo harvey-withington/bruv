@@ -206,31 +206,6 @@ func (reg *Registry) SchemaToBlocks(typeName string) []model.Block {
 	return blocks
 }
 
-// SchemaToFieldHints converts a card type schema into a map of FieldHints
-// for use by MigrateCardToBlocks when migrating legacy cards.
-func (reg *Registry) SchemaToFieldHints(typeName string) map[string]model.FieldHint {
-	schema := reg.Get(typeName)
-	if schema == nil {
-		return nil
-	}
-
-	requiredSet := make(map[string]bool, len(schema.Required))
-	for _, r := range schema.Required {
-		requiredSet[r] = true
-	}
-
-	hints := make(map[string]model.FieldHint, len(schema.Properties))
-	for key, prop := range schema.Properties {
-		hints[key] = model.FieldHint{
-			BlockType: fieldSchemaToBlockType(prop),
-			Label:     humanizeKey(key),
-			Required:  requiredSet[key],
-			Meta:      fieldSchemaToMeta(prop),
-		}
-	}
-	return hints
-}
-
 // fieldSchemaToBlockType maps a JSON schema field type to a Block type.
 func fieldSchemaToBlockType(f FieldSchema) string {
 	if len(f.Enum) > 0 {

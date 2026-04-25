@@ -511,8 +511,15 @@ func (s *Service) ImportCardTypesFromRepo(otherRepoPath, mode string) (CardTypes
 	if s.deps.Repo() == nil {
 		return result, fmt.Errorf("no repository open")
 	}
-	src := filepath.Join(otherRepoPath, ".bruv", "card_types.json")
+	// Check the current location first; fall back to the legacy
+	// .bruv/ location for repos that have not yet been opened (and
+	// thereby migrated) by this build.
+	src := filepath.Join(otherRepoPath, "card_types.json")
 	data, err := os.ReadFile(src)
+	if err != nil && os.IsNotExist(err) {
+		src = filepath.Join(otherRepoPath, ".bruv", "card_types.json")
+		data, err = os.ReadFile(src)
+	}
 	if err != nil {
 		if os.IsNotExist(err) {
 			return result, fmt.Errorf("no card types found in %q (not a BRUV repo, or a legacy repo without repo-scoped types)", otherRepoPath)

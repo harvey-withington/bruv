@@ -102,18 +102,24 @@
 </script>
 
 <section class="attachments-section">
-  <button class="attachments-header" onclick={() => collapsed = !collapsed}>
-    {#if collapsed}
-      <ChevronRight size={14} />
-    {:else}
-      <ChevronDown size={14} />
-    {/if}
+  <div class="attachments-header">
+    <button
+      class="attachments-collapse-btn"
+      onclick={() => collapsed = !collapsed}
+      title={collapsed ? t('tooltip.expand_block') : t('tooltip.collapse_block')}
+    >
+      {#if collapsed}
+        <ChevronRight size={14} />
+      {:else}
+        <ChevronDown size={14} />
+      {/if}
+    </button>
     <Paperclip size={13} />
     <span class="attachments-title">{t('attachment.title')}</span>
     {#if attachments.length > 0}
       <span class="attachments-count">{attachments.length}</span>
     {/if}
-  </button>
+  </div>
 
   {#if !collapsed}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -162,23 +168,41 @@
     padding-top: 0.5rem;
   }
 
+  /* Plain row (not a <button>) to avoid the global button-press scale
+     animation, which would jerk a full-width control sideways toward
+     its centre. Mirrors BlockItem's block-label-row pattern: a small
+     chevron button on the left, static label content beside it. */
   .attachments-header {
     display: flex;
     align-items: center;
     gap: 0.35rem;
-    background: none;
-    border: none;
-    cursor: pointer;
     color: var(--text-secondary);
     font-size: 0.8rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     padding: 0.25rem 0;
-    width: 100%;
-    text-align: left;
   }
-  .attachments-header:hover { color: var(--text-primary); }
+
+  .attachments-collapse-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    padding: 0.25rem;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-radius: 4px;
+    margin: -0.25rem 0;
+    transition: background var(--duration-fast), color var(--duration-fast);
+  }
+  .attachments-collapse-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-elevated);
+  }
 
   .attachments-count {
     font-size: 0.65rem;

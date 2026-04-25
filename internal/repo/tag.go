@@ -25,8 +25,12 @@ const tagsFile = "tags.json"
 // TagColors maps tag name → hex color string.
 type TagColors map[string]string
 
+// tagsPath returns the location of the repo-global tag color cache.
+// Lives at the repo root so the cross-project color identity of a
+// named tag travels when the repo is shared. Per-project tag lists
+// live separately at <project>/tags.json (see label.go).
 func (r *Repository) tagsPath() string {
-	return filepath.Join(r.Root, bruvDir, tagsFile)
+	return filepath.Join(r.Root, tagsFile)
 }
 
 // GetTagColors loads the tag→color map from disk.

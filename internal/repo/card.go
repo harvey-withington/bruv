@@ -185,23 +185,23 @@ func (r *Repository) ListCardsByType(cardType string) ([]model.Card, error) {
 }
 
 // AddCardAttachment stores a file and adds it to the card's FileAttachments list.
-// data is the base64-encoded file content.
+// data is the base64-encoded file content. Bytes land at
+// <repo>/attachments/<cardID>/<id> with no name suffix, so the
+// server can resolve cardID+id to a file path at request time
+// without re-reading the card metadata.
 func (r *Repository) AddCardAttachment(cardID, name, data string) (*model.Card, error) {
-	// Create attachments directory if needed
 	dir := filepath.Join(r.Root, "attachments", cardID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create attachments dir: %w", err)
 	}
 
-	// Decode base64 data
 	decoded, err := base64Decode(data)
 	if err != nil {
 		return nil, fmt.Errorf("decode attachment: %w", err)
 	}
 
-	id := fmt.Sprintf("att-%s", uuid.New().String()[:8])
-	filePath := filepath.Join(dir, id+"_"+name)
-	if err := os.WriteFile(filePath, decoded, 0o644); err != nil {
+	id := fmt.Sprintf("att-%s", uuid.New().String())
+	if err := os.WriteFile(filepath.Join(dir, id), decoded, 0o644); err != nil {
 		return nil, fmt.Errorf("write attachment file: %w", err)
 	}
 
@@ -209,7 +209,6 @@ func (r *Repository) AddCardAttachment(cardID, name, data string) (*model.Card, 
 		card.FileAttachments = append(card.FileAttachments, model.FileAttachment{
 			ID:      id,
 			Name:    name,
-			Path:    filePath,
 			Mime:    detectMime(name),
 			Size:    int64(len(decoded)),
 			AddedAt: time.Now().UTC().Format(time.RFC3339),
@@ -217,18 +216,41 @@ func (r *Repository) AddCardAttachment(cardID, name, data string) (*model.Card, 
 	})
 }
 
-// RemoveCardAttachment removes a file attachment from a card.
+// RemoveCardAttachment removes a file attachment from a card and
+// deletes the underlying file from disk.
 func (r *Repository) RemoveCardAttachment(cardID, attachmentID string) (*model.Card, error) {
 	return r.UpdateCard(cardID, func(card *model.Card) {
 		for i, att := range card.FileAttachments {
 			if att.ID == attachmentID {
-				// Remove the file from disk (best-effort)
-				_ = os.Remove(att.Path)
+				_ = os.Remove(filepath.Join(r.Root, "attachments", cardID, att.ID))
 				card.FileAttachments = append(card.FileAttachments[:i], card.FileAttachments[i+1:]...)
 				return
 			}
 		}
 	})
+}
+
+// AttachmentPath resolves an attachment's location on disk. Returns
+// the path even if the file doesn't exist — caller checks fstat. The
+// server's HTTP handler uses this after verifying the request's HMAC.
+func (r *Repository) AttachmentPath(cardID, attachmentID string) string {
+	return filepath.Join(r.Root, "attachments", cardID, attachmentID)
+}
+
+// FindAttachment returns the metadata entry for an attachment ID on a
+// card, or nil if no such entry exists. Used by the HTTP handler to
+// resolve Mime + Name without leaking the rest of the card.
+func (r *Repository) FindAttachment(cardID, attachmentID string) (*model.FileAttachment, error) {
+	card, err := r.GetCard(cardID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range card.FileAttachments {
+		if card.FileAttachments[i].ID == attachmentID {
+			return &card.FileAttachments[i], nil
+		}
+	}
+	return nil, fmt.Errorf("attachment %q not found on card %q", attachmentID, cardID)
 }
 
 // base64Decode decodes a base64 string.

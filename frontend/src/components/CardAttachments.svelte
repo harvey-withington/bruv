@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { Paperclip, Trash2, ChevronDown, ChevronRight, FileText, FileImage, FileVideo, File as FileIcon } from 'lucide-svelte'
+  import { Paperclip, Trash2, ChevronDown, ChevronRight, FileText, FileImage, FileVideo, File as FileIcon, Download } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
-  import { AddCardAttachment, RemoveCardAttachment } from '../lib/api'
+  import { AddCardAttachment, RemoveCardAttachment, SignAttachmentURL } from '../lib/api'
   import type { Attachment, Card } from '../lib/types'
 
   let {
@@ -89,6 +89,19 @@
     }
   }
 
+  // Open the attachment in a new tab via a freshly-signed URL.
+  // Sign-on-click rather than render-time so the URL is fresh each
+  // time (the 5-min HMAC TTL otherwise expires while the dialog is
+  // open) and we don't N+1-RPC every list render.
+  async function downloadAttachment(att: Attachment) {
+    try {
+      const url = await SignAttachmentURL(cardId, att.id)
+      window.open(url, '_blank', 'noopener,noreferrer')
+    } catch {
+      showToast(t('attachment.download_failed'), 'error')
+    }
+  }
+
   async function removeAttachment(att: Attachment) {
     const ok = await showConfirm(t('attachment.remove_confirm').replace('{name}', att.name))
     if (!ok) return
@@ -140,7 +153,8 @@
               <Icon size={14} />
               <span class="attachment-name" title={att.name}>{att.name}</span>
               <span class="attachment-size">{formatSize(att.size)}</span>
-              <button class="action-reveal action-reveal--danger attachment-remove" onclick={() => removeAttachment(att)} title="Remove"><Trash2 size={11} /></button>
+              <button class="action-reveal attachment-action" onclick={() => downloadAttachment(att)} title={t('attachment.download')}><Download size={11} /></button>
+              <button class="action-reveal action-reveal--danger attachment-remove" onclick={() => removeAttachment(att)} title={t('attachment.remove')}><Trash2 size={11} /></button>
             </div>
           {/each}
         </div>

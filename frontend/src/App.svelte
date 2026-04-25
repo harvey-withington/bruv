@@ -21,6 +21,8 @@
   import ConfirmDialog from './components/ConfirmDialog.svelte'
   import OptionsEditorDialog from './components/OptionsEditorDialog.svelte'
   import AboutDialog from './components/AboutDialog.svelte'
+  import ConnectionsDialog from './components/ConnectionsDialog.svelte'
+  import { loadConnections } from './lib/connections.svelte'
 
   import { GetPreferences, ListRecentRepos, OpenRepository, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, IsLLMConfigured, MarkLLMNudgeShown } from './lib/api'
 
@@ -58,6 +60,9 @@
   }
   tryReopenLastRepo()
   loadGlobalTagColors()
+  // Connection list drives the always-visible sidebar indicator and
+  // the Connections dialog. Cheap call, fire-and-forget on boot.
+  loadConnections()
 
   let searchCardId = $state<string | null>(null)
   let searchCardInitialTab = $state<'details' | 'agent' | undefined>(undefined)
@@ -88,6 +93,7 @@
   })
   let showKeyboardShortcuts = $state(false)
   let showAbout = $state(false)
+  let showConnections = $state(false)
 
   // First-run LLM nudge: fire once per install, after the initial prefs load.
   // When the user has no LLM account configured, open the Settings dialog
@@ -266,6 +272,7 @@
       onOpenPrefs={() => { settingsInitialTab = undefined; showSettings = true }}
       onOpenProfile={() => showProfile = true}
       onOpenAbout={() => showAbout = true}
+      onOpenConnections={() => showConnections = true}
     />
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div
@@ -313,6 +320,10 @@
 
   {#if showSettings}
     <SettingsDialog onClose={() => { showSettings = false; settingsInitialTab = undefined }} initialTab={settingsInitialTab} />
+  {/if}
+
+  {#if showConnections}
+    <ConnectionsDialog onClose={() => { showConnections = false }} />
   {/if}
 
   {#if showProjectSettings}

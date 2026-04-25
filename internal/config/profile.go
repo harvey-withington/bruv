@@ -5,20 +5,15 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
-
-	"github.com/google/uuid"
 )
 
 // UserProfile holds the user's editable identity, visible to collaborators and LLMs.
 //
-// UserID is a machine-local stable identifier — a UUID generated on
-// first profile load and persisted forever after. It's the key used
-// by the activity log to shard each user's writes into their own
-// file (avoids merge conflicts when a repo is shared) and is never
-// shown to the user. The DisplayName is the human-friendly name and
-// is mutable; UserID stays stable across renames.
+// Server-side storage: a profile is associated with a server, not a
+// device. Two devices sharing one BRUV server see the same profile.
+// (Per-device identity for activity-log sharding lives separately —
+// see identity.go.)
 type UserProfile struct {
-	UserID      string   `json:"user_id"`
 	DisplayName string   `json:"display_name"`
 	Role        string   `json:"role"`         // e.g. "Software Engineer", "Content Creator"
 	Bio         string   `json:"bio"`          // Short personal description
@@ -34,11 +29,9 @@ func profilePath() (string, error) {
 	return filepath.Join(dir, "profile.json"), nil
 }
 
-// LoadProfile reads the user profile from disk.
-// On first load (no file), auto-populates DisplayName from the OS account.
-// UserID is auto-generated on first load OR backfilled on existing
-// profiles that pre-date the field, then persisted immediately so
-// subsequent loads return a stable value.
+// LoadProfile reads the user profile from disk. On first load (no
+// file), auto-populates DisplayName from the OS account. Per-device
+// identity (UserID) lives separately in clientdata — see identity.go.
 func LoadProfile() (UserProfile, error) {
 	var p UserProfile
 	path, err := profilePath()
@@ -49,21 +42,34 @@ func LoadProfile() (UserProfile, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			p.DisplayName = osDisplayName()
-			p.UserID = uuid.NewString()
-			_ = SaveProfile(p) // best effort: a failed write here just means the next load regenerates
+			_ = SaveProfile(p) // best effort
 			return p, nil
 		}
 		return p, err
 	}
+	// Decode into a raw map so we can detect + hoist a stale `user_id`
+	// field from older builds that kept the device identity here. The
+	// hoisted value seeds <clientdata>/device-id.txt so the activity
+	// log's shard key stays stable across the move.
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err == nil {
+		if uidRaw, ok := raw["user_id"]; ok {
+			var uid string
+			if json.Unmarshal(uidRaw, &uid) == nil && uid != "" {
+				if dpath, derr := deviceIDPath(); derr == nil {
+					if _, statErr := os.Stat(dpath); os.IsNotExist(statErr) {
+						_ = os.WriteFile(dpath, []byte(uid+"\n"), 0o644)
+					}
+				}
+			}
+			delete(raw, "user_id")
+			if cleaned, mErr := json.MarshalIndent(raw, "", "  "); mErr == nil {
+				_ = os.WriteFile(path, cleaned, 0o644)
+			}
+		}
+	}
 	if err := json.Unmarshal(data, &p); err != nil {
 		return UserProfile{}, err
-	}
-	// UserID is a required field; if it's missing on an existing
-	// profile, generate one and persist immediately so the activity
-	// log gets a stable shard key from the very next write.
-	if p.UserID == "" {
-		p.UserID = uuid.NewString()
-		_ = SaveProfile(p)
 	}
 	return p, nil
 }

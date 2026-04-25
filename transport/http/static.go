@@ -8,30 +8,21 @@ import (
 	"strings"
 )
 
-// staticHandler serves the embedded Svelte bundle with SPA fallback.
+// staticHandler serves an embedded Svelte bundle with SPA fallback.
 // Requests for files that don't exist (typical for client-routed
 // URLs like /app/settings) fall back to index.html so the router
 // inside the bundle can handle them.
+//
+// The fs.FS is expected to be rooted at the bundle root — index.html
+// at the top level, hashed assets under `assets/`. The bruv/frontend
+// package's `Assets()` helper produces exactly that shape.
 //
 // Caching: long-immutable Cache-Control on hashed asset paths
 // (Vite output uses content hashes like `index-B8TfjPnY.js`), no
 // cache on index.html. If a user is behind a caching proxy they
 // can still grab the newest shell + cached hashed chunks correctly.
 func staticHandler(assets fs.FS) nethttp.Handler {
-	// The embed directive on main is `all:frontend/dist`, so the
-	// filesystem rooted at "frontend/dist/..." — sub into the dist
-	// dir so request paths map directly to files.
-	subFS, err := fs.Sub(assets, "frontend/dist")
-	if err != nil {
-		// Rather than panic at server init, return a handler that
-		// surfaces the misconfiguration on every request. Makes the
-		// failure visible in development.
-		return nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
-			nethttp.Error(w, "static assets misconfigured: "+err.Error(), nethttp.StatusInternalServerError)
-		})
-	}
-
-	fileServer := nethttp.FileServer(nethttp.FS(subFS))
+	fileServer := nethttp.FileServer(nethttp.FS(assets))
 
 	return nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		clean := path.Clean("/" + r.URL.Path)
@@ -43,8 +34,8 @@ func staticHandler(assets fs.FS) nethttp.Handler {
 
 		// If the path exists, serve it with hashed-asset caching when
 		// applicable. If not, SPA fallback to index.html.
-		if exists := fileExists(subFS, name); !exists {
-			serveIndex(w, r, subFS)
+		if exists := fileExists(assets, name); !exists {
+			serveIndex(w, r, assets)
 			return
 		}
 

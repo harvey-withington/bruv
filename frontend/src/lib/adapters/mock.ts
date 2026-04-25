@@ -22,7 +22,6 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     }),
 
     GetProfile: async () => ({
-      user_id: 'test-user-id',
       display_name: 'Test User',
       role: '',
       bio: '',
@@ -41,6 +40,19 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
       min_confidence: '',
     }),
     SetLLMConfig: async () => {},
+
+    ListConnections: async () => ({ active: '', connections: [] }),
+    AddConnection: async (name: string, url: string, deviceToken: string) => ({
+      id: 'mock-' + Math.random().toString(36).slice(2, 10),
+      name,
+      url,
+      device_token: deviceToken,
+      added_at: new Date().toISOString(),
+    }),
+    RemoveConnection: async () => {},
+    SetActiveConnection: async () => {},
+
+    SignAttachmentURL: async (cardID: string, attachmentID: string) => `mock://${cardID}/${attachmentID}`,
 
     subscribe: (_cb: EventCallback) => {},
     unsubscribe: (_cb: EventCallback) => {},

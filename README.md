@@ -57,6 +57,12 @@ Your personal data stays on your machine and does **not** travel with a shared r
 
 BRUV's **Import card types from another repo** button (Card Types dialog) lets you pull a type vocabulary from another local repo without an intermediate export file — useful when you maintain several repos and want to keep a shared set of types across them.
 
+## Self-hosting (one server, multiple devices)
+
+BRUV can run as a Windows Service on a home machine, with other devices on your tailnet pointing at it through the desktop app's **Connections** dialog. One repo, many devices — laptop, partner's PC, a phone in the browser, all editing the same data. Tick the **Server** box on the installer's components page; the rest is one click.
+
+Full walkthrough (Tailscale setup, day-two operations, troubleshooting): **[docs/self-hosting.md](docs/self-hosting.md)**.
+
 ## Privacy
 
 BRUV is local-first by design. Your data lives in plain JSON on your disk. No telemetry, no analytics, no crash reporting, no account, no cloud.

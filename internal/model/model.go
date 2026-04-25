@@ -177,10 +177,16 @@ type CommentFile struct {
 }
 
 // FileAttachment is a file attached to a card (card-level, not per-block).
+//
+// Bytes live at <repo>/attachments/<cardID>/<id>. There is intentionally
+// no on-disk Path field — paths are server-machine-local and would
+// break the moment the repo is shared. Clients fetch attachment bytes
+// via signed HTTP URLs (see transport/http/attachments.go and
+// app.SignAttachmentURL); the server resolves <cardID>+<id> to a path
+// at request time.
 type FileAttachment struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
-	Path    string `json:"path"`
 	Mime    string `json:"mime"`
 	Size    int64  `json:"size"`
 	AddedAt string `json:"added_at"`

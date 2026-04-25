@@ -11,14 +11,15 @@ import (
 )
 
 // buildFakeBundle constructs an in-memory fs.FS that mimics the
-// `frontend/dist` layout produced by vite build, so the static
-// handler can be tested without running the real frontend build.
+// bundle root produced by the frontend.Assets() helper — index.html
+// at the top level, hashed assets under assets/. Lets the static
+// handler be tested without running the real frontend build.
 func buildFakeBundle() fstest.MapFS {
 	return fstest.MapFS{
-		"frontend/dist/index.html": &fstest.MapFile{
+		"index.html": &fstest.MapFile{
 			Data: []byte(`<html><body>BRUV shell</body></html>`),
 		},
-		"frontend/dist/assets/index-hash.js": &fstest.MapFile{
+		"assets/index-hash.js": &fstest.MapFile{
 			Data: []byte(`console.log("bundle")`),
 		},
 	}

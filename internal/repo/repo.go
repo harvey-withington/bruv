@@ -44,7 +44,8 @@ const (
 )
 
 // Init creates a new BRUV repository inside a subfolder of basePath,
-// named after the slugified repo name.
+// named after the slugified repo name. Used by the desktop app's
+// "create repo" flow where the user picks a parent directory.
 func Init(basePath string, name string) (*Repository, error) {
 	basePath, err := filepath.Abs(basePath)
 	if err != nil {
@@ -55,7 +56,17 @@ func Init(basePath string, name string) (*Repository, error) {
 	if slug == "" {
 		return nil, fmt.Errorf("invalid repository name %q", name)
 	}
-	root := filepath.Join(basePath, slug)
+	return InitAt(filepath.Join(basePath, slug), name)
+}
+
+// InitAt creates a new BRUV repository at exactly the given root
+// path (no slug rewriting). Used by the server-install flow where
+// the operator picks the literal repo location.
+func InitAt(root string, name string) (*Repository, error) {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve path: %w", err)
+	}
 
 	if fileExists(filepath.Join(root, manifestFile)) || fileExists(filepath.Join(root, bruvDir, manifestFile)) {
 		return nil, fmt.Errorf("repository already exists at %s", root)

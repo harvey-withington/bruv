@@ -1,9 +1,16 @@
 package main
 
 import (
+	"bruv/frontend"
 	"bruv/internal/config"
+	"bruv/internal/server"
 	"embed"
+	"flag"
+	"fmt"
+	"log/slog"
+	"os"
 
+	"github.com/kardianos/service"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
@@ -13,6 +20,32 @@ import (
 var assets embed.FS
 
 func main() {
+	// --- Service-mode dispatch ---
+	//
+	// One bruv.exe behaves three ways. Order matters here: SCM
+	// invocation must take precedence so the service host doesn't
+	// accidentally fall through to the desktop UI on a session that
+	// has no display.
+	//
+	//   1. SCM-spawned service — kardianos detects we're not running
+	//      interactively and routes through runServiceMode().
+	//   2. `bruv.exe service install/uninstall/start/stop/...` —
+	//      explicit subcommand for managing the registered service.
+	//   3. `bruv.exe --server` — interactive headless backend.
+	//   4. (default) — Wails desktop UI.
+	if !service.Interactive() {
+		runServiceMode()
+		return
+	}
+	if isServiceCommand() {
+		runServiceCommand()
+		return
+	}
+	if isServerMode() {
+		runServerMode()
+		return
+	}
+
 	// Create an instance of the app structure
 	app := NewApp()
 
@@ -51,5 +84,61 @@ func main() {
 
 	if err != nil {
 		println("Error:", err.Error())
+	}
+}
+
+// isServerMode returns true when this process should run as the
+// headless backend instead of the desktop UI. Triggered by either
+// the --server CLI flag or the BRUV_MODE=server env var (the env
+// var is for the Windows Service install path, where the SCM
+// invokes the binary with environment but the args are also handy
+// for `bruv.exe --server` from a terminal).
+func isServerMode() bool {
+	if os.Getenv("BRUV_MODE") == "server" {
+		return true
+	}
+	for _, a := range os.Args[1:] {
+		if a == "--server" || a == "-server" {
+			return true
+		}
+	}
+	return false
+}
+
+// runServerMode parses server-specific flags and forwards to
+// internal/server.Run. Exits with non-zero on failure so the SCM /
+// shell sees the failed-start signal.
+func runServerMode() {
+	// Strip --server from the arg list before flag.Parse so it
+	// doesn't trip an "undefined flag" error.
+	args := make([]string, 0, len(os.Args)-1)
+	for _, a := range os.Args[1:] {
+		if a == "--server" || a == "-server" {
+			continue
+		}
+		args = append(args, a)
+	}
+	fs := flag.NewFlagSet("bruv --server", flag.ExitOnError)
+	repoPath := fs.String("repo", "", "path to BRUV repo to open (required)")
+	addr := fs.String("addr", "0.0.0.0:9870", "HTTP listen address")
+	configDir := fs.String("config", "", "config directory (default: <user-config>/bruv/)")
+	if err := fs.Parse(args); err != nil {
+		os.Exit(2)
+	}
+	if *repoPath == "" {
+		fmt.Fprintln(os.Stderr, "error: --repo is required when running as --server")
+		fs.Usage()
+		os.Exit(2)
+	}
+	if err := server.Run(server.Options{
+		RepoPath:  *repoPath,
+		Addr:      *addr,
+		ConfigDir: *configDir,
+		Version:   AppVersion,
+		BuildDate: BuildDate,
+		Assets:    frontend.Assets(),
+	}); err != nil {
+		slog.Error("bruv --server failed", "err", err)
+		os.Exit(1)
 	}
 }

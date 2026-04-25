@@ -2,7 +2,7 @@
 
 import { getBackend } from './adapters'
 
-export type { UserProfile, AuthInfo, LLMConfig, LLMAccount, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard, AgentConfig, AgentRun, AgentFile, AgentStatus, AgentSummary, AgentRunEntry, AgentAnalytics, AppNotification, NotifyConfig, ModelPricing, BuildInfo, UpdateCheckResult, CardTypesImportMode, CardTypesImportResult, MCPServerSpec, MCPServerView, MCPServerHealth, MCPHealthStatus, MCPServerViewTool } from './types'
+export type { UserProfile, AuthInfo, LLMConfig, LLMAccount, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard, AgentConfig, AgentRun, AgentFile, AgentStatus, AgentSummary, AgentRunEntry, AgentAnalytics, AppNotification, NotifyConfig, ModelPricing, BuildInfo, UpdateCheckResult, CardTypesImportMode, CardTypesImportResult, MCPServerSpec, MCPServerView, MCPServerHealth, MCPHealthStatus, MCPServerViewTool, Connection, ConnectionStore } from './types'
 
 // Capabilities
 export const getCapabilities = () => getBackend().getCapabilities()
@@ -17,6 +17,15 @@ export const SetProfile = (...args: Parameters<ReturnType<typeof getBackend>['Se
 // LLM config
 export const GetLLMConfig = () => getBackend().GetLLMConfig()
 export const SetLLMConfig = (...args: Parameters<ReturnType<typeof getBackend>['SetLLMConfig']>) => getBackend().SetLLMConfig(...args)
+
+// Connections
+export const ListConnections = () => getBackend().ListConnections()
+export const AddConnection = (...args: Parameters<ReturnType<typeof getBackend>['AddConnection']>) => getBackend().AddConnection(...args)
+export const RemoveConnection = (...args: Parameters<ReturnType<typeof getBackend>['RemoveConnection']>) => getBackend().RemoveConnection(...args)
+export const SetActiveConnection = (...args: Parameters<ReturnType<typeof getBackend>['SetActiveConnection']>) => getBackend().SetActiveConnection(...args)
+
+// Attachments — short-lived signed URL for browser download/embed
+export const SignAttachmentURL = (...args: Parameters<ReturnType<typeof getBackend>['SignAttachmentURL']>) => getBackend().SignAttachmentURL(...args)
 
 // Real-time events
 export const subscribe = (...args: Parameters<ReturnType<typeof getBackend>['subscribe']>) => getBackend().subscribe(...args)

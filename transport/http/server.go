@@ -26,6 +26,22 @@ type Config struct {
 	// //go:embed directive. Leave nil in headless server builds that
 	// don't carry UI bytes.
 	StaticAssets fs.FS
+	// Attachments wires the signed-URL download handler at
+	// /attachments/{cardID}/{id}. Leave nil to disable attachment
+	// serving (the JSON-RPC AddCardAttachment path still works for
+	// upload + storage; this is only the download surface).
+	Attachments *AttachmentConfig
+}
+
+// AttachmentConfig wires the signed-URL handler. Secret is the HMAC
+// key (32 bytes) used to verify URLs the desktop App generated via
+// SignAttachmentURL. Resolve maps a (cardID, attachmentID) pair to a
+// disk path + metadata, or returns ok=false when the attachment is
+// unknown. The transport package stays free of internal/repo to
+// avoid an import cycle.
+type AttachmentConfig struct {
+	Secret  []byte
+	Resolve func(cardID, attachmentID string) (path, mime, name string, ok bool)
 }
 
 // Server is the BRUV HTTP transport. Embed it in the desktop binary
@@ -136,6 +152,13 @@ func (s *Server) buildMux() *nethttp.ServeMux {
 	mux.Handle("/events", requireAuth(s.devices, sseHandler(s.bus)))
 	mux.Handle("/auth/enrol", requireBootstrap(s.devices, enrolHandler(s.devices)))
 
+	// Signed-URL attachment downloads. Auth is the HMAC sig+exp on
+	// the URL itself rather than a bearer token, so the URL works
+	// in <img src> / <a href> without leaking the device token.
+	if s.cfg.Attachments != nil {
+		mux.Handle("/attachments/", attachmentHandler(s.cfg.Attachments))
+	}
+
 	// Mode B: serve the embedded Svelte bundle at /app/*. Intentionally
 	// unauthenticated — the bundle is the UI, not data. Data access
 	// still requires a bearer token on /rpc + /events.
@@ -144,6 +167,16 @@ func (s *Server) buildMux() *nethttp.ServeMux {
 		// Bare /app redirects to /app/ so relative asset URLs resolve.
 		mux.HandleFunc("/app", func(w nethttp.ResponseWriter, r *nethttp.Request) {
 			nethttp.Redirect(w, r, "/app/", nethttp.StatusMovedPermanently)
+		})
+		// Visiting the server's bare host should land on the UI rather
+		// than 404. Only intercept exactly "/" so the other handlers
+		// (/healthz, /version, /rpc, …) still match before this fires.
+		mux.HandleFunc("/", func(w nethttp.ResponseWriter, r *nethttp.Request) {
+			if r.URL.Path != "/" {
+				nethttp.NotFound(w, r)
+				return
+			}
+			nethttp.Redirect(w, r, "/app/", nethttp.StatusFound)
 		})
 	}
 

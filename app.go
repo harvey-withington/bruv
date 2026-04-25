@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/hex"
+
 	"bruv/core/events"
 	"bruv/core/reposync"
 	agentrt "bruv/core/runtime/agent"
@@ -517,6 +519,10 @@ func (a *App) startHTTPTransport() {
 		Version:      AppVersion,
 		BuildDate:    BuildDate,
 		StaticAssets: assets,
+		Attachments: &transporthttp.AttachmentConfig{
+			Secret:  config.LoadServerSecret(),
+			Resolve: a.resolveAttachment,
+		},
 	}, a, a.bus)
 	if err != nil {
 		slog.Warn("http transport: construct failed", "err", err)
@@ -545,16 +551,16 @@ func (a *App) stopHTTPTransport() {
 // the frontend should use. Resolution order (highest precedence
 // first):
 //
-//  1. BRUV_REMOTE_URL + BRUV_REMOTE_TOKEN env vars — Mode B2
-//     (Wails shell points at a tailnet-hosted remote server). User
-//     obtains the token out-of-band today; the Phase 5 enrolment
-//     wizard will automate this later.
-//  2. Local loopback HTTP server + self-enrolled device token —
-//     the normal desktop-only case.
+//  1. BRUV_REMOTE_URL + BRUV_REMOTE_TOKEN env vars — escape hatch
+//     for dev/test; bypasses the connection store entirely.
+//  2. Active connection from the persisted store (set via the
+//     Connections UI). Lets the user point this device at a remote
+//     server without env vars.
+//  3. Local loopback HTTP server + self-enrolled device token —
+//     the default when no remote is active.
 //
-// Returns empty strings when neither is available (server didn't
-// start + no remote configured), which the cloud adapter surfaces
-// as a "transport unavailable" error.
+// Returns empty strings when neither is available, which the cloud
+// adapter surfaces as a "transport unavailable" error.
 func (a *App) GetHTTPTransportInfo() map[string]string {
 	if remoteURL := os.Getenv("BRUV_REMOTE_URL"); remoteURL != "" {
 		if token := os.Getenv("BRUV_REMOTE_TOKEN"); token != "" {
@@ -568,7 +574,16 @@ func (a *App) GetHTTPTransportInfo() map[string]string {
 				"remote": "true",
 			}
 		}
-		slog.Warn("BRUV_REMOTE_URL set without BRUV_REMOTE_TOKEN — falling back to loopback")
+		slog.Warn("BRUV_REMOTE_URL set without BRUV_REMOTE_TOKEN — falling back to active connection / loopback")
+	}
+	if active, _ := config.ActiveConnection(); active != nil {
+		addr := strings.TrimPrefix(strings.TrimPrefix(active.URL, "https://"), "http://")
+		return map[string]string{
+			"addr":   addr,
+			"token":  active.DeviceToken,
+			"scheme": schemeFromURL(active.URL),
+			"remote": "true",
+		}
 	}
 	if a.httpServer == nil {
 		return map[string]string{"addr": "", "token": ""}
@@ -579,6 +594,81 @@ func (a *App) GetHTTPTransportInfo() map[string]string {
 		"scheme": "http",
 		"remote": "false",
 	}
+}
+
+// --- Connections forwarders ---
+
+// ListConnections returns the persisted set of remote connections
+// plus the active pointer. The implicit "Local" connection is not
+// included; callers (frontend) treat Active=="" as "use Local".
+func (a *App) ListConnections() (config.ConnectionStore, error) {
+	return config.LoadConnections()
+}
+
+// AddConnection persists a new remote connection. Caller is expected
+// to have already exchanged the bootstrap token for a device token
+// via /auth/enrol on the target server.
+func (a *App) AddConnection(name, url, deviceToken string) (config.Connection, error) {
+	return config.AddConnection(name, url, deviceToken)
+}
+
+// RemoveConnection drops a connection by ID. If it was active, the
+// active pointer resets to "" (Local).
+func (a *App) RemoveConnection(id string) error {
+	return config.RemoveConnection(id)
+}
+
+// SetActiveConnection switches the active pointer. The frontend is
+// expected to reload after this so the cloud adapter re-resolves
+// transport info against the new active.
+func (a *App) SetActiveConnection(id string) error {
+	return config.SetActiveConnection(id)
+}
+
+// --- Attachments (signed-URL helpers + repo resolver) ---
+
+// resolveAttachment is the bridge from the transport HTTP handler
+// (which doesn't know about internal/repo) into the open repository.
+// Returns ok=false when the repo isn't open, the card is gone, or the
+// attachment ID isn't on the card.
+func (a *App) resolveAttachment(cardID, attachmentID string) (path, mime, name string, ok bool) {
+	if a.repo == nil {
+		return "", "", "", false
+	}
+	att, err := a.repo.FindAttachment(cardID, attachmentID)
+	if err != nil || att == nil {
+		return "", "", "", false
+	}
+	return a.repo.AttachmentPath(cardID, attachmentID), att.Mime, att.Name, true
+}
+
+// SignAttachmentURL builds a short-lived signed URL the frontend can
+// drop straight into <img src> / <a href>. The 5-minute TTL bounds
+// how long a leaked URL stays usable; download URLs are renewed on
+// every page load anyway, so a short lifetime is invisible to users.
+//
+// The URL points at this device's local server when no remote
+// connection is active, and at the active remote when there is one —
+// matching how GetHTTPTransportInfo resolves the transport.
+func (a *App) SignAttachmentURL(cardID, attachmentID string) (string, error) {
+	if cardID == "" || attachmentID == "" {
+		return "", fmt.Errorf("cardID and attachmentID are required")
+	}
+	const ttl = 5 * time.Minute
+	exp := time.Now().Add(ttl).Unix()
+	sig := transporthttp.SignAttachmentMAC(config.LoadServerSecret(), cardID, attachmentID, exp)
+
+	info := a.GetHTTPTransportInfo()
+	addr := info["addr"]
+	if addr == "" {
+		return "", fmt.Errorf("transport not available")
+	}
+	scheme := info["scheme"]
+	if scheme == "" {
+		scheme = "http"
+	}
+	return fmt.Sprintf("%s://%s/attachments/%s/%s?exp=%d&sig=%s",
+		scheme, addr, cardID, attachmentID, exp, hex.EncodeToString(sig)), nil
 }
 
 // schemeFromURL returns "https" if the URL is https://..., else "http".
@@ -1008,7 +1098,7 @@ func (a *App) logActivityWithContext(cardID, action, field, cardTitle string, br
 			if actor == "" {
 				actor = "User"
 			}
-			actorID = p.UserID
+			actorID = config.LoadDeviceID()
 			actorType = "user"
 		}
 

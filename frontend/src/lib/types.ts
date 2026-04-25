@@ -121,10 +121,9 @@ export type CardPin = {
 }
 
 // --- Identity: who the user is (editable, visible to collaborators & LLMs) ---
-// user_id is a stable machine-local UUID generated on first profile load;
-// never displayed, used by the activity log to shard each user's writes.
+// Per-device identity (used by the activity log to shard writes) lives
+// outside the profile in clientdata — see internal/config/identity.go.
 export type UserProfile = {
-  user_id: string
   display_name: string
   role: string
   bio: string
@@ -465,6 +464,25 @@ export interface MCPServerView {
   tools: MCPServerViewTool[]
 }
 
+// --- Connections (per-machine known remote BRUV servers) ---
+//
+// The "Local" connection (this device's loopback backend) is implicit
+// — never returned by ListConnections, never assignable as active by
+// ID. active === "" means "use Local".
+
+export type Connection = {
+  id: string
+  name: string
+  url: string
+  device_token: string
+  added_at: string  // ISO 8601
+}
+
+export type ConnectionStore = {
+  active: string         // "" = Local, else Connection.id
+  connections: Connection[]
+}
+
 export interface BackendAdapter {
   // Capabilities
   getCapabilities(): BackendCapabilities
@@ -479,6 +497,16 @@ export interface BackendAdapter {
   // LLM config
   GetLLMConfig(): Promise<LLMConfig>
   SetLLMConfig(c: LLMConfig): Promise<void>
+
+  // Connections (per-machine known remote BRUV servers)
+  ListConnections(): Promise<ConnectionStore>
+  AddConnection(name: string, url: string, deviceToken: string): Promise<Connection>
+  RemoveConnection(id: string): Promise<void>
+  SetActiveConnection(id: string): Promise<void>
+
+  // Attachments — returns a short-lived signed URL for downloading
+  // (or embedding in <img src>) the attachment's bytes.
+  SignAttachmentURL(cardID: string, attachmentID: string): Promise<string>
 
   // Real-time events (no-op for local)
   subscribe(cb: EventCallback): void

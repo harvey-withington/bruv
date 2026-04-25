@@ -12,25 +12,6 @@ Unicode true
 ## Then you can call makensis on this file with specifying the path to your binary:
 ## For a AMD64 only installer:
 ## > makensis -DARG_WAILS_AMD64_BINARY=..\..\bin\app.exe
-## For a ARM64 only installer:
-## > makensis -DARG_WAILS_ARM64_BINARY=..\..\bin\app.exe
-## For a installer with both architectures:
-## > makensis -DARG_WAILS_AMD64_BINARY=..\..\bin\app-amd64.exe -DARG_WAILS_ARM64_BINARY=..\..\bin\app-arm64.exe
-####
-## The following information is taken from the ProjectInfo file, but they can be overwritten here.
-####
-## !define INFO_PROJECTNAME    "MyProject" # Default "{{.Name}}"
-## !define INFO_COMPANYNAME    "MyCompany" # Default "{{.Info.CompanyName}}"
-## !define INFO_PRODUCTNAME    "MyProduct" # Default "{{.Info.ProductName}}"
-## !define INFO_PRODUCTVERSION "1.0.0"     # Default "{{.Info.ProductVersion}}"
-## !define INFO_COPYRIGHT      "Copyright" # Default "{{.Info.Copyright}}"
-###
-## !define PRODUCT_EXECUTABLE  "Application.exe"      # Default "${INFO_PROJECTNAME}.exe"
-## !define UNINST_KEY_NAME     "UninstKeyInRegistry"  # Default "${INFO_COMPANYNAME}${INFO_PRODUCTNAME}"
-####
-## !define REQUEST_EXECUTION_LEVEL "admin"            # Default "admin"  see also https://nsis.sourceforge.io/Docs/Chapter4.html
-####
-## Include the wails tools
 ####
 !include "wails_tools.nsh"
 
@@ -49,37 +30,67 @@ VIAddVersionKey "ProductName"     "${INFO_PRODUCTNAME}"
 ManifestDPIAware true
 
 !include "MUI.nsh"
+!include "LogicLib.nsh"
 
 !define MUI_ICON "..\icon.ico"
 !define MUI_UNICON "..\icon.ico"
-# !define MUI_WELCOMEFINISHPAGE_BITMAP "resources\leftimage.bmp" #Include this to add a bitmap on the left side of the Welcome Page. Must be a size of 164x314
-!define MUI_FINISHPAGE_NOAUTOCLOSE # Wait on the INSTFILES page so the user can take a look into the details of the installation steps
-!define MUI_ABORTWARNING # This will warn the user if they exit from the installer.
+!define MUI_FINISHPAGE_NOAUTOCLOSE
+!define MUI_ABORTWARNING
 
-!insertmacro MUI_PAGE_WELCOME # Welcome to the installer page.
-# !insertmacro MUI_PAGE_LICENSE "resources\eula.txt" # Adds a EULA page to the installer
-!insertmacro MUI_PAGE_DIRECTORY # In which folder install page.
-!insertmacro MUI_PAGE_INSTFILES # Installing page.
-!insertmacro MUI_PAGE_FINISH # Finished installation page.
+# --- Pages ---
+#
+# Component selection lets the operator pick desktop-only,
+# server-only, or both. The desktop checkbox is default-on; the
+# server checkbox is opt-in (most users won't want a background
+# service running on their machine).
 
-!insertmacro MUI_UNPAGE_INSTFILES # Uinstalling page
+!insertmacro MUI_PAGE_WELCOME
+!insertmacro MUI_PAGE_COMPONENTS
+!insertmacro MUI_PAGE_DIRECTORY
+!insertmacro MUI_PAGE_INSTFILES
 
-!insertmacro MUI_LANGUAGE "English" # Set the Language of the installer
+# Server-mode installs surface their bootstrap-token / URL via a
+# MessageBox at the end of SecServer (see below). The finish page
+# itself stays default — trying to drive it from a runtime variable
+# is fragile because MUI_FINISHPAGE_TEXT is parsed at compile time,
+# not when the page is shown.
+!insertmacro MUI_PAGE_FINISH
 
-## The following two statements can be used to sign the installer and the uninstaller. The path to the binaries are provided in %1
+!insertmacro MUI_UNPAGE_INSTFILES
+
+!insertmacro MUI_LANGUAGE "English"
+
+## Sign hooks (uncomment when SignPath / signtool wiring is ready)
 #!uninstfinalize 'signtool --file "%1"'
 #!finalize 'signtool --file "%1"'
 
 Name "${INFO_PRODUCTNAME}"
-OutFile "..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the installer's file.
-InstallDir "$PROGRAMFILES64\${INFO_COMPANYNAME}\${INFO_PRODUCTNAME}" # Default installing folder ($PROGRAMFILES is Program Files folder).
-ShowInstDetails show # This will always show the installation details.
+OutFile "..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe"
+InstallDir "$PROGRAMFILES64\${INFO_COMPANYNAME}\${INFO_PRODUCTNAME}"
+ShowInstDetails show
+
+Var ServerRepoPath
 
 Function .onInit
    !insertmacro wails.checkArchitecture
+   # Default repo path for server installs. The user can change this
+   # later by uninstalling + reinstalling the service with a different
+   # --repo flag.
+   StrCpy $ServerRepoPath "$APPDATA\${INFO_PRODUCTNAME}\server-repo"
 FunctionEnd
 
-Section
+# Component descriptions shown beneath the checkboxes on the components page.
+LangString DESC_SecDesktop ${LANG_ENGLISH} "The BRUV desktop app. Installs the program, Start Menu shortcut, and file associations."
+LangString DESC_SecServer ${LANG_ENGLISH} "Run BRUV as a background Windows service so this machine acts as a hosted backend other devices can connect to (over Tailscale, typically). Auto-starts on boot."
+
+# --- Sections ---
+#
+# Both sections write the same binaries into $INSTDIR — the desktop
+# and the server are the same bruv.exe in different invocation
+# modes. Splitting them as components is purely about post-install
+# steps (shortcuts, service registration, finish-page hints).
+
+Section "Desktop App" SecDesktop
     !insertmacro wails.setShellContext
 
     !insertmacro wails.webview2runtime
@@ -97,8 +108,49 @@ Section
     !insertmacro wails.writeUninstaller
 SectionEnd
 
+Section /o "Server (run in background, auto-start on boot)" SecServer
+    # If the desktop section wasn't selected we still need the binary.
+    # Wails' wails.files macro is idempotent (overwrites in place), so
+    # invoking it again is safe and ensures bruv.exe lives in $INSTDIR
+    # before we register the service.
+    !insertmacro wails.setShellContext
+    SetOutPath $INSTDIR
+    !insertmacro wails.files
+    !insertmacro wails.writeUninstaller
+
+    # Register the Windows Service. bruv.exe service install creates
+    # the repo at $ServerRepoPath if it doesn't exist, registers the
+    # service to auto-start, and starts it. Output goes into the
+    # install log (visible because ShowInstDetails show).
+    DetailPrint "Registering BRUV Server (repo: $ServerRepoPath)..."
+    nsExec::ExecToLog '"$INSTDIR\${PRODUCT_EXECUTABLE}" service install --repo "$ServerRepoPath"'
+    Pop $0
+    ${If} $0 != "0"
+        MessageBox MB_OK|MB_ICONEXCLAMATION "BRUV Server install returned $0. The desktop app is installed; you can register the server later from a terminal with: bruv.exe service install --repo <path>"
+    ${Else}
+        # Surface the bootstrap-token + URL info now, before the
+        # generic finish page. Modal so the operator can't miss it.
+        MessageBox MB_OK|MB_ICONINFORMATION "BRUV Server is installed and running.$\r$\n$\r$\nRepo:                 $ServerRepoPath$\r$\nServer URL (local):   http://127.0.0.1:9870$\r$\nServer URL (Tailscale): http://<this-machine's tailnet IP>:9870$\r$\n$\r$\nThe one-time connection token for other devices is in:$\r$\n  %APPDATA%\bruv\bootstrap-token.txt"
+    ${EndIf}
+SectionEnd
+
+# Tooltip text on the components page.
+!insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
+    !insertmacro MUI_DESCRIPTION_TEXT ${SecDesktop} $(DESC_SecDesktop)
+    !insertmacro MUI_DESCRIPTION_TEXT ${SecServer} $(DESC_SecServer)
+!insertmacro MUI_FUNCTION_DESCRIPTION_END
+
+# --- Uninstall ---
+
 Section "uninstall"
     !insertmacro wails.setShellContext
+
+    # Best-effort: stop + uninstall the BRUV Server if it was registered.
+    # Errors are silenced because the user might have only installed
+    # the desktop component, in which case the service was never
+    # registered and the call would just no-op.
+    nsExec::ExecToLog '"$INSTDIR\${PRODUCT_EXECUTABLE}" service uninstall'
+    Pop $0
 
     RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
 

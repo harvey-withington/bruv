@@ -2,7 +2,8 @@
   import { onMount } from 'svelte'
   import { nav, board, loadBoard } from '../lib/store.svelte'
   import { CloseRepository, CreateBrand, RenameBrand, UpdateBrandDescription, UpdateBrandIcon, CreateStream, RenameStream, UpdateStreamDescription, UpdateStreamIcon, CreateProject, RenameProject, UpdateProjectDescription, UpdateProjectIcon, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, GetCard, GetCardPins, ListOrphanedCardIDs, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject, GetPreferences, GetRepoDescription, UpdateRepoDescription } from '../lib/api'
-  import { LogOut, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox, Timer, ChevronsUpDown, ChevronsDownUp, Smile, Upload, Info } from 'lucide-svelte'
+  import { LogOut, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox, Timer, ChevronsUpDown, ChevronsDownUp, Smile, Upload, Info, Server, Monitor } from 'lucide-svelte'
+  import { connections, isLocalActive, activeConnectionLabel } from '../lib/connections.svelte'
   import ThemeToggle from './ThemeToggle.svelte'
   import BruvIcon from './BruvIcon.svelte'
   import DynamicIcon from './DynamicIcon.svelte'
@@ -14,10 +15,11 @@
   import { showToast } from '../lib/toast.svelte'
   import { inlineEdit } from '../lib/actions'
 
-  let { onOpenPrefs, onOpenProfile, onOpenAbout }: {
+  let { onOpenPrefs, onOpenProfile, onOpenAbout, onOpenConnections }: {
     onOpenPrefs?: () => void
     onOpenProfile?: () => void
     onOpenAbout?: () => void
+    onOpenConnections?: () => void
   } = $props()
 
   async function handleCloseRepo() {
@@ -992,6 +994,17 @@
 
     <div class="sidebar-footer">
       <button class="footer-btn" onclick={onOpenProfile} title={t('profile.title')}><UserCircle size={16} /></button>
+      {#if connections.available}
+        <button
+          class="footer-btn connection-btn"
+          class:remote={!isLocalActive()}
+          onclick={onOpenConnections}
+          title={t('connection.indicator_title').replace('{name}', activeConnectionLabel())}
+        >
+          {#if isLocalActive()}<Monitor size={16} />{:else}<Server size={16} />{/if}
+          <span class="connection-label">{activeConnectionLabel()}</span>
+        </button>
+      {/if}
       <span class="footer-spacer"></span>
       <ThemeToggle />
       <button class="footer-btn" onclick={onOpenAbout} title={t('about.title')} aria-label={t('about.title')}><Info size={16} /></button>
@@ -1002,6 +1015,16 @@
   {#if nav.sidebarCollapsed}
     <div class="sidebar-footer">
       <button class="footer-btn" onclick={onOpenProfile} title={t('profile.title')}><UserCircle size={16} /></button>
+      {#if connections.available}
+        <button
+          class="footer-btn"
+          class:remote={!isLocalActive()}
+          onclick={onOpenConnections}
+          title={t('connection.indicator_title').replace('{name}', activeConnectionLabel())}
+        >
+          {#if isLocalActive()}<Monitor size={16} />{:else}<Server size={16} />{/if}
+        </button>
+      {/if}
       <span class="footer-spacer"></span>
       <ThemeToggle />
       <button class="footer-btn" onclick={onOpenAbout} title={t('about.title')} aria-label={t('about.title')}><Info size={16} /></button>
@@ -1474,6 +1497,29 @@
   .footer-btn:hover {
     color: var(--text-primary);
     background: var(--bg-subtle-hover);
+  }
+
+  /* Connection indicator: shows the active server name beside the icon
+     in the expanded sidebar; collapses to icon-only when the sidebar is
+     collapsed (the .connection-label only renders in the expanded copy
+     of the footer). The .remote modifier tints when active connection
+     is non-local so the user can tell at a glance. */
+  .connection-btn {
+    gap: 0.35rem;
+    max-width: 9rem;
+  }
+  .connection-label {
+    font-size: 0.7rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .footer-btn.remote {
+    color: var(--accent);
+  }
+  .footer-btn.remote:hover {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
   }
 
   /* Drag & drop */

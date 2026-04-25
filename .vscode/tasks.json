@@ -30,6 +30,19 @@
       }
     },
     {
+      "label": "wails: build installer (Windows)",
+      "type": "shell",
+      "command": "wails build -platform windows/amd64 -nsis -trimpath",
+      "group": "build",
+      "problemMatcher": ["$go"],
+      "detail": "Produces build/bin/bruv-amd64-installer.exe (NSIS-driven). Builds the frontend, compiles bruv.exe, then runs makensis against build/windows/installer/project.nsi.",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
       "label": "go: test all",
       "type": "shell",
       "command": "go test ./internal/... -v -count=1",

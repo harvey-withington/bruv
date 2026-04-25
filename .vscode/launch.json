@@ -17,6 +17,14 @@
       "preLaunchTask": "wails: build"
     },
     {
+      "name": "BRUV: Build + Run Installer",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "& '${workspaceFolder}/build/bin/bruv-amd64-installer.exe'",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "wails: build installer (Windows)"
+    },
+    {
       "name": "BRUV: Run All Tests",
       "type": "node-terminal",
       "request": "launch",

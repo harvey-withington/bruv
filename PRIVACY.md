@@ -66,6 +66,16 @@ That's the complete list. There is:
 
 If you never configure an LLM account and never use AI features, BRUV makes zero network requests.
 
+### Self-hosted server mode (optional)
+
+If you opt into running BRUV as a server (the **Server** checkbox in the installer — see [docs/self-hosting.md](docs/self-hosting.md)), the server listens on `0.0.0.0:9870` and accepts connections from devices that have enrolled with a per-device token. Bytes that flow:
+
+- **JSON-RPC + SSE** between client devices and the server, carrying card data and event notifications.
+- **Attachment downloads** via short-lived, HMAC-signed URLs (`/attachments/<cardID>/<id>?exp=&sig=`). The signing secret lives in the server's config dir (`%APPDATA%\bruv\secret.key`), is generated once on first server start, and never leaves the server. URL TTL is 5 minutes — a leaked URL stops working very quickly.
+- **No data is sent to BRUV's authors**, ever. The server is yours; we have no relationship with it.
+
+The transport is plain HTTP and is intended to be reached over Tailscale (or any private network). BRUV does not bundle TLS termination — Tailscale-serve will wrap the server in HTTPS for free if you want a public-on-the-tailnet URL, but the BRUV process itself stays HTTP-only and only listens on the addresses you tell it to.
+
 ## What the AI agents can access
 
 Agents can only use tools you've explicitly enabled for each card. The full tool set:

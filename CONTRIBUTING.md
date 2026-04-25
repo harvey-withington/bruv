@@ -100,9 +100,11 @@ BRUV repos are designed to be self-contained and portable. The format is stable 
 
 ```
 <repo>/
-├── .bruv/
-│   ├── manifest.json        # repo metadata incl. stable UUID `id`
-│   └── card_types.json      # user-defined types, templates, builtin overrides
+├── manifest.json            # repo metadata incl. stable UUID `id`
+├── card_types.json          # user-defined types, templates, builtin overrides
+├── tags.json                # repo-global tag color cache (cross-project consistency)
+├── mcp_servers.json         # MCP server definitions (secrets in OS keychain, not here)
+├── activity/<actorID>.jsonl # per-actor activity log shards (one file per writer)
 ├── brands/                  # hierarchy root
 │   └── <brand-slug>/
 │       ├── brand.json
@@ -112,26 +114,41 @@ BRUV repos are designed to be self-contained and portable. The format is stable 
 │               └── projects/
 │                   └── <project-slug>/
 │                       ├── project.json
+│                       ├── tags.json                  # per-project tag definitions
 │                       └── categories/
 │                           └── <cat-slug>.json
 ├── cards/
 │   ├── <card-id>.json           # card content + blocks
-│   ├── <card-id>.agent.json     # agent config + run history (optional)
+│   ├── <card-id>.agent.json     # agent config (optional)
 │   └── <card-id>.comments.json  # comments (optional)
 ├── pins/
 │   └── <card-id>/pins.json      # cross-project pinning
-└── types/                        # optional community schema drops
+├── types/                        # optional community schema drops
+└── .bruv/                        # PRIVATE — gitignored, derived state only
+    ├── index.db                  # SQLite FTS index (rebuildable)
+    └── lock                      # single-process lock file
 ```
 
-**Personal state lives in the OS config folder**, keyed by `<repo>/.bruv/manifest.json` → `id`:
+**Personal state lives in the OS config folder**, split into two zones:
 
 ```
-<configDir>/
+<configDir>/                       # server-owned: shared by every device pointed at this server
 ├── chats/<repoID>/<chatID>.messages.json
-├── llm_accounts.json        # metadata only; API keys in OS keychain
+├── llm_accounts.json              # metadata only; API keys in OS keychain
+├── llm_config.json                # mode + system context
 ├── notifications.json
-├── preferences.json
-└── profile.json
+├── notify_config.json             # SMTP/webhook destinations
+├── preferences.json               # MIXED: see audit table below
+├── profile.json                   # display name, role, bio (per-user, not per-device)
+├── pricing.json                   # cached LLM model pricing
+├── card_types.json                # global default seeded into new repos
+├── crashes/, logs/, runs/         # operational state
+└── clientdata/                    # CLIENT-owned: per-device, never follows the user/server
+    ├── connections.json           # known remote BRUV servers + active pointer
+    ├── device-id.txt              # stable per-device UUID (activity-log shard key)
+    ├── device-token.txt           # this device's bearer token for the local server
+    ├── recent.json                # recently-opened repo paths
+    └── window.json                # window bounds
 ```
 
 **The contract:**
@@ -139,9 +156,27 @@ BRUV repos are designed to be self-contained and portable. The format is stable 
 1. **Never write personal state into the repo folder.** If a new feature needs per-user, per-machine state, it goes in the config folder keyed by `repoID`. This is what makes sharing work.
 2. **Never assume the config folder follows the repo.** Shared repos land on a machine with empty chat history, zero notifications, and whatever LLM accounts the new user has configured.
 3. **Repo IDs are stable across machines.** Alice's repo zipped to Bob has the same `manifest.json` → `id` on both sides. The ID is a keying convenience, not a secret.
-4. **Migrations run on `OpenRepository()`, not on startup.** See [internal/repo/migrate.go](internal/repo/migrate.go) — older repo layouts are upgraded in place the first time they're opened.
+4. **Server vs. client zones are physical.** Once Mode A/B remote-server deployments separate the host from the client device, *only* `clientdata/` follows the desktop app — everything outside it lives on the server.
 
-When adding a new persistence surface, ask: *"If Alice shares this repo with Bob, should Bob see this?"* If yes, it goes in the repo. If no, it goes in the config folder keyed by repoID.
+#### Server vs. client placement audit
+
+When adding a persistence surface, ask:
+
+| Question | If yes → | If no → |
+|---|---|---|
+| Would two devices pointed at the same server want to see the same value? | server (`<configDir>/`) | client (`<configDir>/clientdata/`) |
+| Does this represent the human user (identity, preferences, content)? | server | — |
+| Does this represent this physical device (window bounds, what filesystem paths exist here)? | — | client |
+
+Status of existing files:
+
+| File | Zone | Notes |
+|---|---|---|
+| `chats/`, `llm_accounts.json`, `llm_config.json`, `notify_config.json`, `notifications.json`, `pricing.json`, `card_types.json` (global default), `profile.json`, `crashes/`, `logs/`, `runs/` | ✅ server | Shared identity + content; correct. |
+| `clientdata/connections.json`, `device-id.txt`, `device-token.txt`, `recent.json`, `window.json` | ✅ client | Per-device by definition; correct. |
+| `preferences.json` | ⚠️ mixed | Currently server-side. Several fields are genuinely per-device (theme, locale, sidebar width, LLM-nudge-shown, reopen-last-repo) while others are server-side (default category name, due-date notification config). **Deferred refactor:** split into `preferences.json` (server) + `clientdata/ui_preferences.json` (client). Tracked separately. |
+
+When adding a new persistence surface, ask: *"If Alice shares this repo with Bob, should Bob see this?"* If yes, it goes in the repo. If no, it goes in the config folder, then ask the device-vs-server question to pick the zone.
 
 ### Backend adapter architecture
 

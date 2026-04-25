@@ -30,12 +30,20 @@ func configDir() (string, error) {
 	return p, os.MkdirAll(p, 0o755)
 }
 
+const recentFileName = "recent.json"
+
 func recentFilePath() (string, error) {
-	dir, err := configDir()
+	// One-shot migration: pre-split builds wrote recent.json at the
+	// root of the config dir. The recent-repos list is genuinely
+	// per-device — each machine opens repos at its own filesystem
+	// paths — so it belongs in clientdata/.
+	migrateToClientData(recentFileName)
+
+	dir, err := ClientDataDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "recent.json"), nil
+	return filepath.Join(dir, recentFileName), nil
 }
 
 // LoadRecent reads the recent repos list from disk.

@@ -203,6 +203,7 @@ func (s *ServerProcess) spawnAndHandshake(ctx context.Context) error {
 	}
 
 	cmd := exec.CommandContext(context.Background(), command, args...)
+	hideChildWindow(cmd)
 
 	// Build env: start with a minimal base (PATH, HOME,
 	// SYSTEMROOT on Windows, LANG for locale-aware servers) and

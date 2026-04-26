@@ -77,9 +77,68 @@ func NewDeviceStore(configDir string) (*DeviceStore, error) {
 		if err := s.bootstrapFromLegacyOrFresh(configDir); err != nil {
 			return nil, fmt.Errorf("bootstrap: %w", err)
 		}
+	} else if _, err := os.Stat(filepath.Join(configDir, "bootstrap-token.txt")); os.IsNotExist(err) {
+		// devices.json carried over from a prior install / partial
+		// uninstall — but the bootstrap token file is missing. Without
+		// it the user has no way to enrol new devices. Regenerate:
+		// mint a fresh token, replace any existing bootstrap-scope
+		// entry in devices.json with the new hash, leave non-bootstrap
+		// device entries alone (so already-enrolled clients keep
+		// working).
+		if err := s.regenerateBootstrap(configDir); err != nil {
+			return nil, fmt.Errorf("regenerate bootstrap: %w", err)
+		}
 	}
 
 	return s, nil
+}
+
+// regenerateBootstrap replaces the bootstrap-scope device entry (if
+// any) with a fresh token and writes bootstrap-token.txt. Used when
+// devices.json survived but the on-disk token file didn't — common
+// after a reinstall or a manual cleanup that nuked one but not the
+// other. Non-bootstrap device entries are preserved.
+func (s *DeviceStore) regenerateBootstrap(configDir string) error {
+	var buf [32]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return err
+	}
+	bootstrap := hex.EncodeToString(buf[:])
+	if err := os.WriteFile(
+		filepath.Join(configDir, "bootstrap-token.txt"),
+		[]byte(bootstrap+"\n"), 0o600,
+	); err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Drop any old bootstrap-scope entries.
+	kept := make([]Device, 0, len(s.devices))
+	for _, d := range s.devices {
+		if d.Scope != "bootstrap" {
+			kept = append(kept, d)
+		}
+	}
+	kept = append(kept, Device{
+		ID:         uuid.New().String(),
+		Name:       "bootstrap",
+		TokenHash:  hashToken(bootstrap),
+		Scope:      "bootstrap",
+		CreatedAt:  now,
+		LastSeenAt: now,
+	})
+	s.devices = kept
+	s.byHash = make(map[string]*Device, len(s.devices))
+	for i := range s.devices {
+		s.byHash[s.devices[i].TokenHash] = &s.devices[i]
+	}
+	if err := s.save(); err != nil {
+		return err
+	}
+	slog.Info("regenerated bootstrap token",
+		"bootstrap_path", filepath.Join(configDir, "bootstrap-token.txt"))
+	return nil
 }
 
 // load reads devices.json into memory. Missing file is not an error;

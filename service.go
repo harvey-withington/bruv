@@ -125,25 +125,14 @@ func runServiceInstall() {
 	// it, which is exactly the workflow for "I want my server to
 	// host a second repo".
 	//
-	// Note: AppendRepo writes to <configDir>/repos.json, which uses
-	// the user-config dir resolved by os.UserConfigDir(). When the
-	// installer runs elevated, that's the elevating account's
-	// AppData. We pass --config explicitly to the service args
-	// (defaulted to %PROGRAMDATA%/BRUV above) so the SERVICE itself
-	// reads from the predictable system-wide location. To get
-	// AppendRepo to write to that same location, we temporarily
-	// point os.UserConfigDir at the install --config dir via the
-	// XDG_CONFIG_HOME / APPDATA env vars before the call.
+	// Critical: AppendRepo + every other config.* helper resolves
+	// its directory through configDir(), which defaults to
+	// os.UserConfigDir(). The elevating user's AppData is NOT the
+	// %PROGRAMDATA%\BRUV the service will run against, so without
+	// this redirect AppendRepo writes the entry into the wrong
+	// place and the service boots into "no repos configured".
 	if *configDir != "" {
-		// On Windows, configDir() reads APPDATA. Override so AppendRepo
-		// writes to <configDir>/repos.json rather than the elevating
-		// user's AppData/bruv/repos.json.
-		_ = os.Setenv("APPDATA", *configDir)
-		// Strip the trailing "bruv" so configDir() can re-add it.
-		// configDir() does APPDATA + "/bruv". Our --config is already
-		// the bruv root (e.g. %PROGRAMDATA%/BRUV), so APPDATA must be
-		// its parent.
-		_ = os.Setenv("APPDATA", filepath.Dir(*configDir))
+		config.SetConfigDir(*configDir)
 	}
 	if _, regErr := config.AppendRepo(abs, ""); regErr != nil {
 		fmt.Fprintln(os.Stderr, "warning: append repo to registry:", regErr)
@@ -161,6 +150,15 @@ func runServiceInstall() {
 		fmt.Fprintln(os.Stderr, "error: build service:", err)
 		os.Exit(1)
 	}
+	// Stop + uninstall any prior registration before re-installing.
+	// Without this, re-running install against an already-installed
+	// service leaves the OLD registration (with the OLD args, e.g.
+	// missing --config) in place — kardianos's Install on Windows
+	// errors with "service already exists" and we'd silently keep
+	// the broken setup. Both calls are best-effort: a fresh install
+	// has nothing to stop or uninstall.
+	_ = svc.Stop()
+	_ = svc.Uninstall()
 	if err := svc.Install(); err != nil {
 		fmt.Fprintln(os.Stderr, "error: install service:", err)
 		os.Exit(1)
@@ -175,6 +173,8 @@ func runServiceInstall() {
 	fmt.Println("BRUV Server installed and running.")
 	fmt.Printf("  Repo:    %s\n", abs)
 	fmt.Printf("  Address: %s\n", *addr)
+	fmt.Printf("  Token:   %s\n", filepath.Join(*configDir, "bootstrap-token.txt"))
+	fmt.Printf("  Logs:    %s\n", filepath.Join(*configDir, "logs"))
 }
 
 func runServiceControl(action string) {
@@ -259,8 +259,8 @@ type serverProgram struct {
 
 func (p *serverProgram) Start(s service.Service) error {
 	go func() {
-		// Re-parse the args the SCM gave us. They're the same
-		// --server --repo X --addr Y the install step baked in.
+		// Re-parse the args the SCM gave us. They mirror what the
+		// install step baked in (`--server --addr X --config Y`).
 		args := stripServerFlag(os.Args[1:])
 		fs := flag.NewFlagSet("bruv service-run", flag.ContinueOnError)
 		repoPath := fs.String("repo", "", "")
@@ -268,10 +268,13 @@ func (p *serverProgram) Start(s service.Service) error {
 		configDir := fs.String("config", "", "")
 		_ = fs.Parse(args)
 
-		if *repoPath == "" {
-			slog.Error("service: --repo argument missing from service config")
-			return
-		}
+		// --repo is no longer required: server.Run reads from the
+		// multi-repo registry at <configDir>/repos.json. Hard-failing
+		// here was a single-repo-era guard that silently killed the
+		// service whenever the install step (correctly) omitted --repo
+		// in favour of the registry — no bootstrap-token, no logs,
+		// nothing visible. Now we let server.Run own the
+		// "no repos configured" error path with a useful message.
 		err := server.Run(server.Options{
 			RepoPath:  *repoPath,
 			Addr:      *addr,

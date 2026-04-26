@@ -25,11 +25,21 @@ export type ServerRepo = {
   disabled?: boolean
 }
 
-// setRepoEnabled toggles a repo's Disabled flag on the server. When
-// enabled, the supervisor lazy-starts the runtime; when disabled, it
-// shuts the runtime down. Both persist to repos.json so the state
-// survives restart.
-export async function setRepoEnabled(repoID: string, enabled: boolean): Promise<void> {
+// setRepoEnabled toggles a repo's Disabled flag. Local rows route
+// through the Wails Shell binding so they hit the desktop App's
+// repos.json regardless of which Remote is currently active. Remote
+// rows post to /repos/<id>/(enable|disable) on the active connection
+// — the existing picker UX gates this with "switch to that connection
+// first", so the Remote branch only fires when active connection is
+// already that connection.
+//
+// connectionID="" means Local. Anything else is treated as Remote.
+export async function setRepoEnabled(connectionID: string, repoID: string, enabled: boolean): Promise<void> {
+  if (connectionID === '') {
+    const { setLocalRepoEnabled } = await import('./local')
+    await setLocalRepoEnabled(repoID, enabled)
+    return
+  }
   const info = await resolveTransportInfo()
   const verb = enabled ? 'enable' : 'disable'
   const res = await serverGet(info, `/repos/${encodeURIComponent(repoID)}/${verb}`, { method: 'POST' })
@@ -66,25 +76,43 @@ export type TreeConnectionNode = {
 }
 
 export async function listAllConnectionRepos(): Promise<TreeConnectionNode[]> {
-  // Lazy import to avoid pulling Wails-specific surfaces at module
-  // load time (the function is only called after the app is alive).
-  const { ListConnections } = await import('./api')
-  const store = await ListConnections()
+  // Connection management goes through the Wails Shell binding when
+  // available (desktop) — the same posture connections.svelte.ts uses.
+  // Critical: when the active connection is a Remote (multi-repo)
+  // server, the cloud adapter routes EVERYTHING through
+  // /repos/<id>/rpc. There's no bare /rpc on a multi-repo server,
+  // so falling through to the cloud-adapter ListConnections returns
+  // HTTP 404 and the picker can't even render the connection list
+  // — exactly the state where the user needs the picker to work
+  // (so they can switch back to Local or pick a remote repo).
+  type ShellConn = { ListConnections?: () => Promise<{ active: string; connections: Array<{ id: string; name: string; url: string; device_token: string }> }> }
+  const shell = (window as unknown as { go?: { main?: { ShellAPI?: ShellConn } } }).go?.main?.ShellAPI
+  let store: { active: string; connections: Array<{ id: string; name: string; url: string; device_token: string }> }
+  if (shell?.ListConnections) {
+    store = await shell.ListConnections()
+  } else {
+    const { ListConnections } = await import('./api')
+    store = await ListConnections()
+  }
 
   const localInfo = await resolveTransportInfo()
   const isLocalActiveBackend = localInfo.remote !== 'true'
 
-  // For Local: only fetch if the active connection IS Local. Otherwise
-  // we'd need to round-trip through Wails to get the loopback URL +
-  // token without disturbing the active session, which is a follow-up.
-  // For now, Local appears as an unreachable placeholder when the
-  // user is on a Remote connection; the picker still lets them
-  // switch back to Local via the chip's existing flow.
+  // Local's repo list comes from one of two sources depending on which
+  // connection the cloud adapter is currently routed at:
+  //   - Local active → GET /repos via the active (loopback) transport.
+  //   - Remote active → can't go via the cloud adapter (it routes
+  //     to the Remote server), so we ask the desktop App directly
+  //     through the Wails Shell binding. Same source-of-truth either
+  //     way (<userConfigDir>/repos.json), just different access path.
+  // Without the Shell fallback, adding a repo to Local while a Remote
+  // is active worked silently (the entry got written) but the picker
+  // never displayed it — exactly the "doesn't add the folder" bug.
   const local: TreeConnectionNode = {
     connectionID: '',
     connectionName: 'Local',
     isLocal: true,
-    reachable: isLocalActiveBackend,
+    reachable: true,
     repos: [],
   }
   if (isLocalActiveBackend) {
@@ -93,6 +121,23 @@ export async function listAllConnectionRepos(): Promise<TreeConnectionNode[]> {
     } catch (e) {
       local.reachable = false
       local.error = (e as Error)?.message ?? String(e)
+    }
+  } else {
+    type ShellLocalRepos = { ListLocalRepos?: () => Promise<Array<{ id: string; name: string; path?: string; disabled?: boolean }>> }
+    const sLocal = (window as unknown as { go?: { main?: { ShellAPI?: ShellLocalRepos } } }).go?.main?.ShellAPI
+    if (sLocal?.ListLocalRepos) {
+      try {
+        const entries = await sLocal.ListLocalRepos()
+        local.repos = (entries ?? []).map(e => ({ id: e.id, name: e.name, disabled: e.disabled }))
+      } catch (e) {
+        local.reachable = false
+        local.error = (e as Error)?.message ?? String(e)
+      }
+    } else {
+      // Browser mode (no Shell): there's no separate "Local" beyond
+      // the server we loaded from, so this row is meaningless. Mark
+      // unreachable rather than silently empty.
+      local.reachable = false
     }
   }
 
@@ -133,25 +178,21 @@ export async function listAllConnectionRepos(): Promise<TreeConnectionNode[]> {
 }
 
 // switchToRepo picks a (connection, repo) pair from the tree and
-// transitions the app there. Combines connection + repo in one
-// click — for the user this looks instant (page reload to land
-// on the new transport).
+// transitions the app there in one click. When crossing connections
+// we MUST pre-set the target connection's last-active-repo via the
+// Shell binding BEFORE calling switchConnection — switchConnection
+// reloads, and the post-reload boot resolves the cloud adapter using
+// whatever pointer is on disk for the new connection. Without the
+// pre-set the target lands on the picker (no repoID), undoing the
+// "I picked this specific repo" intent.
 export async function switchToRepo(connectionID: string, repoID: string): Promise<void> {
-  // selectRepo persists the repo choice for the active connection.
-  // If we need to switch connection too, do that first (which itself
-  // reloads), then the next launch picks up the repo we're about
-  // to set. Order matters because both reload.
   const { connections, switchConnection } = await import('./connections.svelte')
   if (connectionID !== connections.active) {
-    // Persist the desired repo BEFORE switching so the new
-    // connection's boot path lands on it.
-    const { SetActiveRepo } = await import('./api')
-    // We have to set the recent for the *target* connection. Today
-    // SetActiveRepo only knows about the currently-active connection,
-    // so this is a known limitation — the user will land on the
-    // target connection's last-viewed repo (or the picker if none).
-    // True per-target persistence is a follow-up.
-    void SetActiveRepo
+    type ShellSet = { SetActiveRepoForConnection?: (connID: string, repoID: string) => Promise<void> }
+    const s = (window as unknown as { go?: { main?: { ShellAPI?: ShellSet } } }).go?.main?.ShellAPI
+    if (s?.SetActiveRepoForConnection) {
+      await s.SetActiveRepoForConnection(connectionID, repoID)
+    }
     await switchConnection(connectionID)
     return
   }

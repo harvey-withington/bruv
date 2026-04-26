@@ -100,3 +100,63 @@ func (s *ShellAPI) SetActiveConnection(id string) error {
 func (s *ShellAPI) SetActiveRepo(repoID string) error {
 	return s.app.SetActiveRepo(repoID)
 }
+
+// --- Local repo management ---
+//
+// Operations against the *Local* (desktop loopback) repo registry
+// must always run on the desktop App, regardless of which Remote
+// connection happens to be active. The picker shows Local rows
+// even when a Remote is active; clicking + / pencil / X on a Local
+// row needs to manipulate `<userConfigDir>/repos.json`, which only
+// the desktop App can do. Routing these through the cloud adapter
+// would hit whatever bare-`/rpc` the active connection exposes —
+// 404 on a multi-repo Remote with no repoID selected.
+
+func (s *ShellAPI) InspectRepoPath(path string) (any, error) {
+	return s.app.InspectRepoPath(path)
+}
+
+func (s *ShellAPI) InitRepository(path, name string) (string, error) {
+	return s.app.InitRepository(path, name)
+}
+
+func (s *ShellAPI) OpenRepository(path string) error {
+	return s.app.OpenRepository(path)
+}
+
+func (s *ShellAPI) ListLocalRepos() (any, error) {
+	return s.app.ListLocalRepos()
+}
+
+func (s *ShellAPI) RemoveLocalRepo(id string) error {
+	return s.app.RemoveLocalRepo(id)
+}
+
+func (s *ShellAPI) RenameLocalRepo(id, name string) error {
+	return s.app.RenameLocalRepo(id, name)
+}
+
+func (s *ShellAPI) SetLocalRepoEnabled(id string, enabled bool) error {
+	return s.app.SetLocalRepoEnabled(id, enabled)
+}
+
+func (s *ShellAPI) GetLastOpenedLocalRepoPath() string {
+	return s.app.GetLastOpenedLocalRepoPath()
+}
+
+// CloseRepository on Shell so the back-to-picker action works
+// regardless of which connection is currently active. Cloud-adapter
+// routing would send it to /repos/<id>/rpc on a Remote, where there
+// is no CloseRepository (it's an App-only concept) — the call would
+// silently 404 and the back button would do nothing user-visible.
+func (s *ShellAPI) CloseRepository() {
+	s.app.CloseRepository()
+}
+
+// SetActiveRepoForConnection lets the frontend pre-set the target
+// connection's last-active-repo BEFORE switching to that connection.
+// Without it, switching connections always lands on the picker
+// (cloud adapter resolves with no repoID set for the new connection).
+func (s *ShellAPI) SetActiveRepoForConnection(connectionID, repoID string) error {
+	return s.app.SetActiveRepoForConnection(connectionID, repoID)
+}

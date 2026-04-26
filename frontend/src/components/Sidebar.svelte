@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { nav, board, loadBoard } from '../lib/store.svelte'
-  import { CloseRepository, CreateBrand, RenameBrand, UpdateBrandDescription, UpdateBrandIcon, CreateStream, RenameStream, UpdateStreamDescription, UpdateStreamIcon, CreateProject, RenameProject, UpdateProjectDescription, UpdateProjectIcon, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, GetCard, GetCardPins, ListOrphanedCardIDs, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject, GetPreferences, GetRepoDescription, UpdateRepoDescription } from '../lib/api'
+  import { CreateBrand, RenameBrand, UpdateBrandDescription, UpdateBrandIcon, CreateStream, RenameStream, UpdateStreamDescription, UpdateStreamIcon, CreateProject, RenameProject, UpdateProjectDescription, UpdateProjectIcon, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, GetCard, ListOrphanedCardIDs, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject, GetPreferences, GetRepoDescription, UpdateRepoDescription } from '../lib/api'
   import { ChevronLeft, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox, Timer, ChevronsUpDown, ChevronsDownUp, Smile, Upload, Info, Server, Monitor } from 'lucide-svelte'
   import { connections, isLocalActive, activeConnectionLabel } from '../lib/connections.svelte'
   import ThemeToggle from './ThemeToggle.svelte'
@@ -30,9 +30,31 @@
   // tears down every in-memory cache cleanly without the sidebar
   // having to enumerate them.
   async function closeRepoAndReturn() {
+    // Two flavours of "back":
+    //   - Local active: call CloseRepository on the desktop App via
+    //     Shell (releases runtime, lock, watcher; clears the
+    //     last-opened pointer). Cloud-adapter routing would also work
+    //     for Local, but going via Shell keeps Local management
+    //     consistent with the rest of the picker surface.
+    //   - Remote active: there's no per-Remote CloseRepository
+    //     concept — the Remote runtime stays loaded for other
+    //     clients. We just clear THIS device's last-active-repo
+    //     pointer for that connection so the post-reload boot
+    //     resolves with no repoID and lands on the picker.
+    type ShellBack = {
+      CloseRepository?: () => Promise<void>
+      SetActiveRepoForConnection?: (connID: string, repoID: string) => Promise<void>
+    }
+    const s = (window as unknown as { go?: { main?: { ShellAPI?: ShellBack } } }).go?.main?.ShellAPI
     try {
-      await CloseRepository()
-    } catch { /* still reload — backend may already be unset */ }
+      if (isLocalActive()) {
+        if (s?.CloseRepository) await s.CloseRepository()
+      } else {
+        if (s?.SetActiveRepoForConnection) {
+          await s.SetActiveRepoForConnection(connections.active, '')
+        }
+      }
+    } catch { /* still reload — try to recover regardless */ }
     setTimeout(() => window.location.reload(), 50)
   }
 
@@ -108,6 +130,17 @@
     }
   })
 
+  // lastNavKey returns the per-repo localStorage key for "last viewed
+  // brand/stream/project". Pre-fix this was a single global key
+  // (`bruv-last-nav`), which meant switching repo or connection would
+  // restore a project from the OLD repo — usually nonexistent in the
+  // new one, so the sidebar tried to expand a brand that wasn't
+  // there and silently bailed. Scoping by repo ID (now unified with
+  // manifest ID) gives each repo its own remembered selection.
+  function lastNavKey(): string {
+    return `bruv-last-nav:${nav.repoId || '__none__'}`
+  }
+
   async function loadBrandsAndRestore() {
     await loadBrands()
     try { repoDescription = await GetRepoDescription() || '' } catch { repoDescription = '' }
@@ -119,7 +152,7 @@
     } catch { /* use default */ }
     // Restore last nav state if available, otherwise default to Inbox
     try {
-      const raw = localStorage.getItem('bruv-last-nav')
+      const raw = localStorage.getItem(lastNavKey())
       if (!raw) {
         // No saved project — expand all brands if not collapsed
         if (!collapseOnLoad) await expandAll()
@@ -167,7 +200,7 @@
     nav.brandName = ''
     nav.streamName = ''
     nav.projectName = ''
-    localStorage.removeItem('bruv-last-nav')
+    localStorage.removeItem(lastNavKey())
     board.loading = true
     try {
       const ids = await ListOrphanedCardIDs() || []
@@ -207,7 +240,7 @@
     nav.brandName = ''
     nav.streamName = ''
     nav.projectName = ''
-    localStorage.removeItem('bruv-last-nav')
+    localStorage.removeItem(lastNavKey())
   }
 
   async function expandAll() {
@@ -272,7 +305,7 @@
     nav.brandSlug = brandSlug
     nav.streamSlug = streamSlug
     nav.projectSlug = projectSlug
-    localStorage.setItem('bruv-last-nav', JSON.stringify({ brandSlug, streamSlug, projectSlug }))
+    localStorage.setItem(lastNavKey(), JSON.stringify({ brandSlug, streamSlug, projectSlug }))
     // Expand the tree so the project is visible
     expandedBrands.add(brandSlug)
     expandedBrands = new Set(expandedBrands)
@@ -418,7 +451,7 @@
           projectsByStream = newProj
           if (nav.brandSlug === brandSlug) {
             nav.brandSlug = newSlug
-            localStorage.setItem('bruv-last-nav', JSON.stringify({ brandSlug: newSlug, streamSlug: nav.streamSlug, projectSlug: nav.projectSlug }))
+            localStorage.setItem(lastNavKey(), JSON.stringify({ brandSlug: newSlug, streamSlug: nav.streamSlug, projectSlug: nav.projectSlug }))
           }
         }
         if (nav.brandSlug === (newSlug !== brandSlug ? newSlug : brandSlug)) nav.brandName = name
@@ -440,7 +473,7 @@
           }
           if (nav.brandSlug === brandSlug && nav.streamSlug === streamSlug) {
             nav.streamSlug = newSlug
-            localStorage.setItem('bruv-last-nav', JSON.stringify({ brandSlug: nav.brandSlug, streamSlug: newSlug, projectSlug: nav.projectSlug }))
+            localStorage.setItem(lastNavKey(), JSON.stringify({ brandSlug: nav.brandSlug, streamSlug: newSlug, projectSlug: nav.projectSlug }))
           }
         }
         if (nav.brandSlug === brandSlug && nav.streamSlug === (newSlug !== streamSlug ? newSlug : streamSlug)) nav.streamName = name
@@ -451,7 +484,7 @@
         const newSlug = updated.slug
         if (newSlug !== projectSlug && nav.brandSlug === brandSlug && nav.streamSlug === streamSlug && nav.projectSlug === projectSlug) {
           nav.projectSlug = newSlug
-          localStorage.setItem('bruv-last-nav', JSON.stringify({ brandSlug: nav.brandSlug, streamSlug: nav.streamSlug, projectSlug: newSlug }))
+          localStorage.setItem(lastNavKey(), JSON.stringify({ brandSlug: nav.brandSlug, streamSlug: nav.streamSlug, projectSlug: newSlug }))
         }
         if (nav.brandSlug === brandSlug && nav.streamSlug === streamSlug && nav.projectSlug === (newSlug !== projectSlug ? newSlug : projectSlug)) nav.projectName = name
         const key = `${brandSlug}/${streamSlug}`

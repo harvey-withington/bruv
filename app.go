@@ -70,6 +70,8 @@ type App struct {
 	lastSavedBounds *config.WindowBounds
 	forceQuit       bool
 	trayPauseItem   interface{ Check(); Uncheck(); Checked() bool }
+	traySetUp       bool // guard so reload-driven domReady doesn't re-run systray.Run
+	boundsPolling   bool // same idempotency story for the bounds-saver goroutine
 
 	// appBus is the stable host-side event bus the Wails bridge and
 	// HTTP SSE handler subscribe to. Per-runtime publishers (the
@@ -95,6 +97,10 @@ func NewApp() *App {
 	// Run the recents migration BEFORE constructing the supervisor so
 	// freshly-imported entries land in the supervisor's registry view.
 	config.MigrateRecentsToRegistry()
+
+	// Then align registry IDs with manifest IDs (one-time, idempotent
+	// — pre-unification builds minted independent UUIDs for each).
+	config.MigrateRepoIDsToManifest()
 
 	cfgDir, err := config.ConfigDir()
 	if err != nil {
@@ -219,7 +225,16 @@ func (a *App) domReady(ctx context.Context) {
 // startBoundsPoller starts a background goroutine that saves the window
 // position and size every 3 seconds if they have changed. This ensures
 // bounds are preserved even if the app is killed rather than closed normally.
+//
+// Idempotent: domReady fires on every browser reload, so without the
+// guard each reload would leak a new ticker goroutine (a.ctx is set
+// once in startup and never cancelled until process exit, so the old
+// goroutines never get the Done signal to terminate).
 func (a *App) startBoundsPoller() {
+	if a.boundsPolling {
+		return
+	}
+	a.boundsPolling = true
 	go func() {
 		defer logging.Recover("bounds-poller")
 		ticker := time.NewTicker(3 * time.Second)
@@ -889,9 +904,31 @@ func (a *App) ListLocalRepos() ([]config.RepoEntry, error) {
 }
 
 // RemoveLocalRepo drops an entry from <userConfigDir>/repos.json. The
-// underlying folder on disk is left alone — this is a registry-only
-// operation, mirroring the X button on a recent repo today.
+// underlying folder on disk is left alone. When the removed repo is
+// the currently active runtime we close it first — releases the file
+// watcher, SQLite index handle, advisory repo lock, MCP subprocesses,
+// and agent scheduler — so the user can immediately delete the folder
+// from disk without "file in use" errors. Without this teardown the
+// watcher keeps a handle on a path that's gone from the registry.
 func (a *App) RemoveLocalRepo(id string) error {
+	store, err := config.LoadRepos()
+	if err != nil {
+		return err
+	}
+	var path string
+	for _, e := range store.Repos {
+		if e.ID == id {
+			path = e.Path
+			break
+		}
+	}
+	if a.Runtime != nil && a.Runtime.Repo() != nil && a.Runtime.Repo().Root == path {
+		a.CloseRepository()
+	} else if path != "" {
+		// Non-active but loaded (rare on the desktop's lazy
+		// supervisor; defensive). Unload to free any held handles.
+		a.sup.Unload(id)
+	}
 	return config.RemoveRepo(id)
 }
 
@@ -908,10 +945,13 @@ func (a *App) SetLocalRepoEnabled(id string, enabled bool) error {
 // registry (repos.json — controls picker display) and the in-repo
 // manifest (manifest.json — the portable identity that travels with
 // the repo). Editing both keeps display and identity in sync; either
-// alone would drift when the repo is shared. Failure to write the
-// manifest doesn't roll back the registry — we surface the error and
-// let the user retry; partial-success is preferable to leaving the
-// picker showing the old name.
+// alone would drift when the repo is shared.
+//
+// When the renamed repo is the currently-loaded active runtime, the
+// manifest write goes through the live Repository so its in-memory
+// copy stays in sync — otherwise GetCurrentRepo would keep returning
+// the old name until the runtime was rebuilt. For non-active
+// registered repos, the disk-only rewrite suffices.
 func (a *App) RenameLocalRepo(id, name string) error {
 	store, err := config.LoadRepos()
 	if err != nil {
@@ -930,6 +970,16 @@ func (a *App) RenameLocalRepo(id, name string) error {
 	if err := config.SetRepoName(id, name); err != nil {
 		return err
 	}
+	// Registry IDs (UUIDs from config.AppendRepo) and manifest IDs
+	// (UUIDs from repo.InitAt) are separately generated and never
+	// coincide, so we have to match the active runtime by PATH to
+	// decide whether to take the in-place update branch.
+	if a.Runtime != nil && a.Runtime.Repo() != nil && a.Runtime.Repo().Root == path {
+		if err := a.Runtime.Repo().UpdateManifestName(name); err != nil {
+			return fmt.Errorf("update manifest: %w", err)
+		}
+		return nil
+	}
 	if err := repo.RewriteManifestName(path, name); err != nil {
 		return fmt.Errorf("update manifest: %w", err)
 	}
@@ -939,8 +989,10 @@ func (a *App) RenameLocalRepo(id, name string) error {
 // CloseRepository releases the active repository: shuts down the
 // runtime via the supervisor (which stops scheduler, due-date scanner,
 // MCP, watcher, and closes the index), releases the desktop repo lock,
-// and clears the embedded *Runtime pointer. The registry entry stays
-// in repos.json — close ≠ remove.
+// clears the embedded *Runtime pointer, AND clears the Local
+// "last-opened" pointer so a subsequent reopen_last_repo doesn't
+// auto-restore the just-closed repo. The registry entry stays in
+// repos.json — close ≠ remove.
 func (a *App) CloseRepository() {
 	a.releaseRepoLock()
 	if a.activeID != "" {
@@ -948,6 +1000,27 @@ func (a *App) CloseRepository() {
 		a.activeID = ""
 	}
 	a.bindRuntime(nil)
+	// Clear the per-machine "last opened on Local" pointer so the
+	// frontend's reopen_last_repo preference doesn't immediately
+	// re-open the repo we just closed. Failure is non-fatal.
+	if err := config.SetRecentRepoForConnection("", ""); err != nil {
+		slog.Warn("close repo: clear last-opened failed", "err", err)
+	}
+}
+
+// SetActiveRepoForConnection writes the per-connection "last selected
+// repo" pointer for ANY connection (not just the currently-active
+// one). Pass repoID="" to clear the pointer (so reload lands on the
+// picker for that connection). Used by the picker when switching
+// from one connection to another with a specific repo selected:
+// without setting the target's pointer first, the post-switch reload
+// resolves the cloud adapter with no repoID and shows the picker
+// instead of opening the chosen repo.
+//
+// connectionID="" targets Local. The Local pointer is read by
+// GetLastOpenedLocalRepoPath / the reopen_last_repo flow.
+func (a *App) SetActiveRepoForConnection(connectionID, repoID string) error {
+	return config.SetRecentRepoForConnection(connectionID, repoID)
 }
 
 // GetCurrentRepo reports what repo the backend currently has open.

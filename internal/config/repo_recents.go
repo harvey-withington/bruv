@@ -74,10 +74,12 @@ func GetRecentRepoForConnection(connectionID string) string {
 // SetRecentRepoForConnection persists the user's repo choice. Pass
 // repoID="" to clear the entry (e.g. when the user explicitly wants
 // the picker on next launch).
+//
+// Empty connectionID is the legitimate Local sentinel: the desktop
+// stamps "" → activeRepoID after Open/Init so reopen_last_repo can
+// auto-restore on next launch. We accept the empty key here for that
+// reason — it's not corruption, it's the Local connection's row.
 func SetRecentRepoForConnection(connectionID, repoID string) error {
-	if connectionID == "" {
-		return nil // no-op rather than corrupt the map with empty keys
-	}
 	r, _ := LoadRepoRecents()
 	if repoID == "" {
 		delete(r, connectionID)

@@ -83,6 +83,40 @@ FunctionEnd
 LangString DESC_SecDesktop ${LANG_ENGLISH} "The BRUV desktop app. Installs the program, Start Menu shortcut, and file associations."
 LangString DESC_SecServer ${LANG_ENGLISH} "Run BRUV as a background Windows service so this machine acts as a hosted backend other devices can connect to (over Tailscale, typically). Auto-starts on boot."
 
+# StopRunningBruv: kill anything that might be holding bruv.exe open
+# before file ops touch it. The desktop defaults to hide-to-tray, so
+# the .exe stays locked even when the user thinks they've "closed" it
+# — without this, wails.files silently fails to overwrite the binary
+# during reinstall and the user keeps running the old code (we lost a
+# few hours to exactly this bug). The Windows Service is stopped
+# separately via `bruv.exe service uninstall` in the uninstall
+# section, but we taskkill here too as a belt-and-braces measure for
+# the install section, which doesn't run uninstall first.
+#
+# `taskkill /F` is a hard kill — the desktop's beforeClose hook
+# (window bounds save) doesn't run. Acceptable trade-off: the user
+# explicitly chose to install/uninstall.
+!macro StopRunningBruv
+    DetailPrint "Stopping any running BRUV processes..."
+    # Try graceful service stop first (no-op if the service isn't
+    # installed). Done via sc.exe rather than `bruv.exe service stop`
+    # because we may not have a working bruv.exe on disk yet (clean
+    # install) and even if we did it'd be the OLD one we're trying
+    # to replace.
+    nsExec::ExecToLog 'sc stop BRUV-Server'
+    Pop $0
+    # Force-kill any remaining bruv.exe (desktop tray, manual
+    # `--server` runs, anything that survived the graceful stop).
+    # /T also kills child processes (MCP subprocesses, etc.).
+    nsExec::ExecToLog 'taskkill /F /T /IM ${PRODUCT_EXECUTABLE}'
+    Pop $0
+    # Brief pause to let Windows release the file handles before the
+    # file copy / RMDir runs. taskkill is synchronous in returning,
+    # but the kernel may still be tearing down the process when it
+    # does — file ops attempted immediately can still fail.
+    Sleep 500
+!macroend
+
 # --- Sections ---
 #
 # Both sections write the same binaries into $INSTDIR — the desktop
@@ -92,6 +126,11 @@ LangString DESC_SecServer ${LANG_ENGLISH} "Run BRUV as a background Windows serv
 
 Section "Desktop App" SecDesktop
     !insertmacro wails.setShellContext
+
+    # Replace-in-place safety: kill any prior bruv.exe instances
+    # (desktop tray, headless `--server`, the installed Service)
+    # before wails.files tries to overwrite the binary on disk.
+    !insertmacro StopRunningBruv
 
     !insertmacro wails.webview2runtime
 
@@ -114,6 +153,13 @@ Section /o "Server (run in background, auto-start on boot)" SecServer
     # invoking it again is safe and ensures bruv.exe lives in $INSTDIR
     # before we register the service.
     !insertmacro wails.setShellContext
+
+    # When Desktop is also selected its section ran first and already
+    # killed everything. When Desktop wasn't selected this is the
+    # first chance to kill the prior server / orphaned desktop tray
+    # before overwriting bruv.exe. Either way, idempotent.
+    !insertmacro StopRunningBruv
+
     SetOutPath $INSTDIR
     !insertmacro wails.files
     !insertmacro wails.writeUninstaller
@@ -166,6 +212,14 @@ Section "uninstall"
     # registered and the call would just no-op.
     nsExec::ExecToLog '"$INSTDIR\${PRODUCT_EXECUTABLE}" service uninstall'
     Pop $0
+
+    # Kill any remaining bruv.exe instances — service uninstall above
+    # gracefully stops the registered service, but the desktop app is
+    # a separate process (defaults to hide-to-tray, easy to leave
+    # running) that holds the binary open and would silently block
+    # the RMDir below. Without this the user "uninstalls", reboots,
+    # and finds bruv.exe still in Program Files.
+    !insertmacro StopRunningBruv
 
     RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
 

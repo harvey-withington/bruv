@@ -158,9 +158,16 @@ func RemoveRepo(id string) error {
 	return SaveRepos(store)
 }
 
-// AppendRepo adds a new entry to the registry, generating an ID and
-// defaulting the name from the path's basename. Idempotent on path:
-// if an entry already references this path, returns it unchanged.
+// AppendRepo adds a new entry to the registry, defaulting the name
+// from the path's basename. Idempotent on path: if an entry already
+// references this path, returns it unchanged.
+//
+// The entry's ID is taken from the repo's manifest.json when one
+// exists at the path — keeping registry ID and manifest ID as the
+// SAME UUID so callers comparing one against the other always agree.
+// Falls back to a generated UUID only when the path isn't (yet) a
+// BRUV repo, which is vanishingly rare since AppendRepo is always
+// called after Init / Open in normal flows.
 func AppendRepo(path, name string) (RepoEntry, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -180,8 +187,12 @@ func AppendRepo(path, name string) (RepoEntry, error) {
 		}
 	}
 
+	id := readManifestID(abs)
+	if id == "" {
+		id = uuid.NewString()
+	}
 	entry := RepoEntry{
-		ID:   uuid.NewString(),
+		ID:   id,
 		Name: name,
 		Path: abs,
 	}
@@ -190,4 +201,24 @@ func AppendRepo(path, name string) (RepoEntry, error) {
 		return RepoEntry{}, err
 	}
 	return entry, nil
+}
+
+// readManifestID extracts just the ID field from the manifest at
+// rootPath/manifest.json without pulling in internal/repo (which
+// would create an import cycle, since repo depends on config). The
+// manifest format is owned by internal/model + internal/repo; here
+// we duplicate the bare minimum needed and tolerate any other shape
+// by returning "" on parse failure.
+func readManifestID(rootPath string) string {
+	data, err := os.ReadFile(filepath.Join(rootPath, "manifest.json"))
+	if err != nil {
+		return ""
+	}
+	var m struct {
+		ID string `json:"id"`
+	}
+	if json.Unmarshal(data, &m) != nil {
+		return ""
+	}
+	return m.ID
 }

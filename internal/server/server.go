@@ -28,6 +28,7 @@ import (
 
 	"bruv/core/supervisor"
 	"bruv/internal/config"
+	"bruv/internal/logging"
 	transporthttp "bruv/transport/http"
 )
 
@@ -72,8 +73,28 @@ func Run(opts Options) error {
 		}
 		opts.ConfigDir = dir
 	}
+	// Critical: route every internal/config helper at this directory
+	// too. Without it, LoadRepos / AppendRepo / etc. fall back to
+	// os.UserConfigDir() which on a service running as LocalSystem is
+	// C:\Windows\System32\config\systemprofile\AppData\Roaming — NOT
+	// the %PROGRAMDATA%\BRUV path the installer wrote repos.json to.
+	// Pre-fix the service would error "no repos configured" on every
+	// boot and never reach the bootstrap-token-generating code path.
+	config.SetConfigDir(opts.ConfigDir)
 
-	slog.Info("bruv-server starting", "version", opts.Version, "build_date", opts.BuildDate)
+	// File logging is critical here: the service runs as LocalSystem,
+	// stderr disappears into the void, and SCM only surfaces "service
+	// failed to start" without context. Writing to <configDir>/logs/
+	// gives the operator (and us debugging issues) something to read
+	// when boot goes sideways. Failure is non-fatal — the slog default
+	// (stderr) keeps working, just invisible to anyone who isn't
+	// running the binary from a terminal.
+	if _, err := logging.Init(opts.ConfigDir); err != nil {
+		slog.Warn("logging init failed", "err", err)
+	}
+	logging.InitCrashReporting(opts.ConfigDir, opts.Version, opts.BuildDate)
+
+	slog.Info("bruv-server starting", "version", opts.Version, "build_date", opts.BuildDate, "config_dir", opts.ConfigDir)
 
 	// Legacy single-repo mode: when --repo was passed on the CLI,
 	// append it to the registry so a fresh install bootstraps with

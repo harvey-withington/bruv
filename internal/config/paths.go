@@ -12,7 +12,25 @@ func ConfigDir() (string, error) {
 	return configDir()
 }
 
+// configDirOverride lets the server / install flow point every
+// internal/config helper at a non-default directory — set early via
+// SetConfigDir before any LoadRepos / AppendRepo / similar call. Used
+// by the Windows service install (must read from %PROGRAMDATA%\BRUV
+// rather than the LocalSystem account's invisible AppData/Roaming).
+var configDirOverride string
+
+// SetConfigDir overrides the directory every config.* helper resolves
+// to. Idempotent. Call exactly once at process startup BEFORE any
+// other config function — later changes won't retroactively redirect
+// already-loaded data. Pass "" to clear the override (rarely useful).
+func SetConfigDir(dir string) {
+	configDirOverride = dir
+}
+
 func configDir() (string, error) {
+	if configDirOverride != "" {
+		return configDirOverride, os.MkdirAll(configDirOverride, 0o755)
+	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err

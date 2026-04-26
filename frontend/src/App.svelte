@@ -26,7 +26,8 @@
   import { probeBackend } from './lib/repos.svelte'
   import { resolveTransportInfo } from './lib/adapters/cloud'
 
-  import { GetPreferences, GetLastOpenedLocalRepoPath, OpenRepository, GetCurrentRepo, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, IsLLMConfigured, MarkLLMNudgeShown } from './lib/api'
+  import { GetPreferences, GetCurrentRepo, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, IsLLMConfigured, MarkLLMNudgeShown } from './lib/api'
+  import { getLastOpenedLocalRepoPath as GetLastOpenedLocalRepoPath, openLocalRepository as OpenRepository } from './lib/local'
 
   // Restore persisted preferences
   loadTheme()
@@ -123,13 +124,20 @@
       // the user gets recovery actions rather than a stuck spinner.
       bootPhase = 'unreachable'
     } finally {
-      // Card types are repo-scoped — only fetch once a repo is open.
-      if (nav.repoOpen) loadCardTypes()
+      // Card types + tag colours are repo-scoped — only fetch once a
+      // repo is open. Calling them with no repo selected on a Remote
+      // (multi-repo) connection routes to bare /rpc which 404s
+      // because the multi-repo server only mounts /repos/<id>/rpc.
+      // The post-repo-pick reload re-runs bootApp anyway, so this
+      // gate is sufficient for both first-launch and switch cases.
+      if (nav.repoOpen) {
+        loadCardTypes()
+        loadGlobalTagColors()
+      }
       maybeShowLLMNudge()
     }
   }
   bootApp()
-  loadGlobalTagColors()
 
   let searchCardId = $state<string | null>(null)
   let searchCardInitialTab = $state<'details' | 'agent' | undefined>(undefined)
@@ -277,7 +285,13 @@
   // soft-reset fine for alpha; per-session re-warn is enough.
   let indexStaleNotified = false
   onMount(() => {
-    loadNotifications()
+    // Notifications are per-repo (and on Remote multi-repo, only
+    // reachable via /repos/<id>/rpc). Skip the initial fetch when
+    // we're on the picker — onMount won't re-fire on its own, but
+    // any post-pick repo switch reloads the page (the established
+    // pattern), so the next mount lands with nav.repoOpen=true and
+    // this guard passes.
+    if (nav.repoOpen) loadNotifications()
     notifCleanups = [
       onEvent('notification:new', (data: any) => {
         handleNewNotification(data)

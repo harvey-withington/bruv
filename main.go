@@ -6,7 +6,6 @@ import (
 	"bruv/internal/server"
 	"embed"
 	"flag"
-	"fmt"
 	"log/slog"
 	"os"
 
@@ -119,17 +118,19 @@ func runServerMode() {
 		args = append(args, a)
 	}
 	fs := flag.NewFlagSet("bruv --server", flag.ExitOnError)
-	repoPath := fs.String("repo", "", "path to BRUV repo to open (required)")
+	repoPath := fs.String("repo", "", "legacy: append this path to repos.json on startup (optional; the registry is now the source of truth)")
 	addr := fs.String("addr", "0.0.0.0:9870", "HTTP listen address")
 	configDir := fs.String("config", "", "config directory (default: <user-config>/bruv/)")
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
 	}
-	if *repoPath == "" {
-		fmt.Fprintln(os.Stderr, "error: --repo is required when running as --server")
-		fs.Usage()
-		os.Exit(2)
-	}
+	// --repo is no longer required: the service runs against the
+	// multi-repo registry at <configDir>/repos.json. The flag stays
+	// for the install-time bootstrap path (legacy single-repo
+	// installs that never wrote to the registry) and for ad-hoc
+	// "add a repo and start the server" one-liners. server.Run
+	// errors clearly when neither --repo nor a populated registry
+	// is available, so the prior frontline guard here is redundant.
 	if err := server.Run(server.Options{
 		RepoPath:  *repoPath,
 		Addr:      *addr,

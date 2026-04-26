@@ -50,7 +50,18 @@ func (a *App) showWindow() {
 // systray.Run blocks, so it runs on a dedicated goroutine pinned to
 // a single OS thread — Windows requires the message pump to stay on
 // the thread that created the systray hidden window.
+//
+// Idempotent: this is called from domReady, and Wails fires domReady
+// on every browser reload (we now reload on repo close / switch /
+// submit-configure-in-dialog). A second systray.Run silently steps
+// on the first registration — the icon is still there, but right-
+// click no longer shows the menu we built. The traySetUp guard
+// ensures the menu wiring only happens once per process lifetime.
 func (a *App) setupTray() {
+	if a.traySetUp {
+		return
+	}
+	a.traySetUp = true
 	go func() {
 		runtime.LockOSThread()
 		systray.Run(func() {

@@ -91,6 +91,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     GetCurrentRepo: async () => null,
     RemoveLocalRepo: async () => {},
     RenameLocalRepo: async () => {},
+    SetLocalRepoEnabled: async () => {},
     GetLastOpenedLocalRepoPath: async () => '',
     GetRepoDescription: async () => '',
     UpdateRepoDescription: async () => {},

@@ -35,13 +35,20 @@
   import BruvIcon from './BruvIcon.svelte'
   import AddConnectionForm from './AddConnectionForm.svelte'
   import {
-    connections, isLocalActive, removeConnection, switchConnection, addConnection, updateConnection,
+    connections, isLocalActive, removeConnection, addConnection, updateConnection,
   } from '../lib/connections.svelte'
   import {
-    listAllConnectionRepos, setRepoEnabled, selectRepo,
+    listAllConnectionRepos, setRepoEnabled, switchToRepo,
     type TreeConnectionNode,
   } from '../lib/repos.svelte'
-  import { OpenRepository, InitRepository, InspectRepoPath, PickFolder, RemoveLocalRepo, RenameLocalRepo } from '../lib/api'
+  import { PickFolder, GetCurrentRepo } from '../lib/api'
+  import {
+    inspectLocalRepoPath as InspectRepoPath,
+    initLocalRepository as InitRepository,
+    openLocalRepository as OpenRepository,
+    removeLocalRepository as RemoveLocalRepo,
+    renameLocalRepository as RenameLocalRepo,
+  } from '../lib/local'
   import { nav, loadGlobalTagColors } from '../lib/store.svelte'
 
   let {
@@ -108,23 +115,30 @@
       return
     }
     try {
-      if (connectionID !== connections.active) {
-        await switchConnection(connectionID)
-        return
-      }
-      await selectRepo(repoID)
+      // switchToRepo handles both cases: same-connection
+      // (delegates to selectRepo) and cross-connection (pre-sets
+      // the target's last-active-repo via the Shell binding so the
+      // post-switch reload actually OPENS the chosen repo instead
+      // of dumping the user back on the picker).
+      await switchToRepo(connectionID, repoID)
     } catch (e) {
       showToast((e as Error)?.message ?? String(e), 'error')
     }
   }
 
   async function toggleEnabled(connectionID: string, repoID: string, currentlyDisabled: boolean) {
-    if (connectionID !== connections.active) {
+    // Local rows are always togglable (Shell binding hits the desktop
+    // App regardless of which connection is active). Remote rows still
+    // require the picker to be on that connection — toggling a remote
+    // repo on a server we're NOT currently authenticated to would need
+    // its URL+token, which we have but haven't plumbed through yet.
+    const isLocal = connectionID === ''
+    if (!isLocal && connectionID !== connections.active) {
       showToast(t('tree.toggle_needs_active'), 'info')
       return
     }
     try {
-      await setRepoEnabled(repoID, currentlyDisabled)
+      await setRepoEnabled(connectionID, repoID, currentlyDisabled)
       await load()
     } catch (e) {
       showToast((e as Error)?.message ?? String(e), 'error')
@@ -191,7 +205,12 @@
   // commitRenameLocalRepo writes both the registry name and the
   // in-repo manifest name (App.RenameLocalRepo handles both). On
   // success we refresh nodes so the new name shows immediately and
-  // the chip updates if the renamed repo happens to be the active one.
+  // re-fetch GetCurrentRepo to sync the chip label. We don't try to
+  // detect "did we rename the active one" — registry IDs and manifest
+  // IDs are independently-generated UUIDs and never match — instead
+  // we just trust whatever name GetCurrentRepo reports, which is
+  // either the freshly-renamed name (if active) or unchanged (if
+  // a non-active repo was renamed).
   async function commitRenameLocalRepo(repoID: string) {
     const name = renameDraft.trim()
     if (!name) {
@@ -200,18 +219,15 @@
     }
     try {
       await RenameLocalRepo(repoID, name)
-      // If the active repo was renamed, sync the chip label too.
-      const isActiveLocalRepo =
-        connections.active === '' && nav.repoOpen && nav.repoId !== '' &&
-        nodes.some(n => n.isLocal && n.repos.some(r => r.id === repoID))
-      if (isActiveLocalRepo) {
-        // GetCurrentRepo would also work, but we already have the
-        // name in the draft and we're about to refresh the list.
-        nav.repoName = name
-      }
       renamingID = null
       renameDraft = ''
       await load()
+      try {
+        const current = await GetCurrentRepo()
+        if (current?.name) {
+          nav.repoName = current.name
+        }
+      } catch { /* chip just stays stale until next boot — non-fatal */ }
       showToast(t('selector.rename_done'), 'success')
     } catch (e) {
       showToast((e as Error)?.message ?? String(e), 'error')
@@ -226,8 +242,21 @@
     e.stopPropagation()
     const ok = await showConfirm(t('tree.remove_local_confirm').replace('{name}', name))
     if (!ok) return
+    // Capture "was this the active one" BEFORE the remove — backend
+    // closes the active runtime as part of RemoveLocalRepo, so a
+    // post-remove GetCurrentRepo would already return null and we'd
+    // miss the signal to reload the UI out of its now-stale state.
+    let wasActive = false
+    try {
+      const current = await GetCurrentRepo()
+      wasActive = !!current && current.id === repoID
+    } catch { /* non-fatal */ }
     try {
       await RemoveLocalRepo(repoID)
+      if (wasActive) {
+        setTimeout(() => window.location.reload(), 50)
+        return
+      }
       await load()
     } catch (err) {
       showToast((err as Error)?.message ?? String(err), 'error')

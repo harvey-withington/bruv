@@ -4,10 +4,19 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
 const maxNotifications = 200
+
+// notifyMu serialises the read-modify-write paths into
+// notifications.json (Append, MarkRead, MarkAllRead, ClearAll).
+// Without this, two concurrent agent completions racing through
+// AppendNotification both see the same pre-state, both append their
+// own entry, and the second writer wins — silently dropping the
+// first notification. Plain os.WriteFile has no locking guarantees.
+var notifyMu sync.Mutex
 
 // Notification represents a single notification entry.
 type Notification struct {
@@ -63,6 +72,8 @@ func saveNotifications(list []Notification) error {
 
 // AppendNotification adds a notification to the history (newest first), trimming to maxNotifications.
 func AppendNotification(n Notification) error {
+	notifyMu.Lock()
+	defer notifyMu.Unlock()
 	list, err := LoadNotifications()
 	if err != nil {
 		list = []Notification{}
@@ -76,6 +87,8 @@ func AppendNotification(n Notification) error {
 
 // MarkNotificationRead marks a single notification as read.
 func MarkNotificationRead(id string) error {
+	notifyMu.Lock()
+	defer notifyMu.Unlock()
 	list, err := LoadNotifications()
 	if err != nil {
 		return err
@@ -91,6 +104,8 @@ func MarkNotificationRead(id string) error {
 
 // MarkAllNotificationsRead marks all notifications as read.
 func MarkAllNotificationsRead() error {
+	notifyMu.Lock()
+	defer notifyMu.Unlock()
 	list, err := LoadNotifications()
 	if err != nil {
 		return err
@@ -103,5 +118,7 @@ func MarkAllNotificationsRead() error {
 
 // ClearAllNotifications removes all notifications.
 func ClearAllNotifications() error {
+	notifyMu.Lock()
+	defer notifyMu.Unlock()
 	return saveNotifications([]Notification{})
 }

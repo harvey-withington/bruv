@@ -269,17 +269,26 @@
   // soft-reset fine for alpha; per-session re-warn is enough.
   let indexStaleNotified = false
   onMount(() => {
-    // Notifications are per-repo (and on Remote multi-repo, only
-    // reachable via /repos/<id>/rpc). Skip the initial fetch when
-    // we're on the picker — onMount won't re-fire on its own, but
-    // any post-pick repo switch reloads the page (the established
-    // pattern), so the next mount lands with nav.repoOpen=true and
-    // this guard passes.
-    if (nav.repoOpen) loadNotifications()
+    // Notifications are per-machine (MachineService.GetNotifications
+    // routes via /server/rpc, no repoID needed) so we can fetch
+    // unconditionally — works on the picker too. The previous
+    // nav.repoOpen gate was a leftover from when GetNotifications
+    // was per-repo; with that gate, the boot race between bootApp
+    // (sets nav.repoOpen) and onMount could swallow the initial load
+    // and the user landed with an empty notification list until the
+    // next event arrived.
+    loadNotifications()
     notifCleanups = [
       onEvent('notification:new', (data: any) => {
         handleNewNotification(data)
       }),
+      // Belt-and-braces: refresh from disk after every agent run so
+      // any in-app notification fired by the agent shows up even if
+      // the live notification:new event missed us (mid-reload, SSE
+      // not yet reconnected, etc.). Cheap — just reads the persisted
+      // list from /server/rpc → MachineService → notifications.json.
+      onEvent('agent:completed', () => loadNotifications()),
+      onEvent('agent:failed', () => loadNotifications()),
       onEvent('index:stale', () => {
         if (indexStaleNotified) return
         indexStaleNotified = true

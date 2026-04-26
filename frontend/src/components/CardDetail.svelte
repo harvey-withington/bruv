@@ -43,6 +43,12 @@
 
   let card = $state<Card | null>(null)
   let loading = $state(true)
+  // notFound = the card doesn't exist (or no longer exists). Hit when
+  // a stale link in Inbox / Activity points at a deleted card. We
+  // surface a friendly "Card no longer exists" panel rather than an
+  // empty modal + cryptic toast — the user knows immediately why
+  // nothing's loading and can close out.
+  let notFound = $state(false)
   let pinBreadcrumbs = $state<CardPin[]>([])
   // svelte-ignore state_referenced_locally
   let acceptedTypes = $state<string[] | undefined>(categoryAcceptedTypes)
@@ -484,6 +490,7 @@
     if (!silent) loading = true
     try {
       card = await GetCard(cardId) as Card
+      notFound = false
       pinBreadcrumbs = await GetCardPinBreadcrumbs(cardId) || []
       titleDraft = card.title
       descriptionDraft = card.fields?.description || ''
@@ -501,7 +508,14 @@
         try { projectTags.list = await GetProjectLabels(nav.brandSlug, nav.streamSlug, nav.projectSlug) || [] } catch {}
       }
     } catch (e) {
-      showToast(t('error.load_failed'), 'error')
+      // Backend returns "card %q not found" for missing cards (the
+      // common case from a stale Inbox / Activity link). Treat any
+      // failed load as not-found from the user's perspective —
+      // network / auth blips are rare and the not-found panel
+      // points the user at the same recovery action (close + try
+      // something else) for both cases.
+      card = null
+      notFound = true
     }
     loading = false
   }
@@ -547,7 +561,16 @@
       onClose()
     } else if (e.key === 'Enter' || e.key === 'Tab') {
       e.preventDefault()
-      editingDescription = true  // focusOnMount on the textarea blurs the title input → saveTitle() fires once via onblur
+      // Save explicitly. The previous "mount the description
+      // textarea, let focusOnMount blur the title, fire saveTitle
+      // via onblur" dance worked only when the Details tab was
+      // active — on the Agent / Runs tab the description block isn't
+      // rendered, so no textarea mounts, no blur fires, and the user
+      // is stuck with an unsavable title.
+      await saveTitle()
+      // After save, if the user is on Details, follow up by focusing
+      // the description for the natural top-down editing flow.
+      if (activeTab === 'details') editingDescription = true
     } else if (e.key === 'Escape') {
       e.stopPropagation()
       editingTitle = false
@@ -1066,6 +1089,12 @@
    <div class="modal-main" style={chatInDom ? `width: ${mainWidth}px;` : ''}>
     {#if loading}
       <div class="modal-loading">{t('app.loading')}</div>
+    {:else if notFound}
+      <div class="modal-not-found">
+        <h2>{t('error.card_not_found_title')}</h2>
+        <p>{t('error.card_not_found_body')}</p>
+        <button class="btn-primary" onclick={() => onClose?.()}>{t('error.card_not_found_close')}</button>
+      </div>
     {:else if card}
       <CardHeader
         {card}
@@ -1397,6 +1426,37 @@
     color: var(--text-muted);
     animation: fade-in var(--duration-moderate) var(--ease-out);
   }
+
+  .modal-not-found {
+    padding: 2.5rem 2rem;
+    text-align: center;
+    animation: fade-in var(--duration-moderate) var(--ease-out);
+  }
+  .modal-not-found h2 {
+    margin: 0 0 0.5rem;
+    font-size: 1.05rem;
+    color: var(--text-strong);
+  }
+  .modal-not-found p {
+    margin: 0 0 1.25rem;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    max-width: 32rem;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .modal-not-found .btn-primary {
+    padding: 0.5rem 1.25rem;
+    background: var(--accent);
+    color: #fff;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    font: inherit;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .modal-not-found .btn-primary:hover { background: var(--accent-hover, var(--accent)); }
 
   .card-tab-bar {
     display: flex;

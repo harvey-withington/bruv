@@ -25,7 +25,7 @@
 
   import { fade } from 'svelte/transition'
   import {
-    X, Server, Monitor, Pause, Play, Plus,
+    X, Server, Monitor, Pause, Play, Plus, Check,
     Trash2, Pencil, AlertTriangle, ChevronDown, ChevronRight,
   } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
@@ -41,7 +41,7 @@
     listAllConnectionRepos, setRepoEnabled, selectRepo,
     type TreeConnectionNode,
   } from '../lib/repos.svelte'
-  import { OpenRepository, InitRepository, InspectRepoPath, PickFolder, RemoveLocalRepo } from '../lib/api'
+  import { OpenRepository, InitRepository, InspectRepoPath, PickFolder, RemoveLocalRepo, RenameLocalRepo } from '../lib/api'
   import { nav, loadGlobalTagColors } from '../lib/store.svelte'
 
   let {
@@ -75,6 +75,12 @@
   let pendingPath = $state('')
   let pendingExisting = $state(false)
   let nameInput = $state('')
+
+  // Inline-rename state for Local repo rows. Keyed by repo ID so that
+  // a refresh of `nodes` (which rebuilds row identities) doesn't
+  // accidentally apply a draft to the wrong row.
+  let renamingID = $state<string | null>(null)
+  let renameDraft = $state('')
 
   $effect(() => { void load() })
 
@@ -169,6 +175,49 @@
     }
   }
 
+  // beginRenameLocalRepo enters the inline-edit state for a Local
+  // row. The draft is seeded with the current name so the user can
+  // tweak rather than retype.
+  function beginRenameLocalRepo(repoID: string, currentName: string) {
+    renamingID = repoID
+    renameDraft = currentName
+  }
+
+  function cancelRenameLocalRepo() {
+    renamingID = null
+    renameDraft = ''
+  }
+
+  // commitRenameLocalRepo writes both the registry name and the
+  // in-repo manifest name (App.RenameLocalRepo handles both). On
+  // success we refresh nodes so the new name shows immediately and
+  // the chip updates if the renamed repo happens to be the active one.
+  async function commitRenameLocalRepo(repoID: string) {
+    const name = renameDraft.trim()
+    if (!name) {
+      showToast(t('welcome.name_required'), 'error')
+      return
+    }
+    try {
+      await RenameLocalRepo(repoID, name)
+      // If the active repo was renamed, sync the chip label too.
+      const isActiveLocalRepo =
+        connections.active === '' && nav.repoOpen && nav.repoId !== '' &&
+        nodes.some(n => n.isLocal && n.repos.some(r => r.id === repoID))
+      if (isActiveLocalRepo) {
+        // GetCurrentRepo would also work, but we already have the
+        // name in the draft and we're about to refresh the list.
+        nav.repoName = name
+      }
+      renamingID = null
+      renameDraft = ''
+      await load()
+      showToast(t('selector.rename_done'), 'success')
+    } catch (e) {
+      showToast((e as Error)?.message ?? String(e), 'error')
+    }
+  }
+
   // removeLocalRepoEntry drops a Local registry entry from
   // <userConfigDir>/repos.json. The folder on disk is left alone —
   // this is purely a "stop showing this in the picker" action,
@@ -227,11 +276,26 @@
       if (pendingExisting) {
         await OpenRepository(pendingPath)
         nav.repoId = pendingPath
+        nav.repoName = nameInput || ''
       } else {
         const actual = await InitRepository(pendingPath, name)
         nav.repoId = actual
+        nav.repoName = name
       }
       nav.repoOpen = true
+      // Dialog mode = swapping the active repo from inside an
+      // already-running session. Sidebar / board / chat panels hold
+      // in-memory state for the OLD repo (brands list, expanded
+      // sets, board categories, …) that won't refresh just because
+      // nav.repoId changed. Reload mirrors switchConnection /
+      // selectRepo / closeRepoAndReturn — the cleanest way to drop
+      // every stale cache without enumerating them by hand.
+      // Fullscreen mode is the first-launch welcome flow with
+      // nothing stale to clear, so we skip the reload there.
+      if (mode === 'dialog') {
+        setTimeout(() => window.location.reload(), 50)
+        return
+      }
       loadGlobalTagColors()
       onClose?.()
     } catch (e) {
@@ -393,26 +457,61 @@
                   <div class="repos">
                     {#each node.repos as repo (repo.id)}
                       <div class="repo-row" class:disabled={repo.disabled}>
-                        <button class="repo-pick" onclick={() => pickRepo(node.connectionID, repo.id, !!repo.disabled)}>
+                        {#if renamingID === repo.id}
                           <span class="repo-dot" class:on={!repo.disabled} class:off={repo.disabled}></span>
-                          <span class="repo-name">{repo.name}</span>
-                          {#if repo.disabled}<span class="tag">{t('tree.disabled')}</span>{/if}
-                        </button>
-                        <button
-                          class="icon-btn"
-                          onclick={() => toggleEnabled(node.connectionID, repo.id, !!repo.disabled)}
-                          title={repo.disabled ? t('tree.enable') : t('tree.disable')}
-                        >
-                          {#if repo.disabled}<Play size={11} />{:else}<Pause size={11} />{/if}
-                        </button>
-                        {#if node.isLocal}
+                          <input
+                            class="rename-input"
+                            type="text"
+                            bind:value={renameDraft}
+                            onkeydown={(e) => {
+                              if (e.key === 'Enter') commitRenameLocalRepo(repo.id)
+                              if (e.key === 'Escape') cancelRenameLocalRepo()
+                            }}
+                            use:focusOnMount={true}
+                          />
                           <button
-                            class="icon-btn danger"
-                            onclick={(e) => removeLocalRepoEntry(e, repo.id, repo.name)}
-                            title={t('tree.remove_local')}
+                            class="icon-btn"
+                            onclick={() => commitRenameLocalRepo(repo.id)}
+                            title={t('common.save')}
+                          >
+                            <Check size={11} />
+                          </button>
+                          <button
+                            class="icon-btn"
+                            onclick={cancelRenameLocalRepo}
+                            title={t('common.cancel')}
                           >
                             <X size={11} />
                           </button>
+                        {:else}
+                          <button class="repo-pick" onclick={() => pickRepo(node.connectionID, repo.id, !!repo.disabled)}>
+                            <span class="repo-dot" class:on={!repo.disabled} class:off={repo.disabled}></span>
+                            <span class="repo-name">{repo.name}</span>
+                            {#if repo.disabled}<span class="tag">{t('tree.disabled')}</span>{/if}
+                          </button>
+                          <button
+                            class="icon-btn"
+                            onclick={() => toggleEnabled(node.connectionID, repo.id, !!repo.disabled)}
+                            title={repo.disabled ? t('tree.enable') : t('tree.disable')}
+                          >
+                            {#if repo.disabled}<Play size={11} />{:else}<Pause size={11} />{/if}
+                          </button>
+                          {#if node.isLocal}
+                            <button
+                              class="icon-btn"
+                              onclick={() => beginRenameLocalRepo(repo.id, repo.name)}
+                              title={t('tree.rename_local')}
+                            >
+                              <Pencil size={11} />
+                            </button>
+                            <button
+                              class="icon-btn danger"
+                              onclick={(e) => removeLocalRepoEntry(e, repo.id, repo.name)}
+                              title={t('tree.remove_local')}
+                            >
+                              <X size={11} />
+                            </button>
+                          {/if}
                         {/if}
                       </div>
                     {/each}
@@ -587,6 +686,18 @@
     min-width: 0;
   }
   .repo-name { font-size: 0.85rem; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .rename-input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.2rem 0.4rem;
+    background: var(--bg-base);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    color: var(--text-strong);
+    font: inherit;
+    font-size: 0.85rem;
+  }
+  .rename-input:focus { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
   .tag {
     font-size: 0.6rem;
     text-transform: uppercase;

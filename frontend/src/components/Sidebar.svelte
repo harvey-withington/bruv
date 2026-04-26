@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import { nav, board, loadBoard } from '../lib/store.svelte'
   import { CloseRepository, CreateBrand, RenameBrand, UpdateBrandDescription, UpdateBrandIcon, CreateStream, RenameStream, UpdateStreamDescription, UpdateStreamIcon, CreateProject, RenameProject, UpdateProjectDescription, UpdateProjectIcon, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, GetCard, GetCardPins, ListOrphanedCardIDs, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject, GetPreferences, GetRepoDescription, UpdateRepoDescription } from '../lib/api'
-  import { LogOut, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox, Timer, ChevronsUpDown, ChevronsDownUp, Smile, Upload, Info, Server, Monitor } from 'lucide-svelte'
+  import { ChevronLeft, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox, Timer, ChevronsUpDown, ChevronsDownUp, Smile, Upload, Info, Server, Monitor } from 'lucide-svelte'
   import { connections, isLocalActive, activeConnectionLabel } from '../lib/connections.svelte'
   import ThemeToggle from './ThemeToggle.svelte'
   import BruvIcon from './BruvIcon.svelte'
@@ -22,23 +22,18 @@
     onOpenConnections?: () => void
   } = $props()
 
-  async function handleCloseRepo() {
-    await CloseRepository()
-    nav.repoOpen = false
-    nav.repoId = ''
-    nav.brandSlug = null
-    nav.streamSlug = null
-    nav.projectSlug = null
-    nav.brandName = ''
-    nav.streamName = ''
-    nav.projectName = ''
-    // Keep bruv-last-nav so the project is restored on re-open
-    board.categories = []
-    brands = []
-    streamsByBrand = {}
-    projectsByStream = {}
-    expandedBrands = new Set()
-    expandedStreams = new Set()
+  // closeRepoAndReturn is the "back to picker" action wired to the
+  // chevron next to the connection chip. Closing a repo is reversible
+  // (the registry entry stays + a fresh open re-creates per-repo
+  // state), so we treat it as navigation rather than a destructive
+  // action — no confirm. Reload mirrors switchConnection / selectRepo:
+  // tears down every in-memory cache cleanly without the sidebar
+  // having to enumerate them.
+  async function closeRepoAndReturn() {
+    try {
+      await CloseRepository()
+    } catch { /* still reload — backend may already be unset */ }
+    setTimeout(() => window.location.reload(), 50)
   }
 
   type Brand = { id: string; name: string; slug: string; description?: string; icon?: string }
@@ -748,11 +743,59 @@
     </button>
   </div>
 
+  {#if nav.sidebarCollapsed}
+    <!-- Collapsed-mode "where am I" stack: back button (when a repo
+         is open) + connection icon. Mirrors the expanded chip just
+         above; the footer no longer carries this since it's better
+         placed at the top alongside the collapse toggle. -->
+    <div class="connection-stack">
+      {#if nav.repoOpen}
+        <button
+          class="header-btn"
+          onclick={closeRepoAndReturn}
+          title={t('tooltip.back_to_picker')}
+          aria-label={t('tooltip.back_to_picker')}
+        >
+          <ChevronLeft size={16} />
+        </button>
+      {/if}
+      {#if connections.available}
+        <button
+          class="header-btn"
+          class:remote={!isLocalActive()}
+          onclick={onOpenConnections}
+          title={t('connection.indicator_title').replace('{name}', activeConnectionLabel())}
+        >
+          {#if isLocalActive()}<Monitor size={16} />{:else}<Server size={16} />{/if}
+        </button>
+      {/if}
+    </div>
+  {/if}
+
   {#if !nav.sidebarCollapsed}
-    <button class="close-repo-btn" onclick={handleCloseRepo} title={t('tooltip.close_repo')}>
-      <LogOut size={14} />
-      {t('sidebar.close_repo')}
-    </button>
+    <div class="connection-row">
+      {#if nav.repoOpen}
+        <button
+          class="back-btn"
+          onclick={closeRepoAndReturn}
+          title={t('tooltip.back_to_picker')}
+          aria-label={t('tooltip.back_to_picker')}
+        >
+          <ChevronLeft size={16} />
+        </button>
+      {/if}
+      <button
+        class="connection-chip"
+        class:remote={!isLocalActive()}
+        onclick={onOpenConnections}
+        title={t('connection.indicator_title').replace('{name}', activeConnectionLabel())}
+      >
+        {#if isLocalActive()}<Monitor size={14} />{:else}<Server size={14} />{/if}
+        <span class="connection-chip-label">
+          {activeConnectionLabel()}{#if nav.repoOpen && nav.repoName}<span class="chip-sep"> / </span><span class="chip-repo">{nav.repoName}</span>{/if}
+        </span>
+      </button>
+    </div>
 
     <div class="repo-description-area">
       {#if editingRepoDesc}
@@ -994,17 +1037,6 @@
 
     <div class="sidebar-footer">
       <button class="footer-btn" onclick={onOpenProfile} title={t('profile.title')}><UserCircle size={16} /></button>
-      {#if connections.available}
-        <button
-          class="footer-btn connection-btn"
-          class:remote={!isLocalActive()}
-          onclick={onOpenConnections}
-          title={t('connection.indicator_title').replace('{name}', activeConnectionLabel())}
-        >
-          {#if isLocalActive()}<Monitor size={16} />{:else}<Server size={16} />{/if}
-          <span class="connection-label">{activeConnectionLabel()}</span>
-        </button>
-      {/if}
       <span class="footer-spacer"></span>
       <ThemeToggle />
       <button class="footer-btn" onclick={onOpenAbout} title={t('about.title')} aria-label={t('about.title')}><Info size={16} /></button>
@@ -1015,16 +1047,6 @@
   {#if nav.sidebarCollapsed}
     <div class="sidebar-footer">
       <button class="footer-btn" onclick={onOpenProfile} title={t('profile.title')}><UserCircle size={16} /></button>
-      {#if connections.available}
-        <button
-          class="footer-btn"
-          class:remote={!isLocalActive()}
-          onclick={onOpenConnections}
-          title={t('connection.indicator_title').replace('{name}', activeConnectionLabel())}
-        >
-          {#if isLocalActive()}<Monitor size={16} />{:else}<Server size={16} />{/if}
-        </button>
-      {/if}
       <span class="footer-spacer"></span>
       <ThemeToggle />
       <button class="footer-btn" onclick={onOpenAbout} title={t('about.title')} aria-label={t('about.title')}><Info size={16} /></button>
@@ -1104,13 +1126,39 @@
     color: var(--text-primary);
   }
 
-  .close-repo-btn {
+  /* Top-of-sidebar row: back-to-picker chevron (only when a repo is
+     open) + connection chip. The chevron's "back" motif matches what
+     CloseRepository actually does — return to the welcome picker —
+     better than the old "Close Repository" framing implied. */
+  .connection-row {
+    display: flex;
+    align-items: stretch;
+    gap: 0.4rem;
+    margin: 0.5rem;
+  }
+  .back-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0.35rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-elevated);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .back-btn:hover {
+    background: var(--border);
+    color: var(--text-strong);
+    border-color: var(--border-hover);
+  }
+  .connection-chip {
+    flex: 1;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    width: calc(100% - 1rem);
-    margin: 0.5rem;
     padding: 0.45rem 0.75rem;
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -1120,13 +1168,29 @@
     font-weight: 500;
     cursor: pointer;
     transition: background 0.15s, color 0.15s, border-color 0.15s;
+    min-width: 0;
   }
-
-  .close-repo-btn:hover {
+  .connection-chip:hover {
     background: var(--border);
     color: var(--text-strong);
     border-color: var(--border-hover);
   }
+  .connection-chip.remote {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  }
+  .connection-chip.remote:hover {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    color: var(--accent);
+  }
+  .connection-chip-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .chip-sep { color: var(--text-muted); margin: 0 0.05rem; }
+  .chip-repo { color: var(--text-strong); font-weight: 600; }
+  .connection-chip.remote .chip-repo { color: var(--accent); }
 
   .repo-description-area {
     padding: 0 0.5rem;
@@ -1499,25 +1563,21 @@
     background: var(--bg-subtle-hover);
   }
 
-  /* Connection indicator: shows the active server name beside the icon
-     in the expanded sidebar; collapses to icon-only when the sidebar is
-     collapsed (the .connection-label only renders in the expanded copy
-     of the footer). The .remote modifier tints when active connection
-     is non-local so the user can tell at a glance. */
-  .connection-btn {
-    gap: 0.35rem;
-    max-width: 9rem;
+  /* Collapsed-mode "where am I" stack: lives just under the header
+     in the same icon-only column as the collapse-toggle. The .remote
+     modifier on a stacked icon tints when the active connection is
+     non-local — same posture the rich expanded chip uses. */
+  .connection-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0;
   }
-  .connection-label {
-    font-size: 0.7rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .footer-btn.remote {
+  .header-btn.remote {
     color: var(--accent);
   }
-  .footer-btn.remote:hover {
+  .header-btn.remote:hover {
     color: var(--accent);
     background: color-mix(in srgb, var(--accent) 12%, transparent);
   }

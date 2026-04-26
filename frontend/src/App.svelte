@@ -89,6 +89,7 @@
         if (current) {
           nav.repoOpen = true
           nav.repoId = current.id || current.path
+          nav.repoName = current.name || ''
           bootPhase = 'ready'
           return
         }
@@ -104,8 +105,10 @@
         if (lastPath) {
           try {
             await OpenRepository(lastPath)
+            const fresh = await GetCurrentRepo()
             nav.repoOpen = true
             nav.repoId = lastPath
+            nav.repoName = fresh?.name || ''
             bootPhase = 'ready'
             return
           } catch { /* path may have moved; fall through to picker */ }

@@ -91,6 +91,31 @@ func SaveRepos(s ReposStore) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
+// SetRepoName renames a registry entry. The new name is the per-machine
+// label shown in the picker; callers that also want the portable
+// (in-manifest) name updated should call repo.RewriteManifestName too.
+func SetRepoName(id, name string) error {
+	if name == "" {
+		return fmt.Errorf("name is required")
+	}
+	store, err := LoadRepos()
+	if err != nil {
+		return err
+	}
+	found := false
+	for i := range store.Repos {
+		if store.Repos[i].ID == id {
+			store.Repos[i].Name = name
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("repo %q not found", id)
+	}
+	return SaveRepos(store)
+}
+
 // SetRepoDisabled flips the Disabled flag for an entry. The caller is
 // responsible for reloading the supervisor afterwards.
 func SetRepoDisabled(id string, disabled bool) error {

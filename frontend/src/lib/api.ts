@@ -62,6 +62,7 @@ export const OpenRepository = (...args: Parameters<ReturnType<typeof getBackend>
 export const CloseRepository = () => getBackend().CloseRepository()
 export const PickFolder = (...args: Parameters<ReturnType<typeof getBackend>['PickFolder']>) => getBackend().PickFolder(...args)
 export const RemoveLocalRepo = (...args: Parameters<ReturnType<typeof getBackend>['RemoveLocalRepo']>) => getBackend().RemoveLocalRepo(...args)
+export const RenameLocalRepo = (...args: Parameters<ReturnType<typeof getBackend>['RenameLocalRepo']>) => getBackend().RenameLocalRepo(...args)
 export const GetLastOpenedLocalRepoPath = () => getBackend().GetLastOpenedLocalRepoPath()
 export const GetCurrentRepo = () => getBackend().GetCurrentRepo()
 export const GetRepoDescription = () => getBackend().GetRepoDescription()

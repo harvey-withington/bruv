@@ -904,6 +904,38 @@ func (a *App) SetLocalRepoEnabled(id string, enabled bool) error {
 	return config.SetRepoDisabled(id, !enabled)
 }
 
+// RenameLocalRepo updates a Local repo's name in BOTH the per-machine
+// registry (repos.json — controls picker display) and the in-repo
+// manifest (manifest.json — the portable identity that travels with
+// the repo). Editing both keeps display and identity in sync; either
+// alone would drift when the repo is shared. Failure to write the
+// manifest doesn't roll back the registry — we surface the error and
+// let the user retry; partial-success is preferable to leaving the
+// picker showing the old name.
+func (a *App) RenameLocalRepo(id, name string) error {
+	store, err := config.LoadRepos()
+	if err != nil {
+		return err
+	}
+	var path string
+	for _, e := range store.Repos {
+		if e.ID == id {
+			path = e.Path
+			break
+		}
+	}
+	if path == "" {
+		return fmt.Errorf("repo %q not found", id)
+	}
+	if err := config.SetRepoName(id, name); err != nil {
+		return err
+	}
+	if err := repo.RewriteManifestName(path, name); err != nil {
+		return fmt.Errorf("update manifest: %w", err)
+	}
+	return nil
+}
+
 // CloseRepository releases the active repository: shuts down the
 // runtime via the supervisor (which stops scheduler, due-date scanner,
 // MCP, watcher, and closes the index), releases the desktop repo lock,

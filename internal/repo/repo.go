@@ -167,6 +167,49 @@ func (r *Repository) UpdateManifestDescription(description string) error {
 	return nil
 }
 
+// UpdateManifestName renames the repository. The new name is the
+// portable identity stored in the manifest at the repo root, so it
+// travels with the repo when shared via git/Syncthing/Dropbox. The
+// per-machine registry (repos.json) holds its own copy of the name
+// for picker display — call sites that touch the registry should
+// also sync that label.
+func (r *Repository) UpdateManifestName(name string) error {
+	if name == "" {
+		return fmt.Errorf("name is required")
+	}
+	r.Manifest.Name = name
+	r.Manifest.UpdatedAt = time.Now().UTC()
+	if err := writeJSON(filepath.Join(r.Root, manifestFile), r.Manifest); err != nil {
+		return fmt.Errorf("write manifest: %w", err)
+	}
+	return nil
+}
+
+// RewriteManifestName updates the manifest at the given path WITHOUT
+// requiring an open Repository. Used by the desktop's rename flow to
+// edit a Local repo's name from the picker even when that repo isn't
+// currently the active one (no Runtime loaded).
+func RewriteManifestName(path, name string) error {
+	if name == "" {
+		return fmt.Errorf("name is required")
+	}
+	root, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("resolve path: %w", err)
+	}
+	mpath := filepath.Join(root, manifestFile)
+	var manifest model.Manifest
+	if err := readJSON(mpath, &manifest); err != nil {
+		return fmt.Errorf("read manifest: %w", err)
+	}
+	manifest.Name = name
+	manifest.UpdatedAt = time.Now().UTC()
+	if err := writeJSON(mpath, &manifest); err != nil {
+		return fmt.Errorf("write manifest: %w", err)
+	}
+	return nil
+}
+
 // Path helpers
 
 func (r *Repository) brandsPath() string {

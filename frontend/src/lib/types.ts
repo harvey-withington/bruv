@@ -547,6 +547,7 @@ export interface BackendAdapter {
   PickFile(title: string, filterName: string, filterPattern: string): Promise<string>
   PickSaveFile(title: string, defaultName: string, filterName: string, filterPattern: string): Promise<string>
   RemoveLocalRepo(id: string): Promise<void>
+  RenameLocalRepo(id: string, name: string): Promise<void>
   GetLastOpenedLocalRepoPath(): Promise<string>
   GetRepoDescription(): Promise<string>
   UpdateRepoDescription(description: string): Promise<void>

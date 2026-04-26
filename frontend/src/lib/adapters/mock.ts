@@ -90,6 +90,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     PickFolder: async () => '/tmp/picked',
     GetCurrentRepo: async () => null,
     RemoveLocalRepo: async () => {},
+    RenameLocalRepo: async () => {},
     GetLastOpenedLocalRepoPath: async () => '',
     GetRepoDescription: async () => '',
     UpdateRepoDescription: async () => {},

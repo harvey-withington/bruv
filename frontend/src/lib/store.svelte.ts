@@ -7,6 +7,7 @@ import type { CardTypeInfo } from './types'
 export const nav = $state({
   repoOpen: false,
   repoId: '',
+  repoName: '',
 
   // Currently selected location in the hierarchy
   brandSlug: null as string | null,

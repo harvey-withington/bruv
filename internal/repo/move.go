@@ -39,16 +39,23 @@ func (r *Repository) MoveProject(fromBrand, fromStream, projectSlug, toBrand, to
 	existingProjects, _ := r.ListProjects(toBrand, toStream)
 	position := len(existingProjects)
 
-	// Move directory
+	// Move directory. Detach the watcher from the source subtree
+	// first so Windows lets us rename it (see Repository.BeforeDirOp).
+	cleanup := r.withDirOp(srcDir)
 	if err := os.Rename(srcDir, dstDir); err != nil {
+		cleanup()
 		return nil, fmt.Errorf("move project directory: %w", err)
 	}
+	cleanup()
 
 	// Update project metadata
 	project, err := r.GetProject(toBrand, toStream, projectSlug)
 	if err != nil {
-		// Rollback
+		// Rollback. Same detach dance — dstDir now has the watched
+		// handles after the cleanup-time AttachSubtree(dstDir parent).
+		rb := r.withDirOp(dstDir)
 		os.Rename(dstDir, srcDir)
+		rb()
 		return nil, fmt.Errorf("read moved project: %w", err)
 	}
 
@@ -58,7 +65,9 @@ func (r *Repository) MoveProject(fromBrand, fromStream, projectSlug, toBrand, to
 	project.UpdatedAt = time.Now().UTC()
 
 	if err := writeJSON(r.projectFilePath(toBrand, toStream, projectSlug), project); err != nil {
+		rb := r.withDirOp(dstDir)
 		os.Rename(dstDir, srcDir)
+		rb()
 		return nil, fmt.Errorf("update moved project: %w", err)
 	}
 
@@ -93,15 +102,21 @@ func (r *Repository) MoveStream(fromBrand, streamSlug, toBrand string) (*model.S
 	existingStreams, _ := r.ListStreams(toBrand)
 	position := len(existingStreams)
 
-	// Move directory
+	// Move directory. Detach the watcher from the source subtree
+	// first so Windows lets us rename it (see Repository.BeforeDirOp).
+	cleanup := r.withDirOp(srcDir)
 	if err := os.Rename(srcDir, dstDir); err != nil {
+		cleanup()
 		return nil, fmt.Errorf("move stream directory: %w", err)
 	}
+	cleanup()
 
 	// Update stream metadata
 	stream, err := r.GetStream(toBrand, streamSlug)
 	if err != nil {
+		rb := r.withDirOp(dstDir)
 		os.Rename(dstDir, srcDir)
+		rb()
 		return nil, fmt.Errorf("read moved stream: %w", err)
 	}
 
@@ -110,7 +125,9 @@ func (r *Repository) MoveStream(fromBrand, streamSlug, toBrand string) (*model.S
 	stream.UpdatedAt = time.Now().UTC()
 
 	if err := writeJSON(r.streamFilePath(toBrand, streamSlug), stream); err != nil {
+		rb := r.withDirOp(dstDir)
 		os.Rename(dstDir, srcDir)
+		rb()
 		return nil, fmt.Errorf("update moved stream: %w", err)
 	}
 

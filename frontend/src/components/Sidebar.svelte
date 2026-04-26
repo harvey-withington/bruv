@@ -23,36 +23,26 @@
   } = $props()
 
   // closeRepoAndReturn is the "back to picker" action wired to the
-  // chevron next to the connection chip. Closing a repo is reversible
+  // chevron next to the connection chip. Uniform across every
+  // connection (including Local, which is just another connection
+  // since the local-as-remote pivot): clear THIS device's
+  // last-active-repo pointer for the active connection so the
+  // post-reload boot resolves with no repoID and lands on the picker.
+  // The runtime stays loaded — supervisor lazy-unloads via
+  // SetEnabled / Remove / process exit. Closing a repo is reversible
   // (the registry entry stays + a fresh open re-creates per-repo
   // state), so we treat it as navigation rather than a destructive
   // action — no confirm. Reload mirrors switchConnection / selectRepo:
   // tears down every in-memory cache cleanly without the sidebar
   // having to enumerate them.
   async function closeRepoAndReturn() {
-    // Two flavours of "back":
-    //   - Local active: call CloseRepository on the desktop App via
-    //     Shell (releases runtime, lock, watcher; clears the
-    //     last-opened pointer). Cloud-adapter routing would also work
-    //     for Local, but going via Shell keeps Local management
-    //     consistent with the rest of the picker surface.
-    //   - Remote active: there's no per-Remote CloseRepository
-    //     concept — the Remote runtime stays loaded for other
-    //     clients. We just clear THIS device's last-active-repo
-    //     pointer for that connection so the post-reload boot
-    //     resolves with no repoID and lands on the picker.
     type ShellBack = {
-      CloseRepository?: () => Promise<void>
       SetActiveRepoForConnection?: (connID: string, repoID: string) => Promise<void>
     }
     const s = (window as unknown as { go?: { main?: { ShellAPI?: ShellBack } } }).go?.main?.ShellAPI
     try {
-      if (isLocalActive()) {
-        if (s?.CloseRepository) await s.CloseRepository()
-      } else {
-        if (s?.SetActiveRepoForConnection) {
-          await s.SetActiveRepoForConnection(connections.active, '')
-        }
+      if (s?.SetActiveRepoForConnection) {
+        await s.SetActiveRepoForConnection(connections.active, '')
       }
     } catch { /* still reload — try to recover regardless */ }
     setTimeout(() => window.location.reload(), 50)

@@ -27,7 +27,6 @@
   import { resolveTransportInfo } from './lib/adapters/cloud'
 
   import { GetPreferences, GetCurrentRepo, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, IsLLMConfigured, MarkLLMNudgeShown } from './lib/api'
-  import { getLastOpenedLocalRepoPath as GetLastOpenedLocalRepoPath, openLocalRepository as OpenRepository } from './lib/local'
 
   // Restore persisted preferences
   loadTheme()
@@ -54,86 +53,71 @@
     await loadConnections()
 
     const info = await resolveTransportInfo()
-    const isRemote = info.remote === 'true'
 
-    // Remote without a repoID set means the user hasn't picked yet
-    // (or just removed the active connection's saved repo) — show
-    // the picker before any RPC fires (those URLs would 404 without
-    // the /repos/<id>/ prefix).
-    if (isRemote && !info.repoID) {
-      bootPhase = 'ready'
+    // Probe /healthz before any RPC. Cheap, sub-second on healthy
+    // network; surfaces "backend down" as a friendly screen rather
+    // than as a cascade of cryptic RPC errors. Loopback (Local)
+    // would normally be 100% reachable, but the install-time HTTP
+    // start can occasionally race the boot — a probe failure routes
+    // the user to recovery instead of a stuck spinner.
+    const reachable = await probeBackend()
+    if (!reachable) {
+      bootPhase = 'unreachable'
       return
     }
 
-    // Remote WITH a repoID: probe /healthz before trusting the
-    // adapter. Cheap, sub-second on a healthy tailnet, surfaces
-    // "server is down" as a friendly screen rather than as 30
-    // cryptic RPC errors.
-    if (isRemote) {
-      const reachable = await probeBackend()
-      if (!reachable) {
-        bootPhase = 'unreachable'
-        return
-      }
-    }
-
-    // Backend is reachable (or we're Local — loopback is always
-    // reachable). Try to load preferences + auto-reopen.
+    // Per-machine prefs come from /server/rpc — works regardless of
+    // whether a repo is selected, on every connection.
+    let prefs: Awaited<ReturnType<typeof GetPreferences>> | undefined
     try {
-      const p = await GetPreferences()
-      if (p?.type_badge_display) prefsStore.typeBadgeDisplay = p.type_badge_display
-
-      // GetCurrentRepo: Remote always has its installed repo open;
-      // Local returns null until the user has picked / opened one.
-      try {
-        const current = await GetCurrentRepo()
-        if (current) {
-          nav.repoOpen = true
-          nav.repoId = current.id || current.path
-          nav.repoName = current.name || ''
-          bootPhase = 'ready'
-          return
-        }
-      } catch { /* fall through */ }
-
-      // Local fallback: auto-reopen last repo if preference is on.
-      // Reads the per-machine "last opened on Local" pointer that
-      // App.OpenRepository stamps into repo-recents (key ""). The
-      // path is resolved via the registry — if the entry was
-      // removed, the call returns "" and we fall through.
-      if (p?.reopen_last_repo) {
-        const lastPath = await GetLastOpenedLocalRepoPath()
-        if (lastPath) {
-          try {
-            await OpenRepository(lastPath)
-            const fresh = await GetCurrentRepo()
-            nav.repoOpen = true
-            nav.repoId = lastPath
-            nav.repoName = fresh?.name || ''
-            bootPhase = 'ready'
-            return
-          } catch { /* path may have moved; fall through to picker */ }
-        }
-      }
-
-      // Nothing auto-loaded — show the picker.
-      bootPhase = 'ready'
+      prefs = await GetPreferences()
+      if (prefs?.type_badge_display) prefsStore.typeBadgeDisplay = prefs.type_badge_display
     } catch {
       // GetPreferences failed despite a successful health probe —
-      // probably an auth / RPC layer issue. Treat as unreachable so
-      // the user gets recovery actions rather than a stuck spinner.
+      // auth / RPC layer issue. Recovery screen.
       bootPhase = 'unreachable'
-    } finally {
-      // Card types + tag colours are repo-scoped — only fetch once a
-      // repo is open. Calling them with no repo selected on a Remote
-      // (multi-repo) connection routes to bare /rpc which 404s
-      // because the multi-repo server only mounts /repos/<id>/rpc.
-      // The post-repo-pick reload re-runs bootApp anyway, so this
-      // gate is sufficient for both first-launch and switch cases.
-      if (nav.repoOpen) {
+      return
+    }
+
+    // No repoID on the active connection → show picker. Any per-
+    // repo RPC at this point would route to /repos/<empty>/rpc which
+    // throws via the cloud adapter's "no repo selected" guard.
+    if (!info.repoID) {
+      bootPhase = 'ready'
+      maybeShowLLMNudge()
+      return
+    }
+
+    // reopen_last_repo=false honours the user's "always show picker"
+    // preference even when a repoID happens to be on disk. The
+    // recents pointer is preserved so a future toggle restores the
+    // pick without forcing the user to re-select.
+    if (!prefs?.reopen_last_repo) {
+      bootPhase = 'ready'
+      maybeShowLLMNudge()
+      return
+    }
+
+    // repoID set + reopen preferred + backend reachable → fetch the
+    // board. GetCurrentRepo against the resolved runtime returns the
+    // canonical name + ID for the chip / nav state.
+    try {
+      const current = await GetCurrentRepo()
+      if (current) {
+        nav.repoOpen = true
+        nav.repoId = current.id || current.path
+        nav.repoName = current.name || ''
         loadCardTypes()
         loadGlobalTagColors()
       }
+      bootPhase = 'ready'
+    } catch {
+      // The pointer references a repo that 404s — likely deleted
+      // since last launch. Fall back to the picker rather than
+      // bouncing the user to the unreachable screen for what's
+      // really a stale-pointer condition.
+      bootPhase = 'ready'
+    } finally {
       maybeShowLLMNudge()
     }
   }

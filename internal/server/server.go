@@ -22,7 +22,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"sync"
 	"syscall"
 	"time"
 
@@ -123,12 +122,13 @@ func Run(opts Options) error {
 	defer sup.Close()
 
 	srv, err := transporthttp.NewMulti(transporthttp.Config{
-		Addr:         opts.Addr,
-		ConfigDir:    opts.ConfigDir,
-		Version:      opts.Version,
-		BuildDate:    opts.BuildDate,
-		StaticAssets: opts.Assets,
-		Repos:        &httpAdapter{sup: sup},
+		Addr:          opts.Addr,
+		ConfigDir:     opts.ConfigDir,
+		Version:       opts.Version,
+		BuildDate:     opts.BuildDate,
+		StaticAssets:  opts.Assets,
+		Repos:         supervisor.NewHTTPAdapter(sup),
+		MachineTarget: supervisor.NewMachineService(),
 	})
 	if err != nil {
 		return fmt.Errorf("http transport construct: %w", err)
@@ -153,45 +153,3 @@ func Run(opts Options) error {
 	return nil
 }
 
-// httpAdapter satisfies transport/http.RepoBackend by wrapping a
-// *supervisor.Supervisor. The supervisor stays free of HTTP types;
-// this adapter is the only place transport concerns leak in.
-type httpAdapter struct {
-	sup *supervisor.Supervisor
-	// dispatcherCache is unused here — kept so future caching of
-	// per-repo http dispatchers can land without touching server.go's
-	// outer wiring. Intentionally not loaded today.
-	dispatcherCache sync.Map
-}
-
-func (a *httpAdapter) Resolve(id string) *transporthttp.RepoTarget {
-	rt := a.sup.Resolve(id)
-	if rt == nil {
-		return nil
-	}
-	return &transporthttp.RepoTarget{
-		Target: rt,
-		Bus:    rt.Bus(),
-		Attachments: &transporthttp.AttachmentConfig{
-			Secret:  a.sup.Secret(),
-			Resolve: rt.ResolveAttachment,
-		},
-	}
-}
-
-func (a *httpAdapter) List() []transporthttp.RepoSummary {
-	entries := a.sup.List()
-	out := make([]transporthttp.RepoSummary, 0, len(entries))
-	for _, e := range entries {
-		out = append(out, transporthttp.RepoSummary{
-			ID:       e.ID,
-			Name:     e.Name,
-			Disabled: e.Disabled,
-		})
-	}
-	return out
-}
-
-func (a *httpAdapter) SetEnabled(id string, enabled bool) error {
-	return a.sup.SetEnabled(id, enabled)
-}

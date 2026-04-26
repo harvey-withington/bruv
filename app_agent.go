@@ -1,47 +1,49 @@
 package main
 
-// Desktop-only agent wrappers — methods where the runtime behaviour
-// needs an extra desktop-specific side effect (tray checkmark, Wails
-// quit). Pure forwarders without side effects live on *Runtime in
-// core/supervisor/runtime.go and are promoted to App via embedding.
+// Desktop-only tray-driven agent controls. The user can pause / resume
+// every loaded runtime's scheduler from the system tray menu — useful
+// for "I'm offline, stop trying to call models" without having to
+// switch repos. With multi-repo runtimes, "all" means across every
+// loaded Runtime, not just the one the UI happens to be looking at.
 
 import (
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// PauseAllAgents pauses the scheduler + flips the tray checkmark on.
-// Tray toggle is intentionally on the App shell because it's a Wails
-// runtime concern.
+// PauseAllAgents pauses the scheduler in every loaded runtime + flips
+// the tray checkmark on. Best-effort — keeps going on per-runtime
+// failures so a single-repo error doesn't strand the rest paused/
+// unpaused inconsistently.
 func (a *App) PauseAllAgents() error {
-	if a.Runtime == nil {
-		return nil
+	for _, rt := range a.sup.LoadedRuntimes() {
+		_ = rt.PauseAllAgents()
 	}
-	err := a.AgentRT().PauseAllAgents()
 	if a.trayPauseItem != nil && !a.trayPauseItem.Checked() {
 		a.trayPauseItem.Check()
 	}
-	return err
+	return nil
 }
 
-// ResumeAllAgents resumes the scheduler + flips the tray checkmark off.
+// ResumeAllAgents mirrors PauseAllAgents.
 func (a *App) ResumeAllAgents() error {
-	if a.Runtime == nil {
-		return nil
+	for _, rt := range a.sup.LoadedRuntimes() {
+		_ = rt.ResumeAllAgents()
 	}
-	err := a.AgentRT().ResumeAllAgents()
 	if a.trayPauseItem != nil && a.trayPauseItem.Checked() {
 		a.trayPauseItem.Uncheck()
 	}
-	return err
+	return nil
 }
 
 // ForceQuit actually terminates the app (bypasses hide-to-tray).
 // Stays on App because wailsRuntime.Quit needs the Wails context and
-// the forceQuit flag is only meaningful in desktop mode.
+// the forceQuit flag is only meaningful in desktop mode. Best-effort
+// scheduler stop on every loaded runtime so in-flight work persists
+// rather than getting half-killed.
 func (a *App) ForceQuit() {
 	a.forceQuit = true
-	if a.Runtime != nil {
-		if sched := a.AgentRT().Scheduler(); sched != nil {
+	for _, rt := range a.sup.LoadedRuntimes() {
+		if sched := rt.AgentRT().Scheduler(); sched != nil {
 			sched.Stop()
 		}
 	}

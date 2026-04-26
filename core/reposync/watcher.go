@@ -48,7 +48,19 @@ type Watcher struct {
 	mu     sync.Mutex
 	timers map[string]*time.Timer
 
-	stopCh chan struct{}
+	// watched tracks the absolute paths currently registered with the
+	// underlying fsnotify watcher, so DetachSubtree can find every
+	// descendant of a given root and Remove them. fsnotify itself
+	// doesn't expose its registered set, hence the parallel map.
+	// Required on Windows: ReadDirectoryChangesW uses overlapped I/O,
+	// which leaves a pending IRP on the directory handle — and Windows
+	// refuses to rename a directory with pending IRPs even when the
+	// handle has FILE_SHARE_DELETE. Callers about to rename / delete a
+	// subtree must DetachSubtree first, then AttachSubtree on the new
+	// (or parent) path afterwards.
+	watched map[string]bool
+
+	stopCh  chan struct{}
 	stopped bool
 }
 
@@ -71,6 +83,7 @@ func Start(root string, publisher Publisher) (*Watcher, error) {
 		publisher: publisher,
 		watcher:   fs,
 		timers:    make(map[string]*time.Timer),
+		watched:   make(map[string]bool),
 		stopCh:    make(chan struct{}),
 	}
 	if err := w.walkAndAdd(root); err != nil {
@@ -78,6 +91,39 @@ func Start(root string, publisher Publisher) (*Watcher, error) {
 	}
 	go w.run()
 	return w, nil
+}
+
+// DetachSubtree removes the given root path and every watched
+// descendant from the underlying fsnotify watcher. Callers must
+// invoke this BEFORE renaming or deleting a directory subtree on
+// Windows — see the Watcher type doc for the IRP / ACCESS_DENIED
+// reason. Pair with AttachSubtree afterwards (typically against the
+// new path, or against the parent if the rename moves within the
+// same parent and the parent itself is already watched).
+func (w *Watcher) DetachSubtree(rootPath string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.stopped {
+		return
+	}
+	prefix := rootPath + string(filepath.Separator)
+	for path := range w.watched {
+		if path == rootPath || strings.HasPrefix(path, prefix) {
+			_ = w.watcher.Remove(path)
+			delete(w.watched, path)
+		}
+	}
+}
+
+// AttachSubtree walks the filesystem at the given root and registers
+// every directory with the underlying fsnotify watcher. Idempotent —
+// fsnotify silently no-ops on duplicate Adds, and the tracking map
+// stores presence-only. Safe to call against a path that doesn't
+// exist (filepath.Walk returns immediately with no callbacks).
+func (w *Watcher) AttachSubtree(rootPath string) {
+	if err := w.walkAndAdd(rootPath); err != nil {
+		slog.Warn("reposync: attach subtree had errors", "root", rootPath, "err", err)
+	}
 }
 
 // Stop tears down the watcher. Idempotent.
@@ -102,7 +148,8 @@ func (w *Watcher) Stop() {
 
 // walkAndAdd recursively adds every directory under root to the
 // watcher, skipping `.bruv/` (internal state) and `.git/` (sync tool's
-// own metadata).
+// own metadata). Tracks added paths in w.watched so DetachSubtree can
+// find them later.
 func (w *Watcher) walkAndAdd(root string) error {
 	return filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
@@ -111,12 +158,20 @@ func (w *Watcher) walkAndAdd(root string) error {
 		if info == nil || !info.IsDir() {
 			return nil
 		}
-		if shouldIgnoreDir(path, root) {
+		// shouldIgnoreDir compares against the watcher's repo root
+		// (NOT the walk root) so subtree re-attaches still respect
+		// the .bruv / .git skips even when called against a deeper
+		// path like brands/<slug>/.
+		if shouldIgnoreDir(path, w.root) {
 			return filepath.SkipDir
 		}
 		if err := w.watcher.Add(path); err != nil {
 			slog.Warn("reposync: add dir failed", "path", path, "err", err)
+			return nil
 		}
+		w.mu.Lock()
+		w.watched[path] = true
+		w.mu.Unlock()
 		return nil
 	})
 }
@@ -163,7 +218,11 @@ func (w *Watcher) handleEvent(ev fsnotify.Event) {
 	if ev.Op&fsnotify.Create != 0 {
 		if info, err := os.Stat(ev.Name); err == nil && info.IsDir() {
 			if !shouldIgnoreDir(ev.Name, w.root) {
-				_ = w.watcher.Add(ev.Name)
+				if err := w.watcher.Add(ev.Name); err == nil {
+					w.mu.Lock()
+					w.watched[ev.Name] = true
+					w.mu.Unlock()
+				}
 			}
 		}
 	}

@@ -538,18 +538,17 @@ export interface BackendAdapter {
   SetMCPServerSecret(serverName: string, envVarName: string, value: string): Promise<void>
   GetMCPServerSecretStatus(serverName: string): Promise<Record<string, boolean>>
   RestartMCPServer(name: string): Promise<void>
-  HasRepository(): Promise<boolean>
-  InspectRepoPath(path: string): Promise<{ exists: boolean; name: string; id: string }>
-  InitRepository(path: string, name: string): Promise<string>
-  OpenRepository(id: string): Promise<void>
-  CloseRepository(): Promise<void>
+  // Native dialog methods kept on the cloud-adapter contract because
+  // the cloud adapter routes them through the Wails Shell binding
+  // (see SHELL_METHODS in cloud.ts). In browser mode they reject
+  // with a clear "only available in Wails desktop shell" error.
   PickFolder(title: string): Promise<string>
   PickFile(title: string, filterName: string, filterPattern: string): Promise<string>
   PickSaveFile(title: string, defaultName: string, filterName: string, filterPattern: string): Promise<string>
-  RemoveLocalRepo(id: string): Promise<void>
-  RenameLocalRepo(id: string, name: string): Promise<void>
-  SetLocalRepoEnabled(id: string, enabled: boolean): Promise<void>
-  GetLastOpenedLocalRepoPath(): Promise<string>
+  // Repo registry CRUD lives on transport HTTP routes (POST /repos,
+  // PATCH /repos/<id>, DELETE /repos/<id>) reached via the helpers
+  // in lib/repos.svelte.ts — not on this RPC surface. Per-repo data
+  // RPCs (GetRepoDescription, etc.) stay here.
   GetRepoDescription(): Promise<string>
   UpdateRepoDescription(description: string): Promise<void>
   // GetCurrentRepo asks the backend whether it currently has a repo

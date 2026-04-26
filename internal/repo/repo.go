@@ -23,6 +23,39 @@ type Repository struct {
 	// after Open/Init; see internal/repo/agent.go for the split
 	// rationale.
 	RunsDir string
+
+	// BeforeDirOp, when set, is invoked before any rename / delete of
+	// a watched directory subtree (brand, stream, project). The hook
+	// returns a cleanup closure run after the operation completes
+	// (success or failure). The wiring layer uses this to detach the
+	// fsnotify watcher from the target subtree and reattach the parent
+	// afterwards — required on Windows, where ReadDirectoryChangesW
+	// keeps a pending IRP on each watched dir handle and the OS
+	// refuses to rename / remove a directory while IRPs are pending,
+	// even with FILE_SHARE_DELETE.
+	//
+	// Optional. nil = no-op (used by tests / headless flows that
+	// don't run a watcher). The hook MUST always return a non-nil
+	// cleanup func when set, even on detach failure, so callers can
+	// `defer cleanup()` unconditionally.
+	BeforeDirOp DirOpHook
+}
+
+// DirOpHook is the signature for the BeforeDirOp callback.
+type DirOpHook func(targetPath string) (cleanup func())
+
+// withDirOp invokes BeforeDirOp if set and returns the cleanup
+// closure (or a no-op when no hook is wired). Caller defers the
+// returned func.
+func (r *Repository) withDirOp(targetPath string) func() {
+	if r.BeforeDirOp == nil {
+		return func() {}
+	}
+	cleanup := r.BeforeDirOp(targetPath)
+	if cleanup == nil {
+		return func() {}
+	}
+	return cleanup
 }
 
 // Directory layout constants

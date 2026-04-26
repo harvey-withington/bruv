@@ -1,23 +1,25 @@
 // Repo-selection state + helpers.
 //
-// "Which repo am I on right now" is per-machine + per-connection
-// state — see internal/config/repo_recents.go on the backend. This
-// module wraps the two operations the frontend needs around it:
+// "Which repo am I on right now" is per-connection state — see
+// internal/config/repo_recents.go on the backend. This module wraps
+// the operations the picker needs around it:
 //
-//   - listServerRepos(): fetch GET /repos directly via serverGet,
-//     bypassing the RPC layer (which requires a /repos/<id>/ prefix
-//     and would fail when the user hasn't picked yet).
-//
-//   - selectRepo(repoID): persist the choice via the Wails Shell
-//     (so it works even when the active backend is unreachable in
-//     other ways) and reload, so the cloud adapter rebuilds with
-//     the new prefix.
-//
-//   - probeBackend(): low-overhead reachability check used by the
-//     boot path to distinguish "remote up" from "remote down" before
-//     we make any normal RPC.
+//   - listAllConnectionRepos(): fan out GET /repos to every known
+//     connection in parallel so the tree picker can render Local +
+//     every Remote uniformly.
+//   - listServerRepos(): fetch the active connection's GET /repos.
+//   - setRepoEnabled / inspectRepo / addRepo / removeRepo / renameRepo:
+//     hit the per-connection HTTP routes (POST/PATCH/DELETE under
+//     /repos) directly using that connection's URL + token. Works
+//     cross-connection — the picker can manage Local repos while a
+//     Remote is the active backend, and vice versa.
+//   - selectRepo / switchToRepo: persist the user's choice and
+//     trigger the page reload that cycles transport.
+//   - probeBackend(): boot-time reachability check.
 
 import { resolveTransportInfo, serverGet } from './adapters/cloud'
+import { connections, LOCAL_CONNECTION_ID } from './connections.svelte'
+import type { Connection } from './types'
 
 export type ServerRepo = {
   id: string
@@ -25,32 +27,124 @@ export type ServerRepo = {
   disabled?: boolean
 }
 
-// setRepoEnabled toggles a repo's Disabled flag. Local rows route
-// through the Wails Shell binding so they hit the desktop App's
-// repos.json regardless of which Remote is currently active. Remote
-// rows post to /repos/<id>/(enable|disable) on the active connection
-// — the existing picker UX gates this with "switch to that connection
-// first", so the Remote branch only fires when active connection is
-// already that connection.
-//
-// connectionID="" means Local. Anything else is treated as Remote.
-export async function setRepoEnabled(connectionID: string, repoID: string, enabled: boolean): Promise<void> {
-  if (connectionID === '') {
-    const { setLocalRepoEnabled } = await import('./local')
-    await setLocalRepoEnabled(repoID, enabled)
-    return
-  }
-  const info = await resolveTransportInfo()
-  const verb = enabled ? 'enable' : 'disable'
-  const res = await serverGet(info, `/repos/${encodeURIComponent(repoID)}/${verb}`, { method: 'POST' })
-  if (!res.ok) {
-    throw new Error(`set repo ${verb}: HTTP ${res.status} ${res.statusText}`)
+export type RepoInspect = {
+  exists: boolean
+  name?: string
+  id?: string
+}
+
+// connectionByID returns a Connection record by its ID, or undefined.
+// Used by the cross-connection HTTP helpers below to look up the
+// URL + token before fetching.
+function connectionByID(id: string): Connection | undefined {
+  return connections.connections.find(c => c.id === id)
+}
+
+// connectionFetch hits a path on the given connection using its
+// stored URL + bearer token. Returns the raw Response so callers can
+// branch on status — for the picker UI we want "this connection isn't
+// reachable" to render as a greyed row, not throw.
+async function connectionFetch(c: Connection, path: string, init?: RequestInit, timeoutMs = 4000): Promise<Response> {
+  const url = c.url.replace(/\/+$/, '')
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    return await fetch(`${url}${path}`, {
+      ...init,
+      headers: {
+        ...(init?.headers ?? {}),
+        Authorization: `Bearer ${c.device_token}`,
+      },
+      signal: ctrl.signal,
+    })
+  } finally {
+    clearTimeout(timer)
   }
 }
 
-// listServerRepos fetches the active connection's GET /repos endpoint.
-// Returns an empty list on error (caller decides how to surface it —
-// usually by routing to the Unreachable screen).
+// setRepoEnabled toggles a repo's Disabled flag on the given
+// connection. Hits POST /repos/<id>/(enable|disable) on that
+// connection's URL — works whether the connection is the active one
+// or not, because we always have its URL + token from connections.json.
+export async function setRepoEnabled(connectionID: string, repoID: string, enabled: boolean): Promise<void> {
+  const c = connectionByID(connectionID)
+  if (!c) throw new Error(`unknown connection: ${connectionID}`)
+  const verb = enabled ? 'enable' : 'disable'
+  const res = await connectionFetch(c, `/repos/${encodeURIComponent(repoID)}/${verb}`, { method: 'POST' })
+  if (!res.ok) throw new Error(`set repo ${verb}: HTTP ${res.status} ${res.statusText}`)
+}
+
+// inspectRepoOnConnection asks the given connection's backend to
+// inspect a path — used by the picker's "add repo" flow before the
+// user has committed to init vs open.
+export async function inspectRepoOnConnection(connectionID: string, path: string): Promise<RepoInspect> {
+  const c = connectionByID(connectionID)
+  if (!c) throw new Error(`unknown connection: ${connectionID}`)
+  const res = await connectionFetch(c, '/repos/inspect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`inspect: HTTP ${res.status} ${text || res.statusText}`)
+  }
+  return (await res.json()) as RepoInspect
+}
+
+// addRepoOnConnection registers + loads a repo at the given path on
+// the given connection. The backend's POST /repos handler does
+// inspect-then-init-or-open; the name parameter is required for
+// fresh folders and ignored for existing repos. Returns the
+// resulting RepoSummary so the caller can stamp the new ID into the
+// connection's repo-recents and reload.
+export async function addRepoOnConnection(connectionID: string, path: string, name: string): Promise<ServerRepo> {
+  const c = connectionByID(connectionID)
+  if (!c) throw new Error(`unknown connection: ${connectionID}`)
+  const res = await connectionFetch(c, '/repos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, name }),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`add repo: HTTP ${res.status} ${text || res.statusText}`)
+  }
+  return (await res.json()) as ServerRepo
+}
+
+// renameRepoOnConnection hits PATCH /repos/<id> on the given
+// connection. Updates BOTH the registry name and the in-repo
+// manifest name (the backend handler does both atomically).
+export async function renameRepoOnConnection(connectionID: string, repoID: string, name: string): Promise<void> {
+  const c = connectionByID(connectionID)
+  if (!c) throw new Error(`unknown connection: ${connectionID}`)
+  const res = await connectionFetch(c, `/repos/${encodeURIComponent(repoID)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`rename repo: HTTP ${res.status} ${text || res.statusText}`)
+  }
+}
+
+// removeRepoOnConnection drops a repo from the given connection's
+// registry. Folder on disk is left alone; the runtime is unloaded.
+export async function removeRepoOnConnection(connectionID: string, repoID: string): Promise<void> {
+  const c = connectionByID(connectionID)
+  if (!c) throw new Error(`unknown connection: ${connectionID}`)
+  const res = await connectionFetch(c, `/repos/${encodeURIComponent(repoID)}`, { method: 'DELETE' })
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`remove repo: HTTP ${res.status} ${text || res.statusText}`)
+  }
+}
+
+// listServerRepos fetches the active connection's GET /repos endpoint
+// via the cloud adapter's already-resolved transport info. Used by
+// the picker to refresh just the active row after a mutation.
 export async function listServerRepos(): Promise<ServerRepo[]> {
   const info = await resolveTransportInfo()
   const res = await serverGet(info, '/repos')
@@ -61,13 +155,11 @@ export async function listServerRepos(): Promise<ServerRepo[]> {
 }
 
 // listAllConnectionRepos fetches /repos from every known connection
-// in parallel (Local + every Remote in connections.json) so the
-// tree picker can render a cross-connection view without page
-// reloads. Each entry is stamped with its source connectionID and
-// reachability state so the picker can show greyed/unreachable
-// rows alongside the live ones.
+// in parallel so the tree picker can render a cross-connection view.
+// Local is just another connection (id="local") since the local-as-
+// remote pivot — same code path as Remote.
 export type TreeConnectionNode = {
-  connectionID: string  // "" for the implicit Local
+  connectionID: string
   connectionName: string
   isLocal: boolean
   reachable: boolean
@@ -76,105 +168,27 @@ export type TreeConnectionNode = {
 }
 
 export async function listAllConnectionRepos(): Promise<TreeConnectionNode[]> {
-  // Connection management goes through the Wails Shell binding when
-  // available (desktop) — the same posture connections.svelte.ts uses.
-  // Critical: when the active connection is a Remote (multi-repo)
-  // server, the cloud adapter routes EVERYTHING through
-  // /repos/<id>/rpc. There's no bare /rpc on a multi-repo server,
-  // so falling through to the cloud-adapter ListConnections returns
-  // HTTP 404 and the picker can't even render the connection list
-  // — exactly the state where the user needs the picker to work
-  // (so they can switch back to Local or pick a remote repo).
-  type ShellConn = { ListConnections?: () => Promise<{ active: string; connections: Array<{ id: string; name: string; url: string; device_token: string }> }> }
-  const shell = (window as unknown as { go?: { main?: { ShellAPI?: ShellConn } } }).go?.main?.ShellAPI
-  let store: { active: string; connections: Array<{ id: string; name: string; url: string; device_token: string }> }
-  if (shell?.ListConnections) {
-    store = await shell.ListConnections()
-  } else {
-    const { ListConnections } = await import('./api')
-    store = await ListConnections()
-  }
-
-  const localInfo = await resolveTransportInfo()
-  const isLocalActiveBackend = localInfo.remote !== 'true'
-
-  // Local's repo list comes from one of two sources depending on which
-  // connection the cloud adapter is currently routed at:
-  //   - Local active → GET /repos via the active (loopback) transport.
-  //   - Remote active → can't go via the cloud adapter (it routes
-  //     to the Remote server), so we ask the desktop App directly
-  //     through the Wails Shell binding. Same source-of-truth either
-  //     way (<userConfigDir>/repos.json), just different access path.
-  // Without the Shell fallback, adding a repo to Local while a Remote
-  // is active worked silently (the entry got written) but the picker
-  // never displayed it — exactly the "doesn't add the folder" bug.
-  const local: TreeConnectionNode = {
-    connectionID: '',
-    connectionName: 'Local',
-    isLocal: true,
-    reachable: true,
-    repos: [],
-  }
-  if (isLocalActiveBackend) {
-    try {
-      local.repos = await listServerRepos()
-    } catch (e) {
-      local.reachable = false
-      local.error = (e as Error)?.message ?? String(e)
-    }
-  } else {
-    type ShellLocalRepos = { ListLocalRepos?: () => Promise<Array<{ id: string; name: string; path?: string; disabled?: boolean }>> }
-    const sLocal = (window as unknown as { go?: { main?: { ShellAPI?: ShellLocalRepos } } }).go?.main?.ShellAPI
-    if (sLocal?.ListLocalRepos) {
-      try {
-        const entries = await sLocal.ListLocalRepos()
-        local.repos = (entries ?? []).map(e => ({ id: e.id, name: e.name, disabled: e.disabled }))
-      } catch (e) {
-        local.reachable = false
-        local.error = (e as Error)?.message ?? String(e)
-      }
-    } else {
-      // Browser mode (no Shell): there's no separate "Local" beyond
-      // the server we loaded from, so this row is meaningless. Mark
-      // unreachable rather than silently empty.
-      local.reachable = false
-    }
-  }
-
-  // Each remote: parallel /repos fetch with its own URL + token.
-  const remotes = await Promise.all((store.connections ?? []).map(async (c): Promise<TreeConnectionNode> => {
+  return Promise.all(connections.connections.map(async (c): Promise<TreeConnectionNode> => {
     const node: TreeConnectionNode = {
       connectionID: c.id,
       connectionName: c.name,
-      isLocal: false,
+      isLocal: c.id === LOCAL_CONNECTION_ID,
       reachable: false,
       repos: [],
     }
     try {
-      const url = c.url.replace(/\/+$/, '')
-      const ctrl = new AbortController()
-      const timer = setTimeout(() => ctrl.abort(), 4000)
-      try {
-        const res = await fetch(`${url}/repos`, {
-          headers: { Authorization: `Bearer ${c.device_token}` },
-          signal: ctrl.signal,
-        })
-        if (!res.ok) {
-          node.error = `HTTP ${res.status}`
-          return node
-        }
-        node.repos = (await res.json()) as ServerRepo[]
-        node.reachable = true
-      } finally {
-        clearTimeout(timer)
+      const res = await connectionFetch(c, '/repos')
+      if (!res.ok) {
+        node.error = `HTTP ${res.status}`
+        return node
       }
+      node.repos = (await res.json()) as ServerRepo[]
+      node.reachable = true
     } catch (e) {
       node.error = (e as Error)?.message ?? String(e)
     }
     return node
   }))
-
-  return [local, ...remotes]
 }
 
 // switchToRepo picks a (connection, repo) pair from the tree and
@@ -186,7 +200,7 @@ export async function listAllConnectionRepos(): Promise<TreeConnectionNode[]> {
 // pre-set the target lands on the picker (no repoID), undoing the
 // "I picked this specific repo" intent.
 export async function switchToRepo(connectionID: string, repoID: string): Promise<void> {
-  const { connections, switchConnection } = await import('./connections.svelte')
+  const { switchConnection } = await import('./connections.svelte')
   if (connectionID !== connections.active) {
     type ShellSet = { SetActiveRepoForConnection?: (connID: string, repoID: string) => Promise<void> }
     const s = (window as unknown as { go?: { main?: { ShellAPI?: ShellSet } } }).go?.main?.ShellAPI
@@ -231,8 +245,5 @@ export async function selectRepo(repoID: string): Promise<void> {
     const { SetActiveRepo } = await import('./api')
     await SetActiveRepo(repoID)
   }
-  // Tiny delay so the Wails IPC call settles, then reload — the
-  // adapter re-resolves transportInfo and includes the new repoID
-  // in every URL.
   setTimeout(() => window.location.reload(), 50)
 }

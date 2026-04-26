@@ -143,7 +143,11 @@ func (r *Repository) RenameBrand(slug, newName string) (*model.Brand, error) {
 	if newSlug != slug {
 		newSlug = uniqueSlug(newSlug, func(s string) bool { return s != slug && fileExists(r.brandPath(s)) })
 		brand.Slug = newSlug
-		if err := os.Rename(r.brandPath(slug), r.brandPath(newSlug)); err != nil {
+		oldDir := r.brandPath(slug)
+		cleanup := r.withDirOp(oldDir)
+		err := os.Rename(oldDir, r.brandPath(newSlug))
+		cleanup()
+		if err != nil {
 			return nil, fmt.Errorf("rename brand directory: %w", err)
 		}
 	}
@@ -188,5 +192,7 @@ func (r *Repository) DeleteBrand(slug string) error {
 	if !fileExists(brandDir) {
 		return fmt.Errorf("brand %q not found", slug)
 	}
+	cleanup := r.withDirOp(brandDir)
+	defer cleanup()
 	return os.RemoveAll(brandDir)
 }

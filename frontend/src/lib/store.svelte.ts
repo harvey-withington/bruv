@@ -222,8 +222,23 @@ export async function loadBoard(brandSlug: string, streamSlug: string, projectSl
   }
 }
 
-// Set up Wails event listeners for agent running state.
-// Returns cleanup function. Call once from App.svelte onMount.
+// Set up Wails event listeners for agent running state + board
+// freshness. Returns cleanup function. Call once from App.svelte
+// onMount.
+//
+// Three cooperating refresh strategies:
+//
+//   1. card:updated → targeted in-place refresh of that one card's
+//      board projection. Cheap, runs frequently (the agent's tools
+//      fire one per modification), so the user sees changes appear
+//      live as the agent works rather than waiting for the run to
+//      end. Skips work when the card isn't on the current board.
+//   2. agent:completed / agent:failed → silent loadBoard. Catches
+//      drift the targeted refresh can't handle (card moved
+//      categories, agent created or deleted cards). Runs once per
+//      agent finish — cheap enough at desktop scale.
+//   3. agent:started / agent:completed / agent:failed → maintain the
+//      `runningAgentIds` set the spinner overlay reads.
 export function setupAgentEventListeners(): () => void {
   const unsub1 = onEvent<{ cardID?: string }>('agent:started', (data) => {
     if (data?.cardID) {
@@ -235,12 +250,81 @@ export function setupAgentEventListeners(): () => void {
       const { [data.cardID]: _, ...rest } = board.runningAgentIds
       board.runningAgentIds = rest
     }
+    refreshBoardSilently()
   })
   const unsub3 = onEvent<{ cardID?: string }>('agent:failed', (data) => {
     if (data?.cardID) {
       const { [data.cardID]: _, ...rest } = board.runningAgentIds
       board.runningAgentIds = rest
     }
+    refreshBoardSilently()
   })
-  return () => { unsub1(); unsub2(); unsub3() }
+  const unsub4 = onEvent<{ cardID?: string }>('card:updated', (data) => {
+    if (data?.cardID) void refreshBoardCard(data.cardID)
+  })
+  return () => { unsub1(); unsub2(); unsub3(); unsub4() }
+}
+
+// refreshBoardSilently reloads the active project's board without the
+// "Loading…" placeholder. No-op when nav doesn't currently identify a
+// project (picker / welcome / inbox / agents page).
+function refreshBoardSilently(): void {
+  if (nav.brandSlug && nav.streamSlug && nav.projectSlug) {
+    void loadBoard(nav.brandSlug, nav.streamSlug, nav.projectSlug, { silent: true })
+  }
+}
+
+// refreshBoardCard re-fetches one card and replaces its projection
+// in-place inside whichever category it currently lives in on the
+// board. No-op when the card isn't on the current board (it lives in
+// a different project, or the user is on the picker). Silent failure
+// when GetCard 404s — the card may have been deleted; the next
+// loadBoard / agent:completed silent-reload will prune it.
+async function refreshBoardCard(cardID: string): Promise<void> {
+  let foundCategoryIdx = -1
+  let foundCardIdx = -1
+  for (let i = 0; i < board.categories.length; i++) {
+    const idx = board.categories[i].cards.findIndex(c => c.id === cardID)
+    if (idx >= 0) {
+      foundCategoryIdx = i
+      foundCardIdx = idx
+      break
+    }
+  }
+  if (foundCategoryIdx < 0) return
+
+  let card: any
+  try {
+    card = await GetCard(cardID)
+  } catch {
+    return
+  }
+  // Recheck the index after the await — the user may have moved /
+  // deleted the card while we were fetching, in which case the
+  // post-fetch position is no longer accurate. Re-find by ID.
+  for (let i = 0; i < board.categories.length; i++) {
+    const idx = board.categories[i].cards.findIndex(c => c.id === cardID)
+    if (idx >= 0) {
+      foundCategoryIdx = i
+      foundCardIdx = idx
+      const updated = {
+        id: card.id,
+        type: card.type,
+        title: card.title,
+        tags: card.tags || [],
+        due_date: card.due_date,
+        checklist_total: card.checklist?.length || 0,
+        checklist_done: card.checklist?.filter((c: any) => c.done).length || 0,
+      }
+      // Replace the cards array (not just one slot) so reactive
+      // consumers see the change. Svelte 5 $state tracks deep but
+      // a fresh array reference is the cheapest signal.
+      const cats = [...board.categories]
+      const cards = [...cats[foundCategoryIdx].cards]
+      cards[foundCardIdx] = updated
+      cats[foundCategoryIdx] = { ...cats[foundCategoryIdx], cards }
+      board.categories = cats
+      return
+    }
+  }
 }

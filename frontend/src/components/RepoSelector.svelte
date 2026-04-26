@@ -35,21 +35,16 @@
   import BruvIcon from './BruvIcon.svelte'
   import AddConnectionForm from './AddConnectionForm.svelte'
   import {
-    connections, isLocalActive, removeConnection, addConnection, updateConnection,
+    connections, removeConnection, addConnection, updateConnection,
   } from '../lib/connections.svelte'
   import {
     listAllConnectionRepos, setRepoEnabled, switchToRepo,
+    inspectRepoOnConnection, addRepoOnConnection,
+    renameRepoOnConnection, removeRepoOnConnection,
     type TreeConnectionNode,
   } from '../lib/repos.svelte'
   import { PickFolder, GetCurrentRepo } from '../lib/api'
-  import {
-    inspectLocalRepoPath as InspectRepoPath,
-    initLocalRepository as InitRepository,
-    openLocalRepository as OpenRepository,
-    removeLocalRepository as RemoveLocalRepo,
-    renameLocalRepository as RenameLocalRepo,
-  } from '../lib/local'
-  import { nav, loadGlobalTagColors } from '../lib/store.svelte'
+  import { nav } from '../lib/store.svelte'
 
   let {
     mode = 'fullscreen',
@@ -75,10 +70,16 @@
   let editURL = $state('')
   let editToken = $state('') // empty = leave token unchanged
 
-  // Configure-local state — populated after the user picks a folder
+  // Configure-repo state — populated after the user picks a folder
   // via the OS picker. `existing` decides whether the Name field is
   // a read-only display (manifest already names the repo) or a
   // required input (fresh folder needs naming before init).
+  // pendingConnectionID is the target connection the new repo gets
+  // registered against — uniform across Local + Remote (today's
+  // picker only exposes the + button on Local since the OS folder
+  // picker can only see the local filesystem; the field is here so
+  // the deferred remote folder picker can drop in without a rewrite).
+  let pendingConnectionID = $state('')
   let pendingPath = $state('')
   let pendingExisting = $state(false)
   let nameInput = $state('')
@@ -127,16 +128,10 @@
   }
 
   async function toggleEnabled(connectionID: string, repoID: string, currentlyDisabled: boolean) {
-    // Local rows are always togglable (Shell binding hits the desktop
-    // App regardless of which connection is active). Remote rows still
-    // require the picker to be on that connection — toggling a remote
-    // repo on a server we're NOT currently authenticated to would need
-    // its URL+token, which we have but haven't plumbed through yet.
-    const isLocal = connectionID === ''
-    if (!isLocal && connectionID !== connections.active) {
-      showToast(t('tree.toggle_needs_active'), 'info')
-      return
-    }
+    // Every connection (Local + Remote) now exposes its own URL +
+    // token in connections.json, so toggle hits the right backend
+    // directly via per-connection HTTP — no need to be on that
+    // connection first.
     try {
       await setRepoEnabled(connectionID, repoID, currentlyDisabled)
       await load()
@@ -189,36 +184,32 @@
     }
   }
 
-  // beginRenameLocalRepo enters the inline-edit state for a Local
-  // row. The draft is seeded with the current name so the user can
-  // tweak rather than retype.
-  function beginRenameLocalRepo(repoID: string, currentName: string) {
+  // beginRenameRepo enters the inline-edit state for a repo row,
+  // seeding the draft with the current name so the user can tweak
+  // rather than retype. Uniform across Local + Remote.
+  function beginRenameRepo(repoID: string, currentName: string) {
     renamingID = repoID
     renameDraft = currentName
   }
 
-  function cancelRenameLocalRepo() {
+  function cancelRenameRepo() {
     renamingID = null
     renameDraft = ''
   }
 
-  // commitRenameLocalRepo writes both the registry name and the
-  // in-repo manifest name (App.RenameLocalRepo handles both). On
-  // success we refresh nodes so the new name shows immediately and
-  // re-fetch GetCurrentRepo to sync the chip label. We don't try to
-  // detect "did we rename the active one" — registry IDs and manifest
-  // IDs are independently-generated UUIDs and never match — instead
-  // we just trust whatever name GetCurrentRepo reports, which is
-  // either the freshly-renamed name (if active) or unchanged (if
-  // a non-active repo was renamed).
-  async function commitRenameLocalRepo(repoID: string) {
+  // commitRenameRepo persists the new name on the given connection
+  // (registry + in-repo manifest are written atomically server-side).
+  // After success we refresh nodes so the picker shows the new name,
+  // and re-fetch GetCurrentRepo when the renamed repo is the active
+  // one so the chip label stays in sync without a reload.
+  async function commitRenameRepo(connectionID: string, repoID: string) {
     const name = renameDraft.trim()
     if (!name) {
       showToast(t('welcome.name_required'), 'error')
       return
     }
     try {
-      await RenameLocalRepo(repoID, name)
+      await renameRepoOnConnection(connectionID, repoID, name)
       renamingID = null
       renameDraft = ''
       await load()
@@ -234,25 +225,23 @@
     }
   }
 
-  // removeLocalRepoEntry drops a Local registry entry from
-  // <userConfigDir>/repos.json. The folder on disk is left alone —
-  // this is purely a "stop showing this in the picker" action,
-  // mirroring the X on a recent today.
-  async function removeLocalRepoEntry(e: MouseEvent, repoID: string, name: string) {
+  // removeRepoEntry drops a repo from the given connection's registry.
+  // The folder on disk is left alone — this is purely a "stop showing
+  // this in the picker" action.
+  async function removeRepoEntry(e: MouseEvent, connectionID: string, repoID: string, name: string) {
     e.stopPropagation()
     const ok = await showConfirm(t('tree.remove_local_confirm').replace('{name}', name))
     if (!ok) return
     // Capture "was this the active one" BEFORE the remove — backend
-    // closes the active runtime as part of RemoveLocalRepo, so a
-    // post-remove GetCurrentRepo would already return null and we'd
-    // miss the signal to reload the UI out of its now-stale state.
+    // unloads the runtime, so a post-remove GetCurrentRepo against
+    // the same repoID would 404 and we'd miss the cue to reload.
     let wasActive = false
     try {
       const current = await GetCurrentRepo()
       wasActive = !!current && current.id === repoID
     } catch { /* non-fatal */ }
     try {
-      await RemoveLocalRepo(repoID)
+      await removeRepoOnConnection(connectionID, repoID)
       if (wasActive) {
         setTimeout(() => window.location.reload(), 50)
         return
@@ -263,12 +252,13 @@
     }
   }
 
-  // pickAndConfigureRepo unifies what used to be two flows ("Add new"
-  // vs "Add existing"). The OS folder picker already lets the user
-  // create a folder via its built-in "New Folder" button, so the
-  // distinction is invisible to the user — we just inspect the picked
-  // folder and route accordingly.
-  async function pickAndConfigureRepo() {
+  // pickAndConfigureRepo unifies "add new" + "add existing" — the OS
+  // picker already lets the user create a folder via its built-in
+  // "New Folder" button, so we just inspect the picked path and route
+  // accordingly. Goes via PickFolder (Wails Shell — picks a folder on
+  // THIS machine) regardless of which connection we're adding to;
+  // adding to a remote will need a remote folder picker, deferred.
+  async function pickAndConfigureRepo(connectionID: string) {
     let path: string
     try {
       path = await PickFolder(t('welcome.pick_folder'))
@@ -277,10 +267,11 @@
     }
     if (!path) return
     try {
-      const info = await InspectRepoPath(path)
+      const info = await inspectRepoOnConnection(connectionID, path)
+      pendingConnectionID = connectionID
       pendingPath = path
       pendingExisting = info.exists
-      nameInput = info.exists ? info.name : folderBasename(path)
+      nameInput = info.exists ? (info.name ?? '') : folderBasename(path)
       error = null
       view = 'configure-local'
     } catch (e) {
@@ -302,31 +293,11 @@
       return
     }
     try {
-      if (pendingExisting) {
-        await OpenRepository(pendingPath)
-        nav.repoId = pendingPath
-        nav.repoName = nameInput || ''
-      } else {
-        const actual = await InitRepository(pendingPath, name)
-        nav.repoId = actual
-        nav.repoName = name
-      }
-      nav.repoOpen = true
-      // Dialog mode = swapping the active repo from inside an
-      // already-running session. Sidebar / board / chat panels hold
-      // in-memory state for the OLD repo (brands list, expanded
-      // sets, board categories, …) that won't refresh just because
-      // nav.repoId changed. Reload mirrors switchConnection /
-      // selectRepo / closeRepoAndReturn — the cleanest way to drop
-      // every stale cache without enumerating them by hand.
-      // Fullscreen mode is the first-launch welcome flow with
-      // nothing stale to clear, so we skip the reload there.
-      if (mode === 'dialog') {
-        setTimeout(() => window.location.reload(), 50)
-        return
-      }
-      loadGlobalTagColors()
-      onClose?.()
+      const summary = await addRepoOnConnection(pendingConnectionID, pendingPath, name)
+      // switchToRepo handles same-connection (selectRepo + reload)
+      // and cross-connection (Shell pre-set + switchConnection +
+      // reload). Either path tears down stale state cleanly.
+      await switchToRepo(pendingConnectionID, summary.id)
     } catch (e) {
       error = (e as Error)?.message ?? String(e)
     }
@@ -440,7 +411,7 @@
         {:else}
           <div class="tree">
             {#each nodes as node (node.connectionID)}
-              <div class="conn-block" class:active={node.connectionID === connections.active || (node.isLocal && isLocalActive())}>
+              <div class="conn-block" class:active={node.connectionID === connections.active}>
                 <div class="conn-header">
                   <button
                     class="icon-btn"
@@ -462,11 +433,15 @@
                     <span class="conn-status">{node.repos.length}</span>
                   {/if}
 
-                  <!-- Per-connection actions: edit/remove for Remotes, + for Local -->
+                  <!-- Per-connection actions. + button is gated on
+                       Local because the OS PickFolder can only see
+                       this machine's filesystem; remote folder picker
+                       is deferred. Edit / remove only on Remotes —
+                       Local is built-in and can't be removed. -->
                   {#if node.isLocal}
                     <button
                       class="icon-btn"
-                      onclick={(e) => { e.stopPropagation(); pickAndConfigureRepo() }}
+                      onclick={(e) => { e.stopPropagation(); pickAndConfigureRepo(node.connectionID) }}
                       title={t('welcome.add_repo')}
                       aria-label={t('welcome.add_repo')}
                     >
@@ -493,21 +468,21 @@
                             type="text"
                             bind:value={renameDraft}
                             onkeydown={(e) => {
-                              if (e.key === 'Enter') commitRenameLocalRepo(repo.id)
-                              if (e.key === 'Escape') cancelRenameLocalRepo()
+                              if (e.key === 'Enter') commitRenameRepo(node.connectionID, repo.id)
+                              if (e.key === 'Escape') cancelRenameRepo()
                             }}
                             use:focusOnMount={true}
                           />
                           <button
                             class="icon-btn"
-                            onclick={() => commitRenameLocalRepo(repo.id)}
+                            onclick={() => commitRenameRepo(node.connectionID, repo.id)}
                             title={t('common.save')}
                           >
                             <Check size={11} />
                           </button>
                           <button
                             class="icon-btn"
-                            onclick={cancelRenameLocalRepo}
+                            onclick={cancelRenameRepo}
                             title={t('common.cancel')}
                           >
                             <X size={11} />
@@ -525,22 +500,20 @@
                           >
                             {#if repo.disabled}<Play size={11} />{:else}<Pause size={11} />{/if}
                           </button>
-                          {#if node.isLocal}
-                            <button
-                              class="icon-btn"
-                              onclick={() => beginRenameLocalRepo(repo.id, repo.name)}
-                              title={t('tree.rename_local')}
-                            >
-                              <Pencil size={11} />
-                            </button>
-                            <button
-                              class="icon-btn danger"
-                              onclick={(e) => removeLocalRepoEntry(e, repo.id, repo.name)}
-                              title={t('tree.remove_local')}
-                            >
-                              <X size={11} />
-                            </button>
-                          {/if}
+                          <button
+                            class="icon-btn"
+                            onclick={() => beginRenameRepo(repo.id, repo.name)}
+                            title={t('tree.rename_local')}
+                          >
+                            <Pencil size={11} />
+                          </button>
+                          <button
+                            class="icon-btn danger"
+                            onclick={(e) => removeRepoEntry(e, node.connectionID, repo.id, repo.name)}
+                            title={t('tree.remove_local')}
+                          >
+                            <X size={11} />
+                          </button>
                         {/if}
                       </div>
                     {/each}

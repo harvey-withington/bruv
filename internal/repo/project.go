@@ -151,7 +151,11 @@ func (r *Repository) RenameProject(brandSlug, streamSlug, projectSlug, newName s
 	if newSlug != projectSlug {
 		newSlug = uniqueSlug(newSlug, func(s string) bool { return s != projectSlug && fileExists(r.projectPath(brandSlug, streamSlug, s)) })
 		project.Slug = newSlug
-		if err := os.Rename(r.projectPath(brandSlug, streamSlug, projectSlug), r.projectPath(brandSlug, streamSlug, newSlug)); err != nil {
+		oldDir := r.projectPath(brandSlug, streamSlug, projectSlug)
+		cleanup := r.withDirOp(oldDir)
+		err := os.Rename(oldDir, r.projectPath(brandSlug, streamSlug, newSlug))
+		cleanup()
+		if err != nil {
 			return nil, fmt.Errorf("rename project directory: %w", err)
 		}
 	}
@@ -196,5 +200,7 @@ func (r *Repository) DeleteProject(brandSlug, streamSlug, projectSlug string) er
 	if !fileExists(projectDir) {
 		return fmt.Errorf("project %q not found", projectSlug)
 	}
+	cleanup := r.withDirOp(projectDir)
+	defer cleanup()
 	return os.RemoveAll(projectDir)
 }

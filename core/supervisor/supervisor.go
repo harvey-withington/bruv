@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"bruv/core/events"
 	"bruv/internal/config"
 )
 
@@ -12,12 +13,26 @@ import (
 // request time. Disabled entries are present in the registry but have
 // no Runtime — Resolve returns nil so the per-repo dispatcher 404s.
 // Re-enabling lazy-builds the Runtime.
+//
+// The Supervisor exposes an aggregated event bus via Bus(): every
+// loaded runtime's events fan in to it, so a host (the desktop tray,
+// future cross-repo digest views) can subscribe once and receive
+// from any open repo. Per-repo subscribers (the HTTP SSE handler at
+// /repos/<id>/events) keep talking to their runtime's own bus
+// directly — the aggregated bus is opt-in for hosts that want
+// cross-repo visibility.
 type Supervisor struct {
 	mu        sync.Mutex
 	configDir string
 	runtimes  map[string]*Runtime
 	entries   map[string]config.RepoEntry
 	secret    []byte
+
+	// mux is the aggregated event bus. Every loaded runtime's bus
+	// fans in here via a goroutine started in Load(); Unload() and
+	// SetEnabled(false) cancel that goroutine.
+	mux        *events.MemBus
+	muxUnsubs  map[string]func() // per-runtime cancel handles for the fan-in
 }
 
 // New constructs a Supervisor from a slice of registry entries. Does
@@ -31,11 +46,46 @@ func New(entries []config.RepoEntry, configDir string) (*Supervisor, error) {
 		runtimes:  make(map[string]*Runtime, len(entries)),
 		entries:   make(map[string]config.RepoEntry, len(entries)),
 		secret:    config.LoadServerSecret(),
+		mux:       events.NewMemBus(256),
+		muxUnsubs: make(map[string]func(), len(entries)),
 	}
 	for _, e := range entries {
 		s.entries[e.ID] = e
 	}
 	return s, nil
+}
+
+// Bus returns the supervisor's aggregated event bus. Subscribers
+// receive events published by every loaded runtime — useful for
+// cross-repo concerns like the desktop tray's unread-count tooltip.
+// Per-repo subscribers should use rt.Bus() instead, both because
+// it's lower latency (no fan-in goroutine hop) and because the
+// per-runtime bus carries event IDs in publish order without the
+// cross-repo interleaving the aggregated bus has.
+func (s *Supervisor) Bus() *events.MemBus { return s.mux }
+
+// startBusFanIn subscribes to the runtime's bus and re-publishes
+// every event onto the supervisor's aggregated bus. The cancel
+// handle is stashed in muxUnsubs[id] so Unload / SetEnabled(false)
+// can stop the goroutine cleanly. Caller holds s.mu.
+func (s *Supervisor) startBusFanIn(id string, rt *Runtime) {
+	ch, unsub := rt.Bus().Subscribe()
+	s.muxUnsubs[id] = unsub
+	mux := s.mux
+	go func() {
+		for ev := range ch {
+			mux.Publish(ev.Topic, ev.Payload)
+		}
+	}()
+}
+
+// stopBusFanIn cancels the per-runtime fan-in goroutine, if any.
+// Caller holds s.mu.
+func (s *Supervisor) stopBusFanIn(id string) {
+	if unsub, ok := s.muxUnsubs[id]; ok {
+		unsub()
+		delete(s.muxUnsubs, id)
+	}
 }
 
 // LoadAll builds + loads a Runtime for every non-disabled entry in
@@ -72,12 +122,21 @@ func (s *Supervisor) Load(id string) (*Runtime, error) {
 	if !ok {
 		return nil, fmt.Errorf("supervisor: repo %q not in registry", id)
 	}
-	rt, err := buildRuntime(entry.Path, s.configDir)
+	rt, err := buildRuntime(entry.Path, s.configDir, s.secret)
 	if err != nil {
 		return nil, fmt.Errorf("supervisor: build %q: %w", id, err)
 	}
 	s.mu.Lock()
+	// Race: a concurrent Load(id) may have raced past the cache check
+	// above and built its own runtime. Last-writer-wins on the map,
+	// but we close the loser to release its watcher / MCP / scheduler.
+	if existing, ok := s.runtimes[id]; ok {
+		s.mu.Unlock()
+		rt.Close()
+		return existing, nil
+	}
 	s.runtimes[id] = rt
+	s.startBusFanIn(id, rt)
 	s.mu.Unlock()
 	return rt, nil
 }
@@ -94,6 +153,22 @@ func (s *Supervisor) Resolve(id string) *Runtime {
 	rt := s.runtimes[id]
 	s.mu.Unlock()
 	return rt
+}
+
+// LoadedRuntimes returns a snapshot of every Runtime currently loaded
+// (regardless of whether the underlying entry is enabled / disabled
+// in the registry — disabling unloads, so this list reflects the
+// actual in-memory set). Caller gets its own slice; safe to iterate
+// without the lock. Used for cross-runtime fan-out from the desktop
+// tray (pause-all / resume-all across every loaded repo).
+func (s *Supervisor) LoadedRuntimes() []*Runtime {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]*Runtime, 0, len(s.runtimes))
+	for _, rt := range s.runtimes {
+		out = append(out, rt)
+	}
+	return out
 }
 
 // List returns a snapshot of every registered entry (loaded or not).
@@ -140,6 +215,7 @@ func (s *Supervisor) SetEnabled(id string, enabled bool) error {
 		s.mu.Lock()
 		rt := s.runtimes[id]
 		delete(s.runtimes, id)
+		s.stopBusFanIn(id)
 		entry.Disabled = true
 		s.entries[id] = entry
 		s.mu.Unlock()
@@ -171,12 +247,20 @@ func (s *Supervisor) RegisterAndLoad(path string) (*Runtime, error) {
 	if existing != nil {
 		return existing, nil
 	}
-	rt, err := buildRuntime(entry.Path, s.configDir)
+	rt, err := buildRuntime(entry.Path, s.configDir, s.secret)
 	if err != nil {
 		return nil, fmt.Errorf("supervisor: build runtime: %w", err)
 	}
 	s.mu.Lock()
+	if existing, ok := s.runtimes[entry.ID]; ok {
+		// Concurrent RegisterAndLoad / Load raced ahead. Close the
+		// loser, return the winner.
+		s.mu.Unlock()
+		rt.Close()
+		return existing, nil
+	}
 	s.runtimes[entry.ID] = rt
+	s.startBusFanIn(entry.ID, rt)
 	s.mu.Unlock()
 	return rt, nil
 }
@@ -202,10 +286,48 @@ func (s *Supervisor) Unload(id string) {
 	s.mu.Lock()
 	rt := s.runtimes[id]
 	delete(s.runtimes, id)
+	s.stopBusFanIn(id)
 	s.mu.Unlock()
 	if rt != nil {
 		rt.Close()
 	}
+}
+
+// SetName renames a registry entry and (if loaded) propagates the
+// rename into the live Repository's manifest. Persists to repos.json
+// AND updates the supervisor's in-memory entries map so subsequent
+// List() / Resolve() calls reflect the new name without waiting for
+// a reload. Returns the path of the renamed entry so callers needing
+// the disk-only manifest rewrite (no live runtime) can do it.
+func (s *Supervisor) SetName(id, name string) (string, error) {
+	s.mu.Lock()
+	entry, ok := s.entries[id]
+	s.mu.Unlock()
+	if !ok {
+		return "", fmt.Errorf("supervisor: repo %q not in registry", id)
+	}
+	if err := config.SetRepoName(id, name); err != nil {
+		return "", err
+	}
+	entry.Name = name
+	s.mu.Lock()
+	s.entries[id] = entry
+	s.mu.Unlock()
+	return entry.Path, nil
+}
+
+// Remove drops an entry from the registry, unloading its runtime
+// first. Persists to repos.json AND prunes the in-memory entries
+// map so subsequent List() doesn't keep returning the gone repo.
+func (s *Supervisor) Remove(id string) error {
+	s.Unload(id)
+	if err := config.RemoveRepo(id); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	delete(s.entries, id)
+	s.mu.Unlock()
+	return nil
 }
 
 // Close shuts down every loaded Runtime. Safe to call from a defer.
@@ -214,6 +336,9 @@ func (s *Supervisor) Close() {
 	rts := make([]*Runtime, 0, len(s.runtimes))
 	for _, rt := range s.runtimes {
 		rts = append(rts, rt)
+	}
+	for id := range s.muxUnsubs {
+		s.stopBusFanIn(id)
 	}
 	s.runtimes = nil
 	s.mu.Unlock()

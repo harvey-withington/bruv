@@ -12,27 +12,62 @@ import (
 	"bruv/core/events"
 )
 
-// buildTestServer spins up a real transport server + issues a fresh
-// device token so tests can authenticate without ceremony.
-func buildTestServer(t *testing.T) (*Server, string, string) {
+// stubBackend is a minimal RepoBackend that resolves a single repo
+// ID to a fixed RepoTarget. Lifecycle ops (Inspect/InitOrOpen/Rename/
+// Remove) return errors — tests don't exercise them.
+type stubBackend struct {
+	target *RepoTarget
+}
+
+func (b *stubBackend) Resolve(id string) *RepoTarget {
+	if b.target != nil && id == "stub" {
+		return b.target
+	}
+	return nil
+}
+func (b *stubBackend) List() []RepoSummary {
+	return []RepoSummary{{ID: "stub", Name: "stub repo"}}
+}
+func (b *stubBackend) SetEnabled(string, bool) error { return nil }
+func (b *stubBackend) Inspect(string) (RepoInspect, error) {
+	return RepoInspect{}, nil
+}
+func (b *stubBackend) InitOrOpen(string, string) (RepoSummary, error) {
+	return RepoSummary{}, nil
+}
+func (b *stubBackend) Rename(string, string) error { return nil }
+func (b *stubBackend) Remove(string) error         { return nil }
+
+// buildTestServer spins up a real multi-repo transport with a stub
+// backend + a MachineService-style mockApp behind /server/rpc, and
+// issues a fresh device token so tests can authenticate without
+// ceremony.
+func buildTestServer(t *testing.T) (*Server, string, string, *events.MemBus) {
 	t.Helper()
 	cfgDir := t.TempDir()
 	bus := events.NewMemBus(64)
-	srv, err := New(Config{
-		Addr:      "127.0.0.1:0",
-		ConfigDir: cfgDir,
-		Version:   "test",
-		BuildDate: "test",
-	}, &mockApp{}, bus)
+	backend := &stubBackend{
+		target: &RepoTarget{
+			Target: &mockApp{},
+			Bus:    bus,
+		},
+	}
+	srv, err := NewMulti(Config{
+		Addr:          "127.0.0.1:0",
+		ConfigDir:     cfgDir,
+		Version:       "test",
+		BuildDate:     "test",
+		Repos:         backend,
+		MachineTarget: &mockApp{},
+	})
 	if err != nil {
-		t.Fatalf("New: %v", err)
+		t.Fatalf("NewMulti: %v", err)
 	}
 	if err := srv.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	t.Cleanup(func() { _ = srv.Stop() })
 
-	// Issue a device token so tests can call /rpc + /events.
 	bootstrap, err := os.ReadFile(filepath.Join(cfgDir, "bootstrap-token.txt"))
 	if err != nil {
 		t.Fatalf("read bootstrap: %v", err)
@@ -42,11 +77,11 @@ func buildTestServer(t *testing.T) (*Server, string, string) {
 		t.Fatalf("enrol: %v", err)
 	}
 
-	return srv, "http://" + srv.Addr(), token
+	return srv, "http://" + srv.Addr(), token, bus
 }
 
 func TestHealthzUnauthenticated(t *testing.T) {
-	_, base, _ := buildTestServer(t)
+	_, base, _, _ := buildTestServer(t)
 	resp, err := nethttp.Get(base + "/healthz")
 	if err != nil {
 		t.Fatalf("get: %v", err)
@@ -58,7 +93,7 @@ func TestHealthzUnauthenticated(t *testing.T) {
 }
 
 func TestVersionUnauthenticated(t *testing.T) {
-	_, base, _ := buildTestServer(t)
+	_, base, _, _ := buildTestServer(t)
 	resp, _ := nethttp.Get(base + "/version")
 	defer resp.Body.Close()
 	var body map[string]string
@@ -69,19 +104,19 @@ func TestVersionUnauthenticated(t *testing.T) {
 }
 
 func TestRPCRejectsWithoutAuth(t *testing.T) {
-	_, base, _ := buildTestServer(t)
-	resp, _ := nethttp.Post(base+"/rpc", "application/json", strings.NewReader(`{}`))
+	_, base, _, _ := buildTestServer(t)
+	resp, _ := nethttp.Post(base+"/server/rpc", "application/json", strings.NewReader(`{}`))
 	defer resp.Body.Close()
 	if resp.StatusCode != nethttp.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", resp.StatusCode)
 	}
 }
 
-func TestRPCHappyPath(t *testing.T) {
-	_, base, token := buildTestServer(t)
+func TestRPCHappyPathOnRepo(t *testing.T) {
+	_, base, token, _ := buildTestServer(t)
 
 	body := strings.NewReader(`{"jsonrpc":"2.0","method":"Add","params":[3,4],"id":1}`)
-	req, _ := nethttp.NewRequest(nethttp.MethodPost, base+"/rpc", body)
+	req, _ := nethttp.NewRequest(nethttp.MethodPost, base+"/repos/stub/rpc", body)
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -103,31 +138,36 @@ func TestRPCHappyPath(t *testing.T) {
 	}
 }
 
+func TestRPCHappyPathOnMachine(t *testing.T) {
+	_, base, token, _ := buildTestServer(t)
+
+	body := strings.NewReader(`{"jsonrpc":"2.0","method":"Add","params":[10,20],"id":1}`)
+	req, _ := nethttp.NewRequest(nethttp.MethodPost, base+"/server/rpc", body)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := nethttp.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var out rpcResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.Error != nil {
+		t.Fatalf("rpc error: %+v", out.Error)
+	}
+	if out.Result.(float64) != 30 {
+		t.Errorf("result = %v, want 30", out.Result)
+	}
+}
+
 func TestSSEStreamsBusEvents(t *testing.T) {
-	// Use our own bus so we can publish into it while reading.
-	cfgDir := t.TempDir()
-	bus := events.NewMemBus(16)
-	srv, err := New(Config{
-		Addr:      "127.0.0.1:0",
-		ConfigDir: cfgDir,
-		Version:   "test",
-	}, &mockApp{}, bus)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if err := srv.Start(); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer srv.Stop()
+	_, base, token, bus := buildTestServer(t)
 
-	bootstrap, _ := os.ReadFile(filepath.Join(cfgDir, "bootstrap-token.txt"))
-	token, _, err := srv.Devices().Enrol(strings.TrimSpace(string(bootstrap)), "sse-test")
-	if err != nil {
-		t.Fatalf("enrol: %v", err)
-	}
-
-	base := "http://" + srv.Addr()
-	req, _ := nethttp.NewRequest(nethttp.MethodGet, base+"/events?token="+token, nil)
+	req, _ := nethttp.NewRequest(nethttp.MethodGet, base+"/repos/stub/events?token="+token, nil)
 	resp, err := nethttp.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("get /events: %v", err)
@@ -141,10 +181,6 @@ func TestSSEStreamsBusEvents(t *testing.T) {
 		t.Errorf("content-type = %q, want text/event-stream", ct)
 	}
 
-	// Read the stream in a goroutine so the test can time-bound the
-	// wait with a channel select. http.Response.Body doesn't expose
-	// read deadlines, so the goroutine just reads until closed and
-	// the test closes the body on timeout.
 	gotEvent := make(chan string, 1)
 	readErr := make(chan error, 1)
 	go func() {
@@ -167,7 +203,6 @@ func TestSSEStreamsBusEvents(t *testing.T) {
 		}
 	}()
 
-	// Publish after briefly letting the subscription establish.
 	time.Sleep(50 * time.Millisecond)
 	bus.Publish("card:updated", map[string]string{"cardID": "abc"})
 

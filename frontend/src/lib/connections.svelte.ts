@@ -1,11 +1,15 @@
 // Reactive store for the per-machine known-connections list.
 //
-// The store mirrors the backend ConnectionStore plus an `ready` flag
+// The store mirrors the backend ConnectionStore plus a `ready` flag
 // for components that want to wait for the first load before rendering.
 // Mutations (add / remove / setActive) call the backend, refresh the
 // store from the response, and — for setActive — trigger a full
 // window reload so the cloud adapter re-resolves transport against
 // the new active connection (same dance as switching repos).
+//
+// Since the local-as-remote pivot, "Local" is a normal entry in the
+// store with the well-known ID "local" — there is no implicit empty-
+// string sentinel anymore. isLocalActive() checks ID equality.
 
 import { ListConnections, AddConnection, RemoveConnection, UpdateConnection, SetActiveConnection } from './api'
 import type { Connection, ConnectionStore } from './types'
@@ -34,22 +38,28 @@ function shell(): ShellConnections | null {
   return s ?? null
 }
 
+// LOCAL_CONNECTION_ID is the well-known ID for the desktop's loopback
+// connection. Mirrors internal/config.LocalConnectionID on the Go side
+// — kept as a UI constant so isLocalActive / picker rendering can
+// recognise it without prefixing checks against a constant elsewhere.
+export const LOCAL_CONNECTION_ID = 'local'
+
 type ConnectionsState = {
   ready: boolean
   available: boolean         // false when the backend doesn't expose connections (browser mode against bruv-server)
-  active: string             // "" = Local
-  connections: Connection[]  // remote connections only; Local is implicit
+  active: string             // ID of the active connection ("local" for desktop loopback)
+  connections: Connection[]  // every connection — Local is a real entry now, not implicit
 }
 
 export const connections = $state<ConnectionsState>({
   ready: false,
   available: false,
-  active: '',
+  active: LOCAL_CONNECTION_ID,
   connections: [],
 })
 
 function applyStore(s: ConnectionStore) {
-  connections.active = s.active || ''
+  connections.active = s.active || LOCAL_CONNECTION_ID
   connections.connections = s.connections ?? []
   connections.available = true
   connections.ready = true
@@ -141,11 +151,10 @@ export async function switchConnection(id: string): Promise<void> {
 // Helpers used by indicator components.
 
 export function activeConnectionLabel(): string {
-  if (!connections.active) return 'Local'
   const found = connections.connections.find(c => c.id === connections.active)
   return found ? found.name : 'Local'
 }
 
 export function isLocalActive(): boolean {
-  return !connections.active
+  return connections.active === LOCAL_CONNECTION_ID
 }

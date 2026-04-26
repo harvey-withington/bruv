@@ -30,14 +30,18 @@ func buildFakeBundle() fstest.MapFS {
 func buildServerWithAssets(t *testing.T) string {
 	t.Helper()
 	bus := events.NewMemBus(16)
-	srv, err := New(Config{
+	backend := &stubBackend{
+		target: &RepoTarget{Target: &mockApp{}, Bus: bus},
+	}
+	srv, err := NewMulti(Config{
 		Addr:         "127.0.0.1:0",
 		ConfigDir:    t.TempDir(),
 		Version:      "test",
 		StaticAssets: buildFakeBundle(),
-	}, &mockApp{}, bus)
+		Repos:        backend,
+	})
 	if err != nil {
-		t.Fatalf("New: %v", err)
+		t.Fatalf("NewMulti: %v", err)
 	}
 	if err := srv.Start(); err != nil {
 		t.Fatalf("Start: %v", err)

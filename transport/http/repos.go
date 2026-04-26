@@ -2,13 +2,17 @@ package http
 
 // Multi-repo HTTP routing.
 //
-// Server-side (bruv-server) hosts N repos, each with its own
-// runtime + bus + attachment resolver. The transport routes:
+// The transport routes:
 //
-//   GET /repos                         → JSON list of {id, name}
-//   POST /repos/<id>/rpc               → that repo's RPC dispatcher
-//   GET  /repos/<id>/events            → that repo's SSE stream
-//   GET  /repos/<id>/attachments/...   → that repo's signed-URL handler
+//   GET    /repos                        list of {id,name,disabled}
+//   POST   /repos                        init-or-open (body: {path,name?})
+//   POST   /repos/inspect                inspect a path before commit
+//   PATCH  /repos/<id>                   rename
+//   DELETE /repos/<id>                   remove from registry
+//   POST   /repos/<id>/(enable|disable)  toggle
+//   POST   /repos/<id>/rpc               that repo's RPC dispatcher
+//   GET    /repos/<id>/events            that repo's SSE stream
+//   GET    /repos/<id>/attachments/...   that repo's signed-URL handler
 //
 // All paths require a valid device token via requireAuth (mounted by
 // the caller in server.go's buildMux). The repo ID comes from the URL
@@ -18,37 +22,121 @@ package http
 import (
 	"encoding/json"
 	nethttp "net/http"
-	"reflect"
 	"strings"
 )
 
-// listReposHandler responds to GET /repos with the public list of
-// repos this server hosts. The Path field on RepoSummary is
-// intentionally omitted — clients have no business knowing the
-// server's filesystem layout.
-func listReposHandler(backend RepoBackend) nethttp.Handler {
+// RepoInspect is the result of POST /repos/inspect — surfaces just
+// enough for the UI to decide between "Open this existing repo"
+// (Exists=true, Name set) and "Name your new repo" (Exists=false).
+type RepoInspect struct {
+	Exists bool   `json:"exists"`
+	Name   string `json:"name,omitempty"`
+	ID     string `json:"id,omitempty"`
+}
+
+// reposCollectionHandler dispatches the /repos top-level resource:
+//   GET  → list
+//   POST → init-or-open at the body's path
+// Anything else → 405.
+//
+// POST /repos with {path, name?} routes through InitOrOpen on the
+// backend, which inspects the path and either Init's a fresh repo
+// (when name is supplied + path isn't a BRUV repo yet) or Open's the
+// existing one. Returns the RepoSummary so the client can stamp the
+// new ID into its connection's repo-recents and reload.
+func reposCollectionHandler(backend RepoBackend) nethttp.Handler {
 	return nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		if r.Method != nethttp.MethodGet {
+		switch r.Method {
+		case nethttp.MethodGet:
+			repos := backend.List()
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(repos)
+		case nethttp.MethodPost:
+			var body struct {
+				Path string `json:"path"`
+				Name string `json:"name"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				nethttp.Error(w, "invalid body: "+err.Error(), nethttp.StatusBadRequest)
+				return
+			}
+			if body.Path == "" {
+				nethttp.Error(w, "path is required", nethttp.StatusBadRequest)
+				return
+			}
+			summary, err := backend.InitOrOpen(body.Path, body.Name)
+			if err != nil {
+				nethttp.Error(w, err.Error(), nethttp.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(summary)
+		default:
 			nethttp.Error(w, "method not allowed", nethttp.StatusMethodNotAllowed)
-			return
 		}
-		repos := backend.List()
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(repos)
 	})
 }
 
-// repoRouter dispatches /repos/<id>/<sub>... to the per-repo handlers.
-// Returns 404 when the repo ID is unknown to the backend, 400 when the
-// sub-path is empty, and otherwise delegates to the RPC dispatcher,
-// SSE stream, or attachment handler for that repo.
+// reposInspectHandler handles POST /repos/inspect — pure read, no
+// side effects. Tells the client whether the path is already a BRUV
+// repo (returning name + manifest ID) or a candidate folder for init.
+func reposInspectHandler(backend RepoBackend) nethttp.Handler {
+	return nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.Method != nethttp.MethodPost {
+			nethttp.Error(w, "method not allowed", nethttp.StatusMethodNotAllowed)
+			return
+		}
+		var body struct {
+			Path string `json:"path"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			nethttp.Error(w, "invalid body: "+err.Error(), nethttp.StatusBadRequest)
+			return
+		}
+		if body.Path == "" {
+			nethttp.Error(w, "path is required", nethttp.StatusBadRequest)
+			return
+		}
+		out, err := backend.Inspect(body.Path)
+		if err != nil {
+			nethttp.Error(w, err.Error(), nethttp.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(out)
+	})
+}
+
+// repoRouter dispatches /repos/<id>/<sub>... to the per-repo handlers
+// and the /repos/inspect special-case.
 func (s *Server) repoRouter() nethttp.Handler {
 	return nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		// Strip the "/repos/" prefix and split into <id>/<rest...>.
+		// /repos/inspect — POST-only, special-cased ahead of the
+		// per-repo routing because "inspect" looks like a repo ID
+		// otherwise.
 		trimmed := strings.TrimPrefix(r.URL.Path, "/repos/")
+		if trimmed == "inspect" {
+			reposInspectHandler(s.cfg.Repos).ServeHTTP(w, r)
+			return
+		}
+
 		slash := strings.IndexByte(trimmed, '/')
-		if slash <= 0 {
-			nethttp.NotFound(w, r)
+		// No slash → /repos/<id> with no sub-path. Handles PATCH (rename)
+		// and DELETE (remove). Anything else → 405.
+		if slash < 0 {
+			repoID := trimmed
+			if repoID == "" {
+				nethttp.NotFound(w, r)
+				return
+			}
+			switch r.Method {
+			case nethttp.MethodPatch:
+				repoRenameHandler(s.cfg.Repos, repoID).ServeHTTP(w, r)
+			case nethttp.MethodDelete:
+				repoRemoveHandler(s.cfg.Repos, repoID).ServeHTTP(w, r)
+			default:
+				nethttp.Error(w, "method not allowed", nethttp.StatusMethodNotAllowed)
+			}
 			return
 		}
 		repoID := trimmed[:slash]
@@ -95,93 +183,34 @@ func (s *Server) repoRouter() nethttp.Handler {
 	})
 }
 
-// singleRepoListHandler is the GET /repos handler for the desktop
-// loopback's single-repo mode. Asks the dispatcher target for its
-// current repo via reflection (target is *App on desktop, has a
-// GetCurrentRepo method that returns a struct with ID + Name) and
-// emits a 1-element list. Lets the connection-tree picker render
-// Local symmetrically with Remote — Local just shows up as a
-// "server" with one repo. Returns an empty list if no repo is
-// open or if GetCurrentRepo isn't on the target.
-func singleRepoListHandler(d *Dispatcher) nethttp.Handler {
+// repoRenameHandler handles PATCH /repos/<id> {name}.
+func repoRenameHandler(backend RepoBackend, id string) nethttp.Handler {
 	return nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		if r.Method != nethttp.MethodGet {
-			nethttp.Error(w, "method not allowed", nethttp.StatusMethodNotAllowed)
+		var body struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			nethttp.Error(w, "invalid body: "+err.Error(), nethttp.StatusBadRequest)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-
-		out := []RepoSummary{}
-		v := reflect.ValueOf(d.target)
-		m := v.MethodByName("GetCurrentRepo")
-		if m.IsValid() {
-			results := m.Call(nil)
-			if len(results) == 1 && !results[0].IsNil() {
-				info := results[0].Elem()
-				idField := info.FieldByName("ID")
-				nameField := info.FieldByName("Name")
-				if idField.IsValid() && nameField.IsValid() {
-					out = append(out, RepoSummary{
-						ID:   idField.String(),
-						Name: nameField.String(),
-					})
-				}
-			}
+		if strings.TrimSpace(body.Name) == "" {
+			nethttp.Error(w, "name is required", nethttp.StatusBadRequest)
+			return
 		}
-
-		_ = json.NewEncoder(w).Encode(out)
+		if err := backend.Rename(id, body.Name); err != nil {
+			nethttp.Error(w, err.Error(), nethttp.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(nethttp.StatusNoContent)
 	})
 }
 
-// localRegistryListHandler is the GET /repos handler for the desktop
-// loopback when wired with a registry callback. Mirrors the multi-repo
-// listReposHandler — both render whatever the host considers "the set
-// of repos this connection knows about" — so the frontend's picker
-// code path is identical for Local and Remote.
-func localRegistryListHandler(reg *LocalRegistryConfig) nethttp.Handler {
+// repoRemoveHandler handles DELETE /repos/<id>. The folder on disk
+// is left alone; this only drops the registry entry + unloads the
+// runtime if loaded.
+func repoRemoveHandler(backend RepoBackend, id string) nethttp.Handler {
 	return nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		if r.Method != nethttp.MethodGet {
-			nethttp.Error(w, "method not allowed", nethttp.StatusMethodNotAllowed)
-			return
-		}
-		out := reg.List()
-		if out == nil {
-			out = []RepoSummary{}
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(out)
-	})
-}
-
-// localRegistryEnableRouter handles POST /repos/<id>/(enable|disable)
-// in single-repo desktop mode. Anything else under /repos/<id>/ 404s
-// — the desktop only has one repo open at a time, so per-repo /rpc /
-// /events / /attachments routes stay flat.
-func localRegistryEnableRouter(reg *LocalRegistryConfig) nethttp.Handler {
-	return nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		trimmed := strings.TrimPrefix(r.URL.Path, "/repos/")
-		slash := strings.IndexByte(trimmed, '/')
-		if slash <= 0 {
-			nethttp.NotFound(w, r)
-			return
-		}
-		repoID := trimmed[:slash]
-		sub := trimmed[slash+1:]
-		var enable bool
-		switch sub {
-		case "enable":
-			enable = true
-		case "disable":
-			enable = false
-		default:
-			nethttp.NotFound(w, r)
-			return
-		}
-		if r.Method != nethttp.MethodPost {
-			nethttp.Error(w, "method not allowed", nethttp.StatusMethodNotAllowed)
-			return
-		}
-		if err := reg.SetEnabled(repoID, enable); err != nil {
+		if err := backend.Remove(id); err != nil {
 			nethttp.Error(w, err.Error(), nethttp.StatusBadRequest)
 			return
 		}

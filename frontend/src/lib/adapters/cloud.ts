@@ -24,9 +24,8 @@ import { KNOWN_TOPICS } from './topics'
 type TransportInfo = {
   addr: string
   token: string
-  scheme?: string  // "http" (default) or "https" — for Mode B2 TLS-fronted remote servers
-  remote?: string  // "true" when pointing at a tailnet-hosted backend rather than loopback
-  repoID?: string  // active repo ID for multi-repo Remote connections; empty on Local or "show picker"
+  scheme?: string  // "http" (default) or "https" — for TLS-fronted remote servers
+  repoID?: string  // active repo ID for the current connection; empty until the user picks a repo
 }
 
 // NeedsEnrolmentError is thrown by resolveTransport when the user
@@ -113,14 +112,14 @@ function httpBase(info: TransportInfo): string {
   return `${scheme}://${info.addr}`
 }
 
-// repoPathPrefix returns "/repos/<id>" when the connection points at
-// a multi-repo server with a repo selected, empty otherwise. Local
-// (single-repo) backends use flat /rpc / /events. Remote backends
-// MUST have a repoID set or RPC calls will hit /rpc on the server
-// and 404 — the boot path is responsible for routing the user to
-// the repo selector before constructing the adapter in that case.
+// repoPathPrefix returns "/repos/<id>" when a repo is selected on the
+// active connection, empty otherwise. Every connection (including
+// the desktop's Local loopback) is multi-repo since the local-as-
+// remote pivot, so there's no longer a Local-vs-Remote distinction
+// in URL shape. Per-machine RPCs route via /server/rpc — see
+// SERVER_METHODS below — so callers don't need a repoID for those.
 function repoPathPrefix(info: TransportInfo): string {
-  if (info.remote === 'true' && info.repoID) {
+  if (info.repoID) {
     return `/repos/${info.repoID}`
   }
   return ''
@@ -155,16 +154,20 @@ export async function resolveTransportInfo(): Promise<TransportInfo> {
 
 type RPCError = { code: number; message: string; data?: unknown }
 
+// RPCClient holds two endpoints — per-repo (/repos/<id>/rpc) and
+// per-machine (/server/rpc) — and routes each call to one of them
+// based on the SERVER_METHODS set. Repo endpoint is only set when a
+// repoID is selected; calls without a repoID against per-repo methods
+// throw a clear "no repo selected" error rather than 404 on the wire.
 class RPCClient {
-  private readonly endpoint: string
+  private readonly repoEndpoint: string  // "" if no repo selected
+  private readonly serverEndpoint: string
   private readonly headers: Record<string, string>
   private nextID = 1
 
   constructor(base: string, token: string, prefix: string) {
-    // prefix is "/repos/<id>" for multi-repo Remote connections, "" for
-    // Local. The server routes /repos/<id>/rpc to that repo's
-    // dispatcher; the desktop loopback serves /rpc directly.
-    this.endpoint = `${base}${prefix}/rpc`
+    this.repoEndpoint = prefix ? `${base}${prefix}/rpc` : ''
+    this.serverEndpoint = `${base}/server/rpc`
     this.headers = {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
@@ -172,9 +175,13 @@ class RPCClient {
   }
 
   async call(method: string, params: unknown[]): Promise<unknown> {
+    const endpoint = SERVER_METHODS.has(method) ? this.serverEndpoint : this.repoEndpoint
+    if (!endpoint) {
+      throw new Error(`rpc ${method}: no repo selected (per-repo method called before pick)`)
+    }
     const id = this.nextID++
     const body = JSON.stringify({ jsonrpc: '2.0', method, params, id })
-    const res = await fetch(this.endpoint, {
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers: this.headers,
       body,
@@ -192,6 +199,36 @@ class RPCClient {
     return payload.result
   }
 }
+
+// SERVER_METHODS are per-machine RPCs that route to /server/rpc on
+// the active connection — preferences, profile, LLM accounts, etc.
+// Reachable before any repo is selected (the picker, the welcome
+// flow, the boot-time first-run nudge all live in this state).
+// Everything not in this set routes to /repos/<id>/rpc, which
+// requires a repo to be picked first.
+//
+// Keep in sync with core/supervisor/machine.go's MachineService
+// surface — adding a method there means adding its name here.
+const SERVER_METHODS = new Set<string>([
+  'GetPreferences',
+  'SetPreferences',
+  'GetProfile',
+  'SetProfile',
+  'GetAuthInfo',
+  'MarkLLMNudgeShown',
+  'GetLLMConfig',
+  'SetLLMConfig',
+  'GetLLMAccounts',
+  'SaveLLMAccounts',
+  'GetTokenPricing',
+  'SaveTokenPricing',
+  'IsLLMConfigured',
+  'GetNotifyConfig',
+  'SetNotifyConfig',
+  'GetNotifications',
+  'GetDueDateSettings',
+  'SaveDueDateSettings',
+])
 
 // --- Event stream via SSE ---
 
@@ -333,6 +370,18 @@ async function getCardProjectContextCached(cardID: string): Promise<string> {
   return value
 }
 
+// signAttachmentURLFull wraps the per-repo SignAttachmentURL RPC.
+// The Runtime returns a server-relative path (including its own
+// /repos/<id>/ prefix + signed query string); the wrapper prepends
+// the active connection's scheme://host so consumers can drop the
+// result straight into <img src> / <a href>. Keeps the HMAC secret
+// server-side — the client never sees it.
+async function signAttachmentURLFull(cardID: string, attachmentID: string): Promise<string> {
+  const info = await resolveTransportInfo()
+  const path = (await rpcClient!.call('SignAttachmentURL', [cardID, attachmentID])) as string
+  return `${httpBase(info)}${path}`
+}
+
 function buildAdapter(): BackendAdapter {
   const base = {
     getCapabilities: capabilities,
@@ -345,6 +394,8 @@ function buildAdapter(): BackendAdapter {
     // Hot-path override — caches briefly to avoid RPC storms on
     // markdown documents with many inline bruv:card links.
     GetCardProjectContext: getCardProjectContextCached,
+    // URL-completing wrapper — see signAttachmentURLFull for why.
+    SignAttachmentURL: signAttachmentURLFull,
   }
 
   // Pre-build the shell-method wrappers so every call returns the
@@ -358,7 +409,7 @@ function buildAdapter(): BackendAdapter {
   const handler: ProxyHandler<typeof base> = {
     get(target: any, prop: string | symbol) {
       if (typeof prop === 'symbol') return target[prop as any]
-      if (nonRPCMembers.has(prop) || prop === 'GetCardProjectContext') {
+      if (nonRPCMembers.has(prop) || prop === 'GetCardProjectContext' || prop === 'SignAttachmentURL') {
         return target[prop]
       }
       if (shellMethods[prop]) return shellMethods[prop]

@@ -17,13 +17,19 @@ import (
 // Config holds server construction inputs. Addr is the TCP listen
 // address ("127.0.0.1:0" for random loopback port in desktop mode).
 //
-// Single-repo mode (desktop loopback): pass `target` and `bus` to
-// `New(...)`. Routes are flat: /rpc, /events, /attachments/*.
-//
-// Multi-repo mode (bruv-server): pass `Repos` here. Routes become
-// /repos/<id>/rpc, /repos/<id>/events, /repos/<id>/attachments/*,
-// plus a top-level GET /repos that lists every repo. The server
-// builds one runtime per entry and routes by URL path.
+// All hosts run the multi-repo transport since the 2026-04-26
+// "local-as-remote" pivot — Repos is required. Routes:
+//   GET    /repos                        list of {id,name,disabled}
+//   POST   /repos                        init-or-open (body: {path,name?})
+//   POST   /repos/inspect                inspect path (body: {path})
+//   PATCH  /repos/<id>                   rename (body: {name})
+//   DELETE /repos/<id>                   remove from registry
+//   POST   /repos/<id>/(enable|disable)  toggle
+//   POST   /repos/<id>/rpc               per-repo dispatcher
+//   GET    /repos/<id>/events            per-repo SSE
+//   GET    /repos/<id>/attachments/...   signed-URL handler
+//   POST   /server/rpc                   per-machine dispatcher
+//                                        (when MachineTarget is set)
 type Config struct {
 	Addr      string
 	ConfigDir string
@@ -34,31 +40,16 @@ type Config struct {
 	// //go:embed directive. Leave nil in headless server builds that
 	// don't carry UI bytes.
 	StaticAssets fs.FS
-	// Attachments wires the signed-URL download handler. In single-repo
-	// mode the handler is mounted at /attachments/{cardID}/{id}. In
-	// multi-repo mode each repo provides its own resolver via
-	// RepoBackend and this top-level field is ignored.
-	Attachments *AttachmentConfig
-	// Repos enables multi-repo routing. Set in bruv-server mode; leave
-	// nil for the desktop loopback (which only has one repo at a time).
+	// Repos is the per-repo backend. Required.
 	Repos RepoBackend
-
-	// LocalRegistry, when set, makes single-repo (desktop loopback)
-	// mode serve a registry-backed GET /repos response and
-	// POST /repos/<id>/(enable|disable) endpoints — so the picker
-	// can render Local symmetrically with Remote without a real
-	// supervisor on the desktop side. Ignored when Repos is set
-	// (multi-repo mode uses the RepoBackend itself).
-	LocalRegistry *LocalRegistryConfig
-}
-
-// LocalRegistryConfig wires the desktop's repos.json into the
-// transport's single-repo routes. Both fields are required when set.
-// The List callback supplies GET /repos; SetEnabled supplies the
-// enable/disable POSTs.
-type LocalRegistryConfig struct {
-	List       func() []RepoSummary
-	SetEnabled func(id string, enabled bool) error
+	// MachineTarget is the dispatcher target for /server/rpc — the
+	// host's per-machine RPC surface (preferences, profile, LLM
+	// accounts, etc.). Reachable when no repo is selected. Leave nil
+	// to skip the route (clients then can't call any per-machine
+	// method until a repo is open and the per-repo dispatcher takes
+	// over). Both the desktop and the headless server set this in
+	// practice.
+	MachineTarget any
 }
 
 // AttachmentConfig wires the signed-URL handler. Secret is the HMAC
@@ -92,60 +83,55 @@ type RepoTarget struct {
 	Attachments *AttachmentConfig
 }
 
-// RepoBackend is what the server passes in for multi-repo mode. The
-// transport asks it to resolve a repo ID at request time and to list
-// available repos for the GET /repos endpoint. The internal/server
-// package implements this; the transport stays free of repo concerns.
+// RepoBackend is the transport's window onto the host's per-repo
+// state. Implemented by core/supervisor.HTTPAdapter. The transport
+// asks it to:
+//   - Resolve(id)        — look up a per-repo dispatcher target.
+//   - List()             — enumerate registered repos for GET /repos.
+//   - SetEnabled         — flip enable/disable.
+//   - Inspect(path)      — read manifest at path without touching state.
+//   - InitOrOpen         — register + load a repo at the given path.
+//   - Rename             — update the registry name + manifest.
+//   - Remove             — drop a repo from the registry (unloads).
 //
-// SetEnabled is a server-level operation (per-repo state but not
-// per-repo dispatcher target) so it lives on the backend interface
-// rather than in the per-repo RPC dispatcher. Clients call it via
-// POST /repos/<id>/enable or DELETE /repos/<id>.
+// Repo lifecycle operations (SetEnabled, InitOrOpen, Rename, Remove)
+// live here rather than on Runtime because they're registry-level —
+// the runtime might not exist (disabled, just-removed).
 type RepoBackend interface {
 	Resolve(id string) *RepoTarget
 	List() []RepoSummary
 	SetEnabled(id string, enabled bool) error
+	Inspect(path string) (RepoInspect, error)
+	InitOrOpen(path, name string) (RepoSummary, error)
+	Rename(id, name string) error
+	Remove(id string) error
 }
 
-// Server is the BRUV HTTP transport. Embed it in the desktop binary
-// (loopback, single-repo) or run it headless via bruv-server
-// (multi-repo).
+// Server is the BRUV HTTP transport. Same wiring on desktop (loopback)
+// and the headless bruv-server — both run multi-repo since the
+// 2026-04-26 local-as-remote pivot.
 type Server struct {
 	cfg     Config
 	devices *DeviceStore
 
-	// Single-repo mode (Config.Repos == nil): one dispatcher + bus.
-	dispatcher *Dispatcher
-	bus        *events.MemBus
-
-	// Multi-repo mode (Config.Repos != nil): per-repo dispatchers,
-	// built lazily on first request and cached. The bus and
-	// attachment resolver come from the resolved RepoTarget at
-	// request time.
+	// Per-repo dispatchers, built lazily on first request and cached.
+	// The bus + attachment resolver come from the resolved RepoTarget
+	// at request time.
 	dispatchers map[string]*Dispatcher
+
+	// Per-machine dispatcher for /server/rpc, built once at construct
+	// time when Config.MachineTarget is set.
+	machineDispatcher *Dispatcher
 
 	httpServer *nethttp.Server
 	listener   net.Listener
 }
 
-// New builds a single-repo server (desktop loopback). For multi-repo
-// use NewMulti — same struct, different wiring.
-func New(cfg Config, target any, bus *events.MemBus) (*Server, error) {
-	devices, err := NewDeviceStore(cfg.ConfigDir)
-	if err != nil {
-		return nil, fmt.Errorf("device store: %w", err)
-	}
-	disp := NewDispatcher(target, DefaultDeniedMethods())
-	return &Server{
-		cfg:        cfg,
-		dispatcher: disp,
-		bus:        bus,
-		devices:    devices,
-	}, nil
-}
-
 // NewMulti builds a multi-repo server. Repos is required; per-repo
-// dispatchers are built lazily on first lookup and cached.
+// dispatchers are built lazily on first lookup and cached. When
+// MachineTarget is set, /server/rpc is also mounted with a dispatcher
+// against that target — used for per-machine RPCs (preferences,
+// LLM accounts, etc.) that don't belong to a specific repo.
 func NewMulti(cfg Config) (*Server, error) {
 	if cfg.Repos == nil {
 		return nil, fmt.Errorf("transport.NewMulti: Config.Repos is required")
@@ -154,20 +140,21 @@ func NewMulti(cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("device store: %w", err)
 	}
-	return &Server{
+	s := &Server{
 		cfg:         cfg,
 		devices:     devices,
 		dispatchers: make(map[string]*Dispatcher),
-	}, nil
+	}
+	if cfg.MachineTarget != nil {
+		s.machineDispatcher = NewDispatcher(cfg.MachineTarget, DefaultDeniedMethods())
+	}
+	return s, nil
 }
 
-// dispatcherFor returns the per-repo dispatcher in multi-repo mode,
-// building + caching it on first request. Returns nil when the repo
-// ID isn't known to the backend.
+// dispatcherFor returns the per-repo dispatcher, building + caching it
+// on first request. Returns nil when the repo ID isn't known to the
+// backend.
 func (s *Server) dispatcherFor(repoID string) (*Dispatcher, *RepoTarget) {
-	if s.cfg.Repos == nil {
-		return s.dispatcher, nil // single-repo fallback (used by desktop)
-	}
 	target := s.cfg.Repos.Resolve(repoID)
 	if target == nil {
 		return nil, nil
@@ -259,38 +246,19 @@ func (s *Server) buildMux() *nethttp.ServeMux {
 
 	mux.Handle("/auth/enrol", requireBootstrap(s.devices, enrolHandler(s.devices)))
 
-	if s.cfg.Repos != nil {
-		// Multi-repo mode (bruv-server). Routes:
-		//   GET /repos              → list of {id, name}
-		//   /repos/<id>/rpc         → per-repo dispatcher
-		//   /repos/<id>/events      → per-repo SSE
-		//   /repos/<id>/attachments → per-repo signed-URL handler
-		mux.Handle("/repos", requireAuth(s.devices, listReposHandler(s.cfg.Repos)))
-		mux.Handle("/repos/", requireAuth(s.devices, s.repoRouter()))
-	} else {
-		// Single-repo mode (desktop loopback). Flat routes — the desktop
-		// only ever has one repo open at a time and the UI doesn't
-		// bother with the /repos/<id>/ prefix.
-		mux.Handle("/rpc", requireAuth(s.devices, s.dispatcher.Handler()))
-		mux.Handle("/events", requireAuth(s.devices, sseHandler(s.bus)))
-		if s.cfg.Attachments != nil {
-			mux.Handle("/attachments/", attachmentHandler(s.cfg.Attachments))
-		}
-		// Single-repo backends still expose GET /repos so the
-		// connection-tree picker on the frontend renders Local
-		// symmetrically with Remote. Prefer the registry-backed
-		// path when the host has wired up LocalRegistry (the
-		// desktop App does — it owns repos.json the same way
-		// the server does). Falls back to the legacy reflection
-		// shim that emits "the currently open repo" when no
-		// registry is wired (kept so transport tests + early
-		// boot before the App finishes wiring still answer).
-		if s.cfg.LocalRegistry != nil {
-			mux.Handle("/repos", requireAuth(s.devices, localRegistryListHandler(s.cfg.LocalRegistry)))
-			mux.Handle("/repos/", requireAuth(s.devices, localRegistryEnableRouter(s.cfg.LocalRegistry)))
-		} else {
-			mux.Handle("/repos", requireAuth(s.devices, singleRepoListHandler(s.dispatcher)))
-		}
+	// /repos and /repos/<id>/... — multi-repo routing (used by both
+	// desktop loopback and headless bruv-server since the local-as-
+	// remote pivot). See package-level Config doc for the full route
+	// table.
+	mux.Handle("/repos", requireAuth(s.devices, reposCollectionHandler(s.cfg.Repos)))
+	mux.Handle("/repos/", requireAuth(s.devices, s.repoRouter()))
+
+	// /server/rpc — per-machine dispatcher (preferences, profile,
+	// LLM accounts, signed-attachment-URL). Mounted only when the
+	// host wired a MachineTarget; clients that hit it without a
+	// configured target get a clean 404.
+	if s.machineDispatcher != nil {
+		mux.Handle("/server/rpc", requireAuth(s.devices, s.machineDispatcher.Handler()))
 	}
 
 	// Mode B: serve the embedded Svelte bundle at /app/*. Intentionally

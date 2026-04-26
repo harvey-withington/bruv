@@ -146,7 +146,11 @@ func (r *Repository) RenameStream(brandSlug, streamSlug, newName string) (*model
 	if newSlug != streamSlug {
 		newSlug = uniqueSlug(newSlug, func(s string) bool { return s != streamSlug && fileExists(r.streamPath(brandSlug, s)) })
 		stream.Slug = newSlug
-		if err := os.Rename(r.streamPath(brandSlug, streamSlug), r.streamPath(brandSlug, newSlug)); err != nil {
+		oldDir := r.streamPath(brandSlug, streamSlug)
+		cleanup := r.withDirOp(oldDir)
+		err := os.Rename(oldDir, r.streamPath(brandSlug, newSlug))
+		cleanup()
+		if err != nil {
 			return nil, fmt.Errorf("rename stream directory: %w", err)
 		}
 	}
@@ -191,5 +195,7 @@ func (r *Repository) DeleteStream(brandSlug, streamSlug string) error {
 	if !fileExists(streamDir) {
 		return fmt.Errorf("stream %q not found in brand %q", streamSlug, brandSlug)
 	}
+	cleanup := r.withDirOp(streamDir)
+	defer cleanup()
 	return os.RemoveAll(streamDir)
 }

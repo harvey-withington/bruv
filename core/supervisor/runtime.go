@@ -16,6 +16,9 @@ package supervisor
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -68,6 +71,12 @@ type Runtime struct {
 	bus         *events.MemBus
 	watcher     *reposync.Watcher
 
+	// secret is the host's HMAC key for signed-attachment-URL minting.
+	// Passed in from the supervisor at build time (one secret per
+	// host machine; shared across all runtimes hosted by that machine).
+	// Used only by SignAttachmentURL.
+	secret []byte
+
 	// llmActors tracks active chat/agent sessions by cardID → actor
 	// string so logActivity can attribute edits correctly.
 	llmActors sync.Map
@@ -95,12 +104,13 @@ type Runtime struct {
 // background workers (file watcher, MCP subprocesses, agent scheduler).
 // Returns a fully-armed *Runtime ready to accept RPCs. Caller must
 // Close() to release the lock + index + watcher when done.
-func buildRuntime(repoPath, configDir string) (*Runtime, error) {
+func buildRuntime(repoPath, configDir string, secret []byte) (*Runtime, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &Runtime{
 		ctx:       ctx,
 		cancelCtx: cancel,
 		bus:       events.NewMemBus(128),
+		secret:    secret,
 	}
 
 	if reg, err := schema.NewRegistry(); err == nil {
@@ -154,6 +164,20 @@ func buildRuntime(repoPath, configDir string) (*Runtime, error) {
 
 	if w, err := reposync.Start(repoObj.Root, r.bus); err == nil {
 		r.watcher = w
+		// Wire the watcher into Repository's pre-rename / pre-delete
+		// hook so directory mutations on Windows don't trip over the
+		// fsnotify pending-IRP / ACCESS_DENIED issue. See
+		// reposync.Watcher doc for the full reason. Cleanup re-attaches
+		// the parent so children moved/created during the op are
+		// re-watched fresh — covers both renames (target moved within
+		// parent) and deletes (target gone, but parent's other children
+		// still need watching).
+		watcher := w
+		repoObj.BeforeDirOp = func(target string) func() {
+			watcher.DetachSubtree(target)
+			parent := filepath.Dir(target)
+			return func() { watcher.AttachSubtree(parent) }
+		}
 	} else {
 		slog.Warn("repo watcher start failed", "err", err)
 	}
@@ -204,6 +228,30 @@ func (r *Runtime) GetAllAgentRuns(limit int) ([]map[string]any, error) {
 }
 func (r *Runtime) GetAgentAnalytics() (map[string]any, error) {
 	return r.agentRT.GetAgentAnalytics()
+}
+
+// SignAttachmentURL mints a short-lived signed URL the client can drop
+// straight into <img src> / <a href>. The 5-minute TTL bounds how long
+// a leaked URL stays usable; download URLs are renewed on every page
+// load anyway, so a short lifetime is invisible to users.
+//
+// Returns a server-relative path including this repo's /repos/<id>/
+// prefix, so the client (cloud adapter) just has to prepend its
+// scheme://host base. The HMAC signing keeps the secret server-side.
+func (r *Runtime) SignAttachmentURL(cardID, attachmentID string) (string, error) {
+	if cardID == "" || attachmentID == "" {
+		return "", fmt.Errorf("cardID and attachmentID are required")
+	}
+	if r.repo == nil || r.repo.Manifest == nil {
+		return "", fmt.Errorf("repo not loaded")
+	}
+	const ttl = 5 * time.Minute
+	exp := time.Now().Add(ttl).Unix()
+	mac := hmac.New(sha256.New, r.secret)
+	fmt.Fprintf(mac, "%s|%s|%d", cardID, attachmentID, exp)
+	sig := mac.Sum(nil)
+	return fmt.Sprintf("/repos/%s/attachments/%s/%s?exp=%d&sig=%s",
+		r.repo.Manifest.ID, cardID, attachmentID, exp, hex.EncodeToString(sig)), nil
 }
 
 // ResolveAttachment is the bridge from the transport HTTP handler

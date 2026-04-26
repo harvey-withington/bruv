@@ -55,16 +55,12 @@ export const DeleteMCPServer = (...args: Parameters<ReturnType<typeof getBackend
 export const SetMCPServerSecret = (...args: Parameters<ReturnType<typeof getBackend>['SetMCPServerSecret']>) => getBackend().SetMCPServerSecret(...args)
 export const GetMCPServerSecretStatus = (...args: Parameters<ReturnType<typeof getBackend>['GetMCPServerSecretStatus']>) => getBackend().GetMCPServerSecretStatus(...args)
 export const RestartMCPServer = (...args: Parameters<ReturnType<typeof getBackend>['RestartMCPServer']>) => getBackend().RestartMCPServer(...args)
-export const HasRepository = () => getBackend().HasRepository()
-export const InspectRepoPath = (...args: Parameters<ReturnType<typeof getBackend>['InspectRepoPath']>) => getBackend().InspectRepoPath(...args)
-export const InitRepository = (...args: Parameters<ReturnType<typeof getBackend>['InitRepository']>) => getBackend().InitRepository(...args)
-export const OpenRepository = (...args: Parameters<ReturnType<typeof getBackend>['OpenRepository']>) => getBackend().OpenRepository(...args)
-export const CloseRepository = () => getBackend().CloseRepository()
+// Repo registry CRUD lives on transport HTTP (POST /repos, PATCH
+// /repos/<id>, DELETE /repos/<id>) reached via lib/repos.svelte.ts
+// helpers — not RPC. Per-repo data RPCs (GetCurrentRepo,
+// GetRepoDescription, etc.) stay on the cloud adapter and route
+// through /repos/<id>/rpc → Runtime.
 export const PickFolder = (...args: Parameters<ReturnType<typeof getBackend>['PickFolder']>) => getBackend().PickFolder(...args)
-export const RemoveLocalRepo = (...args: Parameters<ReturnType<typeof getBackend>['RemoveLocalRepo']>) => getBackend().RemoveLocalRepo(...args)
-export const RenameLocalRepo = (...args: Parameters<ReturnType<typeof getBackend>['RenameLocalRepo']>) => getBackend().RenameLocalRepo(...args)
-export const SetLocalRepoEnabled = (...args: Parameters<ReturnType<typeof getBackend>['SetLocalRepoEnabled']>) => getBackend().SetLocalRepoEnabled(...args)
-export const GetLastOpenedLocalRepoPath = () => getBackend().GetLastOpenedLocalRepoPath()
 export const GetCurrentRepo = () => getBackend().GetCurrentRepo()
 export const GetRepoDescription = () => getBackend().GetRepoDescription()
 export const UpdateRepoDescription = (...args: Parameters<ReturnType<typeof getBackend>['UpdateRepoDescription']>) => getBackend().UpdateRepoDescription(...args)

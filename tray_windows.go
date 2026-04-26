@@ -66,7 +66,15 @@ func (a *App) setupTray() {
 				go a.showWindow()
 			})
 
-			// Right-click: default behaviour shows context menu (no override needed)
+			// Right-click: explicitly show the context menu. The library's
+			// default right-click handler doesn't reliably fire on Windows
+			// GUI-subsystem builds — `wails dev` runs the binary with a
+			// console attached and hides this; the production .exe is
+			// pure GUI and the menu silently doesn't appear without
+			// this explicit registration.
+			systray.SetOnRClick(func(menu systray.IMenu) {
+				menu.ShowMenu()
+			})
 
 			// Context menu items
 			mShow := systray.AddMenuItem("Show BRUV", "Show the main window")

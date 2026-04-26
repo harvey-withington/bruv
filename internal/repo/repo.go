@@ -100,6 +100,28 @@ func InitAt(root string, name string) (*Repository, error) {
 	return &Repository{Root: root, Manifest: manifest}, nil
 }
 
+// InspectAt reads the manifest at the given path WITHOUT opening the
+// repository (no lock acquisition, no ID backfill, no side effects).
+// Returns (nil, nil) when the path is not a BRUV repo — callers use
+// this to decide between Init and Open without round-tripping an
+// "is this a repo" error string. Distinct return is reserved for
+// genuine I/O / parse failures.
+func InspectAt(root string) (*model.Manifest, error) {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve path: %w", err)
+	}
+	mpath := filepath.Join(root, manifestFile)
+	if !fileExists(mpath) {
+		return nil, nil
+	}
+	var manifest model.Manifest
+	if err := readJSON(mpath, &manifest); err != nil {
+		return nil, fmt.Errorf("read manifest: %w", err)
+	}
+	return &manifest, nil
+}
+
 // Open opens an existing BRUV repository at the given root path.
 func Open(root string) (*Repository, error) {
 	root, err := filepath.Abs(root)

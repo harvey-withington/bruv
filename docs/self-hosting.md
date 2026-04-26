@@ -25,13 +25,13 @@ This guide walks through the second mode.
 2. **Run the BRUV installer.** On the components page, tick **Server (run in background, auto-start on boot)**. You can leave **Desktop app** ticked too if you also want to use BRUV on this machine; un-tick it for headless boxes.
 3. **Click Install.** The installer will:
    - Drop `bruv.exe` into `Program Files`.
-   - Create an empty BRUV repo at `%APPDATA%\bruv\server-repo` (you can put it elsewhere later — see [moving the repo](#moving-the-repo)).
+   - Create an empty BRUV repo at `%PROGRAMDATA%\BRUV\server-repo` (you can put it elsewhere later — see [moving the repo](#moving-the-repo)).
    - Register a Windows Service named **BRUV Server**, set to auto-start on boot.
    - Start the service immediately.
 4. **Note the connection token.** The finish page tells you where to find the *bootstrap token* the other devices will need to enrol:
 
    ```
-   %APPDATA%\bruv\bootstrap-token.txt
+   %PROGRAMDATA%\BRUV\bootstrap-token.txt
    ```
 
    This is a one-time-use seed: each device exchanges it for its own long-lived token via `/auth/enrol`, and the bootstrap token isn't needed again after enrolment.
@@ -92,7 +92,7 @@ The server expects exactly one repo, picked at install time. To move it:
 
 ```
 bruv.exe service uninstall
-move %APPDATA%\bruv\server-repo D:\BRUV
+move %PROGRAMDATA%\BRUV\server-repo D:\BRUV
 bruv.exe service install --repo D:\BRUV
 ```
 
@@ -102,7 +102,7 @@ The bootstrap token grants enrolment rights — anyone who has it can register a
 
 ### Backups
 
-The server's data lives at the repo path you picked (default: `%APPDATA%\bruv\server-repo`). It's plain JSON files. Back it up with whatever you already use for backups — Time Machine, Backblaze, robocopy to a USB drive. The `.bruv/` subfolder is derived state (SQLite index, lock file) and doesn't need to be backed up; everything else does.
+The server's data lives at the repo path you picked (default: `%PROGRAMDATA%\BRUV\server-repo`). It's plain JSON files. Back it up with whatever you already use for backups — Time Machine, Backblaze, robocopy to a USB drive. The `.bruv/` subfolder is derived state (SQLite index, lock file) and doesn't need to be backed up; everything else does.
 
 ---
 
@@ -122,7 +122,7 @@ The server's data lives at the repo path you picked (default: `%APPDATA%\bruv\se
 
 ```
 bruv.exe service uninstall
-rmdir /s /q %APPDATA%\bruv\server-repo
+rmdir /s /q %PROGRAMDATA%\BRUV\server-repo
 ```
 
 Then re-run the installer with the Server checkbox.

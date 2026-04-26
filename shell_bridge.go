@@ -61,3 +61,42 @@ func (s *ShellAPI) OpenBugReportURL() error {
 func (s *ShellAPI) ForceQuit() {
 	s.app.ForceQuit()
 }
+
+// --- Connections (per-machine local state) ---
+//
+// Connection management lives on the shell surface, not the cloud
+// adapter, because it's strictly per-machine state (`<clientdata>/
+// connections.json`) and must stay reachable when the active
+// connection's backend is unreachable. Without this the user gets
+// stuck: a misconfigured remote breaks every RPC including the one
+// they'd need to call to switch back to Local.
+
+func (s *ShellAPI) ListConnections() (any, error) {
+	return s.app.ListConnections()
+}
+
+func (s *ShellAPI) AddConnection(name, url, deviceToken string) (any, error) {
+	return s.app.AddConnection(name, url, deviceToken)
+}
+
+func (s *ShellAPI) RemoveConnection(id string) error {
+	return s.app.RemoveConnection(id)
+}
+
+func (s *ShellAPI) UpdateConnection(id, name, url, deviceToken string) (any, error) {
+	return s.app.UpdateConnection(id, name, url, deviceToken)
+}
+
+func (s *ShellAPI) SetActiveConnection(id string) error {
+	return s.app.SetActiveConnection(id)
+}
+
+// SetActiveRepo lives on the shell surface for the same reason as
+// the connection methods: per-device picker state must be settable
+// even when the active connection's backend is unreachable. After
+// the picker, the frontend calls this then reloads — the cloud
+// adapter then re-reads GetHTTPTransportInfo and includes the new
+// repo ID in every request URL.
+func (s *ShellAPI) SetActiveRepo(repoID string) error {
+	return s.app.SetActiveRepo(repoID)
+}

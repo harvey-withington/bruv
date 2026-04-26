@@ -4,44 +4,22 @@ import (
 	"encoding/hex"
 
 	"bruv/core/events"
-	"bruv/core/reposync"
-	agentrt "bruv/core/runtime/agent"
-	chatrt "bruv/core/runtime/chat"
-	"bruv/core/runtime/prompts"
-	"bruv/core/runtime/tools"
-	agentsvc "bruv/core/services/agentsvc"
-	"bruv/core/services/card"
-	"bruv/core/services/catalog"
-	chatsvc "bruv/core/services/chat"
-	reposvc "bruv/core/services/repository"
-	transporthttp "bruv/transport/http"
-	llmsvc "bruv/core/services/llm"
-	"bruv/core/services/mcpsvc"
-	"bruv/core/services/notify"
-	projectsvc "bruv/core/services/project"
-	"bruv/core/services/search"
-	"bruv/core/services/settings"
+	"bruv/core/supervisor"
 	"bruv/internal/config"
-	"bruv/internal/index"
 	"bruv/internal/logging"
-	"bruv/internal/mcp"
-	"bruv/internal/model"
 	"bruv/internal/repo"
-	"bruv/internal/schema"
 	"bruv/internal/update"
+	transporthttp "bruv/transport/http"
 	"context"
 	"fmt"
 	"log/slog"
 	"net/url"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/google/uuid"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -67,241 +45,98 @@ type BuildInfo struct {
 	GoVersion string `json:"go_version"`
 }
 
-// App struct
+// App is the desktop shell. Per-repo state + the 130+ per-repo RPC
+// methods live on the embedded *supervisor.Runtime; App owns only
+// what's genuinely desktop-specific: window/tray/bounds, the loopback
+// HTTP server, repo lock, the supervisor itself, and connection
+// management (which has to keep working when the active backend is
+// unreachable, so the Wails Shell binds it directly).
+//
+// When no repo is open, the embedded Runtime is nil — promoted
+// methods will panic if invoked, and the JSON-RPC dispatcher's
+// recover() turns those into normal RPC errors. Internal Go callers
+// should check `a.Runtime != nil` (or use a.HasRepository()) before
+// reaching into per-repo state.
 type App struct {
+	*supervisor.Runtime // embedded — promotes all per-repo methods + service fields
+
+	sup      *supervisor.Supervisor
+	activeID string
+
+	// Desktop-only lifecycle state.
 	ctx             context.Context
-	repo            *repo.Repository
-	registry        *schema.Registry
-	idx             *index.Index
 	savedBounds     *config.WindowBounds
 	boundsRestored  bool
 	lastSavedBounds *config.WindowBounds
-	// llmActors tracks active LLM chat sessions by cardID → model name.
-	// Set during SendChatMessage so logActivity can attribute edits to the correct actor.
-	llmActors sync.Map
-	// Scheduler, due-date scanner, and agent cancel map moved onto the
-	// agent runtime (see core/runtime/agent). Access via a.agentRT.
-	forceQuit     bool
-	trayPauseItem interface{ Check(); Uncheck(); Checked() bool } // system tray "Pause Agents" menu item
-	// mcpRegistry manages external MCP server subprocesses for the
-	// currently open repo. Nil when no repo is open. Tools exposed by
-	// MCP servers appear in the agent tool catalogue alongside
-	// built-in tools and dispatch through the same executeAgentToolCall
-	// path via a namespaced ID prefix. See internal/mcp for the full
-	// architecture and docs/mcp-servers.md for user-facing docs.
-	mcpRegistry *mcp.Registry
-	// Service registry — each extracted service lives in core/services/<name>.
-	// App retains domain coordination (repo lifecycle, window, tray) and
-	// forwards Wails-bound methods to the matching service.
-	search     *search.Service
-	notify     *notify.Service
-	mcpService *mcpsvc.Service
-	llmService *llmsvc.Service
-	settings   *settings.Service
-	catalog     *catalog.Service
-	project     *projectsvc.Service
-	cardService  *card.Service
-	chat         *chatsvc.Service
-	agentService *agentsvc.Service
-	repoService  *reposvc.Service
+	forceQuit       bool
+	trayPauseItem   interface{ Check(); Uncheck(); Checked() bool }
 
-	// tools is the LLM tool dispatcher, extracted from app_tools.go
-	// in the LLM-runtime-extraction stage-1 pass. See core/runtime/tools.
-	tools *tools.Dispatcher
+	// appBus is the stable host-side event bus the Wails bridge and
+	// HTTP SSE handler subscribe to. Per-runtime publishers (the
+	// services exposed via the embedded *Runtime) publish into the
+	// runtime's own bus; bindRuntime sets up a fan-in goroutine that
+	// re-publishes onto appBus. Keeping appBus stable across runtime
+	// switches means the bridge + HTTP server don't have to rewire.
+	appBus           *events.MemBus
+	runtimeBusUnsub  func()
+	wailsBridgeUnsub func()
+	wailsBridgeOnce  sync.Once
 
-	// prompts is the LLM system-prompt builder (card / project / agent),
-	// extracted from app_chat.go + app_agent.go in stage 2 of the
-	// LLM-runtime extraction. See core/runtime/prompts.
-	prompts *prompts.Builder
-
-	// chatRT is the chat runtime — runChatLoop + SendCard + SendProject,
-	// extracted from app_chat.go in stage 3. See core/runtime/chat.
-	chatRT *chatrt.Runtime
-
-	// agentRT is the agent execution runtime — scheduler + due-date
-	// scanner + executeAgent + MCP tool bridging, extracted from
-	// app_agent.go in stage 4. See core/runtime/agent.
-	agentRT *agentrt.Runtime
-
-	// bus is the transport-agnostic event bus. Domain code publishes
-	// to it via a.bus.Publish; at startup a bridge goroutine subscribes
-	// and forwards every event to wailsRuntime.EventsEmit. When a
-	// WebSocket transport lands in phase 3 it becomes a second
-	// subscriber — no domain code changes.
-	bus         *events.MemBus
-	busUnsub    func()
-	busStopOnce sync.Once
-
-	// httpServer is the HTTP + SSE transport. Boots on a random
-	// 127.0.0.1 port from the Wails desktop in phase 3 so the
-	// frontend can migrate to speaking HTTP in phase 4 without any
-	// new server code. Remote deployment (Modes A/B) will bind the
-	// same server to the tailnet interface instead of loopback.
 	httpServer *transporthttp.Server
-
-	// repoWatcher is the file-system watcher for the currently-open
-	// repo. It publishes card:updated/project:updated/etc events when
-	// files change externally (git pull, Syncthing, hand-edit), which
-	// is how sync-based collaboration flows to the UI. Nil when no
-	// repo is open.
-	repoWatcher *reposync.Watcher
 }
 
-// repositoryDeps adapts App to reposvc.Deps.
-type repositoryDeps struct{ app *App }
-
-func (d repositoryDeps) Repo() *repo.Repository { return d.app.repo }
-func (d repositoryDeps) Index() *index.Index    { return d.app.idx }
-
-// agentServiceDeps adapts App to agentsvc.Deps.
-type agentServiceDeps struct{ app *App }
-
-func (d agentServiceDeps) Repo() *repo.Repository { return d.app.repo }
-func (d agentServiceDeps) Index() *index.Index    { return d.app.idx }
-
-// chatDeps adapts App to chatsvc.Deps.
-type chatDeps struct{ app *App }
-
-func (d chatDeps) Repo() *repo.Repository { return d.app.repo }
-
-// cardDeps adapts App to card.Deps. LogActivity bridges to the
-// user-or-LLM actor resolution that still lives on App; ApplyTypeBlocks
-// bridges to the catalog service so card service doesn't need to know
-// about schema.
-type cardDeps struct{ app *App }
-
-func (d cardDeps) Repo() *repo.Repository { return d.app.repo }
-func (d cardDeps) Index() *index.Index    { return d.app.idx }
-func (d cardDeps) ApplyTypeBlocks(cardID, cardType string) {
-	d.app.catalog.ApplyTypeBlocks(cardID, cardType)
-}
-func (d cardDeps) LogActivity(cardID, action, field string) {
-	d.app.logActivity(cardID, action, field)
-}
-func (d cardDeps) LogActivityWithContext(cardID, action, field, cardTitle string, breadcrumbs []card.CategoryPath) {
-	d.app.logActivityWithContext(cardID, action, field, cardTitle, breadcrumbs)
-}
-func (d cardDeps) Publish(topic string, payload any) { d.app.bus.Publish(topic, payload) }
-
-// projectDeps adapts App to projectsvc.Deps.
-type projectDeps struct{ app *App }
-
-func (d projectDeps) Repo() *repo.Repository         { return d.app.repo }
-func (d projectDeps) Index() *index.Index            { return d.app.idx }
-func (d projectDeps) Publish(topic string, p any)    { d.app.bus.Publish(topic, p) }
-
-// catalogDeps adapts App to catalog.Deps. UpdateCardBlocks is exposed
-// because catalog's template-merge path writes back to card blocks;
-// it delegates to the App method, which will forward to card service
-// once that lands.
-type catalogDeps struct{ app *App }
-
-func (d catalogDeps) Repo() *repo.Repository     { return d.app.repo }
-func (d catalogDeps) Registry() *schema.Registry { return d.app.registry }
-func (d catalogDeps) Index() *index.Index        { return d.app.idx }
-func (d catalogDeps) UpdateCardBlocks(id string, blocks []model.Block) (*model.Card, error) {
-	return d.app.UpdateCardBlocks(id, blocks)
-}
-func (d catalogDeps) Publish(topic string, payload any) { d.app.bus.Publish(topic, payload) }
-
-// llmDeps adapts App to llmsvc.Deps — exposes the Wails-bound ctx
-// that test-connection probes use for their 30s timeout.
-type llmDeps struct{ app *App }
-
-func (d llmDeps) Ctx() context.Context { return d.app.ctx }
-
-// searchDeps adapts App to the search.Deps interface without exposing
-// repo/index on App's public surface (which would bind them to Wails).
-type searchDeps struct{ app *App }
-
-func (d searchDeps) Repo() *repo.Repository { return d.app.repo }
-func (d searchDeps) Index() *index.Index    { return d.app.idx }
-
-// NewApp creates a new App application struct
+// NewApp constructs the desktop App. The supervisor is built from
+// whatever's already in repos.json (post legacy-recents migration),
+// but no Runtime is loaded — that happens lazily when the user opens
+// a repo via OpenRepository / InitRepository / SetActiveRepo.
 func NewApp() *App {
-	a := &App{}
-	a.bus = events.NewMemBus(128)
-	a.search = search.New(searchDeps{app: a})
-	a.notify = notify.New()
-	a.mcpService = mcpsvc.New(mcpDeps{app: a})
-	a.llmService = llmsvc.New(llmDeps{app: a})
-	a.settings = settings.New()
-	a.catalog = catalog.New(catalogDeps{app: a})
-	a.project = projectsvc.New(projectDeps{app: a})
-	a.cardService = card.New(cardDeps{app: a})
-	a.chat = chatsvc.New(chatDeps{app: a})
-	a.agentService = agentsvc.New(agentServiceDeps{app: a})
-	a.repoService = reposvc.New(repositoryDeps{app: a})
-	a.tools = tools.New(toolsDeps{app: a})
-	a.prompts = prompts.New(promptsDeps{app: a})
-	a.chatRT = chatrt.New(chatDepsRT{app: a})
-	a.agentRT = agentrt.New(agentDepsRT{app: a})
+	a := &App{appBus: events.NewMemBus(128)}
+
+	// Run the recents migration BEFORE constructing the supervisor so
+	// freshly-imported entries land in the supervisor's registry view.
+	config.MigrateRecentsToRegistry()
+
+	cfgDir, err := config.ConfigDir()
+	if err != nil {
+		slog.Warn("NewApp: resolve config dir failed", "err", err)
+		cfgDir = "."
+	}
+	store, err := config.LoadRepos()
+	if err != nil {
+		slog.Warn("NewApp: load repos.json failed", "err", err)
+		store = config.ReposStore{}
+	}
+	sup, err := supervisor.New(store.Repos, cfgDir)
+	if err != nil {
+		slog.Warn("NewApp: supervisor construct failed", "err", err)
+		// Fall back to an empty supervisor so the picker still works.
+		sup, _ = supervisor.New(nil, cfgDir)
+	}
+	a.sup = sup
 	return a
 }
 
-// chatDepsRT adapts App to chatrt.Deps — exposes repo + schema,
-// context + the LLM / card services, the tool dispatcher + prompt
-// builder, and the two mutable state handles (MCP registry + the
-// llmActors sync.Map) the chat loop threads through.
-//
-// Named chatDepsRT so it doesn't collide with the existing `chatDeps`
-// used for the chat-history service adapter (see core/services/chat).
-type chatDepsRT struct{ app *App }
-
-func (d chatDepsRT) Repo() *repo.Repository            { return d.app.repo }
-func (d chatDepsRT) Registry() *schema.Registry        { return d.app.registry }
-func (d chatDepsRT) Ctx() context.Context              { return d.app.ctx }
-func (d chatDepsRT) LLM() *llmsvc.Service              { return d.app.llmService }
-func (d chatDepsRT) Card() *card.Service               { return d.app.cardService }
-func (d chatDepsRT) Tools() *tools.Dispatcher          { return d.app.tools }
-func (d chatDepsRT) Prompts() *prompts.Builder         { return d.app.prompts }
-func (d chatDepsRT) MCPRegistry() *mcp.Registry        { return d.app.mcpRegistry }
-func (d chatDepsRT) LLMActors() *sync.Map              { return &d.app.llmActors }
-
-// agentDepsRT adapts App to agentrt.Deps — exposes the full set of
-// handles the agent runtime needs: repo + index + schema + ctx, the
-// event bus (for agent:started/completed/card:updated/scheduler:paused
-// notifications), the four services the built-in tool dispatch writes
-// through, the two sub-runtimes (prompts + chat), and the mutable
-// runtime state (MCP registry + llmActors).
-type agentDepsRT struct{ app *App }
-
-func (d agentDepsRT) Repo() *repo.Repository            { return d.app.repo }
-func (d agentDepsRT) Index() *index.Index               { return d.app.idx }
-func (d agentDepsRT) Registry() *schema.Registry        { return d.app.registry }
-func (d agentDepsRT) Ctx() context.Context              { return d.app.ctx }
-func (d agentDepsRT) Publish(topic string, payload any) { d.app.bus.Publish(topic, payload) }
-func (d agentDepsRT) LLM() *llmsvc.Service              { return d.app.llmService }
-func (d agentDepsRT) Card() *card.Service               { return d.app.cardService }
-func (d agentDepsRT) Project() *projectsvc.Service      { return d.app.project }
-func (d agentDepsRT) Catalog() *catalog.Service         { return d.app.catalog }
-func (d agentDepsRT) Prompts() *prompts.Builder         { return d.app.prompts }
-func (d agentDepsRT) ChatRT() *chatrt.Runtime           { return d.app.chatRT }
-func (d agentDepsRT) MCPRegistry() *mcp.Registry        { return d.app.mcpRegistry }
-func (d agentDepsRT) LLMActors() *sync.Map              { return &d.app.llmActors }
-
-// toolsDeps adapts App to tools.Deps — exposes repo, schema registry,
-// bus publish, and the three services the tool dispatcher mutates
-// through. Matches the per-service-adapter pattern used elsewhere.
-type toolsDeps struct{ app *App }
-
-func (d toolsDeps) Repo() *repo.Repository                   { return d.app.repo }
-func (d toolsDeps) Registry() *schema.Registry               { return d.app.registry }
-func (d toolsDeps) Publish(topic string, payload any)        { d.app.bus.Publish(topic, payload) }
-func (d toolsDeps) Card() *card.Service                      { return d.app.cardService }
-func (d toolsDeps) Project() *projectsvc.Service             { return d.app.project }
-func (d toolsDeps) Catalog() *catalog.Service                { return d.app.catalog }
-
-// promptsDeps adapts App to prompts.Deps — prompt builders read repo
-// metadata, the schema registry, and the card + search services.
-// They never mutate, so no Publish or Project/Catalog handles are
-// needed here.
-type promptsDeps struct{ app *App }
-
-func (d promptsDeps) Repo() *repo.Repository     { return d.app.repo }
-func (d promptsDeps) Registry() *schema.Registry { return d.app.registry }
-func (d promptsDeps) Card() *card.Service        { return d.app.cardService }
-func (d promptsDeps) Search() *search.Service    { return d.app.search }
+// bindRuntime swaps the active *Runtime, restarting the per-runtime
+// fan-in goroutine that copies events from rt.Bus() into a.appBus.
+// Pass rt = nil to clear (e.g. CloseRepository). Idempotent.
+func (a *App) bindRuntime(rt *supervisor.Runtime) {
+	if a.runtimeBusUnsub != nil {
+		a.runtimeBusUnsub()
+		a.runtimeBusUnsub = nil
+	}
+	a.Runtime = rt
+	if rt == nil {
+		return
+	}
+	ch, unsub := rt.Bus().Subscribe()
+	a.runtimeBusUnsub = unsub
+	go func() {
+		defer logging.Recover("bindRuntime: fan-in")
+		for ev := range ch {
+			a.appBus.Publish(ev.Topic, ev.Payload)
+		}
+	}()
+}
 
 // startup is called when the app starts. The context is saved
 // so we can call the runtime methods
@@ -344,12 +179,10 @@ func (a *App) startup(ctx context.Context) {
 		slog.Warn("resolve config dir for logging failed", "err", err)
 	}
 
-	// Load the card type schema registry
-	reg, err := schema.NewRegistry()
-	if err != nil {
-		slog.Warn("card type schema load failed", "err", err)
-	}
-	a.registry = reg
+	// Schema registry is per-runtime — loaded by buildRuntime when the
+	// user opens a repo. NewApp ran the recents migration and loaded
+	// the registry; nothing more to do here repo-side until the user
+	// picks one.
 
 	// Migrate legacy single-provider config to multi-account
 	if err := config.MigrateLegacyLLMConfig(); err != nil {
@@ -437,9 +270,9 @@ func (a *App) beforeClose(ctx context.Context) bool {
 	a.saveCurrentBounds()
 
 	if a.forceQuit {
-		a.agentRT.StopScheduler()
-		a.agentRT.StopDueDateScanner()
-		a.stopMCPRegistry()
+		// Tear down per-repo resources via the supervisor — handles
+		// scheduler, due-date scanner, MCP, watcher, index, lock.
+		a.sup.Close()
 		a.stopHTTPTransport()
 		a.stopBusBridge()
 		logging.Close()
@@ -458,12 +291,12 @@ func (a *App) beforeClose(ctx context.Context) bool {
 // subscription and cancels the old goroutine.
 func (a *App) startBusBridge() {
 	// Drop any prior subscription (e.g. on a hot reload in dev).
-	if a.busUnsub != nil {
-		a.busUnsub()
+	if a.wailsBridgeUnsub != nil {
+		a.wailsBridgeUnsub()
 	}
-	ch, unsub := a.bus.Subscribe()
-	a.busUnsub = unsub
-	a.busStopOnce = sync.Once{}
+	ch, unsub := a.appBus.Subscribe()
+	a.wailsBridgeUnsub = unsub
+	a.wailsBridgeOnce = sync.Once{}
 
 	ctx := a.ctx
 	go func() {
@@ -490,10 +323,10 @@ func (a *App) startBusBridge() {
 // stopBusBridge cancels the bus subscription and lets the forwarder
 // goroutine exit. Safe to call multiple times.
 func (a *App) stopBusBridge() {
-	a.busStopOnce.Do(func() {
-		if a.busUnsub != nil {
-			a.busUnsub()
-			a.busUnsub = nil
+	a.wailsBridgeOnce.Do(func() {
+		if a.wailsBridgeUnsub != nil {
+			a.wailsBridgeUnsub()
+			a.wailsBridgeUnsub = nil
 		}
 	})
 }
@@ -523,7 +356,11 @@ func (a *App) startHTTPTransport() {
 			Secret:  config.LoadServerSecret(),
 			Resolve: a.resolveAttachment,
 		},
-	}, a, a.bus)
+		LocalRegistry: &transporthttp.LocalRegistryConfig{
+			List:       a.localRepoSummaries,
+			SetEnabled: func(id string, enabled bool) error { return config.SetRepoDisabled(id, !enabled) },
+		},
+	}, a, a.appBus)
 	if err != nil {
 		slog.Warn("http transport: construct failed", "err", err)
 		return
@@ -578,11 +415,17 @@ func (a *App) GetHTTPTransportInfo() map[string]string {
 	}
 	if active, _ := config.ActiveConnection(); active != nil {
 		addr := strings.TrimPrefix(strings.TrimPrefix(active.URL, "https://"), "http://")
+		// repoID is the user's last-selected repo on THIS connection,
+		// from the per-device repo-recents store. Empty means "show
+		// the picker" — the frontend uses this signal to skip the
+		// auto-restore and render the RepoSelector instead.
+		repoID := config.GetRecentRepoForConnection(active.ID)
 		return map[string]string{
 			"addr":   addr,
 			"token":  active.DeviceToken,
 			"scheme": schemeFromURL(active.URL),
 			"remote": "true",
+			"repoID": repoID,
 		}
 	}
 	if a.httpServer == nil {
@@ -618,11 +461,48 @@ func (a *App) RemoveConnection(id string) error {
 	return config.RemoveConnection(id)
 }
 
+// UpdateConnection edits a saved connection's name, URL, and/or
+// device token. Empty fields are left unchanged.
+func (a *App) UpdateConnection(id, name, url, deviceToken string) (config.Connection, error) {
+	return config.UpdateConnection(id, name, url, deviceToken)
+}
+
 // SetActiveConnection switches the active pointer. The frontend is
 // expected to reload after this so the cloud adapter re-resolves
 // transport info against the new active.
 func (a *App) SetActiveConnection(id string) error {
 	return config.SetActiveConnection(id)
+}
+
+// SetActiveRepo persists the user's repo selection for the currently
+// active connection. The frontend reloads after calling this so the
+// cloud adapter picks up the new repo ID via GetHTTPTransportInfo
+// and starts routing to /repos/<id>/...
+func (a *App) SetActiveRepo(repoID string) error {
+	active, err := config.ActiveConnection()
+	if err != nil {
+		return err
+	}
+	if active == nil {
+		// Local: with the registry now backing the picker, repoID
+		// IS meaningful — it identifies a specific entry in
+		// repos.json. Open the corresponding folder; the page
+		// reload that follows brings the rest of the UI into
+		// sync. Silent no-op if the ID isn't registered (the
+		// caller still reloads, so the user sees whatever was
+		// open before — not destructive).
+		store, err := config.LoadRepos()
+		if err != nil {
+			return err
+		}
+		for _, e := range store.Repos {
+			if e.ID == repoID {
+				return a.OpenRepository(e.Path)
+			}
+		}
+		return nil
+	}
+	return config.SetRecentRepoForConnection(active.ID, repoID)
 }
 
 // --- Attachments (signed-URL helpers + repo resolver) ---
@@ -632,14 +512,14 @@ func (a *App) SetActiveConnection(id string) error {
 // Returns ok=false when the repo isn't open, the card is gone, or the
 // attachment ID isn't on the card.
 func (a *App) resolveAttachment(cardID, attachmentID string) (path, mime, name string, ok bool) {
-	if a.repo == nil {
+	if a.Repo() == nil {
 		return "", "", "", false
 	}
-	att, err := a.repo.FindAttachment(cardID, attachmentID)
+	att, err := a.Repo().FindAttachment(cardID, attachmentID)
 	if err != nil || att == nil {
 		return "", "", "", false
 	}
-	return a.repo.AttachmentPath(cardID, attachmentID), att.Mime, att.Name, true
+	return a.Repo().AttachmentPath(cardID, attachmentID), att.Mime, att.Name, true
 }
 
 // SignAttachmentURL builds a short-lived signed URL the frontend can
@@ -691,14 +571,14 @@ func (a *App) logIdxErr(op string, err error) {
 		return
 	}
 	slog.Warn("index update failed", "op", op, "err", err)
-	a.bus.Publish("index:stale", op)
+	a.appBus.Publish("index:stale", op)
 }
 
-// idxIncrementalRefresh wraps a.idx.IncrementalRefresh so call sites
-// stay one-line. The many existing "if a.idx != nil { ... }" guards
-// remain in place, so this helper assumes a.idx is non-nil.
+// idxIncrementalRefresh wraps a.Index().IncrementalRefresh so call sites
+// stay one-line. The many existing "if a.Index() != nil { ... }" guards
+// remain in place, so this helper assumes a.Index() is non-nil.
 func (a *App) idxIncrementalRefresh() {
-	if _, err := a.idx.IncrementalRefresh(a.repo.Root); err != nil {
+	if _, err := a.Index().IncrementalRefresh(a.Repo().Root); err != nil {
 		a.logIdxErr("IncrementalRefresh", err)
 	}
 }
@@ -803,11 +683,7 @@ func (a *App) CheckForUpdates() update.Result {
 	return update.Check(AppVersion)
 }
 
-// MarkLLMNudgeShown persists a flag so the first-run LLM-configuration
-// nudge only fires once per install.
-func (a *App) MarkLLMNudgeShown() error {
-	return a.settings.MarkLLMNudgeShown()
-}
+// MarkLLMNudgeShown lives in app_settings.go (per-machine, nil-safe).
 
 // PickFolder opens a native folder picker dialog and returns the selected path.
 func (a *App) PickFolder(title string) (string, error) {
@@ -851,420 +727,220 @@ func (a *App) PickSaveFile(title, defaultName, filterName, filterPattern string)
 
 // --- Repository Management ---
 
-// InitRepository creates a new BRUV repository under the given base path.
-// A subfolder is created automatically using the slugified repo name.
-// Returns the actual repo root path on success.
-func (a *App) InitRepository(basePath, name string) (string, error) {
-	r, err := repo.Init(basePath, name)
+// RepoInspectInfo is the result of InspectRepoPath — surfaces just
+// enough for the UI to decide between Open (existing repo, name
+// known) and Init (fresh folder, ask user for name).
+type RepoInspectInfo struct {
+	Exists bool   `json:"exists"`
+	Name   string `json:"name"`
+	ID     string `json:"id"`
+}
+
+// InspectRepoPath checks whether the given folder is already a BRUV
+// repository, returning its name + ID when so. Used by the unified
+// repo-add flow: the UI picks a folder once, then we tell it
+// whether to show "Open this existing repo" or "Name your new repo".
+// Returns Exists=false (not an error) when the path is a normal
+// folder that simply isn't a BRUV repo yet.
+func (a *App) InspectRepoPath(path string) (*RepoInspectInfo, error) {
+	m, err := repo.InspectAt(path)
+	if err != nil {
+		return nil, err
+	}
+	if m == nil {
+		return &RepoInspectInfo{Exists: false}, nil
+	}
+	return &RepoInspectInfo{Exists: true, Name: m.Name, ID: m.ID}, nil
+}
+
+// InitRepository creates a new BRUV repository at exactly the given
+// path, registers it in repos.json, and binds it as the active
+// runtime. The unified repo-add flow uses the OS folder picker
+// (including its built-in "New Folder") so the path the user picks
+// IS the repo root. Returns the absolute path on success.
+func (a *App) InitRepository(path, name string) (string, error) {
+	r, err := repo.InitAt(path, name)
 	if err != nil {
 		return "", err
 	}
-	a.repo = r
-
-	// Load any community card type schemas from the types/ directory
-	if a.registry != nil {
-		_ = a.registry.LoadExternalTypes(filepath.Join(r.Root, "types"))
-	}
-
-	// Open the SQLite index and do an initial (empty) rebuild
-	if err := a.openIndex(r.Root); err != nil {
-		slog.Warn("open index failed", "repo", r.Root, "err", err)
-	}
-
-	// Ship the sync-hygiene files so users who put this repo under
-	// git / Syncthing / Dropbox don't accidentally sync derived state.
-	if err := repo.EnsureSyncHygiene(r.Root); err != nil {
-		slog.Warn("init: ensure sync hygiene failed", "err", err)
-	}
-
-	// Point the repo at its server-side runs directory so agent
-	// run history stays out of the synced repo tree.
-	if err := a.configureRunsDir(r); err != nil {
-		slog.Warn("init: configure runs dir failed", "err", err)
-	}
-
-	// Acquire the repo lock so a second BRUV process can't mutate the
-	// same repo concurrently. Failure here is non-fatal on a fresh
-	// init — but surface it so the user knows.
-	if err := a.acquireRepoLock(r.Root); err != nil {
-		slog.Warn("init: repo lock failed", "err", err)
-	}
-
-	// Add to recent repos
-	_ = config.AddRecent(r.Root, name)
-
-	// Heal tag colours in the background — no-op for a fresh repo, safe to run.
-	go a.healTagColors()
-
-	// Start watching the repo for external file changes so a sync
-	// tool's writes (git pull, Syncthing) surface to the UI.
-	a.startRepoWatcher()
-
-	return r.Root, nil
+	return a.openLoaded(r.Root, name)
 }
 
-// OpenRepository opens an existing BRUV repository.
+// OpenRepository opens an existing BRUV repository, registers it (no-op
+// if already in repos.json), and binds the resulting runtime.
 func (a *App) OpenRepository(path string) error {
 	r, err := repo.Open(path)
 	if err != nil {
 		return err
 	}
-	a.repo = r
-
-	if a.registry != nil {
-		_ = a.registry.LoadExternalTypes(path + "/types")
-	}
-
-	// Revalidate repo data (remove stale pins, orphaned files, etc.)
-	if repairStats, err := r.Revalidate(); err != nil {
-		slog.Warn("revalidation failed", "err", err)
+	// Revalidate before the supervisor does its incremental index
+	// refresh — keeps stale pins / orphaned files out of the rebuild.
+	if repairStats, revErr := r.Revalidate(); revErr != nil {
+		slog.Warn("revalidation failed", "err", revErr)
 	} else {
 		slog.Info("revalidate ok", "stats", repairStats.String())
 	}
-
-	// Open the SQLite index and do an incremental refresh
-	if err := a.openIndex(path); err != nil {
-		slog.Warn("open index failed", "repo", path, "err", err)
-	} else if a.idx != nil {
-		if _, err := a.idx.IncrementalRefresh(path); err != nil {
-			slog.Warn("index refresh failed", "repo", path, "err", err)
-		}
-	}
-
-	// Add to recent repos
-	_ = config.AddRecent(path, r.Manifest.Name)
-
-	// Heal tag colours in the background — no-op if already healthy.
-	go a.healTagColors()
-
-	// Start agent scheduler
-	a.agentRT.StartScheduler()
-
-	// Start due-date notification scanner
-	a.agentRT.StartDueDateScanner()
-
-	// Start MCP registry for this repo. Failures here don't block
-	// opening the repo — servers that can't start are surfaced in
-	// the Settings UI and their tools are simply absent from the
-	// agent catalogue. A broken MCP config must never prevent
-	// access to the card data.
-	a.startMCPRegistry()
-
-	// Make sure the sync-hygiene files are present (older repos
-	// predate this). Best-effort.
-	if err := repo.EnsureSyncHygiene(r.Root); err != nil {
-		slog.Warn("open: ensure sync hygiene failed", "err", err)
-	}
-
-	// Wire up the server-side runs directory. The first
-	// GetAgentConfig call on each card will migrate embedded runs
-	// out of the in-repo .agent.json if necessary (one-shot per card).
-	if err := a.configureRunsDir(r); err != nil {
-		slog.Warn("open: configure runs dir failed", "err", err)
-	}
-
-	// Acquire the repo lock. If another BRUV process already holds
-	// it, OpenRepository still proceeds (we log) — hard-refusing
-	// would make concurrent same-user sessions intolerable. The lock
-	// is advisory: it exists so users can detect stale-process
-	// conditions and as a hook for future stronger guarantees.
-	if err := a.acquireRepoLock(r.Root); err != nil {
-		slog.Warn("open: repo lock failed", "err", err)
-	}
-
-	// Start watching the repo for external file changes.
-	a.startRepoWatcher()
-
-	return nil
+	_, err = a.openLoaded(r.Root, r.Manifest.Name)
+	return err
 }
 
-// startMCPRegistry brings up the per-repo MCP registry. Reads the
-// repo-scoped server config, constructs a Registry keyed by the
-// repo's stable manifest ID, and kicks off every enabled server.
-// Startup errors are logged per server; the registry is still
-// installed so the UI can display failures and allow recovery.
-func (a *App) startMCPRegistry() {
-	if a.repo == nil {
-		return
-	}
-	store, err := a.repo.LoadMCPServerStore()
+// openLoaded is the shared lifecycle path for InitRepository +
+// OpenRepository: register the path, ask the supervisor to load a
+// runtime, acquire the desktop-only repo lock, and bind the runtime
+// as active. Returns the absolute repo root.
+func (a *App) openLoaded(path, name string) (string, error) {
+	a.registerInLocalRegistry(path, name)
+	rt, err := a.sup.RegisterAndLoad(path)
 	if err != nil {
-		slog.Warn("mcp load server store failed", "err", err)
-		return
+		return "", err
 	}
-	reg := mcp.NewRegistry(a.repo.Manifest.ID, config.MCPSecretResolver{})
-	// Use a generous context so slow startups (npm cold start on
-	// Windows can take 10+ seconds on first run) don't all fail.
-	startCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	errs := reg.LoadAndStart(startCtx, store.Servers)
-	for name, err := range errs {
-		slog.Warn("mcp server startup failed", "server", name, "err", err)
+	if lockErr := a.acquireRepoLock(rt.Repo().Root); lockErr != nil {
+		// Lock is advisory: log and proceed. Hard-refusing would make
+		// concurrent same-user sessions (e.g. tray re-open of a hidden
+		// window) intolerable.
+		slog.Warn("open: repo lock failed", "err", lockErr)
 	}
-	a.mcpRegistry = reg
-}
-
-// stopMCPRegistry shuts down every server subprocess owned by the
-// current registry. Called as part of CloseRepository so closing a
-// repo doesn't leave orphaned subprocesses running in the background.
-func (a *App) stopMCPRegistry() {
-	if a.mcpRegistry == nil {
-		return
+	a.bindRuntime(rt)
+	if entry, ok := a.sup.EntryByPath(rt.Repo().Root); ok {
+		a.activeID = entry.ID
 	}
-	a.mcpRegistry.Shutdown()
-	a.mcpRegistry = nil
+	return rt.Repo().Root, nil
 }
 
 // HasRepository returns true if a repository is currently open.
 func (a *App) HasRepository() bool {
-	return a.repo != nil
+	return a.Runtime != nil
 }
 
-// CloseRepository closes the current repository and its index.
-func (a *App) CloseRepository() {
-	a.agentRT.StopScheduler()
-	a.agentRT.StopDueDateScanner()
-	a.stopMCPRegistry()
-	a.stopRepoWatcher()
-	a.releaseRepoLock()
-	if a.idx != nil {
-		a.idx.Close()
-		a.idx = nil
-	}
-	a.repo = nil
-}
-
-// startRepoWatcher kicks off the external-change file watcher for the
-// currently-open repo. Publishes into the same event bus that domain
-// mutations use — subscribers don't care whether the change came from
-// a local mutation or a sync-tool pull.
-func (a *App) startRepoWatcher() {
-	if a.repo == nil {
-		return
-	}
-	w, err := reposync.Start(a.repo.Root, a.bus)
+// registerInLocalRegistry idempotently writes the given repo to
+// <userConfigDir>/repos.json — the same registry the headless server
+// uses, so Local appears in the picker as a first-class connection
+// with a real list of repos. AppendRepo is a no-op when the path is
+// already registered. The entry's ID is also stamped as the
+// "last opened on Local" pointer so reopen_last_repo can find it
+// without depending on the deleted recents list. Failures are
+// logged-and-swallowed — the user's repo still opens even if the
+// registry write fails (registry is a view, not a gate).
+func (a *App) registerInLocalRegistry(path, name string) {
+	entry, err := config.AppendRepo(path, name)
 	if err != nil {
-		slog.Warn("repo watcher: start failed", "err", err)
+		slog.Warn("local registry: append failed", "path", path, "err", err)
 		return
 	}
-	a.repoWatcher = w
-}
-
-// stopRepoWatcher tears down the file watcher. Safe to call when the
-// watcher never started.
-func (a *App) stopRepoWatcher() {
-	if a.repoWatcher == nil {
-		return
+	if err := config.SetRecentRepoForConnection("", entry.ID); err != nil {
+		slog.Warn("local registry: stamp last-opened failed", "id", entry.ID, "err", err)
 	}
-	a.repoWatcher.Stop()
-	a.repoWatcher = nil
 }
 
-// ListRecentRepos returns recently opened repositories.
-// --- Repository forwarders (core/services/repository) ---
-
-func (a *App) ListRecentRepos() ([]config.RecentRepo, error) { return a.repoService.ListRecentRepos() }
-func (a *App) RemoveRecentRepo(path string) error            { return a.repoService.RemoveRecentRepo(path) }
-func (a *App) GetRepoDescription() (string, error)           { return a.repoService.GetDescription() }
-func (a *App) UpdateRepoDescription(description string) error {
-	return a.repoService.UpdateDescription(description)
-}
-
-// --- Card ---
-
-// logActivity records a card action to the activity log asynchronously.
-// logActivityWithContext is the low-level activity writer. cardTitle and breadcrumbs
-// must be captured before calling (e.g. before a card is deleted). Actor resolution
-// is the only work deferred to the goroutine.
-func (a *App) logActivityWithContext(cardID, action, field, cardTitle string, breadcrumbs []CategoryPath) {
-	if a.repo == nil {
-		return
+// GetLastOpenedLocalRepoPath returns the filesystem path of the
+// most recently opened Local repo, or "" if none is recorded. Used
+// by the frontend's reopen_last_repo flow to skip the picker when
+// the user has only one (or one that's reliably theirs).
+func (a *App) GetLastOpenedLocalRepoPath() string {
+	id := config.GetRecentRepoForConnection("")
+	if id == "" {
+		return ""
 	}
-	go func() {
-		defer logging.Recover("logActivityWithContext")
-		var actorID, actor, actorType string
-		if v, ok := a.llmActors.Load(cardID); ok {
-			actor = v.(string)
-			// LLM model name is stable enough to use as the shard key —
-			// every machine running the same model writes to the same
-			// shard, but they're never running the same agent at the
-			// same time (the scheduler enforces single-flight per card),
-			// so no append race.
-			actorID = actor
-			actorType = "llm"
-		} else {
-			p, _ := config.LoadProfile()
-			actor = p.DisplayName
-			if actor == "" {
-				actor = "User"
-			}
-			actorID = config.LoadDeviceID()
-			actorType = "user"
-		}
-
-		entry := model.ActivityEntry{
-			ID:        uuid.New().String(),
-			Timestamp: time.Now().UTC(),
-			ActorID:   actorID,
-			Actor:     actor,
-			ActorType: actorType,
-			Action:    action,
-			Field:     field,
-			CardID:    cardID,
-			CardTitle: cardTitle,
-		}
-
-		if len(breadcrumbs) > 0 {
-			bc := breadcrumbs[0]
-			entry.BrandSlug = bc.BrandSlug
-			entry.StreamSlug = bc.StreamSlug
-			entry.ProjectSlug = bc.ProjectSlug
-			entry.BrandName = bc.BrandName
-			entry.StreamName = bc.StreamName
-			entry.ProjectName = bc.ProjectName
-			entry.CategoryName = bc.CategoryName
-		}
-
-		a.repo.AppendActivity(entry)
-	}()
-}
-
-// logActivity captures card context synchronously then logs asynchronously.
-// It is safe to call from any goroutine; errors are silently swallowed.
-// If a.llmActors has an entry for cardID the action is attributed to that LLM model;
-// otherwise it is attributed to the signed-in user's profile.
-func (a *App) logActivity(cardID, action, field string) {
-	if a.repo == nil {
-		return
-	}
-	cardTitle := ""
-	if card, err := a.repo.GetCard(cardID); err == nil {
-		cardTitle = card.Title
-	}
-	breadcrumbs, _ := a.GetCardPinBreadcrumbs(cardID)
-	a.logActivityWithContext(cardID, action, field, cardTitle, breadcrumbs)
-}
-
-
-// --- Move / Copy / Reorder (forwarders to core/services/project) ---
-
-func (a *App) MoveProject(fromBrand, fromStream, projectSlug, toBrand, toStream string) error {
-	return a.project.MoveProject(fromBrand, fromStream, projectSlug, toBrand, toStream)
-}
-func (a *App) MoveStream(fromBrand, streamSlug, toBrand string) error {
-	return a.project.MoveStream(fromBrand, streamSlug, toBrand)
-}
-func (a *App) CopyBrand(brandSlug string) (*model.Brand, error) {
-	return a.project.CopyBrand(brandSlug)
-}
-func (a *App) CopyStream(fromBrand, streamSlug, toBrand string) (*model.Stream, error) {
-	return a.project.CopyStream(fromBrand, streamSlug, toBrand)
-}
-func (a *App) CopyProject(fromBrand, fromStream, projectSlug, toBrand, toStream string, position int) (*model.Project, error) {
-	return a.project.CopyProject(fromBrand, fromStream, projectSlug, toBrand, toStream, position)
-}
-func (a *App) ReorderBrands(orderedSlugs []string) error {
-	return a.project.ReorderBrands(orderedSlugs)
-}
-func (a *App) ReorderStreams(brandSlug string, orderedSlugs []string) error {
-	return a.project.ReorderStreams(brandSlug, orderedSlugs)
-}
-func (a *App) ReorderProjects(brandSlug, streamSlug string, orderedSlugs []string) error {
-	return a.project.ReorderProjects(brandSlug, streamSlug, orderedSlugs)
-}
-func (a *App) ReorderCategories(brandSlug, streamSlug, projectSlug string, orderedSlugs []string) error {
-	return a.project.ReorderCategories(brandSlug, streamSlug, projectSlug, orderedSlugs)
-}
-
-// --- Tag Colors ---
-
-// --- Settings forwarders (core/services/settings) ---
-
-func (a *App) GetPreferences() (config.Preferences, error) { return a.settings.GetPreferences() }
-func (a *App) SetPreferences(p config.Preferences) error   { return a.settings.SetPreferences(p) }
-func (a *App) GetAuthInfo() config.AuthInfo                { return a.settings.GetAuthInfo() }
-func (a *App) GetProfile() (config.UserProfile, error)     { return a.settings.GetProfile() }
-func (a *App) SetProfile(p config.UserProfile) error       { return a.settings.SetProfile(p) }
-
-// ListAgentCardStates returns a map of cardID → enabled for every
-// card with an agent configuration on disk. Cards that have never had
-// an agent configured are absent from the map; cards that were
-// configured then disabled appear with value false. Scans the cards
-// directory rather than the index so the result is accurate even if
-// the index is stale.
-func (a *App) ListAgentCardStates() (map[string]bool, error) {
-	states := map[string]bool{}
-	if a.repo == nil {
-		return states, nil
-	}
-	cardsDir := filepath.Join(a.repo.Root, "cards")
-	entries, err := os.ReadDir(cardsDir)
+	store, err := config.LoadRepos()
 	if err != nil {
-		return states, nil
+		return ""
 	}
-	for _, e := range entries {
-		name := e.Name()
-		if !strings.HasSuffix(name, ".agent.json") {
-			continue
+	for _, e := range store.Repos {
+		if e.ID == id {
+			return e.Path
 		}
-		cardID := strings.TrimSuffix(name, ".agent.json")
-		af, err := a.repo.GetAgentConfig(cardID)
-		if err != nil {
-			continue
-		}
-		states[cardID] = af.Config.Enabled
 	}
-	return states, nil
+	return ""
 }
 
-// --- Notifications (forwarders to core/services/notify) ---
-
-func (a *App) GetNotifyConfig() (config.NotifyConfig, error) {
-	return a.notify.GetConfig()
+// localRepoSummaries adapts repos.json into the transport's
+// RepoSummary shape, for the registry-backed GET /repos handler.
+// Errors are logged-and-swallowed → empty list, on the principle
+// that a broken registry shouldn't take the picker down (the user
+// can still PickFolder + InitRepository to recover).
+func (a *App) localRepoSummaries() []transporthttp.RepoSummary {
+	store, err := config.LoadRepos()
+	if err != nil {
+		slog.Warn("local registry: list failed", "err", err)
+		return []transporthttp.RepoSummary{}
+	}
+	out := make([]transporthttp.RepoSummary, 0, len(store.Repos))
+	for _, e := range store.Repos {
+		out = append(out, transporthttp.RepoSummary{
+			ID:       e.ID,
+			Name:     e.Name,
+			Disabled: e.Disabled,
+		})
+	}
+	return out
 }
 
-func (a *App) SetNotifyConfig(c config.NotifyConfig) error {
-	return a.notify.SetConfig(c)
-}
-
-// GetDueDateSettings returns the current due-date notification settings.
-func (a *App) GetDueDateSettings() (map[string]interface{}, error) {
-	prefs, err := config.LoadPreferences()
+// ListLocalRepos returns the desktop's repos.json registry. Used by
+// the picker to render Local's repo list (parity with Remote's GET
+// /repos endpoint). The registry is the source of truth — everything
+// the user has ever opened or initialised on this machine appears
+// here, with Disabled flagging entries the user has paused.
+func (a *App) ListLocalRepos() ([]config.RepoEntry, error) {
+	store, err := config.LoadRepos()
 	if err != nil {
 		return nil, err
 	}
-	return map[string]interface{}{
-		"enabled":    prefs.DueDateNotify,
-		"thresholds": prefs.DueDateThresholds,
-		"channels":   prefs.DueDateChannels,
-	}, nil
+	return store.Repos, nil
 }
 
-// SaveDueDateSettings updates due-date notification settings and reconfigures the live scanner.
-func (a *App) SaveDueDateSettings(enabled bool, thresholds []string, channels string) error {
-	prefs, err := config.LoadPreferences()
-	if err != nil {
-		return err
-	}
-	prefs.DueDateNotify = enabled
-	prefs.DueDateThresholds = thresholds
-	prefs.DueDateChannels = channels
-	if err := config.SavePreferences(prefs); err != nil {
-		return err
-	}
-	// Update live scanner
-	if s := a.agentRT.DueDateScanner(); s != nil {
-		s.Configure(enabled, thresholds, channels)
-	}
-	return nil
+// RemoveLocalRepo drops an entry from <userConfigDir>/repos.json. The
+// underlying folder on disk is left alone — this is a registry-only
+// operation, mirroring the X button on a recent repo today.
+func (a *App) RemoveLocalRepo(id string) error {
+	return config.RemoveRepo(id)
 }
 
-func (a *App) GetNotifications() ([]config.Notification, error) {
-	return a.notify.List()
+// SetLocalRepoEnabled flips the Disabled flag on a Local registry
+// entry. On Local today this only affects whether the picker shows
+// the row as enabled — the desktop App still opens whichever repo
+// the user explicitly selects. The flag becomes load-bearing once the
+// supervisor pattern lands on desktop (future sprint).
+func (a *App) SetLocalRepoEnabled(id string, enabled bool) error {
+	return config.SetRepoDisabled(id, !enabled)
 }
+
+// CloseRepository releases the active repository: shuts down the
+// runtime via the supervisor (which stops scheduler, due-date scanner,
+// MCP, watcher, and closes the index), releases the desktop repo lock,
+// and clears the embedded *Runtime pointer. The registry entry stays
+// in repos.json — close ≠ remove.
+func (a *App) CloseRepository() {
+	a.releaseRepoLock()
+	if a.activeID != "" {
+		a.sup.Unload(a.activeID)
+		a.activeID = ""
+	}
+	a.bindRuntime(nil)
+}
+
+// GetCurrentRepo reports what repo the backend currently has open.
+// Wraps the embedded Runtime's promoted version with a nil-runtime
+// guard so the desktop's pre-open state returns null (legacy contract)
+// instead of panicking. Frontend uses this at boot to skip the
+// welcome screen when the backend is a remote (fixed repo) or when
+// the desktop has auto-reopened the last repo.
+func (a *App) GetCurrentRepo() *supervisor.CurrentRepoInfo {
+	if a.Runtime == nil {
+		return nil
+	}
+	return a.Runtime.GetCurrentRepo()
+}
+
+// MarkNotificationRead, MarkAllNotificationsRead, ClearAllNotifications
+// override the promoted Runtime versions only to refresh the tray
+// tooltip after the underlying mutation succeeds. Tray refresh is a
+// desktop-only side effect; the runtime methods stay host-agnostic.
 
 func (a *App) MarkNotificationRead(id string) error {
-	err := a.notify.MarkRead(id)
+	if a.Runtime == nil {
+		return nil
+	}
+	err := a.Runtime.MarkNotificationRead(id)
 	if err == nil {
 		go a.refreshTrayTooltip()
 	}
@@ -1272,7 +948,10 @@ func (a *App) MarkNotificationRead(id string) error {
 }
 
 func (a *App) MarkAllNotificationsRead() error {
-	err := a.notify.MarkAllRead()
+	if a.Runtime == nil {
+		return nil
+	}
+	err := a.Runtime.MarkAllNotificationsRead()
 	if err == nil {
 		go a.refreshTrayTooltip()
 	}
@@ -1280,34 +959,14 @@ func (a *App) MarkAllNotificationsRead() error {
 }
 
 func (a *App) ClearAllNotifications() error {
-	err := a.notify.ClearAll()
+	if a.Runtime == nil {
+		return nil
+	}
+	err := a.Runtime.ClearAllNotifications()
 	if err == nil {
 		go a.refreshTrayTooltip()
 	}
 	return err
-}
-
-// --- Agent ---
-
-// --- Agent config forwarders (core/services/agentsvc) ---
-
-func (a *App) GetAgentConfig(cardID string) (*model.AgentFile, error) {
-	return a.agentService.GetConfig(cardID)
-}
-func (a *App) SaveAgentConfig(cardID string, cfg model.AgentConfig) error {
-	return a.agentService.SaveConfig(cardID, cfg)
-}
-func (a *App) ValidateSchedulePreview(schedule, startDate, endDate, timezone string, count int) ([]string, error) {
-	return a.agentService.ValidateSchedulePreview(schedule, startDate, endDate, timezone, count)
-}
-
-func (a *App) GetAgentRuns(cardID string) ([]model.AgentRun, error) {
-	return a.agentService.GetRuns(cardID)
-}
-
-// ClearAgentRuns removes all run history for a card's agent.
-func (a *App) ClearAgentRuns(cardID string) error {
-	return a.agentService.ClearRuns(cardID)
 }
 
 

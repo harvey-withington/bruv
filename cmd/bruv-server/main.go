@@ -17,7 +17,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log/slog"
 	"os"
 
@@ -32,16 +31,14 @@ var (
 )
 
 func main() {
-	repoPath := flag.String("repo", "", "path to BRUV repo to open (required)")
+	// --repo is optional now: when set, it gets appended to the
+	// repo registry on startup (idempotent). The normal steady-state
+	// is no --repo + the registry already populated by a previous
+	// service install.
+	repoPath := flag.String("repo", "", "path to BRUV repo (appended to registry; optional once registry has entries)")
 	addr := flag.String("addr", "127.0.0.1:9870", "HTTP listen address")
 	configDir := flag.String("config", "", "config directory (default: <user-config>/bruv/)")
 	flag.Parse()
-
-	if *repoPath == "" {
-		fmt.Fprintln(os.Stderr, "error: --repo is required")
-		flag.Usage()
-		os.Exit(2)
-	}
 
 	if err := server.Run(server.Options{
 		RepoPath:  *repoPath,

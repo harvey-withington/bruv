@@ -26,6 +26,7 @@ type TransportInfo = {
   token: string
   scheme?: string  // "http" (default) or "https" — for Mode B2 TLS-fronted remote servers
   remote?: string  // "true" when pointing at a tailnet-hosted backend rather than loopback
+  repoID?: string  // active repo ID for multi-repo Remote connections; empty on Local or "show picker"
 }
 
 // NeedsEnrolmentError is thrown by resolveTransport when the user
@@ -112,6 +113,44 @@ function httpBase(info: TransportInfo): string {
   return `${scheme}://${info.addr}`
 }
 
+// repoPathPrefix returns "/repos/<id>" when the connection points at
+// a multi-repo server with a repo selected, empty otherwise. Local
+// (single-repo) backends use flat /rpc / /events. Remote backends
+// MUST have a repoID set or RPC calls will hit /rpc on the server
+// and 404 — the boot path is responsible for routing the user to
+// the repo selector before constructing the adapter in that case.
+function repoPathPrefix(info: TransportInfo): string {
+  if (info.remote === 'true' && info.repoID) {
+    return `/repos/${info.repoID}`
+  }
+  return ''
+}
+
+// serverGet fetches a server-scoped (non-repo) endpoint. Used by the
+// repo-picker to call GET /repos and by the health probe to call
+// /healthz — both live above the per-repo URL space.
+export async function serverGet(info: TransportInfo, path: string, init?: RequestInit): Promise<Response> {
+  const url = `${httpBase(info)}${path}`
+  return fetch(url, {
+    ...init,
+    headers: {
+      ...(init?.headers ?? {}),
+      Authorization: `Bearer ${info.token}`,
+    },
+  })
+}
+
+// resolveTransportInfo is exposed so screens like the repo picker
+// can hit server-scoped endpoints (/repos, /healthz) without going
+// through the proxy adapter. Caches the result of resolveTransport
+// for the session — same TransportInfo used by initCloudAdapter.
+let cachedTransportInfo: TransportInfo | null = null
+export async function resolveTransportInfo(): Promise<TransportInfo> {
+  if (cachedTransportInfo) return cachedTransportInfo
+  cachedTransportInfo = await resolveTransport()
+  return cachedTransportInfo
+}
+
 // --- JSON-RPC 2.0 client ---
 
 type RPCError = { code: number; message: string; data?: unknown }
@@ -121,8 +160,11 @@ class RPCClient {
   private readonly headers: Record<string, string>
   private nextID = 1
 
-  constructor(base: string, token: string) {
-    this.endpoint = `${base}/rpc`
+  constructor(base: string, token: string, prefix: string) {
+    // prefix is "/repos/<id>" for multi-repo Remote connections, "" for
+    // Local. The server routes /repos/<id>/rpc to that repo's
+    // dispatcher; the desktop loopback serves /rpc directly.
+    this.endpoint = `${base}${prefix}/rpc`
     this.headers = {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
@@ -159,11 +201,13 @@ class EventStream {
   private readonly listeners = new Set<EventCallback>()
   private reconnectDelay = 500
 
-  constructor(base: string, token: string) {
+  constructor(base: string, token: string, prefix: string) {
     // Token on the query string because EventSource can't set headers.
     // Loopback / tailnet-only traffic limits exposure; TLS on the
-    // remote-host path keeps it out of on-the-wire view.
-    this.url = `${base}/events?token=${encodeURIComponent(token)}`
+    // remote-host path keeps it out of on-the-wire view. prefix
+    // matches RPCClient — "/repos/<id>" for multi-repo Remote, ""
+    // for Local.
+    this.url = `${base}${prefix}/events?token=${encodeURIComponent(token)}`
   }
 
   start(): void {
@@ -340,7 +384,7 @@ function buildAdapter(): BackendAdapter {
 // --- Exported init ---
 
 export async function initCloudAdapter(): Promise<BackendAdapter> {
-  const info = await resolveTransport()
+  const info = await resolveTransportInfo()
   // Record whether we have a Wails shell hosting us AND we're in
   // loopback mode — shell-method bridge only makes sense when both
   // hold. In Mode B2 the shell is present but the domain server is
@@ -349,8 +393,9 @@ export async function initCloudAdapter(): Promise<BackendAdapter> {
   // here regardless of remote/loopback — the shell IS local.
   wailsShellAvailable = typeof (window as any).go?.main?.ShellAPI?.PickFolder === 'function'
   const base = httpBase(info)
-  rpcClient = new RPCClient(base, info.token)
-  stream = new EventStream(base, info.token)
+  const prefix = repoPathPrefix(info)
+  rpcClient = new RPCClient(base, info.token, prefix)
+  stream = new EventStream(base, info.token, prefix)
   stream.start()
   return buildAdapter()
 }

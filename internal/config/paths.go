@@ -5,6 +5,22 @@ import (
 	"path/filepath"
 )
 
+// ConfigDir returns the BRUV config directory (e.g. %APPDATA%/bruv on
+// Windows, ~/Library/Application Support/bruv on macOS, ~/.config/bruv
+// on Linux). Creates the directory on first access.
+func ConfigDir() (string, error) {
+	return configDir()
+}
+
+func configDir() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	p := filepath.Join(dir, "bruv")
+	return p, os.MkdirAll(p, 0o755)
+}
+
 // The BRUV config directory is split into two logical zones:
 //
 //   - Server-owned state lives directly under <configDir>/bruv/.

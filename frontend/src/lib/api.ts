@@ -22,10 +22,14 @@ export const SetLLMConfig = (...args: Parameters<ReturnType<typeof getBackend>['
 export const ListConnections = () => getBackend().ListConnections()
 export const AddConnection = (...args: Parameters<ReturnType<typeof getBackend>['AddConnection']>) => getBackend().AddConnection(...args)
 export const RemoveConnection = (...args: Parameters<ReturnType<typeof getBackend>['RemoveConnection']>) => getBackend().RemoveConnection(...args)
+export const UpdateConnection = (...args: Parameters<ReturnType<typeof getBackend>['UpdateConnection']>) => getBackend().UpdateConnection(...args)
 export const SetActiveConnection = (...args: Parameters<ReturnType<typeof getBackend>['SetActiveConnection']>) => getBackend().SetActiveConnection(...args)
 
 // Attachments — short-lived signed URL for browser download/embed
 export const SignAttachmentURL = (...args: Parameters<ReturnType<typeof getBackend>['SignAttachmentURL']>) => getBackend().SignAttachmentURL(...args)
+
+// Per-connection repo selection
+export const SetActiveRepo = (...args: Parameters<ReturnType<typeof getBackend>['SetActiveRepo']>) => getBackend().SetActiveRepo(...args)
 
 // Real-time events
 export const subscribe = (...args: Parameters<ReturnType<typeof getBackend>['subscribe']>) => getBackend().subscribe(...args)
@@ -52,12 +56,14 @@ export const SetMCPServerSecret = (...args: Parameters<ReturnType<typeof getBack
 export const GetMCPServerSecretStatus = (...args: Parameters<ReturnType<typeof getBackend>['GetMCPServerSecretStatus']>) => getBackend().GetMCPServerSecretStatus(...args)
 export const RestartMCPServer = (...args: Parameters<ReturnType<typeof getBackend>['RestartMCPServer']>) => getBackend().RestartMCPServer(...args)
 export const HasRepository = () => getBackend().HasRepository()
+export const InspectRepoPath = (...args: Parameters<ReturnType<typeof getBackend>['InspectRepoPath']>) => getBackend().InspectRepoPath(...args)
 export const InitRepository = (...args: Parameters<ReturnType<typeof getBackend>['InitRepository']>) => getBackend().InitRepository(...args)
 export const OpenRepository = (...args: Parameters<ReturnType<typeof getBackend>['OpenRepository']>) => getBackend().OpenRepository(...args)
 export const CloseRepository = () => getBackend().CloseRepository()
 export const PickFolder = (...args: Parameters<ReturnType<typeof getBackend>['PickFolder']>) => getBackend().PickFolder(...args)
-export const ListRecentRepos = () => getBackend().ListRecentRepos()
-export const RemoveRecentRepo = (...args: Parameters<ReturnType<typeof getBackend>['RemoveRecentRepo']>) => getBackend().RemoveRecentRepo(...args)
+export const RemoveLocalRepo = (...args: Parameters<ReturnType<typeof getBackend>['RemoveLocalRepo']>) => getBackend().RemoveLocalRepo(...args)
+export const GetLastOpenedLocalRepoPath = () => getBackend().GetLastOpenedLocalRepoPath()
+export const GetCurrentRepo = () => getBackend().GetCurrentRepo()
 export const GetRepoDescription = () => getBackend().GetRepoDescription()
 export const UpdateRepoDescription = (...args: Parameters<ReturnType<typeof getBackend>['UpdateRepoDescription']>) => getBackend().UpdateRepoDescription(...args)
 

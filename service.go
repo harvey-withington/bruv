@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 
 	"bruv/frontend"
+	"bruv/internal/config"
 	"bruv/internal/repo"
 	"bruv/internal/server"
 
@@ -91,6 +92,20 @@ func runServiceInstall() {
 		os.Exit(1)
 	}
 
+	// Default config dir for service runs lives under ProgramData
+	// rather than the invoking user's AppData. Reason: the service
+	// runs as LocalSystem (kardianos default), so a per-user path
+	// would resolve to C:\Windows\System32\config\systemprofile\
+	// AppData\Roaming\bruv — invisible to the actual user. ProgramData
+	// is writable by LocalSystem, readable by all local users, and
+	// is the canonical "machine-wide app data" location on Windows.
+	// The user-supplied --config (if given) takes precedence.
+	if *configDir == "" {
+		if pd := os.Getenv("PROGRAMDATA"); pd != "" {
+			*configDir = filepath.Join(pd, "BRUV")
+		}
+	}
+
 	// Idempotent: if no repo exists at this path yet, create one.
 	// Lets the NSIS installer call `service install --repo <path>`
 	// once and have everything end-to-end ready (including a brand
@@ -104,7 +119,39 @@ func runServiceInstall() {
 		fmt.Println("Created BRUV repository at", abs)
 	}
 
-	args := []string{"--server", "--repo", abs, "--addr", *addr}
+	// Append (or upsert) the repo into the server's registry. The
+	// service runs against repos.json — calling install twice with
+	// different --repo paths grows the registry rather than replacing
+	// it, which is exactly the workflow for "I want my server to
+	// host a second repo".
+	//
+	// Note: AppendRepo writes to <configDir>/repos.json, which uses
+	// the user-config dir resolved by os.UserConfigDir(). When the
+	// installer runs elevated, that's the elevating account's
+	// AppData. We pass --config explicitly to the service args
+	// (defaulted to %PROGRAMDATA%/BRUV above) so the SERVICE itself
+	// reads from the predictable system-wide location. To get
+	// AppendRepo to write to that same location, we temporarily
+	// point os.UserConfigDir at the install --config dir via the
+	// XDG_CONFIG_HOME / APPDATA env vars before the call.
+	if *configDir != "" {
+		// On Windows, configDir() reads APPDATA. Override so AppendRepo
+		// writes to <configDir>/repos.json rather than the elevating
+		// user's AppData/bruv/repos.json.
+		_ = os.Setenv("APPDATA", *configDir)
+		// Strip the trailing "bruv" so configDir() can re-add it.
+		// configDir() does APPDATA + "/bruv". Our --config is already
+		// the bruv root (e.g. %PROGRAMDATA%/BRUV), so APPDATA must be
+		// its parent.
+		_ = os.Setenv("APPDATA", filepath.Dir(*configDir))
+	}
+	if _, regErr := config.AppendRepo(abs, ""); regErr != nil {
+		fmt.Fprintln(os.Stderr, "warning: append repo to registry:", regErr)
+		// Non-fatal: the service can still run with the legacy
+		// single-repo --repo arg below as a fallback.
+	}
+
+	args := []string{"--server", "--addr", *addr}
 	if *configDir != "" {
 		args = append(args, "--config", *configDir)
 	}

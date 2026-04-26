@@ -502,11 +502,17 @@ export interface BackendAdapter {
   ListConnections(): Promise<ConnectionStore>
   AddConnection(name: string, url: string, deviceToken: string): Promise<Connection>
   RemoveConnection(id: string): Promise<void>
+  UpdateConnection(id: string, name: string, url: string, deviceToken: string): Promise<Connection>
   SetActiveConnection(id: string): Promise<void>
 
   // Attachments — returns a short-lived signed URL for downloading
   // (or embedding in <img src>) the attachment's bytes.
   SignAttachmentURL(cardID: string, attachmentID: string): Promise<string>
+
+  // SetActiveRepo persists the user's repo choice for the active
+  // connection. The frontend reloads after calling it so the cloud
+  // adapter re-resolves the URL prefix to /repos/<id>/.
+  SetActiveRepo(repoID: string): Promise<void>
 
   // Real-time events (no-op for local)
   subscribe(cb: EventCallback): void
@@ -533,16 +539,22 @@ export interface BackendAdapter {
   GetMCPServerSecretStatus(serverName: string): Promise<Record<string, boolean>>
   RestartMCPServer(name: string): Promise<void>
   HasRepository(): Promise<boolean>
-  InitRepository(basePath: string, name: string): Promise<string>
+  InspectRepoPath(path: string): Promise<{ exists: boolean; name: string; id: string }>
+  InitRepository(path: string, name: string): Promise<string>
   OpenRepository(id: string): Promise<void>
   CloseRepository(): Promise<void>
   PickFolder(title: string): Promise<string>
   PickFile(title: string, filterName: string, filterPattern: string): Promise<string>
   PickSaveFile(title: string, defaultName: string, filterName: string, filterPattern: string): Promise<string>
-  ListRecentRepos(): Promise<Array<{ path: string; name: string; last_opened: string }>>
-  RemoveRecentRepo(path: string): Promise<void>
+  RemoveLocalRepo(id: string): Promise<void>
+  GetLastOpenedLocalRepoPath(): Promise<string>
   GetRepoDescription(): Promise<string>
   UpdateRepoDescription(description: string): Promise<void>
+  // GetCurrentRepo asks the backend whether it currently has a repo
+  // open. Returns null when the backend is the desktop and no repo
+  // has been opened yet. Returns repo info when the backend is a
+  // remote server (which always has its install-time repo open).
+  GetCurrentRepo(): Promise<{ id: string; name: string; path: string; description: string } | null>
 
   // Brand CRUD
   CreateBrand(name: string): Promise<any>

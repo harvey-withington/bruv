@@ -46,10 +46,10 @@ func (a *App) acquireRepoLock(repoRoot string) error {
 // releaseRepoLock removes the lock file if it still contains our PID.
 // Idempotent — safe to call with no lock held.
 func (a *App) releaseRepoLock() {
-	if a.repo == nil {
+	if a.Repo() == nil {
 		return
 	}
-	path := lockFilePath(a.repo.Root)
+	path := lockFilePath(a.Repo().Root)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return

@@ -7,8 +7,32 @@
 // window reload so the cloud adapter re-resolves transport against
 // the new active connection (same dance as switching repos).
 
-import { ListConnections, AddConnection, RemoveConnection, SetActiveConnection } from './api'
+import { ListConnections, AddConnection, RemoveConnection, UpdateConnection, SetActiveConnection } from './api'
 import type { Connection, ConnectionStore } from './types'
+
+// Connection management is per-machine local state and must stay
+// reachable when the active connection's backend isn't (an
+// unreachable remote would otherwise lock the user out of their
+// own connections list — circular dependency: you'd need a
+// working backend to switch backends). The Wails Shell binds these
+// methods directly so they can bypass the cloud adapter / RPC.
+//
+// Browser mode (no Wails Shell) falls back to the cloud adapter,
+// which is fine because there's no "active connection" concept in
+// the browser — the URL the page was loaded from IS the only
+// backend, and the backend's connection list belongs to it.
+type ShellConnections = {
+  ListConnections?: () => Promise<ConnectionStore>
+  AddConnection?: (name: string, url: string, token: string) => Promise<Connection>
+  RemoveConnection?: (id: string) => Promise<void>
+  UpdateConnection?: (id: string, name: string, url: string, token: string) => Promise<Connection>
+  SetActiveConnection?: (id: string) => Promise<void>
+}
+
+function shell(): ShellConnections | null {
+  const s = (window as unknown as { go?: { main?: { ShellAPI?: ShellConnections } } }).go?.main?.ShellAPI
+  return s ?? null
+}
 
 type ConnectionsState = {
   ready: boolean
@@ -31,16 +55,15 @@ function applyStore(s: ConnectionStore) {
   connections.ready = true
 }
 
-// loadConnections asks the backend for the persisted store. When the
-// backend doesn't expose connection management (e.g. browser mode
-// pointing at a bruv-server, whose RPC target is the headless runtime
-// struct rather than the desktop App), the call fails — we treat that
-// as "this UI surface isn't available" and let the indicator hide
-// itself rather than blow up the boot path.
+// loadConnections asks the backend for the persisted store. Prefers
+// the Wails Shell binding (direct, doesn't depend on the active
+// connection being reachable); falls back to the cloud adapter for
+// browser mode. When neither works, marks the UI as unavailable.
 export async function loadConnections(): Promise<void> {
   try {
-    const s = await ListConnections()
-    applyStore(s)
+    const s = shell()
+    const store = s?.ListConnections ? await s.ListConnections() : await ListConnections()
+    applyStore(store)
   } catch {
     connections.available = false
     connections.ready = true
@@ -56,7 +79,10 @@ export async function addConnection(
   deviceToken: string,
   opts: { activate?: boolean } = {},
 ): Promise<Connection> {
-  const created = await AddConnection(name, url, deviceToken)
+  const s = shell()
+  const created = s?.AddConnection
+    ? await s.AddConnection(name, url, deviceToken)
+    : await AddConnection(name, url, deviceToken)
   // Refresh local view so the dialog UI sees the new entry immediately.
   await loadConnections()
   if (opts.activate) {
@@ -66,8 +92,31 @@ export async function addConnection(
   return created
 }
 
+// updateConnection edits an existing remote's name / URL / token.
+// Empty fields leave the existing value unchanged. Goes via the
+// Wails Shell so it works even when the active backend is down
+// (same posture as the rest of connection management).
+export async function updateConnection(
+  id: string,
+  name: string,
+  url: string,
+  deviceToken: string,
+): Promise<Connection> {
+  const s = shell()
+  const updated = s?.UpdateConnection
+    ? await s.UpdateConnection(id, name, url, deviceToken)
+    : await UpdateConnection(id, name, url, deviceToken)
+  await loadConnections()
+  return updated
+}
+
 export async function removeConnection(id: string): Promise<void> {
-  await RemoveConnection(id)
+  const s = shell()
+  if (s?.RemoveConnection) {
+    await s.RemoveConnection(id)
+  } else {
+    await RemoveConnection(id)
+  }
   await loadConnections()
   // If the removed entry was active, the backend reset Active to "".
   // The store reload above already reflects that. The caller (dialog)
@@ -79,7 +128,12 @@ export async function removeConnection(id: string): Promise<void> {
 // Reloading is the cleanest way to swap the entire transport + every
 // piece of in-memory state belonging to the old backend.
 export async function switchConnection(id: string): Promise<void> {
-  await SetActiveConnection(id)
+  const s = shell()
+  if (s?.SetActiveConnection) {
+    await s.SetActiveConnection(id)
+  } else {
+    await SetActiveConnection(id)
+  }
   // Tiny delay so any in-flight RPCs settle before the reload.
   setTimeout(() => window.location.reload(), 50)
 }

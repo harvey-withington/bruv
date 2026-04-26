@@ -1,12 +1,11 @@
-// Package repository is the RepositoryService — metadata, recent-repos,
-// and import/export. The lifecycle operations (Init, Open, Close) stay
-// on App because they coordinate scheduler + MCP registry + due-date
-// scanner + index + tray, which are host-owned concerns. Those move
-// under a Core composition root later, not here.
+// Package repository is the RepositoryService — metadata + import/export.
+// The lifecycle operations (Init, Open, Close) stay on App because they
+// coordinate scheduler + MCP registry + due-date scanner + index + tray,
+// which are host-owned concerns. Recents used to live here; the registry
+// (repos.json) replaced them — see internal/config/repos.go.
 package repository
 
 import (
-	"bruv/internal/config"
 	"bruv/internal/importer"
 	"bruv/internal/index"
 	"bruv/internal/repo"
@@ -22,16 +21,11 @@ type Deps interface {
 	Index() *index.Index
 }
 
-// Service exposes repo metadata, recents, and import/export.
+// Service exposes repo metadata and import/export.
 type Service struct{ deps Deps }
 
 // New constructs a RepositoryService.
 func New(deps Deps) *Service { return &Service{deps: deps} }
-
-// --- Recents ---
-
-func (s *Service) ListRecentRepos() ([]config.RecentRepo, error) { return config.LoadRecent() }
-func (s *Service) RemoveRecentRepo(path string) error            { return config.RemoveRecent(path) }
 
 // --- Metadata ---
 

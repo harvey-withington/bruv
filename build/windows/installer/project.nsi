@@ -122,6 +122,17 @@ Section /o "Server (run in background, auto-start on boot)" SecServer
     # the repo at $ServerRepoPath if it doesn't exist, registers the
     # service to auto-start, and starts it. Output goes into the
     # install log (visible because ShowInstDetails show).
+    # Punch a Windows Firewall hole for inbound TCP 9870 so other
+    # tailnet devices can actually reach the server. Without this the
+    # service runs fine, the port binds, but Windows Firewall silently
+    # drops every inbound connection from off-machine — clients get
+    # "Failed to fetch" with no log line on either end. The rule is
+    # idempotent at the netsh level: if it already exists it'll error
+    # but we don't care, the rule is in place either way.
+    DetailPrint "Adding Windows Firewall rule for TCP 9870..."
+    nsExec::ExecToLog 'netsh advfirewall firewall add rule name="BRUV Server" dir=in action=allow protocol=TCP localport=9870'
+    Pop $0
+
     DetailPrint "Registering BRUV Server (repo: $ServerRepoPath)..."
     nsExec::ExecToLog '"$INSTDIR\${PRODUCT_EXECUTABLE}" service install --repo "$ServerRepoPath"'
     Pop $0
@@ -130,7 +141,11 @@ Section /o "Server (run in background, auto-start on boot)" SecServer
     ${Else}
         # Surface the bootstrap-token + URL info now, before the
         # generic finish page. Modal so the operator can't miss it.
-        MessageBox MB_OK|MB_ICONINFORMATION "BRUV Server is installed and running.$\r$\n$\r$\nRepo:                 $ServerRepoPath$\r$\nServer URL (local):   http://127.0.0.1:9870$\r$\nServer URL (Tailscale): http://<this-machine's tailnet IP>:9870$\r$\n$\r$\nThe one-time connection token for other devices is in:$\r$\n  %APPDATA%\bruv\bootstrap-token.txt"
+        # Token lives in %PROGRAMDATA%\BRUV (machine-wide) rather
+        # than %APPDATA% because the service runs as LocalSystem —
+        # %APPDATA% in that context is C:\Windows\System32\... and
+        # the user can't see it.
+        MessageBox MB_OK|MB_ICONINFORMATION "BRUV Server is installed and running.$\r$\n$\r$\nRepo:                 $ServerRepoPath$\r$\nServer URL (local):   http://127.0.0.1:9870$\r$\nServer URL (Tailscale): http://<this-machine's tailnet IP>:9870$\r$\n$\r$\nThe one-time connection token for other devices is in:$\r$\n  %PROGRAMDATA%\BRUV\bootstrap-token.txt"
     ${EndIf}
 SectionEnd
 

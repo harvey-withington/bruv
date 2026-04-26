@@ -6,7 +6,6 @@
   import { onEvent } from './lib/events'
   import { loadLocale, t } from './lib/i18n.svelte'
   import { showToast } from './lib/toast.svelte'
-  import WelcomeScreen from './components/WelcomeScreen.svelte'
   import Sidebar from './components/Sidebar.svelte'
   import TopBar from './components/TopBar.svelte'
   import Board from './components/Board.svelte'
@@ -21,10 +20,13 @@
   import ConfirmDialog from './components/ConfirmDialog.svelte'
   import OptionsEditorDialog from './components/OptionsEditorDialog.svelte'
   import AboutDialog from './components/AboutDialog.svelte'
-  import ConnectionsDialog from './components/ConnectionsDialog.svelte'
+  import RepoSelector from './components/RepoSelector.svelte'
+  import RemoteUnreachableScreen from './components/RemoteUnreachableScreen.svelte'
   import { loadConnections } from './lib/connections.svelte'
+  import { probeBackend } from './lib/repos.svelte'
+  import { resolveTransportInfo } from './lib/adapters/cloud'
 
-  import { GetPreferences, ListRecentRepos, OpenRepository, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, IsLLMConfigured, MarkLLMNudgeShown } from './lib/api'
+  import { GetPreferences, GetLastOpenedLocalRepoPath, OpenRepository, GetCurrentRepo, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, IsLLMConfigured, MarkLLMNudgeShown } from './lib/api'
 
   // Restore persisted preferences
   loadTheme()
@@ -34,35 +36,97 @@
   const savedWidth = localStorage.getItem('bruv-sidebar-width')
   if (savedWidth) nav.sidebarWidth = Math.max(160, Math.min(500, Number(savedWidth)))
 
-  // Auto-reopen last repo if preference is enabled
-  let appLoading = $state(true)
+  // Boot phase owns ONLY the boot-time transitions. Once we're
+  // 'ready', nav.repoOpen is the source of truth for picker-vs-board
+  // — that way closing a repo (sidebar action) naturally flips back
+  // to the picker without needing an extra signal here.
+  //
+  //   'loading'      — initial state, before any decisions
+  //   'unreachable'  — Remote active but health probe failed
+  //   'ready'        — backend usable; template chooses picker vs board
+  //                    based on nav.repoOpen
+  let bootPhase = $state<'loading' | 'unreachable' | 'ready'>('loading')
 
-  async function tryReopenLastRepo() {
+  async function bootApp() {
+    // Connection list first — required for the chip on every welcome
+    // variant. Doesn't depend on RPC health (uses Wails Shell).
+    await loadConnections()
+
+    const info = await resolveTransportInfo()
+    const isRemote = info.remote === 'true'
+
+    // Remote without a repoID set means the user hasn't picked yet
+    // (or just removed the active connection's saved repo) — show
+    // the picker before any RPC fires (those URLs would 404 without
+    // the /repos/<id>/ prefix).
+    if (isRemote && !info.repoID) {
+      bootPhase = 'ready'
+      return
+    }
+
+    // Remote WITH a repoID: probe /healthz before trusting the
+    // adapter. Cheap, sub-second on a healthy tailnet, surfaces
+    // "server is down" as a friendly screen rather than as 30
+    // cryptic RPC errors.
+    if (isRemote) {
+      const reachable = await probeBackend()
+      if (!reachable) {
+        bootPhase = 'unreachable'
+        return
+      }
+    }
+
+    // Backend is reachable (or we're Local — loopback is always
+    // reachable). Try to load preferences + auto-reopen.
     try {
       const p = await GetPreferences()
       if (p?.type_badge_display) prefsStore.typeBadgeDisplay = p.type_badge_display
-      if (!p?.reopen_last_repo) return
-      const recent = await ListRecentRepos()
-      if (!recent?.length) return
-      const last = recent[0]
-      await OpenRepository(last.path)
-      nav.repoOpen = true
-      nav.repoId = last.path
-    } catch { /* silently fall back to welcome screen */ }
-    finally {
-      // Card types are repo-scoped as of v1.0a — the backend returns
-      // only built-ins until a repo is open, so defer the fetch until
-      // after OpenRepository() has either succeeded or given up.
-      loadCardTypes()
-      appLoading = false
+
+      // GetCurrentRepo: Remote always has its installed repo open;
+      // Local returns null until the user has picked / opened one.
+      try {
+        const current = await GetCurrentRepo()
+        if (current) {
+          nav.repoOpen = true
+          nav.repoId = current.id || current.path
+          bootPhase = 'ready'
+          return
+        }
+      } catch { /* fall through */ }
+
+      // Local fallback: auto-reopen last repo if preference is on.
+      // Reads the per-machine "last opened on Local" pointer that
+      // App.OpenRepository stamps into repo-recents (key ""). The
+      // path is resolved via the registry — if the entry was
+      // removed, the call returns "" and we fall through.
+      if (p?.reopen_last_repo) {
+        const lastPath = await GetLastOpenedLocalRepoPath()
+        if (lastPath) {
+          try {
+            await OpenRepository(lastPath)
+            nav.repoOpen = true
+            nav.repoId = lastPath
+            bootPhase = 'ready'
+            return
+          } catch { /* path may have moved; fall through to picker */ }
+        }
+      }
+
+      // Nothing auto-loaded — show the picker.
+      bootPhase = 'ready'
+    } catch {
+      // GetPreferences failed despite a successful health probe —
+      // probably an auth / RPC layer issue. Treat as unreachable so
+      // the user gets recovery actions rather than a stuck spinner.
+      bootPhase = 'unreachable'
+    } finally {
+      // Card types are repo-scoped — only fetch once a repo is open.
+      if (nav.repoOpen) loadCardTypes()
       maybeShowLLMNudge()
     }
   }
-  tryReopenLastRepo()
+  bootApp()
   loadGlobalTagColors()
-  // Connection list drives the always-visible sidebar indicator and
-  // the Connections dialog. Cheap call, fire-and-forget on boot.
-  loadConnections()
 
   let searchCardId = $state<string | null>(null)
   let searchCardInitialTab = $state<'details' | 'agent' | undefined>(undefined)
@@ -262,11 +326,20 @@
   }
 </script>
 
-{#if appLoading}
+{#if bootPhase === 'loading'}
   <div class="loading-screen">
     <span class="loading-text">{t('app.starting')}</span>
   </div>
-{:else if nav.repoOpen}
+{:else if bootPhase === 'unreachable'}
+  <RemoteUnreachableScreen
+    onOpenConnections={() => showConnections = true}
+    onProbeOk={() => bootApp()}
+  />
+{:else if !nav.repoOpen}
+  <!-- bootPhase is 'ready' but no repo is open — first-launch
+       picker, post-boot close-repo, etc. all funnel here. -->
+  <RepoSelector mode="fullscreen" />
+{:else}
   <div class="app-shell" class:resizing>
     <Sidebar
       onOpenPrefs={() => { settingsInitialTab = undefined; showSettings = true }}
@@ -322,10 +395,6 @@
     <SettingsDialog onClose={() => { showSettings = false; settingsInitialTab = undefined }} initialTab={settingsInitialTab} />
   {/if}
 
-  {#if showConnections}
-    <ConnectionsDialog onClose={() => { showConnections = false }} />
-  {/if}
-
   {#if showProjectSettings}
     <ProjectSettingsDialog onClose={() => showProjectSettings = false} />
   {/if}
@@ -337,9 +406,14 @@
   {#if showTagEditor}
     <TagEditor onClose={() => showTagEditor = false} />
   {/if}
+{/if}
 
-{:else}
-  <WelcomeScreen />
+{#if showConnections}
+  <!-- Same RepoSelector component, dialog mode. Mounted outside the
+       repo-open branch so it's reachable from every state — including
+       the fullscreen picker, where clicking the chip-style "switch"
+       call-to-action opens it as a modal on top. -->
+  <RepoSelector mode="dialog" onClose={() => { showConnections = false }} />
 {/if}
 
 {#if showKeyboardShortcuts}

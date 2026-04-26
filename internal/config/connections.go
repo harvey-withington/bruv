@@ -126,6 +126,36 @@ func AddConnection(name, url, deviceToken string) (Connection, error) {
 	return c, nil
 }
 
+// UpdateConnection edits an existing connection's name, URL, and/or
+// device token. Pass empty strings for fields you don't want to
+// change. The ID stays stable so per-machine state keyed off it
+// (repo-recents.json, the active pointer) keeps working.
+func UpdateConnection(id, name, url, deviceToken string) (Connection, error) {
+	store, err := LoadConnections()
+	if err != nil {
+		return Connection{}, err
+	}
+	for i := range store.Connections {
+		if store.Connections[i].ID != id {
+			continue
+		}
+		if name != "" {
+			store.Connections[i].Name = trimSpace(name)
+		}
+		if url != "" {
+			store.Connections[i].URL = trimTrailingSlash(trimSpace(url))
+		}
+		if deviceToken != "" {
+			store.Connections[i].DeviceToken = trimSpace(deviceToken)
+		}
+		if err := SaveConnections(store); err != nil {
+			return Connection{}, err
+		}
+		return store.Connections[i], nil
+	}
+	return Connection{}, fmt.Errorf("connection %q not found", id)
+}
+
 // RemoveConnection drops an entry by ID. If the removed connection
 // was the active one, Active is reset to "" (Local).
 func RemoveConnection(id string) error {

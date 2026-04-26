@@ -4,7 +4,7 @@
   import { t } from '../lib/i18n.svelte'
   import { focusTrap } from '../lib/actions'
   import { showToast } from '../lib/toast.svelte'
-  import { PickFile, ImportTrelloBoard, ImportTrelloBoardFromJSON } from '../lib/api'
+  import { ImportTrelloBoardFromJSON } from '../lib/api'
   import type { TrelloArchiveMode, TrelloImportResult } from '../lib/types'
 
   let {
@@ -19,9 +19,17 @@
     onImported: (brandSlug: string, streamSlug: string, result: TrelloImportResult) => void
   } = $props()
 
-  let filePath = $state('')
-  let droppedContent = $state<string | null>(null)
-  let droppedName = $state('')
+  // Read the file's bytes client-side and ship the JSON content to
+  // the backend (rather than a filesystem path). Two reasons:
+  //   1. Path-passing only works when the backend can see the same
+  //      filesystem as the user. Remote BRUV servers can't open
+  //      C:\Users\harve\Downloads\foo.json.
+  //   2. Drag-and-drop uses the browser's File API which gives us
+  //      bytes directly. Unifying picker + drop on the same code
+  //      path means we always ship JSON, never paths.
+  let fileContent = $state<string | null>(null)
+  let fileName = $state('')
+  let fileInputEl = $state<HTMLInputElement | null>(null)
   let archiveMode = $state<TrelloArchiveMode>('archive')
   let importing = $state(false)
   let errorMsg = $state('')
@@ -33,18 +41,36 @@
     { value: 'inline',  label: t('import.trello.archive.inline'),  hint: t('import.trello.archive.inline_hint') },
   ]
 
-  async function pickFile() {
+  // Programmatically click the hidden <input type="file"> so the
+  // "Choose File" button keeps the same UX without us owning the
+  // OS-dialog plumbing. Browser File API works everywhere — Wails
+  // webview, browser-mode against a remote, all the same.
+  function pickFile() {
+    fileInputEl?.click()
+  }
+
+  async function handleFileInput(e: Event) {
+    const input = e.currentTarget as HTMLInputElement
+    const file = input.files?.[0]
+    if (!file) return
+    await loadFile(file)
+    // Reset the input so picking the same file twice in a row still fires onchange.
+    input.value = ''
+  }
+
+  async function loadFile(file: File) {
+    if (!file.name.toLowerCase().endsWith('.json')) {
+      errorMsg = t('import.trello.parse_failed')
+      return
+    }
     try {
-      const path = await PickFile(t('import.trello.choose_file'), 'Trello JSON', '*.json')
-      if (path) {
-        filePath = path
-        droppedContent = null
-        droppedName = ''
-        errorMsg = ''
-      }
+      const text = await file.text()
+      fileContent = text
+      fileName = file.name
+      errorMsg = ''
     } catch (e) {
-      console.error('PickFile', e)
-      showToast(t('import.trello.pick_failed'), 'error')
+      console.error('read file', e)
+      errorMsg = t('import.trello.read_failed')
     }
   }
 
@@ -66,25 +92,12 @@
     dragActive = false
     const file = e.dataTransfer?.files?.[0]
     if (!file) return
-    if (!file.name.toLowerCase().endsWith('.json')) {
-      errorMsg = t('import.trello.parse_failed')
-      return
-    }
-    try {
-      const text = await file.text()
-      droppedContent = text
-      droppedName = file.name
-      filePath = ''
-      errorMsg = ''
-    } catch (e) {
-      console.error('read dropped file', e)
-      errorMsg = t('import.trello.read_failed')
-    }
+    await loadFile(file)
   }
 
   async function runImport() {
     if (importing) return
-    if (!filePath && !droppedContent) {
+    if (!fileContent) {
       errorMsg = t('import.trello.no_file')
       return
     }
@@ -95,12 +108,7 @@
     importing = true
     errorMsg = ''
     try {
-      let result: TrelloImportResult
-      if (droppedContent) {
-        result = await ImportTrelloBoardFromJSON(brandSlug, streamSlug, droppedContent, archiveMode)
-      } else {
-        result = await ImportTrelloBoard(brandSlug, streamSlug, filePath, archiveMode)
-      }
+      const result = await ImportTrelloBoardFromJSON(brandSlug, streamSlug, fileContent, archiveMode)
       showToast(
         t('import.trello.success', {
           project: result.project_name,
@@ -128,10 +136,7 @@
     }
   }
 
-  const sourceLabel = $derived(
-    droppedContent ? droppedName :
-    filePath || '',
-  )
+  const sourceLabel = $derived(fileName)
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -168,6 +173,13 @@
           <button class="import-pick-btn" onclick={pickFile} disabled={importing}>
             {t('import.trello.choose_file')}
           </button>
+          <input
+            type="file"
+            accept=".json,application/json"
+            bind:this={fileInputEl}
+            onchange={handleFileInput}
+            class="import-file-input"
+          />
         </div>
       </div>
 
@@ -201,7 +213,7 @@
       <button class="import-cancel" onclick={onClose} disabled={importing}>
         {t('import.trello.cancel_btn')}
       </button>
-      <button class="import-submit" onclick={runImport} disabled={importing || (!filePath && !droppedContent)}>
+      <button class="import-submit" onclick={runImport} disabled={importing || !fileContent}>
         {importing ? t('import.trello.importing') : t('import.trello.import_btn')}
       </button>
     </footer>
@@ -325,6 +337,17 @@
   }
   .import-pick-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
   .import-pick-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Hidden file input — triggered programmatically by the Choose File
+     button. Display:none breaks accessibility tooling on some
+     browsers, so use opacity + position trickery instead. */
+  .import-file-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
 
   .import-archive-choices {
     display: flex;

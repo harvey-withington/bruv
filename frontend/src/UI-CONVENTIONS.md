@@ -277,7 +277,52 @@ To add a new card type colour, add it to the `CARD_TYPE_COLORS` map in `lib/card
 
 ---
 
-## 11. General Accessibility Guidelines
+## 11. LottiePlayer — Lottie / dotLottie Animations
+
+**File:** `components/LottiePlayer.svelte`
+
+A reusable wrapper around `@lottiefiles/dotlottie-web` for rendering `.lottie` (or `.json`) animations on a canvas. Use this anywhere a Lottie animation is shown — loading states, empty states, success flourishes.
+
+**Props:**
+
+| Prop | Type | Default | Description |
+|---|---|---|---|
+| `src` | `string` | — | URL to the `.lottie`/`.json` file. Import the asset with Vite's `?url` suffix: `import animation from '../lib/animations/x.lottie?url'`. |
+| `loop` | `boolean` | `true` | Repeat indefinitely. |
+| `autoplay` | `boolean` | `true` | Start playback as soon as the player is ready. |
+| `ariaLabel` | `string` | — | Accessible label applied to the canvas (`role="img"`). Required for any animation conveying meaning. |
+| `fallback` | `string` | `ariaLabel` | Visible text shown instead of the animation when the user prefers reduced motion. |
+| `size` | `number` | `96` | Square canvas size in pixels. |
+
+**Behaviour:**
+- Respects `prefers-reduced-motion: reduce` reactively — falls back to the `fallback` text. No animation runs.
+- The dotLottie WASM is served from `/dotlottie-player.wasm` (copied into `public/` by the `copy-vendor-assets` predev/prebuild script). No CDN — the app stays fully offline.
+- Player is destroyed on unmount.
+
+**Adding a new animation:**
+1. Drop the `.lottie` file into `frontend/src/lib/animations/`.
+2. Import via `?url` and pass to `LottiePlayer`.
+
+**Example:**
+
+```svelte
+<script lang="ts">
+  import LottiePlayer from './LottiePlayer.svelte'
+  import loadingAnimation from '../lib/animations/loading.lottie?url'
+  import { t } from '../lib/i18n.svelte'
+</script>
+
+<LottiePlayer
+  src={loadingAnimation}
+  ariaLabel={t('app.loading')}
+  fallback={t('app.loading')}
+  size={160}
+/>
+```
+
+---
+
+## 12. General Accessibility Guidelines
 
 1. **All interactive elements must be keyboard-reachable.** Use `tabindex="0"` on non-button elements that act as buttons.
 2. **Focus-visible must match hover state.** If a button turns red on hover, it must also turn red on `:focus-visible`.

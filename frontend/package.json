@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "generate-icons": "node scripts/generate-icons.mjs",
-    "predev": "npm run generate-icons",
+    "copy-vendor-assets": "node scripts/copy-vendor-assets.mjs",
+    "predev": "npm run generate-icons && npm run copy-vendor-assets",
     "dev": "vite",
-    "prebuild": "npm run generate-icons",
+    "prebuild": "npm run generate-icons && npm run copy-vendor-assets",
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
@@ -31,6 +32,7 @@
     "vitest": "^3.1.1"
   },
   "dependencies": {
+    "@lottiefiles/dotlottie-web": "^0.71.0",
     "lucide-svelte": "^0.577.0",
     "marked": "^17.0.4"
   }

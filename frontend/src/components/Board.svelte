@@ -4,6 +4,8 @@
   import CardDetail from './CardDetail.svelte'
   import InboxView from './InboxView.svelte'
   import AgentsPage from './AgentsPage.svelte'
+  import LottiePlayer from './LottiePlayer.svelte'
+  import loadingAnimation from '../lib/animations/loading.lottie?url'
   import { board, nav, dnd, boardSearch, boardSearchFilters, loadBoard } from '../lib/store.svelte'
   import { CreateCard, PinCard, CreateCategory, RenameCategory, GetCard, MoveCardInCategory, MoveCardToCategory, ReorderCategories, DeleteCategory, DeleteCard, MoveCategoryCards, DuplicateCard, CopyCategory } from '../lib/api'
   import { t } from '../lib/i18n.svelte'
@@ -401,7 +403,14 @@
 
 <div class="board">
   {#if board.loading}
-    <div class="loading">{t('app.loading')}</div>
+    <div class="loading">
+      <LottiePlayer
+        src={loadingAnimation}
+        ariaLabel={t('app.loading')}
+        fallback={t('app.loading')}
+        size={280}
+      />
+    </div>
 
   {:else if nav.inboxMode}
     <InboxView onNewIdea={handleNewIdea} onCardClick={handleCardClick} />

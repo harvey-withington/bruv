@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { repoRPC } from '../lib/auth'
-  import { navigate, cardURL } from '../lib/router.svelte'
+  import { navigate, cardURL, categoryURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
-  import { repoMeta, loadProjectTags, projectKey as makeProjectKey } from '../lib/repoMeta.svelte'
-  import { getCardTypeColor, getCardTypeTextColor, getCardTypeLabel } from '@shared/cardTypes'
+  import { loadProjectTags, projectKey as makeProjectKey } from '../lib/repoMeta.svelte'
   import type { Category, CardSummary } from '../lib/model'
   import DynamicIcon from '../components/DynamicIcon.svelte'
+  import CardRow from '../components/CardRow.svelte'
+  import { dragSortable, type DragMoveDetail } from '../lib/actions/dnd.svelte'
 
   // Project view: list of categories with their cards. Phase 1 ships
   // this as a vertical scroll — categories stacked, each with its
@@ -78,6 +79,47 @@
       loading = false
     }
   })
+
+  // Drag-drop reorder + cross-category move. The dnd action mutates
+  // the DOM live during drag for visual feedback; we mirror the move
+  // into our reactive state on drop and persist via the right RPC.
+  // On failure, the UI re-loads the project so it returns to the
+  // server-truth ordering.
+  async function handleDnDMove(detail: DragMoveDetail) {
+    const fromCat = categories.find((c) => c.id === detail.fromCategoryID)
+    const toCat = categories.find((c) => c.id === detail.toCategoryID)
+    if (!fromCat || !toCat) return
+    const card = fromCat.cards.find((c) => c.id === detail.cardID)
+    if (!card) return
+
+    // Optimistic state update mirroring the DOM the action just produced.
+    fromCat.cards = fromCat.cards.filter((c) => c.id !== detail.cardID)
+    const toIdx = Math.max(0, Math.min(detail.toPosition, toCat.cards.length))
+    toCat.cards = [...toCat.cards.slice(0, toIdx), card, ...toCat.cards.slice(toIdx)]
+
+    try {
+      if (detail.fromCategoryID === detail.toCategoryID) {
+        await repoRPC('MoveCardInCategory', [
+          detail.cardID,
+          detail.toProjectID,
+          detail.toCategoryID,
+          detail.toPosition,
+        ])
+      } else {
+        await repoRPC('MoveCardToCategory', [
+          detail.cardID,
+          detail.toProjectID,
+          detail.fromCategoryID,
+          detail.toCategoryID,
+          detail.toPosition,
+        ])
+      }
+    } catch (err) {
+      // Hard revert: refetch the project so we converge on server truth.
+      console.error('drag move failed:', err)
+      errorMsg = err instanceof Error ? err.message : t('project.err_load')
+    }
+  }
 </script>
 
 <header class="topbar">
@@ -99,10 +141,15 @@
       <p>{t('project.empty_body')}</p>
     </div>
   {:else}
-    <div class="categories">
+    <div class="categories" use:dragSortable={{ onMove: handleDnDMove }}>
       {#each categories as cat (cat.id)}
-        <section class="category">
-          <header class="cat-header">
+        <section class="category" style:view-transition-name={`category-${cat.id}`}>
+          <button
+            type="button"
+            class="cat-header"
+            onclick={() => navigate(categoryURL(brand, stream, project, cat.slug))}
+            aria-label={t('project.zoom_into_category', { name: cat.name })}
+          >
             <h2>
               {#if cat.icon}
                 <DynamicIcon name={cat.icon} size={16} />
@@ -110,39 +157,20 @@
               {cat.name}
             </h2>
             <span class="count">{cat.cards.length}</span>
-          </header>
+            <span class="zoom-hint" aria-hidden="true">›</span>
+          </button>
           {#if cat.cards.length === 0}
             <p class="cat-empty">{t('project.category_empty')}</p>
           {:else}
-            <ul class="cards">
+            <ul
+              class="cards"
+              data-drop-target="category"
+              data-category-id={cat.id}
+              data-project-id={cat.project_id}
+            >
               {#each cat.cards as card (card.id)}
-                <li>
-                  <button
-                    type="button"
-                    class="card-row"
-                    style:view-transition-name={`card-${card.id}`}
-                    onclick={() => navigate(cardURL(card.id))}
-                  >
-                    <div class="card-main">
-                      <span class="card-title">{card.title || t('inbox.untitled')}</span>
-                      {#if card.tags?.length}
-                        <div class="tags">
-                          {#each card.tags as tag}
-                            <span class="tag" style:background={repoMeta.tagColor(tag, pkey)}>{tag}</span>
-                          {/each}
-                        </div>
-                      {/if}
-                    </div>
-                    {#if card.type}
-                      <span
-                        class="card-type"
-                        style:background={getCardTypeColor(card.type, repoMeta.cardTypes)}
-                        style:color={getCardTypeTextColor(card.type)}
-                      >
-                        {getCardTypeLabel(card.type, repoMeta.cardTypes)}
-                      </span>
-                    {/if}
-                  </button>
+                <li data-card-id={card.id}>
+                  <CardRow {card} projectKey={pkey} onClick={() => navigate(cardURL(card.id))} />
                 </li>
               {/each}
             </ul>
@@ -211,9 +239,26 @@
 
   .cat-header {
     display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    margin: 0 0.25rem 0.5rem;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.5rem;
+    width: 100%;
+    margin: 0 0 0.5rem;
+    padding: 0.55rem 0.6rem;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .cat-header:hover,
+  .cat-header:focus-visible {
+    background: var(--bg-elev-1);
+    border-color: var(--border);
+    outline: none;
   }
 
   .cat-header h2 {
@@ -224,11 +269,19 @@
     display: flex;
     align-items: center;
     gap: 0.4rem;
+    flex: 1;
+    min-width: 0;
   }
 
   .count {
     font-size: 0.75rem;
     color: var(--text-faint);
+  }
+
+  .zoom-hint {
+    color: var(--text-faint);
+    font-size: 1.1rem;
+    line-height: 1;
   }
 
   .cards {
@@ -247,71 +300,17 @@
     font-style: italic;
   }
 
-  .card-row {
-    width: 100%;
-    background: var(--bg-elev-1);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 0.85rem 1rem;
-    color: var(--text);
-    font: inherit;
-    cursor: pointer;
-    display: flex;
-    align-items: flex-start;
-    gap: 0.75rem;
-    text-align: left;
-    transition: border-color 120ms ease;
+  /* DnD visual states (driven by dnd.svelte.ts adding/removing classes) */
+  .categories :global(.dnd-source) {
+    opacity: 0.35;
+    transition: opacity 120ms ease;
   }
 
-  .card-row:hover,
-  .card-row:focus-visible {
-    border-color: var(--accent);
-    outline: none;
-  }
-
-  .card-main {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-  }
-
-  .card-title {
-    font-size: 0.95rem;
-    font-weight: 500;
-    color: var(--text);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    -webkit-box-orient: vertical;
-  }
-
-  .tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.3rem;
-  }
-
-  .tag {
-    font-size: 0.7rem;
-    color: #fff;
-    /* background set inline; falls back to --border via tagColors.for() */
-    padding: 0.1rem 0.45rem;
-    border-radius: 4px;
-  }
-
-  .card-type {
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    /* background + color set inline */
-    padding: 0.2rem 0.5rem;
-    border-radius: 4px;
-    font-weight: 500;
-    flex-shrink: 0;
+  .categories :global([data-drop-target='category'].dnd-target-active) {
+    outline: 2px solid var(--accent);
+    outline-offset: 4px;
+    border-radius: 8px;
+    transition: outline-color 120ms ease;
   }
 
   .empty {

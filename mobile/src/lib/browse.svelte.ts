@@ -31,6 +31,13 @@ const _projectsByStream = $state<Record<string, { items: Project[]; state: LoadS
 // project structure without loading every card).
 const _categoriesByProject = $state<Record<string, { items: Category[]; state: LoadState; error: string | null }>>({})
 
+// Expanded brand / stream rows in the BrowsePage tree. Lifted out of
+// the page component so navigating into a project and back doesn't
+// collapse the user's expansions. Keyed the same way the load caches
+// are: brand by slug, stream by `${brandSlug}/${streamSlug}`.
+const _expandedBrands = $state<Record<string, boolean>>({})
+const _expandedStreams = $state<Record<string, boolean>>({})
+
 export const browse = {
   get brands() {
     return _brands
@@ -43,6 +50,12 @@ export const browse = {
   },
   categoriesFor(brandSlug: string, streamSlug: string, projectSlug: string) {
     return _categoriesByProject[projectKeyStr(brandSlug, streamSlug, projectSlug)]
+  },
+  get expandedBrands() {
+    return _expandedBrands
+  },
+  get expandedStreams() {
+    return _expandedStreams
   },
 }
 
@@ -127,6 +140,8 @@ export function resetBrowseCache(): void {
   for (const k of Object.keys(_streamsByBrand)) delete _streamsByBrand[k]
   for (const k of Object.keys(_projectsByStream)) delete _projectsByStream[k]
   for (const k of Object.keys(_categoriesByProject)) delete _categoriesByProject[k]
+  for (const k of Object.keys(_expandedBrands)) delete _expandedBrands[k]
+  for (const k of Object.keys(_expandedStreams)) delete _expandedStreams[k]
 }
 
 function streamKey(brandSlug: string, streamSlug: string): string {

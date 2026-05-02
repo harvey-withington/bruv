@@ -7,9 +7,11 @@
   import BrowsePage from './routes/BrowsePage.svelte'
   import InboxPage from './routes/InboxPage.svelte'
   import ProjectPage from './routes/ProjectPage.svelte'
+  import CategoryPage from './routes/CategoryPage.svelte'
   import CardPage from './routes/CardPage.svelte'
   import SharePage from './routes/SharePage.svelte'
   import CaptureFAB from './components/CaptureFAB.svelte'
+  import ChatFAB from './components/ChatFAB.svelte'
 
   // Two-stage auth gate, runs reactively on every route change:
   //
@@ -32,15 +34,29 @@
     }
   })
 
-  // The FAB is for *capturing while browsing* — show it on home,
-  // inbox, and project pages. Hide on the auth/picker flows (FAB is
-  // pre-enrolment-meaningless) and on Card detail (the user is already
+  // The capture FAB is for *capturing while browsing* — show it on home,
+  // inbox, project, and category pages. Hide on the auth/picker flows
+  // (pre-enrolment-meaningless) and on Card detail (the user is already
   // editing a specific card; a "create new" button there is noise).
-  const showFAB = $derived(
+  const showCaptureFAB = $derived(
     route.current.name === 'home' ||
       route.current.name === 'inbox' ||
-      route.current.name === 'project',
+      route.current.name === 'project' ||
+      route.current.name === 'category',
   )
+
+  // The chat FAB needs a scope. Show on Card (per-card chat) and
+  // Project / Category (project chat) pages — wherever an existing
+  // desktop chat surface is available. Hide on Home / Inbox where
+  // there's no scope available (vault-level chat doesn't exist on
+  // desktop, so it doesn't ship on mobile).
+  const chatScope = $derived.by(() => {
+    const r = route.current
+    if (r.name === 'card') return { kind: 'card' as const, cardID: r.id }
+    if (r.name === 'project') return { kind: 'project' as const, brand: r.brand, stream: r.stream, project: r.project }
+    if (r.name === 'category') return { kind: 'project' as const, brand: r.brand, stream: r.stream, project: r.project }
+    return null
+  })
 
   function handleCaptureSaved(cardID: string) {
     // After a quick capture, drop the user into the new card so they
@@ -65,6 +81,13 @@
     stream={route.current.stream}
     project={route.current.project}
   />
+{:else if route.current.name === 'category'}
+  <CategoryPage
+    brand={route.current.brand}
+    stream={route.current.stream}
+    project={route.current.project}
+    category={route.current.category}
+  />
 {:else if route.current.name === 'card'}
   <CardPage id={route.current.id} />
 {:else if route.current.name === 'share'}
@@ -77,8 +100,12 @@
   </main>
 {/if}
 
-{#if showFAB}
+{#if showCaptureFAB}
   <CaptureFAB onSaved={handleCaptureSaved} />
+{/if}
+
+{#if chatScope}
+  <ChatFAB scope={chatScope} solo={!showCaptureFAB} />
 {/if}
 
 <style>

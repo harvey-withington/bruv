@@ -6,13 +6,13 @@
   import { Trash2, MapPin, Plus, X } from 'lucide-svelte'
   import EditableText from '../components/EditableText.svelte'
   import TagsEditor from '../components/TagsEditor.svelte'
-  import BlockView from '../components/BlockView.svelte'
+  import BlockEditor from '../components/blocks/BlockEditor.svelte'
   import ConfirmDialog from '../components/ConfirmDialog.svelte'
   import PinPicker from '../components/PinPicker.svelte'
   import { getCardTypeColor, getCardTypeTextColor, getCardTypeLabel } from '@shared/cardTypes'
   import { renderMarkdown } from '@shared/markdown'
   import { repoMeta, loadProjectTags, projectKey as makeProjectKey } from '../lib/repoMeta.svelte'
-  import type { Card, CardPin } from '@shared/types'
+  import type { Block, Card, CardPin } from '@shared/types'
 
   // Card view + basic edit. Phase 1 scope:
   //   - title  (editable inline)
@@ -34,9 +34,22 @@
   let errorMsg = $state<string | null>(null)
   let saveError = $state<string | null>(null)
 
+  // Block save state. `lastSavedBlocks` is the last snapshot the
+  // server confirmed; on a save failure we revert to it. The single
+  // debounce timer coalesces rapid edits (e.g. typing) into one
+  // persistence call. 200ms is short enough that taps feel
+  // instantaneous and long enough that a textarea's per-keystroke
+  // change events don't fire one save per character.
+  let lastSavedBlocks = $state<Block[]>([])
+  let blockSaveTimer: ReturnType<typeof setTimeout> | null = null
+  let savingBlocks = $state(false)
+  let savedFlash = $state(false)
+  let savedFlashTimer: ReturnType<typeof setTimeout> | null = null
+
   onMount(async () => {
     try {
       card = await repoRPC<Card>('GetCard', [id])
+      lastSavedBlocks = card?.blocks ?? []
       // Resolve the card's primary pin so we can load that project's
       // tag definitions for accurate chip colours. Orphaned cards (no
       // pin) fall back to the global tag colour map. Best-effort —
@@ -135,6 +148,46 @@
     }
   }
 
+  function flashSaved() {
+    savedFlash = true
+    if (savedFlashTimer) clearTimeout(savedFlashTimer)
+    savedFlashTimer = setTimeout(() => {
+      savedFlash = false
+    }, 1200)
+  }
+
+  function updateBlock(blockID: string, next: Block) {
+    if (!card) return
+    // Optimistic local update — replace the matching block.
+    card.blocks = card.blocks.map((b) => (b.id === blockID ? next : b))
+    saveError = null
+    if (blockSaveTimer) clearTimeout(blockSaveTimer)
+    blockSaveTimer = setTimeout(async () => {
+      blockSaveTimer = null
+      if (!card) return
+      const snapshot = card.blocks
+      savingBlocks = true
+      try {
+        await repoRPC('UpdateCardBlocks', [card.id, snapshot])
+        lastSavedBlocks = snapshot
+        flashSaved()
+      } catch (err) {
+        // Revert to the last server-confirmed state. The user sees
+        // their last change disappear + an error rail; better than
+        // pretending it stuck.
+        if (card) card.blocks = lastSavedBlocks
+        saveError = err instanceof Error ? err.message : t('card.err_save')
+      } finally {
+        savingBlocks = false
+      }
+    }, 200)
+  }
+
+  $effect(() => () => {
+    if (blockSaveTimer) clearTimeout(blockSaveTimer)
+    if (savedFlashTimer) clearTimeout(savedFlashTimer)
+  })
+
   function formatDueDate(due: string | null): string {
     if (!due) return ''
     const d = new Date(due)
@@ -173,7 +226,13 @@
   <span class="topbar-title" title={card?.title ?? ''}>
     {card?.title ?? t('common.loading')}
   </span>
-  <span class="spacer"></span>
+  <span class="save-state" aria-live="polite">
+    {#if savingBlocks}
+      <span class="chip">{t('card.saving')}</span>
+    {:else if savedFlash}
+      <span class="chip saved">{t('card.saved')}</span>
+    {/if}
+  </span>
 </header>
 
 <main style:view-transition-name={`card-${id}`}>
@@ -258,7 +317,7 @@
     {#if card.blocks?.length}
       <section class="blocks">
         {#each card.blocks as block (block.id)}
-          <BlockView {block} />
+          <BlockEditor {block} cardId={card.id} onChange={(next) => updateBlock(block.id, next)} />
         {/each}
       </section>
     {:else if !card.description}
@@ -315,6 +374,34 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     max-width: 60vw;
+  }
+
+  .save-state {
+    justify-self: end;
+    min-width: 0;
+  }
+
+  .chip {
+    font-size: 0.7rem;
+    color: var(--text-faint);
+    background: var(--bg-elev-1);
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  .chip.saved {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+    animation: chip-fade 1.2s ease-out forwards;
+  }
+
+  @keyframes chip-fade {
+    0% { opacity: 0; transform: translateY(-2px); }
+    20% { opacity: 1; transform: translateY(0); }
+    80% { opacity: 1; }
+    100% { opacity: 0; }
   }
 
   .back {

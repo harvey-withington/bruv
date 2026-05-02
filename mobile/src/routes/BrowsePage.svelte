@@ -15,8 +15,12 @@
   const enrolment = readEnrolment()
 
   let activeRepoName = $state<string | null>(null)
-  let expandedBrands = $state<Record<string, boolean>>({})
-  let expandedStreams = $state<Record<string, boolean>>({})
+  // Expansion state lives in the browse store so it survives the
+  // BrowsePage being unmounted while the user is inside a project /
+  // category / card. Local component state would reset on every
+  // remount and force the user to re-expand.
+  const expandedBrands = browse.expandedBrands
+  const expandedStreams = browse.expandedStreams
 
   onMount(async () => {
     loadBrands()

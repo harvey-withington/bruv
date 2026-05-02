@@ -17,6 +17,7 @@ export type Route =
   | { name: 'repos' }
   | { name: 'inbox' }
   | { name: 'project'; brand: string; stream: string; project: string }
+  | { name: 'category'; brand: string; stream: string; project: string; category: string }
   | { name: 'card'; id: string }
   | { name: 'share' }
   | { name: 'unknown'; path: string }
@@ -45,13 +46,23 @@ function parse(path: string): Route {
     case 'share':
       return { name: 'share' }
     case 'p':
-      // /p/<brand>/<stream>/<project>
+      // /p/<brand>/<stream>/<project>          → project view
+      // /p/<brand>/<stream>/<project>/<cat>    → focused single-category view
       if (segments.length === 4) {
         return {
           name: 'project',
           brand: decodeURIComponent(segments[1]),
           stream: decodeURIComponent(segments[2]),
           project: decodeURIComponent(segments[3]),
+        }
+      }
+      if (segments.length === 5) {
+        return {
+          name: 'category',
+          brand: decodeURIComponent(segments[1]),
+          stream: decodeURIComponent(segments[2]),
+          project: decodeURIComponent(segments[3]),
+          category: decodeURIComponent(segments[4]),
         }
       }
       return { name: 'unknown', path }
@@ -135,6 +146,13 @@ export function replace(to: string): void {
  */
 export function projectURL(brand: string, stream: string, project: string): string {
   return `/p/${encodeURIComponent(brand)}/${encodeURIComponent(stream)}/${encodeURIComponent(project)}`
+}
+
+/**
+ * Build the canonical URL for a focused single-category view.
+ */
+export function categoryURL(brand: string, stream: string, project: string, category: string): string {
+  return `/p/${encodeURIComponent(brand)}/${encodeURIComponent(stream)}/${encodeURIComponent(project)}/${encodeURIComponent(category)}`
 }
 
 /**

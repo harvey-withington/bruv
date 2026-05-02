@@ -26,7 +26,6 @@ func (r *Repository) CreateCard(cardType, title string) (*model.Card, error) {
 		CreatedAt:    now,
 		UpdatedAt:    now,
 		ContextLevel: model.ContextProject,
-		Fields:       make(map[string]any),
 		Tags:         []string{},
 		Blocks:       []model.Block{},
 	}
@@ -39,17 +38,80 @@ func (r *Repository) CreateCard(cardType, title string) (*model.Card, error) {
 }
 
 // GetCard reads a Card by its ID.
+//
+// Read-time migration: legacy cards stored their description in
+// `Fields["description"]` (a now-deleted denormalised mirror) and/or
+// in a Block with key="description". We hoist whichever is present
+// into the intrinsic Card.Description, drop the legacy fields, and
+// strip the description-keyed block. The next save persists the
+// migrated shape — self-healing, no schema version bump.
 func (r *Repository) GetCard(id string) (*model.Card, error) {
 	path := r.cardFilePath(id)
 	if !fileExists(path) {
 		return nil, fmt.Errorf("card %q not found", id)
 	}
 
-	var card model.Card
-	if err := readJSON(path, &card); err != nil {
+	// Read into a transitional shape that still understands the old
+	// Fields map. Migration consumes it and the canonical model.Card
+	// keeps no reference to it.
+	var legacy legacyCard
+	if err := readJSON(path, &legacy); err != nil {
 		return nil, err
 	}
+	card := legacy.migrate()
 	return &card, nil
+}
+
+// legacyCard mirrors the old on-disk shape — same as model.Card plus
+// the deprecated `fields` map. Used only to deserialise existing files
+// during migration; new cards never carry it.
+type legacyCard struct {
+	model.Card
+	Fields map[string]any `json:"fields,omitempty"`
+}
+
+func (l *legacyCard) migrate() model.Card {
+	card := l.Card
+
+	// 1. Hoist the description: prefer Fields["description"] (what the
+	//    desktop's UpdateCardFields wrote to); fall back to the value
+	//    of any block keyed "description".
+	if card.Description == "" {
+		if v, ok := l.Fields["description"]; ok {
+			if s, ok := v.(string); ok {
+				card.Description = s
+			}
+		}
+	}
+	if card.Description == "" {
+		for _, b := range card.Blocks {
+			if b.Key == "description" {
+				if s, ok := b.Value.(string); ok {
+					card.Description = s
+				}
+				break
+			}
+		}
+	}
+
+	// 2. Strip any description-keyed block — its value lives in
+	//    Card.Description now and the block was redundant.
+	if len(card.Blocks) > 0 {
+		filtered := card.Blocks[:0]
+		for _, b := range card.Blocks {
+			if b.Key == "description" {
+				continue
+			}
+			filtered = append(filtered, b)
+		}
+		card.Blocks = filtered
+	}
+
+	// 3. Fields itself is gone. We deliberately ignore everything
+	//    else that was in Fields — it was a denormalised mirror of
+	//    block values, which the blocks themselves still hold.
+
+	return card
 }
 
 // ListCards returns all Cards in the repository.
@@ -142,29 +204,11 @@ func (r *Repository) DuplicateCard(srcCardID string) (*model.Card, error) {
 	return &newCard, nil
 }
 
-// UpdateCardBlocks replaces a card's blocks and mirrors keyed
-// scalar block values into card.Fields. The Fields map is the
-// description editor's read path (DescriptionSection consults
-// card.fields.description) so each block write keeps it current.
+// UpdateCardBlocks replaces a card's blocks. Blocks are the source
+// of truth for their own values now — no denormalised mirror.
 func (r *Repository) UpdateCardBlocks(cardID string, blocks []model.Block) (*model.Card, error) {
 	return r.UpdateCard(cardID, func(card *model.Card) {
 		card.Blocks = blocks
-		if card.Fields == nil {
-			card.Fields = make(map[string]any)
-		}
-		for _, b := range blocks {
-			if b.Key == "" {
-				continue
-			}
-			switch b.Type {
-			case model.BlockText:
-				if s, ok := b.Value.(string); ok {
-					card.Fields[b.Key] = s
-				}
-			case model.BlockNumber, model.BlockCheckbox, model.BlockSelect, model.BlockRadio, model.BlockDate:
-				card.Fields[b.Key] = b.Value
-			}
-		}
 	})
 }
 

@@ -2,8 +2,8 @@
   import { Plus, Trash2, Star, Eye, EyeOff, Zap, ChevronDown, ChevronRight } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
-  import { TestLLMAccountConnection, SaveLLMAccounts } from '../lib/api'
-  import type { LLMAccount } from '../lib/types'
+  import { TestLLMAccountConnection, SaveLLMAccounts } from '@shared/api'
+  import type { LLMAccount } from '@shared/types'
 
   let { accounts = $bindable([]), onchange }: {
     accounts: LLMAccount[]

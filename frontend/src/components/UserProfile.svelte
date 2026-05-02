@@ -2,7 +2,7 @@
   import { X, Plus } from 'lucide-svelte'
   import { fade } from 'svelte/transition'
   import { t } from '../lib/i18n.svelte'
-  import { GetProfile, SetProfile } from '../lib/api'
+  import { GetProfile, SetProfile } from '@shared/api'
   import { draggable } from '../lib/draggable'
 
   let { onClose }: { onClose: () => void } = $props()

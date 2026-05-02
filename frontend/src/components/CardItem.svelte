@@ -1,10 +1,10 @@
 <script lang="ts">
   import { search, boardSearch, nav, dnd, getTagColor, getTagIcon, cardTypes, board } from '../lib/store.svelte'
   import DynamicIcon from './DynamicIcon.svelte'
-  import { renderInline } from '../lib/markdown'
+  import { renderInline } from '@shared/markdown'
   import { t } from '../lib/i18n.svelte'
-  import { getCardTypeColor, getCardTypeTextColor } from '../lib/cardTypes'
-  import { TriggerAgent, CancelAgent } from '../lib/api'
+  import { getCardTypeColor, getCardTypeTextColor } from '@shared/cardTypes'
+  import { TriggerAgent, CancelAgent } from '@shared/api'
   import { showToast } from '../lib/toast.svelte'
   import { Timer, Play, Square, Calendar } from 'lucide-svelte'
 

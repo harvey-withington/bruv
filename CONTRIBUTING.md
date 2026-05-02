@@ -49,7 +49,7 @@ cd frontend && npx svelte-check
 
 Both must be green before a change lands. The Go test suite covers the repository layer, LLM tool plumbing, agent scheduler, importer, and indexer. `svelte-check` catches type errors and a11y regressions in the Svelte components.
 
-> **Note:** `main.go` embeds `frontend/dist` via `//go:embed`, so `go build ./...` on a fresh checkout will fail with `pattern all:frontend/dist: no matching files found` until you've produced the Svelte bundle. Either run `wails dev` / `wails build` once (which builds the frontend as a side effect) or `cd frontend && npm install && npm run build` directly. Once `frontend/dist` exists, plain `go build` and `go test` work normally.
+> **Note:** Two `//go:embed` directives need bundle output to exist before `go build ./...` works on a fresh checkout — `main.go` embeds `frontend/dist` (the desktop UI) and `mobile/embed.go` embeds `mobile/dist` (the mobile PWA). Without them you'll see `pattern all:<dir>: no matching files found`. Build them via `cd frontend && npm install && npm run build` and `cd mobile && npm install && npm run build` (or run `wails dev` / `wails build` for the frontend, which builds it as a side effect). Once both `dist/` directories exist, plain `go build` and `go test` work normally.
 
 ## Project coding standards
 

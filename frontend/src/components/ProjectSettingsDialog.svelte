@@ -8,7 +8,7 @@
     RenameProject, UpdateProjectDescription,
     ListCategories, RenameCategory, UpdateCategoryDescription, UpdateCategoryAcceptedTypes, UpdateCategoryIcon,
     PickSaveFile, ExportProjectToFile,
-  } from '../lib/api'
+  } from '@shared/api'
   import { onMount } from 'svelte'
   import IconPicker from './IconPicker.svelte'
   import DynamicIcon from './DynamicIcon.svelte'

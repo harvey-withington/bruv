@@ -1,7 +1,7 @@
 // Reactive app state using Svelte 5 module-level $state
-import { ListCategories, GetCard, ListCardIDsInCategory, GetProjectLabels, ListCardTypes, GetTagColors, ListAgentCardStates } from './api'
+import { ListCategories, GetCard, ListCardIDsInCategory, GetProjectLabels, ListCardTypes, GetTagColors, ListAgentCardStates } from '@shared/api'
 import { onEvent } from './events'
-import type { CardTypeInfo } from './types'
+import type { CardTypeInfo } from '@shared/types'
 
 // Navigation state
 export const nav = $state({

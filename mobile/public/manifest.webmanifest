@@ -1,0 +1,31 @@
+{
+  "name": "BRUV",
+  "short_name": "BRUV",
+  "description": "Your most organised best bud — capture, triage, and review your vault on the go.",
+  "id": "/m/",
+  "start_url": "/m/",
+  "scope": "/m/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#18181b",
+  "background_color": "#18181b",
+  "lang": "en",
+  "dir": "ltr",
+  "icons": [
+    {
+      "src": "/m/bruv-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "/m/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/m/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

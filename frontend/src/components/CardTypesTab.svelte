@@ -10,12 +10,12 @@
     ListCardTemplates, CreateCardTemplate, UpdateCardTemplate, DeleteCardTemplate,
     ExportCardTypesToFile, ImportCardTypesFromFile, ImportCardTypesFromRepo,
     PickSaveFile, PickFile, PickFolder,
-  } from '../lib/api'
-  import type { CardTypesImportMode, CardTypesImportResult } from '../lib/types'
+  } from '@shared/api'
+  import type { CardTypesImportMode, CardTypesImportResult } from '@shared/types'
   import { cardTypes, loadCardTypes } from '../lib/store.svelte'
   import { draggable } from '../lib/draggable'
   import { focusTrap, portal } from '../lib/actions'
-  import type { CardTypeInfo, UserCardType, CardTemplate } from '../lib/types'
+  import type { CardTypeInfo, UserCardType, CardTemplate } from '@shared/types'
 
   let { onClose }: { onClose: () => void } = $props()
 

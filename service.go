@@ -27,6 +27,7 @@ import (
 	"bruv/internal/config"
 	"bruv/internal/repo"
 	"bruv/internal/server"
+	"bruv/mobile"
 
 	"github.com/kardianos/service"
 )
@@ -276,12 +277,13 @@ func (p *serverProgram) Start(s service.Service) error {
 		// nothing visible. Now we let server.Run own the
 		// "no repos configured" error path with a useful message.
 		err := server.Run(server.Options{
-			RepoPath:  *repoPath,
-			Addr:      *addr,
-			ConfigDir: *configDir,
-			Version:   AppVersion,
-			BuildDate: BuildDate,
-			Assets:    frontend.Assets(),
+			RepoPath:     *repoPath,
+			Addr:         *addr,
+			ConfigDir:    *configDir,
+			Version:      AppVersion,
+			BuildDate:    BuildDate,
+			Assets:       frontend.Assets(),
+			MobileAssets: mobile.Assets(),
 		})
 		if err != nil {
 			slog.Error("service: backend exited with error", "err", err)

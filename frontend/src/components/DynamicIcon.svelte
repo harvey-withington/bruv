@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { ICON_MAP } from '../lib/icons'
-  import { parseIconValue, isRasterInner } from '../lib/imageIcon'
+  import { ICON_MAP } from '@shared/icons'
+  import { parseIconValue, isRasterInner } from '@shared/imageIcon'
 
   let { name, size = 16, className = '' }: { name: string; size?: number; className?: string } = $props()
 

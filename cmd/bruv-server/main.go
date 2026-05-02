@@ -21,7 +21,9 @@ import (
 	"os"
 
 	"bruv/frontend"
+	"bruv/internal/repocli"
 	"bruv/internal/server"
+	"bruv/mobile"
 )
 
 // Version + BuildDate are stamped at build time via -ldflags.
@@ -31,6 +33,14 @@ var (
 )
 
 func main() {
+	// `repo` subcommand: registry management against repos.json on disk
+	// (no HTTP, no device token). Dispatched before flag.Parse so we
+	// don't choke on positional args. See internal/repocli for the
+	// available subcommands.
+	if len(os.Args) > 1 && os.Args[1] == "repo" {
+		os.Exit(repocli.Run(os.Args[2:], os.Stdout, os.Stderr))
+	}
+
 	// --repo is optional now: when set, it gets appended to the
 	// repo registry on startup (idempotent). The normal steady-state
 	// is no --repo + the registry already populated by a previous
@@ -41,12 +51,13 @@ func main() {
 	flag.Parse()
 
 	if err := server.Run(server.Options{
-		RepoPath:  *repoPath,
-		Addr:      *addr,
-		ConfigDir: *configDir,
-		Version:   Version,
-		BuildDate: BuildDate,
-		Assets:    frontend.Assets(),
+		RepoPath:     *repoPath,
+		Addr:         *addr,
+		ConfigDir:    *configDir,
+		Version:      Version,
+		BuildDate:    BuildDate,
+		Assets:       frontend.Assets(),
+		MobileAssets: mobile.Assets(),
 	}); err != nil {
 		slog.Error("bruv-server failed", "err", err)
 		os.Exit(1)

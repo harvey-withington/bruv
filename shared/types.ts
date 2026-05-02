@@ -96,11 +96,14 @@ export type Attachment = {
 export type Card = {
   id: string
   title: string
+  // Intrinsic primary description (markdown, mentions). Every card has
+  // one — empty string when unset. Replaced the legacy
+  // `fields.description` magic-key pattern.
+  description: string
   type: string
   tags: string[]
   due_date: string | null
   created_at: string
-  fields: Record<string, string>
   blocks: Block[]
   file_attachments: Attachment[]
 }
@@ -604,7 +607,7 @@ export interface BackendAdapter {
   UpdateCardTitle(id: string, title: string): Promise<any>
   UpdateCardType(id: string, cardType: string): Promise<any>
   RefreshTypeBlocks(cardID: string): Promise<any>
-  UpdateCardFields(id: string, fields: Record<string, any>): Promise<any>
+  UpdateCardDescription(id: string, description: string): Promise<any>
   UpdateCardBlocks(id: string, blocks: any[]): Promise<any>
   UpdateCardTags(id: string, tags: string[]): Promise<any>
   UpdateCardLabels(id: string, labelIDs: string[]): Promise<any>

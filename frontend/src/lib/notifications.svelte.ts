@@ -1,4 +1,4 @@
-import { GetNotifications, MarkNotificationRead, MarkAllNotificationsRead, ClearAllNotifications } from './api'
+import { GetNotifications, MarkNotificationRead, MarkAllNotificationsRead, ClearAllNotifications } from '@shared/api'
 import { showToast } from './toast.svelte'
 
 export type AppNotification = {

@@ -1,9 +1,9 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import { Send, MapPin, Check, X, Wrench, ChevronUp, ChevronDown, MessageCircle, PencilLine, ListChecks, Trash2 } from 'lucide-svelte'
-  import { LoadChatHistory, SendChatMessage, IsLLMConfigured, AcceptPinSuggestion, RejectPinSuggestion, GetLLMConfig, SetLLMConfig, ApplyPendingEdits, ClearCardChatHistory } from '../lib/api'
+  import { LoadChatHistory, SendChatMessage, IsLLMConfigured, AcceptPinSuggestion, RejectPinSuggestion, GetLLMConfig, SetLLMConfig, ApplyPendingEdits, ClearCardChatHistory } from '@shared/api'
   import { showConfirm } from '../lib/confirm.svelte'
-  import { renderMarkdown } from '../lib/markdown'
+  import { renderMarkdown } from '@shared/markdown'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
 

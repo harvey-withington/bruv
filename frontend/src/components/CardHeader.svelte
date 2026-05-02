@@ -18,9 +18,9 @@
   import { ArrowLeftRight, ChevronDown } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import { focusOnMount, floatingDropdown } from '../lib/actions'
-  import { renderInline } from '../lib/markdown'
-  import { getCardTypeColor, getCardTypeTextColor } from '../lib/cardTypes'
-  import type { Card, CardTypeInfo } from '../lib/types'
+  import { renderInline } from '@shared/markdown'
+  import { getCardTypeColor, getCardTypeTextColor } from '@shared/cardTypes'
+  import type { Card, CardTypeInfo } from '@shared/types'
 
   let {
     card,

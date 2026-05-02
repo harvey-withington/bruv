@@ -1,4 +1,4 @@
-import type { BackendAdapter, EventCallback, CardTypeInfo, CardTemplate, UserCardType } from '../types'
+import type { BackendAdapter, EventCallback, CardTypeInfo, CardTemplate, UserCardType } from '@shared/types'
 
 /**
  * In-memory mock adapter for testing.
@@ -128,7 +128,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     UpdateCardTitle: async () => ({}),
     UpdateCardType: async () => ({}),
     RefreshTypeBlocks: async () => ({}),
-    UpdateCardFields: async () => ({}),
+    UpdateCardDescription: async () => ({}),
     UpdateCardBlocks: async () => ({}),
     UpdateCardTags: async () => ({}),
     UpdateCardLabels: async () => ({}),

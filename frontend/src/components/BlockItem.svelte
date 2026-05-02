@@ -14,12 +14,12 @@
    * the 300-line limit — this file is the biggest single win in that split.
    */
   import { X, Trash2, GripVertical, Pencil, ChevronDown, ChevronRight, Maximize2, Minimize2, ListTree } from 'lucide-svelte'
-  import { renderMarkdown } from '../lib/markdown'
+  import { renderMarkdown } from '@shared/markdown'
   import { t } from '../lib/i18n.svelte'
   import { focusOnMount, inlineEdit } from '../lib/actions'
   import { showToast } from '../lib/toast.svelte'
-  import { UpdateCardBlocks, CreateCard, PinCard } from '../lib/api'
-  import type { Block, Card, ChecklistItem, ListItem, MediaItem, SurveyQuestion } from '../lib/types'
+  import { UpdateCardBlocks, CreateCard, PinCard } from '@shared/api'
+  import type { Block, Card, ChecklistItem, ListItem, MediaItem, SurveyQuestion } from '@shared/types'
   import EditableChecklist from './EditableChecklist.svelte'
   import EditableList from './EditableList.svelte'
   import MediaBlock from './MediaBlock.svelte'

@@ -15,9 +15,12 @@
 #   - frontend/wailsjs/**   — TS/JS bindings for the Wails @App struct.
 #                             Produced by `wails generate module`.
 #                             Imported by src/lib/adapters/wails.ts.
-#   - frontend/dist/**      — Vite production bundle.
-#                             Produced by `npm run build`.
+#   - frontend/dist/**      — Vite production bundle (desktop UI).
+#                             Produced by `npm run build` in frontend/.
 #                             Embedded by main.go via //go:embed.
+#   - mobile/dist/**        — Vite production bundle (mobile PWA).
+#                             Produced by `npm run build` in mobile/.
+#                             Embedded by mobile/embed.go via //go:embed.
 #
 # Both jobs below therefore follow the same prep sequence: install Node
 # deps → install Wails CLI → generate bindings → build Vite bundle. The
@@ -73,16 +76,23 @@ jobs:
         shell: bash
         run: npm ci || npm install
 
+      - name: Install mobile deps
+        working-directory: mobile
+        shell: bash
+        run: npm ci || npm install
+
       # Chicken-and-egg: `wails generate module` compiles the Go code to
-      # introspect the App struct, but main.go embeds frontend/dist via
-      # //go:embed, so compilation fails unless that directory exists. We
-      # create an empty placeholder first; the real `npm run build` step
-      # below overwrites it with the actual Vite bundle.
-      - name: Create placeholder frontend/dist
+      # introspect the App struct, but main.go embeds frontend/dist and
+      # mobile/embed.go embeds mobile/dist via //go:embed, so compilation
+      # fails unless those directories exist. Create empty placeholders
+      # first; the real `npm run build` steps below overwrite them.
+      - name: Create placeholder dist directories
         shell: bash
         run: |
           mkdir -p frontend/dist
           touch frontend/dist/.placeholder
+          mkdir -p mobile/dist
+          touch mobile/dist/.placeholder
 
       # `wails generate module` produces frontend/wailsjs/** from the
       # Go App struct. This is the supported way to materialise the
@@ -90,9 +100,14 @@ jobs:
       - name: Generate Wails bindings
         run: wails generate module
 
-      # Now build the real Vite bundle, replacing the placeholder.
+      # Now build the real Vite bundles, replacing the placeholders.
       - name: Build frontend bundle
         working-directory: frontend
+        shell: bash
+        run: npm run build
+
+      - name: Build mobile bundle
+        working-directory: mobile
         shell: bash
         run: npm run build
 
@@ -133,19 +148,29 @@ jobs:
         working-directory: frontend
         run: npm ci || npm install
 
+      - name: Install mobile deps
+        working-directory: mobile
+        run: npm ci || npm install
+
       # Same chicken-and-egg as the go-test job: `wails generate module`
-      # compiles the Go code, which requires frontend/dist to exist for
-      # the //go:embed directive. Placeholder is enough.
-      - name: Create placeholder frontend/dist
+      # compiles the Go code, which requires frontend/dist and mobile/dist
+      # to exist for the //go:embed directives. Placeholders are enough.
+      - name: Create placeholder dist directories
         run: |
           mkdir -p frontend/dist
           touch frontend/dist/.placeholder
+          mkdir -p mobile/dist
+          touch mobile/dist/.placeholder
 
       # svelte-check imports from wailsjs/go/main/App.js (via wails.ts
       # adapter), so the bindings need to exist before type-checking.
       - name: Generate Wails bindings
         run: wails generate module
 
-      - name: svelte-check
+      - name: svelte-check (frontend)
         working-directory: frontend
+        run: npx svelte-check --fail-on-warnings
+
+      - name: svelte-check (mobile)
+        working-directory: mobile
         run: npx svelte-check --fail-on-warnings

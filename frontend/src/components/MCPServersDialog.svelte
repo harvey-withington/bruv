@@ -7,8 +7,8 @@
   import {
     ListMCPServers, AddMCPServer, UpdateMCPServer, DeleteMCPServer,
     SetMCPServerSecret, GetMCPServerSecretStatus, RestartMCPServer,
-  } from '../lib/api'
-  import type { MCPServerView, MCPServerSpec, MCPHealthStatus } from '../lib/types'
+  } from '@shared/api'
+  import type { MCPServerView, MCPServerSpec, MCPHealthStatus } from '@shared/types'
   import { draggable } from '../lib/draggable'
   import { focusTrap, portal } from '../lib/actions'
 

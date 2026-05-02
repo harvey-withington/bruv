@@ -17,7 +17,6 @@ import (
 	"bruv/internal/repo"
 	"fmt"
 	"log/slog"
-	"reflect"
 	"strings"
 	"time"
 )
@@ -282,48 +281,34 @@ func (s *Service) UpdateType(id, cardType string) (*model.Card, error) {
 	return updated, nil
 }
 
-func (s *Service) UpdateFields(id string, fields map[string]any) (*model.Card, error) {
-	for k, v := range fields {
-		if str, ok := v.(string); ok {
-			fields[k] = repo.SanitizeText(str)
-		}
-	}
+// UpdateDescription replaces the card's intrinsic description body
+// (markdown-formatted free text). Sanitises before save and logs an
+// activity entry only when the value actually changed.
+func (s *Service) UpdateDescription(id, description string) (*model.Card, error) {
 	r := s.deps.Repo()
 	if r == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
-	// Snapshot the previous fields so we can log only the keys whose
-	// values actually changed. Without this every save would log every
-	// field, because the frontend always sends the full map.
-	var before map[string]any
+	clean := repo.SanitizeText(description)
+
+	var changed bool
 	if prev, perr := r.GetCard(id); perr == nil && prev != nil {
-		before = prev.Fields
+		changed = prev.Description != clean
+	} else {
+		changed = clean != ""
 	}
-	card, err := r.UpdateCard(id, func(c *model.Card) { c.Fields = fields })
+
+	card, err := r.UpdateCard(id, func(c *model.Card) { c.Description = clean })
 	if err == nil {
 		if idx := s.deps.Index(); idx != nil {
 			s.logIdxErr("IndexCard", idx.IndexCard(card, time.Now(), idx.GetCardProjectContext(card.ID)))
 		}
-		for key, newVal := range fields {
-			if !reflect.DeepEqual(before[key], newVal) {
-				s.deps.LogActivity(id, model.ActivityUpdatedField, fieldDisplayLabel(key))
-			}
+		if changed {
+			s.deps.LogActivity(id, model.ActivityUpdatedField, "description")
 		}
 		s.emitCardUpdated(card)
 	}
 	return card, err
-}
-
-// fieldDisplayLabel returns a human-readable label for a card field
-// key, used in the activity log. Falls back to the raw key for any
-// field we don't have a friendlier name for.
-func fieldDisplayLabel(key string) string {
-	switch key {
-	case "description":
-		return "description"
-	default:
-		return key
-	}
 }
 
 func (s *Service) UpdateBlocks(id string, blocks []model.Block) (*model.Card, error) {

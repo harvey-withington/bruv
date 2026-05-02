@@ -703,6 +703,18 @@ func (rt *Runtime) executeAgentToolCall(cardID string, card *model.Card, tc llm.
 				}
 				continue
 			}
+			if strings.EqualFold(key, "description") {
+				// Description is intrinsic on the card — never a block.
+				// Agents that send key="description" target Card.Description
+				// regardless of any block keyed similarly (which shouldn't
+				// exist post-refactor, but we don't trust that here).
+				if s, ok := rawValue.(string); ok {
+					updatedCard.Description = s
+				} else if rawValue != nil {
+					updatedCard.Description = fmt.Sprintf("%v", rawValue)
+				}
+				continue
+			}
 			if (strings.EqualFold(key, "due_date") || strings.EqualFold(key, "due date") || strings.EqualFold(key, "duedate")) && !cardHasBlock(updatedCard, key) {
 				if s, ok := rawValue.(string); ok && s != "" {
 					parsed, perr := time.Parse("2006-01-02", s)

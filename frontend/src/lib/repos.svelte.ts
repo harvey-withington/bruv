@@ -17,9 +17,9 @@
 //     trigger the page reload that cycles transport.
 //   - probeBackend(): boot-time reachability check.
 
-import { resolveTransportInfo, serverGet } from './adapters/cloud'
+import { resolveTransportInfo, serverGet } from '@shared/adapters/cloud'
 import { connections, LOCAL_CONNECTION_ID } from './connections.svelte'
-import type { Connection } from './types'
+import type { Connection } from '@shared/types'
 
 export type ServerRepo = {
   id: string
@@ -242,7 +242,7 @@ export async function selectRepo(repoID: string): Promise<void> {
   if (shell?.SetActiveRepo) {
     await shell.SetActiveRepo(repoID)
   } else {
-    const { SetActiveRepo } = await import('./api')
+    const { SetActiveRepo } = await import('@shared/api')
     await SetActiveRepo(repoID)
   }
   setTimeout(() => window.location.reload(), 50)

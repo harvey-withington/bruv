@@ -1,4 +1,4 @@
-import type { CardTypeInfo } from './types'
+import type { CardTypeInfo } from '@shared/types'
 
 export const CARD_TYPE_ORDER = ['brainstorm', 'task', 'reference', 'feature', 'episode'] as const
 

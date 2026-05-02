@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Star } from 'lucide-svelte'
-  import type { BlockMeta } from '../lib/types'
+  import type { BlockMeta } from '@shared/types'
 
   let {
     value,

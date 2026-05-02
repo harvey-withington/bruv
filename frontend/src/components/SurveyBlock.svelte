@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Trash2, Plus } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
-  import type { SurveyQuestion, SurveyQuestionType } from '../lib/types'
+  import type { SurveyQuestion, SurveyQuestionType } from '@shared/types'
 
   let {
     value = [],

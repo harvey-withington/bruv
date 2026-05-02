@@ -7,7 +7,7 @@
   import LottiePlayer from './LottiePlayer.svelte'
   import loadingAnimation from '../lib/animations/loading.lottie?url'
   import { board, nav, dnd, boardSearch, boardSearchFilters, loadBoard } from '../lib/store.svelte'
-  import { CreateCard, PinCard, CreateCategory, RenameCategory, GetCard, MoveCardInCategory, MoveCardToCategory, ReorderCategories, DeleteCategory, DeleteCard, MoveCategoryCards, DuplicateCard, CopyCategory } from '../lib/api'
+  import { CreateCard, PinCard, CreateCategory, RenameCategory, GetCard, MoveCardInCategory, MoveCardToCategory, ReorderCategories, DeleteCategory, DeleteCard, MoveCategoryCards, DuplicateCard, CopyCategory } from '@shared/api'
   import { t } from '../lib/i18n.svelte'
   import { focusTrap } from '../lib/actions'
 

@@ -24,9 +24,9 @@
   import RemoteUnreachableScreen from './components/RemoteUnreachableScreen.svelte'
   import { loadConnections } from './lib/connections.svelte'
   import { probeBackend } from './lib/repos.svelte'
-  import { resolveTransportInfo } from './lib/adapters/cloud'
+  import { resolveTransportInfo } from '@shared/adapters/cloud'
 
-  import { GetPreferences, GetCurrentRepo, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, IsLLMConfigured, MarkLLMNudgeShown } from './lib/api'
+  import { GetPreferences, GetCurrentRepo, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, IsLLMConfigured, MarkLLMNudgeShown } from '@shared/api'
 
   // Restore persisted preferences
   loadTheme()

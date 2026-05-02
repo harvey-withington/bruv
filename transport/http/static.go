@@ -3,10 +3,23 @@ package http
 import (
 	"io"
 	"io/fs"
+	"mime"
 	nethttp "net/http"
 	"path"
 	"strings"
 )
+
+// Go's default MIME registry doesn't know about .webmanifest, the file
+// extension PWAs use for the Web App Manifest. Without this, the file
+// server falls back to content sniffing and some browsers reject the
+// manifest entirely. Register the spec'd type once at package load.
+func init() {
+	if err := mime.AddExtensionType(".webmanifest", "application/manifest+json"); err != nil {
+		// AddExtensionType only errors on a malformed type string, which
+		// the constant above isn't — non-nil here is a programming bug.
+		panic("transport/http: register .webmanifest MIME failed: " + err.Error())
+	}
+}
 
 // staticHandler serves an embedded Svelte bundle with SPA fallback.
 // Requests for files that don't exist (typical for client-routed

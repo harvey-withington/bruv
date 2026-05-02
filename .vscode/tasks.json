@@ -43,6 +43,34 @@
       }
     },
     {
+      "label": "go: build server",
+      "type": "shell",
+      "command": "go build -o build/bin/bruv-server.exe ./cmd/bruv-server",
+      "group": "build",
+      "problemMatcher": ["$go"],
+      "detail": "Compiles the headless backend (cmd/bruv-server) into build/bin/bruv-server.exe. Embeds frontend/dist and mobile/dist — those must exist (run 'npm run build' in each, or use a prior 'wails: build').",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "bruv: run server",
+      "type": "shell",
+      "command": "${workspaceFolder}/build/bin/bruv-server.exe",
+      "args": ["--addr", "127.0.0.1:9870"],
+      "isBackground": true,
+      "dependsOn": "go: build server",
+      "problemMatcher": [],
+      "detail": "Builds + launches the headless backend on 127.0.0.1:9870 — the port tailscale-serve points at. Stop with Ctrl+C in the task terminal.",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
       "label": "go: test all",
       "type": "shell",
       "command": "go test ./internal/... -v -count=1",

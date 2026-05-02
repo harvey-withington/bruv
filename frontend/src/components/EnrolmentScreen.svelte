@@ -13,7 +13,7 @@
   // cloud adapter picks up the new credentials.
 
   import { t } from '../lib/i18n.svelte'
-  import { saveEnrolment } from '../lib/adapters/cloud'
+  import { saveEnrolment } from '@shared/adapters/cloud'
   import AddConnectionForm from './AddConnectionForm.svelte'
 
   function handleEnrolled(args: { name: string; url: string; deviceToken: string }) {

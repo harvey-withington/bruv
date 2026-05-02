@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { GetAllAgents, TriggerAgent, CancelAgent, PauseAllAgents, ResumeAllAgents, GetAgentSchedulerStatus } from '../lib/api'
-  import type { AgentSummary } from '../lib/types'
+  import { GetAllAgents, TriggerAgent, CancelAgent, PauseAllAgents, ResumeAllAgents, GetAgentSchedulerStatus } from '@shared/api'
+  import type { AgentSummary } from '@shared/types'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
   import { Timer, Play, Square, Pause, CirclePlay, CircleCheck, CircleX, TriangleAlert, Clock, X } from 'lucide-svelte'

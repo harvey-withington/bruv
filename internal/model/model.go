@@ -195,19 +195,23 @@ type FileAttachment struct {
 // Card is the atomic unit of work. Exists once in the repository, can be pinned
 // to multiple Projects via Pins.
 //
-// Fields is a side-channel map kept around for the description editor
-// (which writes through cardService.UpdateFields). It's also synced
-// from text/number/select/etc. blocks on every UpdateCardBlocks call,
-// so callers reading card.Fields["something"] still get the
-// authoritative block value.
+// Description is the card's primary rich-text body (markdown, mentions,
+// the lot). Intrinsic — every card has one, even if empty. Reads and
+// writes go through dedicated paths (UpdateCardDescription); never
+// merge it into the Block list.
+//
+// Blocks are the structured user-facing fields a card carries —
+// checklists, ratings, dates, the per-card-type template entries.
+// One Block in the data is one Field in the UI; templates pre-define
+// these and switching Card Type merges them into the card.
 type Card struct {
 	ID              string           `json:"id"`
 	Type            string           `json:"type"`
 	Title           string           `json:"title"`
+	Description     string           `json:"description,omitempty"`
 	CreatedAt       time.Time        `json:"created_at"`
 	UpdatedAt       time.Time        `json:"updated_at"`
 	ContextLevel    ContextLevel     `json:"context_level"`
-	Fields          map[string]any   `json:"fields"`
 	DueDate         *time.Time       `json:"due_date"`
 	Tags            []string         `json:"tags"`
 	Labels          []string         `json:"labels,omitempty"` // label IDs from project's tags.json

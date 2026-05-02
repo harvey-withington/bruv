@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ActivityEntry } from '../lib/types'
+  import type { ActivityEntry } from '@shared/types'
   import { t } from '../lib/i18n.svelte'
 
   let {

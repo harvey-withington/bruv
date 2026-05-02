@@ -11,8 +11,8 @@
 // store with the well-known ID "local" — there is no implicit empty-
 // string sentinel anymore. isLocalActive() checks ID equality.
 
-import { ListConnections, AddConnection, RemoveConnection, UpdateConnection, SetActiveConnection } from './api'
-import type { Connection, ConnectionStore } from './types'
+import { ListConnections, AddConnection, RemoveConnection, UpdateConnection, SetActiveConnection } from '@shared/api'
+import type { Connection, ConnectionStore } from '@shared/types'
 
 // Connection management is per-machine local state and must stay
 // reachable when the active connection's backend isn't (an

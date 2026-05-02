@@ -1,4 +1,4 @@
-import type { BlockMeta } from './types'
+import type { BlockMeta } from '@shared/types'
 
 export type OptionsEditorConfig = {
   visible: boolean

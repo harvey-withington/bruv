@@ -1,7 +1,7 @@
 <script lang="ts">
   import { t } from '../lib/i18n.svelte'
   import { fade } from 'svelte/transition'
-  import { ICON_CATEGORIES } from '../lib/icons'
+  import { ICON_CATEGORIES } from '@shared/icons'
   import DynamicIcon from './DynamicIcon.svelte'
   import ColorPicker from './ColorPicker.svelte'
   import { X, Upload, Droplet, ImagePlus, RotateCcw } from 'lucide-svelte'
@@ -16,7 +16,7 @@
     ImageIconError,
     ACCEPTED_IMAGE_TYPES,
     type IconEditorTransform,
-  } from '../lib/imageIcon'
+  } from '@shared/imageIcon'
 
   let {
     value = '',

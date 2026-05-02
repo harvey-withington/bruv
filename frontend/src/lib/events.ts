@@ -7,8 +7,8 @@
 // EventsOn) so the migration from `EventsOn(topic, cb)` to
 // `onEvent(topic, cb)` is a rename at every call site.
 
-import { getBackend } from './adapters'
-import type { BackendEvent, EventCallback } from './types'
+import { getBackend } from '@shared/adapters'
+import type { BackendEvent, EventCallback } from '@shared/types'
 
 /**
  * Subscribe to a single event topic. Returns an unsubscribe function.

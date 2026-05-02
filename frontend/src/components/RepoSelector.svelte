@@ -43,7 +43,7 @@
     renameRepoOnConnection, removeRepoOnConnection,
     type TreeConnectionNode,
   } from '../lib/repos.svelte'
-  import { PickFolder, GetCurrentRepo } from '../lib/api'
+  import { PickFolder, GetCurrentRepo } from '@shared/api'
   import { nav } from '../lib/store.svelte'
 
   let {

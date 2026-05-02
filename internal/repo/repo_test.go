@@ -490,14 +490,14 @@ func TestCardCRUD(t *testing.T) {
 
 	// Update
 	updated, err := r.UpdateCard(card.ID, func(c *model.Card) {
-		c.Fields["description"] = "Cards pinnable to multiple boards"
+		c.Description = "Cards pinnable to multiple boards"
 		c.Tags = []string{"core", "architecture"}
 	})
 	if err != nil {
 		t.Fatalf("UpdateCard: %v", err)
 	}
-	if updated.Fields["description"] != "Cards pinnable to multiple boards" {
-		t.Error("field not updated")
+	if updated.Description != "Cards pinnable to multiple boards" {
+		t.Error("description not updated")
 	}
 	if len(updated.Tags) != 2 {
 		t.Errorf("tags count = %d, want 2", len(updated.Tags))

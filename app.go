@@ -16,6 +16,7 @@ import (
 	"bruv/internal/config"
 	"bruv/internal/logging"
 	"bruv/internal/update"
+	"bruv/mobile"
 	transporthttp "bruv/transport/http"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -264,6 +265,7 @@ func (a *App) startHTTPTransport() {
 		Version:       AppVersion,
 		BuildDate:     BuildDate,
 		StaticAssets:  assets,
+		MobileAssets:  mobile.Assets(),
 		Repos:         supervisor.NewHTTPAdapter(a.sup),
 		MachineTarget: supervisor.NewMachineService(),
 	})

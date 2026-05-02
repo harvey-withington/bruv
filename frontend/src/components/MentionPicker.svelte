@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { SearchCards, ListBrands, ListStreams, ListProjects } from '../lib/api'
+  import { SearchCards, ListBrands, ListStreams, ListProjects } from '@shared/api'
   import { t } from '../lib/i18n.svelte'
-  import { getCardTypeColor } from '../lib/cardTypes'
+  import { getCardTypeColor } from '@shared/cardTypes'
   import { cardTypes } from '../lib/store.svelte'
 
   type PickerItem = {

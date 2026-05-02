@@ -1,8 +1,8 @@
 import './style.css'
 import { mount } from 'svelte'
-import { initBackend } from './lib/adapters'
-import { NeedsEnrolmentError } from './lib/adapters/cloud'
-import { GetCardProjectContext } from './lib/api'
+import { initBackend } from '@shared/adapters'
+import { NeedsEnrolmentError } from '@shared/adapters/cloud'
+import { GetCardProjectContext } from '@shared/api'
 import App from './App.svelte'
 import EnrolmentScreen from './components/EnrolmentScreen.svelte'
 

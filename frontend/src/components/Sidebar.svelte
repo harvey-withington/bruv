@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { nav, board, loadBoard } from '../lib/store.svelte'
-  import { CreateBrand, RenameBrand, UpdateBrandDescription, UpdateBrandIcon, CreateStream, RenameStream, UpdateStreamDescription, UpdateStreamIcon, CreateProject, RenameProject, UpdateProjectDescription, UpdateProjectIcon, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, GetCard, ListOrphanedCardIDs, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject, GetPreferences, GetRepoDescription, UpdateRepoDescription } from '../lib/api'
+  import { CreateBrand, RenameBrand, UpdateBrandDescription, UpdateBrandIcon, CreateStream, RenameStream, UpdateStreamDescription, UpdateStreamIcon, CreateProject, RenameProject, UpdateProjectDescription, UpdateProjectIcon, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, GetCard, ListOrphanedCardIDs, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject, GetPreferences, GetRepoDescription, UpdateRepoDescription } from '@shared/api'
   import { ChevronLeft, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox, Timer, ChevronsUpDown, ChevronsDownUp, Smile, Upload, Info, Server, Monitor } from 'lucide-svelte'
   import { connections, isLocalActive, activeConnectionLabel } from '../lib/connections.svelte'
   import ThemeToggle from './ThemeToggle.svelte'
@@ -10,7 +10,7 @@
   import IconPicker from './IconPicker.svelte'
   import ImportTrelloDialog from './ImportTrelloDialog.svelte'
   import { t } from '../lib/i18n.svelte'
-  import { renderInline } from '../lib/markdown'
+  import { renderInline } from '@shared/markdown'
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
   import { inlineEdit } from '../lib/actions'

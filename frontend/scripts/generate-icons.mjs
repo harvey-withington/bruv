@@ -17,6 +17,12 @@ const targets = [
   { path: resolve(root, 'public/icon.ico'),      type: 'ico', sizes: [16, 32, 48, 64, 128, 256] },
   { path: resolve(projectRoot, 'build/appicon.png'),        type: 'png', size: 1024 },
   { path: resolve(projectRoot, 'build/windows/icon.ico'),   type: 'ico', sizes: [16, 32, 48, 64, 128, 256] },
+  // Mobile PWA icons. 192 and 512 are the Android Chrome install
+  // requirements; the SVG copy gives us a vector favicon. Maskable
+  // variants can come later if/when we design a safe-zone version.
+  { path: resolve(projectRoot, 'mobile/public/icon-192.png'),  type: 'png', size: 192 },
+  { path: resolve(projectRoot, 'mobile/public/icon-512.png'),  type: 'png', size: 512 },
+  { path: resolve(projectRoot, 'mobile/public/bruv-icon.svg'), type: 'copy' },
 ];
 
 function isStale() {

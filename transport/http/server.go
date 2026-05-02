@@ -30,6 +30,12 @@ import (
 //   GET    /repos/<id>/attachments/...   signed-URL handler
 //   POST   /server/rpc                   per-machine dispatcher
 //                                        (when MachineTarget is set)
+//   GET    /pair?token=<bootstrap>        operator-facing pairing page
+//                                        (renders QR for /m/enrol)
+//   GET    /app/                          desktop Svelte bundle
+//                                        (when StaticAssets is set)
+//   GET    /m/                            mobile PWA bundle
+//                                        (when MobileAssets is set)
 type Config struct {
 	Addr      string
 	ConfigDir string
@@ -40,6 +46,11 @@ type Config struct {
 	// //go:embed directive. Leave nil in headless server builds that
 	// don't carry UI bytes.
 	StaticAssets fs.FS
+	// MobileAssets optionally embeds the mobile PWA bundle, served at
+	// /m/*. Same rules as StaticAssets — set from the main binary's
+	// embed, leave nil to skip the mount. The mobile bundle is its own
+	// Svelte app under /mobile/ in the source tree.
+	MobileAssets fs.FS
 	// Repos is the per-repo backend. Required.
 	Repos RepoBackend
 	// MachineTarget is the dispatcher target for /server/rpc — the
@@ -246,6 +257,12 @@ func (s *Server) buildMux() *nethttp.ServeMux {
 
 	mux.Handle("/auth/enrol", requireBootstrap(s.devices, enrolHandler(s.devices)))
 
+	// /pair — operator-facing pairing page. Self-authenticated via the
+	// bootstrap token in ?token=, so it works in headless server mode
+	// (no Wails IPC needed). Renders a QR encoding the mobile EnrolPage
+	// URL for the operator's phone to scan.
+	mux.Handle("/pair", pairHandler(s.cfg.ConfigDir))
+
 	// /repos and /repos/<id>/... — multi-repo routing (used by both
 	// desktop loopback and headless bruv-server since the local-as-
 	// remote pivot). See package-level Config doc for the full route
@@ -279,6 +296,27 @@ func (s *Server) buildMux() *nethttp.ServeMux {
 				return
 			}
 			nethttp.Redirect(w, r, "/app/", nethttp.StatusFound)
+		})
+	}
+
+	// Mobile PWA at /m/*. Same shape as /app/ — unauthenticated bundle
+	// serving (data still gated on bearer tokens). Mounted independently
+	// so a build can ship desktop-only or mobile-only assets without
+	// pulling in the other.
+	if s.cfg.MobileAssets != nil {
+		// Manifest is server-rendered so name/short_name reflect the
+		// host the user installed from — distinct PWA tiles per server
+		// when one phone pairs with multiple BRUVs. Longest-pattern-
+		// wins routing means this beats the /m/ subtree match below.
+		mux.Handle("/m/manifest.webmanifest", mobileManifestHandler())
+		// Note: /m/share isn't mounted explicitly — the manifest's
+		// share_target uses GET, so the browser hits /m/share?…
+		// directly. The static handler's SPA fallback serves the
+		// shell, and the SPA router maps /share → SharePage which
+		// reads the query string. No handler indirection needed.
+		mux.Handle("/m/", nethttp.StripPrefix("/m/", staticHandler(s.cfg.MobileAssets)))
+		mux.HandleFunc("/m", func(w nethttp.ResponseWriter, r *nethttp.Request) {
+			nethttp.Redirect(w, r, "/m/", nethttp.StatusMovedPermanently)
 		})
 	}
 

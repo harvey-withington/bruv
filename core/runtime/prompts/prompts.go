@@ -212,11 +212,11 @@ func (b *Builder) serializeCardForProjectPrompt( card *model.Card) string {
 	line += ")"
 	sb.WriteString(line + "\n")
 
-	// Aggregate text content from description field + every text/markdown block,
-	// in document order, capped at maxContentChars overall.
+	// Aggregate text content from the intrinsic description plus every
+	// text/markdown block, in document order, capped at maxContentChars.
 	var content strings.Builder
-	if desc, ok := card.Fields["description"].(string); ok && desc != "" {
-		content.WriteString(desc)
+	if card.Description != "" {
+		content.WriteString(card.Description)
 	}
 	for _, b := range card.Blocks {
 		if b.Type != "text" && b.Type != "markdown" {

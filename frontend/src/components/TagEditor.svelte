@@ -2,7 +2,7 @@
   import { tick, onMount } from 'svelte'
   import { fade } from 'svelte/transition'
   import { projectTags, nav, loadBoard } from '../lib/store.svelte'
-  import { AddProjectLabel, RemoveProjectLabel, UpdateProjectLabel, SetProjectLabelIcon, ListCardIDsByTag, GetCard, UpdateCardTags } from '../lib/api'
+  import { AddProjectLabel, RemoveProjectLabel, UpdateProjectLabel, SetProjectLabelIcon, ListCardIDsByTag, GetCard, UpdateCardTags } from '@shared/api'
   import { X, Plus, Trash2, Palette, Smile } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import { focusTrap, inlineEdit } from '../lib/actions'

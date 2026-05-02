@@ -5,11 +5,11 @@
   import InboxRecentCards from './InboxRecentCards.svelte'
   import InboxActivity from './InboxActivity.svelte'
   import { board, search, inboxSearchFilters } from '../lib/store.svelte'
-  import { ListActivityLog, ListRecentlyUpdatedCards, GetPreferences, DeleteCard } from '../lib/api'
+  import { ListActivityLog, ListRecentlyUpdatedCards, GetPreferences, DeleteCard } from '@shared/api'
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
   import { t } from '../lib/i18n.svelte'
-  import type { ActivityEntry, RecentCard } from '../lib/types'
+  import type { ActivityEntry, RecentCard } from '@shared/types'
 
   let {
     onNewIdea,

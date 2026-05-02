@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { GetAgentConfig, SaveAgentConfig, TriggerAgent, CancelAgent, IsLLMConfigured, ListAgentCardStates, GetLLMAccounts, ListMCPServers } from '../lib/api'
-  import type { MCPServerView } from '../lib/types'
+  import { GetAgentConfig, SaveAgentConfig, TriggerAgent, CancelAgent, IsLLMConfigured, ListAgentCardStates, GetLLMAccounts, ListMCPServers } from '@shared/api'
+  import type { MCPServerView } from '@shared/types'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
   import { board } from '../lib/store.svelte'
-  import type { AgentConfig, LLMAccount } from '../lib/types'
+  import type { AgentConfig, LLMAccount } from '@shared/types'
   import { Timer, Play, Square } from 'lucide-svelte'
   import LLMAccountSelect from './LLMAccountSelect.svelte'
   import { onMount, onDestroy } from 'svelte'

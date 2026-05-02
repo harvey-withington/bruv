@@ -10,7 +10,7 @@
    */
   import { MapPin, MapPinOff, MoveRight } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
-  import type { CardPin } from '../lib/types'
+  import type { CardPin } from '@shared/types'
 
   let {
     pinBreadcrumbs,

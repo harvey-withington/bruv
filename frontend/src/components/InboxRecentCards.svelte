@@ -1,6 +1,6 @@
 <script lang="ts">
   import CardItem from './CardItem.svelte'
-  import type { RecentCard } from '../lib/types'
+  import type { RecentCard } from '@shared/types'
   import { t } from '../lib/i18n.svelte'
 
   let {

@@ -8,8 +8,8 @@
   import { GripVertical, Plus, Trash2, Type, ListChecks, List, Film, Link, Minus, X, ChevronDown, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell } from 'lucide-svelte'
   import EditableChecklist from './EditableChecklist.svelte'
   import EditableList from './EditableList.svelte'
-  import type { CardTemplate, Block, BlockMeta, ChecklistItem, ListItem } from '../lib/types'
-  import type { CardTypeInfo } from '../lib/types'
+  import type { CardTemplate, Block, BlockMeta, ChecklistItem, ListItem } from '@shared/types'
+  import type { CardTypeInfo } from '@shared/types'
 
   let { template, allTypes, onSave, onClose }: {
     template?: CardTemplate

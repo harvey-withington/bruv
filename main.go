@@ -3,7 +3,9 @@ package main
 import (
 	"bruv/frontend"
 	"bruv/internal/config"
+	"bruv/internal/repocli"
 	"bruv/internal/server"
+	"bruv/mobile"
 	"embed"
 	"flag"
 	"log/slog"
@@ -21,7 +23,7 @@ var assets embed.FS
 func main() {
 	// --- Service-mode dispatch ---
 	//
-	// One bruv.exe behaves three ways. Order matters here: SCM
+	// One bruv.exe behaves several ways. Order matters here: SCM
 	// invocation must take precedence so the service host doesn't
 	// accidentally fall through to the desktop UI on a session that
 	// has no display.
@@ -30,8 +32,12 @@ func main() {
 	//      interactively and routes through runServiceMode().
 	//   2. `bruv.exe service install/uninstall/start/stop/...` —
 	//      explicit subcommand for managing the registered service.
-	//   3. `bruv.exe --server` — interactive headless backend.
-	//   4. (default) — Wails desktop UI.
+	//   3. `bruv.exe repo <subcmd>` — registry management against
+	//      repos.json on disk (list, add, enable, disable, remove,
+	//      rename). No HTTP / no device token; file-system access is
+	//      the credential.
+	//   4. `bruv.exe --server` — interactive headless backend.
+	//   5. (default) — Wails desktop UI.
 	if !service.Interactive() {
 		runServiceMode()
 		return
@@ -39,6 +45,9 @@ func main() {
 	if isServiceCommand() {
 		runServiceCommand()
 		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "repo" {
+		os.Exit(repocli.Run(os.Args[2:], os.Stdout, os.Stderr))
 	}
 	if isServerMode() {
 		runServerMode()
@@ -132,12 +141,13 @@ func runServerMode() {
 	// errors clearly when neither --repo nor a populated registry
 	// is available, so the prior frontline guard here is redundant.
 	if err := server.Run(server.Options{
-		RepoPath:  *repoPath,
-		Addr:      *addr,
-		ConfigDir: *configDir,
-		Version:   AppVersion,
-		BuildDate: BuildDate,
-		Assets:    frontend.Assets(),
+		RepoPath:     *repoPath,
+		Addr:         *addr,
+		ConfigDir:    *configDir,
+		Version:      AppVersion,
+		BuildDate:    BuildDate,
+		Assets:       frontend.Assets(),
+		MobileAssets: mobile.Assets(),
 	}); err != nil {
 		slog.Error("bruv --server failed", "err", err)
 		os.Exit(1)

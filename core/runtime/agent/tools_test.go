@@ -158,8 +158,10 @@ func TestUpdateSelf_TitleAndBlocks(t *testing.T) {
 	if updated.Title != "New" {
 		t.Errorf("title = %q, want 'New'", updated.Title)
 	}
-	if updated.Blocks[0].Value != "new text" {
-		t.Errorf("description = %v, want 'new text'", updated.Blocks[0].Value)
+	// Description is intrinsic now — the agent's `description` key
+	// targets Card.Description directly, not a block.
+	if updated.Description != "new text" {
+		t.Errorf("description = %q, want 'new text'", updated.Description)
 	}
 }
 

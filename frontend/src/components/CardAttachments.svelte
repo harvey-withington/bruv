@@ -3,8 +3,8 @@
   import { t } from '../lib/i18n.svelte'
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
-  import { AddCardAttachment, RemoveCardAttachment, SignAttachmentURL } from '../lib/api'
-  import type { Attachment, Card } from '../lib/types'
+  import { AddCardAttachment, RemoveCardAttachment, SignAttachmentURL } from '@shared/api'
+  import type { Attachment, Card } from '@shared/types'
 
   let {
     cardId,

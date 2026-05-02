@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { getCardTypeColor, getCardTypeTextColor, getCardTypeLabel } from './cardTypes'
-import type { CardTypeInfo } from './types'
+import { getCardTypeColor, getCardTypeTextColor, getCardTypeLabel } from '@shared/cardTypes'
+import type { CardTypeInfo } from '@shared/types'
 
 describe('getCardTypeColor', () => {
   it('returns elevated bg for null type', () => {

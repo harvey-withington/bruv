@@ -2,7 +2,7 @@
   import { t } from '../lib/i18n.svelte'
   import { ChevronDown, X } from 'lucide-svelte'
   import { floatingDropdown } from '../lib/actions'
-  import type { BlockMeta } from '../lib/types'
+  import type { BlockMeta } from '@shared/types'
 
   let {
     value,

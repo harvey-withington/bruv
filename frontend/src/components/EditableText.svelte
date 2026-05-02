@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { renderMarkdown, renderInline } from '../lib/markdown'
+  import { renderMarkdown, renderInline } from '@shared/markdown'
   import { t } from '../lib/i18n.svelte'
 
   let {

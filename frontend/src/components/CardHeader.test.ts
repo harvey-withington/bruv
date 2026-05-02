@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, fireEvent, screen } from '@testing-library/svelte'
 import CardHeader from './CardHeader.svelte'
-import type { Card, CardTypeInfo } from '../lib/types'
+import type { Card, CardTypeInfo } from '@shared/types'
 
 // Catches: the title-click regression we just fixed (draggable
 // stealing pointerdown). Exercises click-to-edit, Enter-to-save,

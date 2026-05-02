@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { GetCard, UpdateCardTitle, UpdateCardType, RefreshTypeBlocks, UpdateCardFields, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
-    DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, AddProjectLabel, GetProjectLabels, GetCategoryAcceptedTypes, GetAgentConfig } from '../lib/api'
+  import { GetCard, UpdateCardTitle, UpdateCardType, RefreshTypeBlocks, UpdateCardDescription, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
+    DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, AddProjectLabel, GetProjectLabels, GetCategoryAcceptedTypes, GetAgentConfig } from '@shared/api'
   import { onEvent } from '../lib/events'
   import { projectTags, nav, getTagColor, getTagIcon, cardTypes } from '../lib/store.svelte'
   import DynamicIcon from './DynamicIcon.svelte'
   import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, BotMessageSquare, ChevronDown, ChevronsUpDown, ChevronsDownUp, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell, ClipboardList } from 'lucide-svelte'
-  import { renderMarkdown } from '../lib/markdown'
+  import { renderMarkdown } from '@shared/markdown'
   import { t } from '../lib/i18n.svelte'
   import MentionPicker from './MentionPicker.svelte'
   import PinPicker from './PinPicker.svelte'
@@ -26,7 +26,7 @@
   import { focusOnMount, focusTrap, floatingDropdown } from '../lib/actions'
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
-  import type { Card, Block, BlockMeta, CardPin } from '../lib/types'
+  import type { Card, Block, BlockMeta, CardPin } from '@shared/types'
 
 
   let { cardId, currentCategoryId, currentCategoryName, categoryAcceptedTypes, onClose, onUpdated, onPin, autoEditTitle, initialTab }: {
@@ -493,7 +493,7 @@
       notFound = false
       pinBreadcrumbs = await GetCardPinBreadcrumbs(cardId) || []
       titleDraft = card.title
-      descriptionDraft = card.fields?.description || ''
+      descriptionDraft = card.description || ''
       blockDrafts = {}
       newChecklistTexts = {}
       for (const b of card.blocks) {
@@ -580,9 +580,8 @@
 
   async function saveDescription() {
     if (!editingDescription) return
-    const fields = { ...(card?.fields || {}), description: descriptionDraft }
     try {
-      card = await tracked(UpdateCardFields(cardId, fields)) as Card
+      card = await tracked(UpdateCardDescription(cardId, descriptionDraft)) as Card
       editingDescription = false
     } catch (e) { showToast(t('error.save_failed'), 'error'); return }
     onUpdated?.()
@@ -593,7 +592,7 @@
     if (e.key === 'Escape') {
       e.stopPropagation()
       editingDescription = false
-      descriptionDraft = card?.fields?.description || ''
+      descriptionDraft = card?.description || ''
     }
   }
 

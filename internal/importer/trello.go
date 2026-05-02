@@ -441,15 +441,9 @@ func ImportTrello(r *repo.Repository, brandSlug, streamSlug string, parsed *Pars
 			c.DueDate = dueDate
 			c.Labels = labelIDs
 			c.Tags = tagNames
-			// The card UI's "Description" section renders from
-			// card.Fields["description"] (the legacy string field), not the
-			// block form. repo.UpdateCardBlocks normally keeps these two in
-			// sync, but we're writing blocks directly here, so mirror the
-			// description into Fields manually.
-			if c.Fields == nil {
-				c.Fields = make(map[string]any)
-			}
-			c.Fields["description"] = strings.TrimSpace(tc.Desc)
+			// Description is now an intrinsic field on the card —
+			// no more denormalised Fields-map mirror.
+			c.Description = strings.TrimSpace(tc.Desc)
 		}); err != nil {
 			return nil, fmt.Errorf("update imported card %q: %w", title, err)
 		}
@@ -494,18 +488,11 @@ func findListActive(lists []TrelloList, id string) (TrelloList, bool) {
 }
 
 // buildCardBlocks converts a Trello card's payload into BRUV blocks.
+// The Trello card's description is NOT included here — it lands on
+// card.Description (the intrinsic field) via the caller, not as a
+// block. The block list is for structured content only.
 func buildCardBlocks(tc TrelloCard, checklists map[string]TrelloChecklist) []model.Block {
-	blocks := make([]model.Block, 0, 4)
-
-	// Description → text block (always present, even if empty, so every
-	// imported card has the same baseline shape as a natively-created one).
-	blocks = append(blocks, model.Block{
-		ID:    newBlockID(),
-		Type:  model.BlockText,
-		Label: "Description",
-		Key:   "description",
-		Value: strings.TrimSpace(tc.Desc),
-	})
+	blocks := make([]model.Block, 0, 3)
 
 	// Checklists → one checklist block each
 	for _, clID := range tc.IDChecklists {

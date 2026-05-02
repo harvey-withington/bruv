@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, fireEvent } from '@testing-library/svelte'
 import BlockItem from './BlockItem.svelte'
 import { createMockAdapter } from '../lib/adapters/mock'
-import { setBackend } from '../lib/adapters'
-import type { Block, Card } from '../lib/types'
+import { setBackend } from '@shared/adapters'
+import type { Block, Card } from '@shared/types'
 
 // Catches: the CLAUDE.md hard rule "ID-based state, Not Index-based".
 // Every callback BlockItem invokes must carry the block.id, not the

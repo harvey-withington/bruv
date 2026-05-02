@@ -1,9 +1,9 @@
 <script lang="ts">
   import { search, boardSearch, nav, cardTypes } from '../lib/store.svelte'
-  import { SearchOrphanedCards } from '../lib/api'
+  import { SearchOrphanedCards } from '@shared/api'
   import { Search, X } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
-  import { getCardTypeColor } from '../lib/cardTypes'
+  import { getCardTypeColor } from '@shared/cardTypes'
 
   let { onSelectCard, grouped = false }: { onSelectCard?: (cardId: string) => void; grouped?: boolean } = $props()
 

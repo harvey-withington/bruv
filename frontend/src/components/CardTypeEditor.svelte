@@ -8,7 +8,7 @@
   import TemplateEditor from './TemplateEditor.svelte'
   import DynamicIcon from './DynamicIcon.svelte'
   import IconPicker from './IconPicker.svelte'
-  import type { CardTypeInfo, UserCardType, CardTemplate } from '../lib/types'
+  import type { CardTypeInfo, UserCardType, CardTemplate } from '@shared/types'
 
   let { type, templates, allTypes, onSave, onClose }: {
     type?: CardTypeInfo

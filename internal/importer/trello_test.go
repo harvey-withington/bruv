@@ -206,13 +206,15 @@ func TestImportTrello_ArchiveSkip(t *testing.T) {
 	if len(card.Tags) != 1 || card.Tags[0] != "Bug" {
 		t.Errorf("tags = %v, want [Bug]", card.Tags)
 	}
-	// The intrinsic Description field reads from Fields["description"], not the
-	// block value, so the importer has to mirror the text into both places.
-	if desc, _ := card.Fields["description"].(string); desc != "This is the description." {
-		t.Errorf("Fields[description] = %q, want %q", desc, "This is the description.")
+	// Description is intrinsic on the Card — no longer a block keyed
+	// "description", no longer mirrored into a Fields map.
+	if card.Description != "This is the description." {
+		t.Errorf("Description = %q, want %q", card.Description, "This is the description.")
 	}
-	// Expect 4 blocks: description, checklist, image, url
-	wantTypes := []string{model.BlockText, model.BlockChecklist, model.BlockImage, model.BlockURL}
+	// Expect 3 blocks: checklist, image, url. The description used
+	// to be the first block (key="description") but now lives on the
+	// card directly, so the block list is one shorter than before.
+	wantTypes := []string{model.BlockChecklist, model.BlockImage, model.BlockURL}
 	if len(card.Blocks) != len(wantTypes) {
 		t.Fatalf("blocks = %d (%v), want %d", len(card.Blocks), blockTypes(card.Blocks), len(wantTypes))
 	}

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { GetAgentConfig, ClearAgentRuns } from '../lib/api'
+  import { GetAgentConfig, ClearAgentRuns } from '@shared/api'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
-  import type { AgentRun } from '../lib/types'
+  import type { AgentRun } from '@shared/types'
   import { Clock, CircleCheck, CircleX, TriangleAlert, Square, Trash2, Timer } from 'lucide-svelte'
   import { onMount, onDestroy } from 'svelte'
   import { onEvent } from '../lib/events'

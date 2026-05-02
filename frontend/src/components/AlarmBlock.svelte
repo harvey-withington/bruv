@@ -1,7 +1,7 @@
 <script lang="ts">
   import { t } from '../lib/i18n.svelte'
   import { Bell, BellOff, BellRing, RotateCcw } from 'lucide-svelte'
-  import type { BlockMeta } from '../lib/types'
+  import type { BlockMeta } from '@shared/types'
 
   let {
     value,

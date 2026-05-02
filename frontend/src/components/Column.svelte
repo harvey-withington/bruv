@@ -6,9 +6,9 @@
   import { dnd, prefs, columnSettings, cardTypes } from '../lib/store.svelte'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
-  import { renderInline } from '../lib/markdown'
-  import { getCardTypeColor, CARD_TYPE_ORDER } from '../lib/cardTypes'
-  import { UpdateCategoryAcceptedTypes, UpdateCategoryDescription, UpdateCategoryIcon } from '../lib/api'
+  import { renderInline } from '@shared/markdown'
+  import { getCardTypeColor, CARD_TYPE_ORDER } from '@shared/cardTypes'
+  import { UpdateCategoryAcceptedTypes, UpdateCategoryDescription, UpdateCategoryIcon } from '@shared/api'
   import { Pencil as PencilSmall } from 'lucide-svelte'
   import { inlineEdit, floatingDropdown } from '../lib/actions'
 

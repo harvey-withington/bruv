@@ -16,10 +16,10 @@
    * save path is entangled with the parent's tracked()/savingCount.
    * Extracted from CardDetail to shrink the god-component.
    */
-  import { renderMarkdown } from '../lib/markdown'
+  import { renderMarkdown } from '@shared/markdown'
   import { t } from '../lib/i18n.svelte'
   import { focusOnMount } from '../lib/actions'
-  import type { Card } from '../lib/types'
+  import type { Card } from '@shared/types'
 
   let {
     card,
@@ -61,8 +61,8 @@
       onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editingDescription = true } }}
       title={t('tooltip.edit_description')}
     >
-      {#if card.fields?.description}
-        <div class="markdown-content">{@html renderMarkdown(card.fields.description)}</div>
+      {#if card.description}
+        <div class="markdown-content">{@html renderMarkdown(card.description)}</div>
       {:else}
         <p class="placeholder">{t('card.description_placeholder')}</p>
       {/if}

@@ -25,6 +25,14 @@
       "preLaunchTask": "wails: build installer (Windows)"
     },
     {
+      "name": "BRUV: Server Mode",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "& '${workspaceFolder}/build/bin/bruv-server.exe' --addr 127.0.0.1:9870",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "go: build server"
+    },
+    {
       "name": "BRUV: Run All Tests",
       "type": "node-terminal",
       "request": "launch",

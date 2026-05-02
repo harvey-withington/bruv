@@ -4,8 +4,8 @@
   import { t } from '../lib/i18n.svelte'
   import { focusTrap } from '../lib/actions'
   import { showToast } from '../lib/toast.svelte'
-  import { ImportTrelloBoardFromJSON } from '../lib/api'
-  import type { TrelloArchiveMode, TrelloImportResult } from '../lib/types'
+  import { ImportTrelloBoardFromJSON } from '@shared/api'
+  import type { TrelloArchiveMode, TrelloImportResult } from '@shared/types'
 
   let {
     brandSlug,

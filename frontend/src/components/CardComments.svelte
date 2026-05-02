@@ -9,8 +9,8 @@
     AddCardComment,
     UpdateCardComment,
     DeleteCardComment,
-  } from '../lib/api'
-  import type { CardComment } from '../lib/types'
+  } from '@shared/api'
+  import type { CardComment } from '@shared/types'
 
   let { cardId }: { cardId: string } = $props()
 

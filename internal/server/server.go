@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -49,6 +50,10 @@ type Options struct {
 	// stays free of the frontend embed (which would otherwise
 	// import-cycle through anything that depends on it).
 	Assets fs.FS
+	// MobileAssets is the embedded mobile PWA bundle to serve at /m/*.
+	// Pass mobile.Assets() at the call site, mirroring Assets above.
+	// Optional — leave nil if the build doesn't ship the mobile UI.
+	MobileAssets fs.FS
 }
 
 // Run starts the multi-repo headless server, blocks until
@@ -127,6 +132,7 @@ func Run(opts Options) error {
 		Version:       opts.Version,
 		BuildDate:     opts.BuildDate,
 		StaticAssets:  opts.Assets,
+		MobileAssets:  opts.MobileAssets,
 		Repos:         supervisor.NewHTTPAdapter(sup),
 		MachineTarget: supervisor.NewMachineService(),
 	})
@@ -140,6 +146,27 @@ func Run(opts Options) error {
 		"addr", srv.Addr(),
 		"repos", len(store.Repos),
 		"bootstrap_token", filepath.Join(opts.ConfigDir, "bootstrap-token.txt"))
+
+	// Print a ready-to-click pairing URL for the operator. Two variants:
+	//
+	//  - Local (loopback): works from a browser on THIS machine. Use
+	//    this when you're at the home server's keyboard. Pass
+	//    &host=<your-tailscale-hostname>&scheme=https so the QR
+	//    encodes a phone-reachable URL rather than 127.0.0.1.
+	//  - Tailscale (placeholder): for remote access from another
+	//    tailnet device. Substitute your *.ts.net hostname.
+	//
+	// Hitting the tailscale URL FROM the same machine that runs
+	// tailscale serve is a hairpin and won't work — that's why the
+	// local form is here too.
+	if bsBytes, err := os.ReadFile(filepath.Join(opts.ConfigDir, "bootstrap-token.txt")); err == nil {
+		bs := strings.TrimSpace(string(bsBytes))
+		if bs != "" {
+			fmt.Fprintf(os.Stderr, "\n  Pair a phone:\n")
+			fmt.Fprintf(os.Stderr, "    Local:     http://%s/pair?token=%s&host=<your-machine>.ts.net&scheme=https\n", srv.Addr(), bs)
+			fmt.Fprintf(os.Stderr, "    Tailscale: https://<your-machine>.ts.net/pair?token=%s\n\n", bs)
+		}
+	}
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)

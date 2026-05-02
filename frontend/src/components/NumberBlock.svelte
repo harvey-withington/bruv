@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { BlockMeta } from '../lib/types'
+  import type { BlockMeta } from '@shared/types'
 
   let {
     value,

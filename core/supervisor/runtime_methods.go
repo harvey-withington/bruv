@@ -73,8 +73,12 @@ func (r *Runtime) UpdateCardTitle(id, title string) (*model.Card, error) {
 func (r *Runtime) UpdateCardType(id, cardType string) (*model.Card, error) {
 	return r.Card.UpdateType(id, cardType)
 }
-func (r *Runtime) UpdateCardFields(id string, fields map[string]any) (*model.Card, error) {
-	return r.Card.UpdateFields(id, fields)
+// UpdateCardDescription replaces the card's intrinsic description.
+// The legacy UpdateCardFields RPC was deleted in favour of this —
+// the previous "fields map with a magic 'description' key" model
+// caused silent desync with blocks; description is now first-class.
+func (r *Runtime) UpdateCardDescription(id, description string) (*model.Card, error) {
+	return r.Card.UpdateDescription(id, description)
 }
 func (r *Runtime) UpdateCardBlocks(id string, blocks []model.Block) (*model.Card, error) {
 	return r.Card.UpdateBlocks(id, blocks)

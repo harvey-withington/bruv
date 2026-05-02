@@ -3,7 +3,7 @@ import { render, fireEvent } from '@testing-library/svelte'
 import Column from './Column.svelte'
 import { dnd, board, cardTypes } from '../lib/store.svelte'
 import { createMockAdapter } from '../lib/adapters/mock'
-import { setBackend } from '../lib/adapters'
+import { setBackend } from '@shared/adapters'
 
 // Catches: id-vs-index keying regressions on the card grid. If the
 // {#each} ever loses its (card.id) key, or if the drop handler starts

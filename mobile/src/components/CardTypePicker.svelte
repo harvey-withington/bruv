@@ -64,7 +64,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="backdrop" onclick={onClose}></div>
 
-<aside
+<div
   class="sheet"
   bind:this={sheetEl}
   role="dialog"
@@ -72,8 +72,9 @@
   style:transform={translateY > 0 ? `translateY(${translateY}px)` : undefined}
   style:transition={dragging ? 'none' : undefined}
 >
-  <header
+  <div
     class="header"
+    role="presentation"
     onpointerdown={onHeaderPointerDown}
     onpointermove={onHeaderPointerMove}
     onpointerup={onHeaderPointerUp}
@@ -84,7 +85,7 @@
     <button type="button" class="icon-btn" onclick={onClose} aria-label={t('common.cancel')}>
       <X size={18} />
     </button>
-  </header>
+  </div>
 
   <ul class="types">
     <li>
@@ -135,7 +136,7 @@
       </li>
     {/each}
   </ul>
-</aside>
+</div>
 
 <style>
   .backdrop {

@@ -11,7 +11,7 @@
   // Schema-drift fallback: unknown block.type values render with a
   // small placeholder rather than crashing.
 
-  import { tick } from 'svelte'
+  import { tick, untrack } from 'svelte'
   import { Trash2, Pencil } from 'lucide-svelte'
   import type { Block } from '@shared/types'
   import { t } from '../../lib/i18n.svelte'
@@ -55,9 +55,10 @@
   // For everything else, BlockEditor renders an editable header.
   const ownsLabel = $derived(block.type === 'divider' || block.type === 'checkbox')
 
-  // Inline label rename.
+  // Inline label rename. untrack: seed once; startLabelEdit() refreshes
+  // from the current block.label when the user actually opens the input.
   let labelEditing = $state(false)
-  let labelDraft = $state(block.label ?? '')
+  let labelDraft = $state(untrack(() => block.label ?? ''))
   let labelInputEl: HTMLInputElement | null = $state(null)
 
   async function startLabelEdit() {

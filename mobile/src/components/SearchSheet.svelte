@@ -91,7 +91,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="backdrop" onclick={onClose}></div>
 
-<aside class="sheet" role="dialog" aria-label={t('search.title')}>
+<div class="sheet" role="dialog" aria-label={t('search.title')}>
   <header class="header">
     <span class="search-icon" aria-hidden="true"><Search size={18} /></span>
     <input
@@ -149,7 +149,7 @@
       </ul>
     {/if}
   </div>
-</aside>
+</div>
 
 <style>
   .backdrop {
@@ -192,6 +192,7 @@
     font-size: 0.95rem;
     padding: 0.55rem 0.7rem;
     -webkit-appearance: none;
+    appearance: none;
   }
   .input:focus {
     outline: none;

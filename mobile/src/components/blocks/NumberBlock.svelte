@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { t } from '../../lib/i18n.svelte'
   import type { Block } from '@shared/types'
   import { asNumber, withValue } from './narrow'
@@ -9,8 +10,9 @@
   // they're mid-typing "1.5" the "1." intermediate value is invalid as
   // a number but valid as a draft). Persist when the parsed number
   // changes, or on blur.
-  let draft = $state(formatInitial(block.value))
-  let lastSavedNumber = $state<number | null>(asNumber(block.value))
+  // untrack: seed once from the prop; the input owns the value.
+  let draft = $state(untrack(() => formatInitial(block.value)))
+  let lastSavedNumber = $state<number | null>(untrack(() => asNumber(block.value)))
 
   function formatInitial(v: unknown): string {
     const n = asNumber(v)

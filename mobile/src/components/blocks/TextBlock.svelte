@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { t } from '../../lib/i18n.svelte'
   import { renderMarkdown } from '@shared/markdown'
   import { Eye, PencilLine } from 'lucide-svelte'
@@ -10,9 +11,12 @@
   // Edit-by-default; tap "Preview" to swap. Mirrors the desktop text
   // block's behaviour but with a tap target sized for fingers.
   let mode = $state<'edit' | 'preview'>('edit')
-  let draft = $state(asString(block.value))
+  // untrack: draft is intentionally seeded from block.value once and
+  // then owned by the textarea — we don't want it to clobber the user's
+  // in-flight typing whenever the parent re-renders.
+  let draft = $state(untrack(() => asString(block.value)))
   let textareaEl: HTMLTextAreaElement | null = $state(null)
-  let lastSaved = $state(asString(block.value))
+  let lastSaved = $state(untrack(() => asString(block.value)))
 
   // Debounced save: 500ms after last keystroke, push through onChange.
   // Cleared on blur (immediate save) and on unmount.

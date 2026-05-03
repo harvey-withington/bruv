@@ -290,7 +290,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="backdrop" onclick={onClose}></div>
 
-<aside
+<div
   class="sheet"
   bind:this={sheetEl}
   role="dialog"
@@ -298,8 +298,9 @@
   style:transform={translateY > 0 ? `translateY(${translateY}px)` : undefined}
   style:transition={dragging ? 'none' : undefined}
 >
-  <header
+  <div
     class="header"
+    role="presentation"
     onpointerdown={onHeaderPointerDown}
     onpointermove={onHeaderPointerMove}
     onpointerup={onHeaderPointerUp}
@@ -318,7 +319,7 @@
     <button type="button" class="icon-btn" onclick={onClose} aria-label={t('chat.dismiss')}>
       <X size={18} />
     </button>
-  </header>
+  </div>
 
   {#if scope.kind === 'project'}
     <div class="ctx" role="group" aria-label={t('chat.context_label')}>
@@ -422,7 +423,7 @@
       <Send size={16} />
     </button>
   </footer>
-</aside>
+</div>
 
 {#if confirmingClear}
   <ConfirmDialog

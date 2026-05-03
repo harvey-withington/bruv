@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { t } from '../../lib/i18n.svelte'
   import type { Block } from '@shared/types'
   import { asUrlValue, withValue } from './narrow'
@@ -8,15 +9,16 @@
   const value = $derived(asUrlValue(block.value))
 
   // Local drafts so debounced commits don't fight typing on either field.
-  let urlDraft = $state(value.url)
-  let captionDraft = $state(value.caption ?? '')
+  // untrack: seed once from the prop; in-flight typing owns the field.
+  let urlDraft = $state(untrack(() => value.url))
+  let captionDraft = $state(untrack(() => value.caption ?? ''))
   let urlTimer: ReturnType<typeof setTimeout> | null = null
   let captionTimer: ReturnType<typeof setTimeout> | null = null
   // External-edit sync state: tracks the last value we ourselves
   // committed, so the $effect below can distinguish our own echoes
   // from genuinely-external changes.
-  let lastSavedUrl = $state(value.url)
-  let lastSavedCaption = $state(value.caption ?? '')
+  let lastSavedUrl = $state(untrack(() => value.url))
+  let lastSavedCaption = $state(untrack(() => value.caption ?? ''))
 
   function commit() {
     const next: { url: string; caption?: string } = { url: urlDraft }

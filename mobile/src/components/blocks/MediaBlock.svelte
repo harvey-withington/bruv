@@ -20,6 +20,7 @@
     {#each items as item (item.id)}
       <li>
         {#if item.mime?.startsWith('video')}
+          <!-- svelte-ignore a11y_media_has_caption -->
           <video src={item.url} controls preload="metadata" class="media"></video>
         {:else}
           <img src={item.url} alt={item.caption ?? ''} class="media" />

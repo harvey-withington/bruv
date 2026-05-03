@@ -70,6 +70,12 @@ jobs:
       - name: Install NSIS
         run: choco install nsis -y --no-progress
 
+      # Root package.json carries deps that `shared/*.ts` imports (marked,
+      # lucide-svelte). Vite resolves those by walking up from shared/ to
+      # the repo root's node_modules.
+      - name: Install root deps (for shared/)
+        run: npm ci || npm install
+
       - name: Install frontend deps
         working-directory: frontend
         run: |

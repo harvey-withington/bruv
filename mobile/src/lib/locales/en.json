@@ -174,12 +174,13 @@
   "card.saving": "Saving…",
 
   "repo_picker.title": "Choose a vault",
-  "repo_picker.subtitle": "This server has more than one vault registered. Pick the one you want to work with — you can switch later.",
+  "repo_picker.subtitle": "Pick a vault to work with — you can switch later from Settings.",
   "repo_picker.loading": "Loading vaults…",
   "repo_picker.empty_title": "No vaults available",
   "repo_picker.empty_body": "The server you paired with has no vaults registered, or all of them are disabled. Open BRUV on your desktop and add a vault, then come back.",
   "repo_picker.disabled_label": "Disabled",
   "repo_picker.err_load": "Could not load vaults from the server.",
+  "repo_picker.duplicate_ids": "Two vaults below share the same internal ID. The server can't tell them apart, so picking either lands on the same vault. Fix repos.json (change one entry's id) or remove the duplicate.",
 
   "chat.fab_label": "AI chat",
   "chat.title": "Chat",

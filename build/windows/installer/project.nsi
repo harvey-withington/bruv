@@ -31,6 +31,8 @@ ManifestDPIAware true
 
 !include "MUI.nsh"
 !include "LogicLib.nsh"
+!include "nsDialogs.nsh"
+!include "Sections.nsh"
 
 !define MUI_ICON "..\icon.ico"
 !define MUI_UNICON "..\icon.ico"
@@ -47,6 +49,10 @@ ManifestDPIAware true
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_DIRECTORY
+# Custom page: prompt for the server repo path when the Server
+# component is selected. Skipped (Abort) when Server is unchecked.
+# See RepoPathPageShow below.
+Page custom RepoPathPageShow RepoPathPageLeave
 !insertmacro MUI_PAGE_INSTFILES
 
 # Server-mode installs surface their bootstrap-token / URL via a
@@ -70,13 +76,23 @@ InstallDir "$PROGRAMFILES64\${INFO_COMPANYNAME}\${INFO_PRODUCTNAME}"
 ShowInstDetails show
 
 Var ServerRepoPath
+Var RepoDialog
+Var RepoTextBox
+Var RepoBrowseBtn
 
 Function .onInit
    !insertmacro wails.checkArchitecture
-   # Default repo path for server installs. The user can change this
-   # later by uninstalling + reinstalling the service with a different
-   # --repo flag.
-   StrCpy $ServerRepoPath "$APPDATA\${INFO_PRODUCTNAME}\server-repo"
+   # Default repo path for server installs. The user can override
+   # this on the Server Repository page (when the Server component is
+   # selected). %PROGRAMDATA% is preferred over %APPDATA% because the
+   # service runs as LocalSystem — its $APPDATA is the system
+   # profile, not the operator's. %PROGRAMDATA% is machine-wide and
+   # readable by both the service and the desktop user.
+   #
+   # NSIS doesn't have a $PROGRAMDATA built-in constant (only $APPDATA
+   # / $LOCALAPPDATA / $PROGRAMFILES). Read the env var directly.
+   ReadEnvStr $0 "PROGRAMDATA"
+   StrCpy $ServerRepoPath "$0\${INFO_PRODUCTNAME}\server-repo"
 FunctionEnd
 
 # Component descriptions shown beneath the checkboxes on the components page.
@@ -200,6 +216,72 @@ SectionEnd
     !insertmacro MUI_DESCRIPTION_TEXT ${SecDesktop} $(DESC_SecDesktop)
     !insertmacro MUI_DESCRIPTION_TEXT ${SecServer} $(DESC_SecServer)
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
+
+# --- Page functions ---
+#
+# These live below the Sections because ${SecServer} is only defined
+# at the line where the section is declared — referencing it from a
+# function defined earlier in the script aborts compilation. The
+# `Page custom` directive at the top of the file resolves these
+# function names at link time, so position doesn't matter to the page
+# wiring itself.
+
+# Custom installer page (between Directory and InstFiles): when the
+# Server component is selected, prompt the operator to confirm or
+# override the repo path. If the path already contains a BRUV repo
+# (manifest.json present), `bruv.exe service install` reuses it; if
+# not, it inits a fresh empty repo there. Either way the registry
+# entry points at this path. Skipped entirely when Server is not
+# selected.
+Function RepoPathPageShow
+   # Skip when Server isn't selected — desktop-only installs don't
+   # need a repo path.
+   SectionGetFlags ${SecServer} $0
+   IntOp $0 $0 & ${SF_SELECTED}
+   StrCmp $0 ${SF_SELECTED} +2 0
+   Abort
+
+   !insertmacro MUI_HEADER_TEXT "Server repository" "Choose where the BRUV Server stores its data."
+
+   nsDialogs::Create 1018
+   Pop $RepoDialog
+   ${If} $RepoDialog == error
+      Abort
+   ${EndIf}
+
+   ${NSD_CreateLabel} 0 0 100% 28u "BRUV Server stores its data in a repository folder.$\r$\n$\r$\nIf you already have a BRUV repo, point this at it. Otherwise an empty repo will be created at the path below."
+   Pop $0
+
+   ${NSD_CreateText} 0 36u 80% 14u "$ServerRepoPath"
+   Pop $RepoTextBox
+
+   ${NSD_CreateButton} 82% 36u 18% 14u "Browse..."
+   Pop $RepoBrowseBtn
+   ${NSD_OnClick} $RepoBrowseBtn RepoPathBrowse
+
+   ${NSD_CreateLabel} 0 56u 100% 24u "Tip: %PROGRAMDATA%\${INFO_PRODUCTNAME}\server-repo is the default and works for most installs. Use a custom path to point at an existing vault."
+   Pop $0
+
+   nsDialogs::Show
+FunctionEnd
+
+Function RepoPathBrowse
+   nsDialogs::SelectFolderDialog "Choose a BRUV repository folder" "$ServerRepoPath"
+   Pop $0
+   ${If} $0 != error
+      ${NSD_SetText} $RepoTextBox "$0"
+   ${EndIf}
+FunctionEnd
+
+Function RepoPathPageLeave
+   ${NSD_GetText} $RepoTextBox $ServerRepoPath
+   # Empty paths fall back to the default. Same ReadEnvStr trick as
+   # .onInit — NSIS has no built-in $PROGRAMDATA constant.
+   ${If} $ServerRepoPath == ""
+      ReadEnvStr $0 "PROGRAMDATA"
+      StrCpy $ServerRepoPath "$0\${INFO_PRODUCTNAME}\server-repo"
+   ${EndIf}
+FunctionEnd
 
 # --- Uninstall ---
 

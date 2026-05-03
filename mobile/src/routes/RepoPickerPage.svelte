@@ -22,18 +22,25 @@
       const res = await apiFetch('/repos')
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
       repos = (await res.json()) as RepoSummary[]
-      // If exactly one repo is enabled, auto-select it. The picker
-      // exists for the multi-repo case; the single-repo home server is
-      // probably the common shape and shouldn't make the user tap.
-      const enabled = repos.filter((r) => !r.disabled)
-      if (enabled.length === 1) {
-        select(enabled[0])
-      }
     } catch (err) {
       errorMsg = err instanceof Error ? err.message : t('repo_picker.err_load')
     } finally {
       loading = false
     }
+  })
+
+  // True when two registry entries share an ID — registry corruption,
+  // usually from copying a repo folder and registering both copies (the
+  // manifest's UUID came along for the ride). The server routes per-
+  // repo by ID, so duplicates collide on the wire even after the user
+  // picks one — surface it instead of silently picking the wrong one.
+  const hasDuplicateIDs = $derived.by(() => {
+    const seen = new Set<string>()
+    for (const r of repos) {
+      if (seen.has(r.id)) return true
+      seen.add(r.id)
+    }
+    return false
   })
 
   function select(repo: RepoSummary) {
@@ -72,8 +79,16 @@
       <p>{t('repo_picker.empty_body')}</p>
     </div>
   {:else}
+    {#if hasDuplicateIDs}
+      <div class="warn" role="alert">
+        <p class="warn-text">{t('repo_picker.duplicate_ids')}</p>
+      </div>
+    {/if}
     <ul class="repo-list">
-      {#each repos as repo (repo.id)}
+      <!-- Index-based key tolerates duplicate IDs (registry corruption);
+           the warning above tells the user to fix the registry. Without
+           the index suffix, Svelte throws each_key_duplicate. -->
+      {#each repos as repo, i (`${repo.id}-${i}`)}
         <li>
           <button
             type="button"
@@ -152,6 +167,21 @@
     margin: 0 0 0.75rem;
     color: #fca5a5;
     font-size: 0.9rem;
+  }
+
+  .warn {
+    margin-bottom: 1rem;
+    padding: 0.75rem 1rem;
+    background: rgba(234, 179, 8, 0.12);
+    border: 1px solid rgba(234, 179, 8, 0.4);
+    border-radius: 8px;
+  }
+
+  .warn-text {
+    margin: 0;
+    color: #fde68a;
+    font-size: 0.85rem;
+    line-height: 1.4;
   }
 
   .retry {

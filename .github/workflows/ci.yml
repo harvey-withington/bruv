@@ -71,6 +71,14 @@ jobs:
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1
 
+      # Root package.json carries deps that `shared/*.ts` imports (marked,
+      # lucide-svelte). Both frontend/ and mobile/ resolve those by walking
+      # up from shared/ to the repo root's node_modules — so this install
+      # has to happen even though no app entrypoint lives here.
+      - name: Install root deps (for shared/)
+        shell: bash
+        run: npm ci || npm install
+
       - name: Install frontend deps
         working-directory: frontend
         shell: bash
@@ -143,6 +151,12 @@ jobs:
 
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1
+
+      # Root package.json carries deps that `shared/*.ts` imports (marked,
+      # lucide-svelte). svelte-check resolves those by walking up from
+      # shared/ to the repo root's node_modules.
+      - name: Install root deps (for shared/)
+        run: npm ci || npm install
 
       - name: Install frontend deps
         working-directory: frontend

@@ -142,7 +142,12 @@
     let failed = 0
     for (const id of ids) {
       try {
-        await repoRPC('PinCard', [id, sel.project.id, sel.category.id])
+        // PinCard's second arg is named projectID server-side, but the
+        // canonical reader (ProjectPage's ListCardIDsInCategory(cat.id,
+        // cat.id)) keys the lookup on category ID for both fields. Pass
+        // category.id twice or the pin won't be found when the project
+        // page renders. See repo/pin.go:ListCardsInCategory.
+        await repoRPC('PinCard', [id, sel.category.id, sel.category.id])
       } catch {
         failed++
       }

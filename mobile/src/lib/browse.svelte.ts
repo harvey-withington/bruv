@@ -430,6 +430,44 @@ export async function deleteProject(
   await loadProjects(brandSlug, streamSlug, true)
 }
 
+export async function createCategory(
+  brandSlug: string,
+  streamSlug: string,
+  projectSlug: string,
+  name: string,
+  position: number,
+): Promise<Category> {
+  const created = await repoRPC<Category>('CreateCategory', [
+    brandSlug, streamSlug, projectSlug, name, position,
+  ])
+  await loadCategories(brandSlug, streamSlug, projectSlug, true)
+  return created
+}
+
+export async function renameCategory(
+  brandSlug: string,
+  streamSlug: string,
+  projectSlug: string,
+  oldSlug: string,
+  newName: string,
+): Promise<Category> {
+  const updated = await repoRPC<Category>('RenameCategory', [
+    brandSlug, streamSlug, projectSlug, oldSlug, newName,
+  ])
+  await loadCategories(brandSlug, streamSlug, projectSlug, true)
+  return updated
+}
+
+export async function deleteCategory(
+  brandSlug: string,
+  streamSlug: string,
+  projectSlug: string,
+  categorySlug: string,
+): Promise<void> {
+  await repoRPC<void>('DeleteCategory', [brandSlug, streamSlug, projectSlug, categorySlug])
+  await loadCategories(brandSlug, streamSlug, projectSlug, true)
+}
+
 /**
  * Drop every cached level so the next browse-page mount refetches.
  * Called when the user switches repos so they don't see the previous

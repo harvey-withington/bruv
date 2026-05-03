@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte'
-  import { ChevronRight, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Search } from 'lucide-svelte'
+  import { onMount, onDestroy, tick } from 'svelte'
+  import { ChevronRight, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Search, Plus, MoreVertical, Pencil, Trash2 } from 'lucide-svelte'
   import { repoRPC } from '../lib/auth'
   import { navigate, cardURL, categoryURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
@@ -12,11 +12,16 @@
     expandAllCategories,
     collapseAllCategories,
     ensureInitialExpansion,
+    createCategory,
+    renameCategory,
+    deleteCategory,
+    uniqueName,
   } from '../lib/browse.svelte'
   import type { Category, CardSummary } from '../lib/model'
   import DynamicIcon from '../components/DynamicIcon.svelte'
   import CardRow from '../components/CardRow.svelte'
   import SearchSheet from '../components/SearchSheet.svelte'
+  import ConfirmDialog from '../components/ConfirmDialog.svelte'
   import { dragSortable, type DragMoveDetail } from '../lib/actions/dnd.svelte'
   import { onEvent } from '../lib/events.svelte'
 
@@ -138,6 +143,152 @@
     if (catID && !isExpanded(catID)) toggleCategory(catID)
   }
 
+  // --- Category create / rename / delete -----------------------------
+  //
+  // Mirrors the BrowsePage Brand/Stream/Project flow: tap "+" creates
+  // a default-named category and immediately enters inline-rename mode;
+  // blur/Enter commits via RenameCategory; blur on an unchanged fresh
+  // row deletes it (so "+ then back out" cancels). Per-row kebab opens
+  // a Rename / Delete menu. Delete is gated by ConfirmDialog and
+  // disabled when only one category remains (backend rejects).
+
+  let renaming = $state<{ categorySlug: string; isCreate: boolean } | null>(null)
+  let renameDraft = $state('')
+  let renameInputEl = $state<HTMLInputElement | null>(null)
+  let renameBusy = $state(false)
+  let mutationError = $state<string | null>(null)
+  let openMenuKey = $state<string | null>(null)
+  let pendingDelete = $state<{ categorySlug: string; name: string } | null>(null)
+
+  function targetKey(slug: string): string { return `cat:${slug}` }
+
+  async function focusRenameInput() {
+    await tick()
+    renameInputEl?.focus()
+    renameInputEl?.select()
+  }
+
+  function startRename(categorySlug: string, currentName: string, isCreate = false) {
+    closeMenu()
+    renaming = { categorySlug, isCreate }
+    renameDraft = currentName
+    void focusRenameInput()
+  }
+
+  async function commitRename() {
+    if (!renaming || renameBusy) return
+    const { categorySlug, isCreate } = renaming
+    const next = renameDraft.trim()
+    const current = categories.find((c) => c.slug === categorySlug)?.name ?? ''
+    if (!next || next === current) {
+      renaming = null
+      // Cancel-on-empty for a fresh-create deletes the just-created row.
+      if (isCreate) await silentDelete(categorySlug)
+      return
+    }
+    renameBusy = true
+    try {
+      await renameCategory(brand, stream, project, categorySlug, next)
+      mutationError = null
+      renaming = null
+      void reloadProject()
+    } catch (err) {
+      mutationError = `${t('project.err_rename_category')} ${err instanceof Error ? err.message : ''}`.trim()
+    } finally {
+      renameBusy = false
+    }
+  }
+
+  function cancelRename() {
+    const wasCreate = renaming?.isCreate
+    const slug = renaming?.categorySlug
+    renaming = null
+    if (wasCreate && slug) void silentDelete(slug)
+  }
+
+  async function silentDelete(categorySlug: string) {
+    try {
+      await deleteCategory(brand, stream, project, categorySlug)
+      void reloadProject()
+    } catch (err) {
+      mutationError = `${t('project.err_delete_category')} ${err instanceof Error ? err.message : ''}`.trim()
+    }
+  }
+
+  function onRenameKey(e: KeyboardEvent) {
+    if (e.key === 'Enter') { e.preventDefault(); void commitRename() }
+    else if (e.key === 'Escape') { e.preventDefault(); cancelRename() }
+  }
+
+  async function handleAddCategory() {
+    if (renaming) await commitRename()
+    try {
+      const name = uniqueName(t('project.default_category_name'), categories.map((c) => c.name))
+      // Position = end of current list. Backend will append.
+      const created = await createCategory(brand, stream, project, name, categories.length)
+      mutationError = null
+      // Optimistically push so the rename input renders before the
+      // SSE-driven reloadProject() completes.
+      categories = [...categories, { ...created, cards: [] }]
+      startRename(created.slug, created.name, true)
+    } catch (err) {
+      mutationError = `${t('project.err_create_category')} ${err instanceof Error ? err.message : ''}`.trim()
+    }
+  }
+
+  function toggleMenu(slug: string) {
+    const key = targetKey(slug)
+    openMenuKey = openMenuKey === key ? null : key
+  }
+  function closeMenu() { openMenuKey = null }
+  function onWindowPointerDown(e: PointerEvent) {
+    if (!openMenuKey) return
+    const target = e.target as HTMLElement | null
+    if (target && (target.closest('.row-menu') || target.closest('.row-kebab'))) return
+    closeMenu()
+  }
+
+  function requestDelete(categorySlug: string, name: string) {
+    closeMenu()
+    pendingDelete = { categorySlug, name }
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete) return
+    const slug = pendingDelete.categorySlug
+    try {
+      await deleteCategory(brand, stream, project, slug)
+      mutationError = null
+      void reloadProject()
+    } catch (err) {
+      mutationError = `${t('project.err_delete_category')} ${err instanceof Error ? err.message : ''}`.trim()
+    } finally {
+      pendingDelete = null
+    }
+  }
+
+  // --- Add card directly into a category -----------------------------
+  //
+  // Mirrors desktop Board.svelte: CreateCard with the empty-string type
+  // (None — user can pick later), then PinCard to this category. The
+  // PinCard quirk — projectID and categoryID are both the category ID —
+  // is the same one ListCardIDsInCategory and MoveCardToCategory use.
+  // Navigates to the new card so the user can fill in the title and
+  // body without an extra hop.
+
+  async function handleAddCard(cat: CategoryWithCards) {
+    if (renaming) await commitRename()
+    closeMenu()
+    try {
+      const card = await repoRPC<{ id: string }>('CreateCard', ['', t('project.default_card_name')])
+      await repoRPC('PinCard', [card.id, cat.id, cat.id])
+      mutationError = null
+      navigate(cardURL(card.id))
+    } catch (err) {
+      mutationError = `${t('project.err_create_card')} ${err instanceof Error ? err.message : ''}`.trim()
+    }
+  }
+
   // Live updates: refetch the project's categories+cards when any
   // card or category event fires. Coarse, but the fetch is cheap
   // and avoids tracking which event affects which view. Coalesced
@@ -255,6 +406,8 @@
   }
 </script>
 
+<svelte:window onpointerdown={onWindowPointerDown} />
+
 <header class="topbar">
   <button type="button" class="back" onclick={() => navigate('/')}>
     <span aria-hidden="true">‹</span> {t('common.back')}
@@ -278,8 +431,14 @@
     <div class="empty">
       <h2>{t('project.empty_title')}</h2>
       <p>{t('project.empty_body')}</p>
+      <button type="button" class="empty-add-btn" onclick={handleAddCategory}>
+        <Plus size={14} /> <span>{t('project.add_category')}</span>
+      </button>
     </div>
   {:else}
+    {#if mutationError}
+      <p class="error tree-error" role="alert">{mutationError}</p>
+    {/if}
     <div class="acc-toolbar" role="toolbar" aria-label={t('project.accordion_toolbar')}>
       <button type="button" class="tool-btn" onclick={expandAll} aria-label={t('project.expand_all')} title={t('project.expand_all')}>
         <ChevronsUpDown size={15} />
@@ -314,32 +473,89 @@
           style:view-transition-name={`category-${cat.id}`}
         >
           <header class="cat-header">
-            <button
-              type="button"
-              class="cat-toggle"
-              onclick={() => toggleCategory(cat.id)}
-              aria-expanded={open}
-              aria-label={open ? t('project.collapse_category', { name: cat.name }) : t('project.expand_category', { name: cat.name })}
-            >
-              <span class="caret" class:open aria-hidden="true">
-                <ChevronRight size={14} />
-              </span>
-              {#if cat.icon}
-                <DynamicIcon name={cat.icon} size={16} />
-              {/if}
-              <span class="cat-name">{cat.name}</span>
-              <span class="count">{cat.cards.length}</span>
-            </button>
-            <button
-              type="button"
-              class="cat-zoom"
-              onclick={() => navigate(categoryURL(brand, stream, project, cat.slug))}
-              aria-label={t('project.zoom_into_category', { name: cat.name })}
-              title={t('project.zoom_into_category', { name: cat.name })}
-            >
-              <ChevronRight size={16} />
-            </button>
+            {#if renaming?.categorySlug === cat.slug}
+              <div class="cat-toggle renaming">
+                <span class="caret" class:open aria-hidden="true">
+                  <ChevronRight size={14} />
+                </span>
+                {#if cat.icon}
+                  <DynamicIcon name={cat.icon} size={16} />
+                {/if}
+                <input
+                  bind:this={renameInputEl}
+                  bind:value={renameDraft}
+                  onblur={commitRename}
+                  onkeydown={onRenameKey}
+                  class="rename-input"
+                  aria-label={t('project.rename_category')}
+                  placeholder={t('project.rename_category')}
+                  disabled={renameBusy}
+                />
+              </div>
+            {:else}
+              <button
+                type="button"
+                class="cat-toggle"
+                onclick={() => toggleCategory(cat.id)}
+                aria-expanded={open}
+                aria-label={open ? t('project.collapse_category', { name: cat.name }) : t('project.expand_category', { name: cat.name })}
+              >
+                <span class="caret" class:open aria-hidden="true">
+                  <ChevronRight size={14} />
+                </span>
+                {#if cat.icon}
+                  <DynamicIcon name={cat.icon} size={16} />
+                {/if}
+                <span class="cat-name">{cat.name}</span>
+                <span class="count">{cat.cards.length}</span>
+              </button>
+              <button
+                type="button"
+                class="cat-add-card"
+                onclick={(e) => { e.stopPropagation(); handleAddCard(cat) }}
+                aria-label={t('project.add_card_to', { name: cat.name })}
+                title={t('project.add_card_to', { name: cat.name })}
+              >
+                <Plus size={16} />
+              </button>
+              <button
+                type="button"
+                class="row-kebab cat-kebab"
+                onclick={(e) => { e.stopPropagation(); toggleMenu(cat.slug) }}
+                aria-label={t('project.row_actions', { name: cat.name })}
+                aria-expanded={openMenuKey === targetKey(cat.slug)}
+                aria-haspopup="menu"
+              >
+                <MoreVertical size={16} />
+              </button>
+              <button
+                type="button"
+                class="cat-zoom"
+                onclick={() => navigate(categoryURL(brand, stream, project, cat.slug))}
+                aria-label={t('project.zoom_into_category', { name: cat.name })}
+                title={t('project.zoom_into_category', { name: cat.name })}
+              >
+                <ChevronRight size={16} />
+              </button>
+            {/if}
           </header>
+          {#if openMenuKey === targetKey(cat.slug)}
+            <div class="row-menu" role="menu">
+              <button type="button" role="menuitem" class="row-menu-item" onclick={() => startRename(cat.slug, cat.name)}>
+                <Pencil size={14} /> {t('project.action_rename')}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                class="row-menu-item danger"
+                disabled={categories.length <= 1}
+                title={categories.length <= 1 ? t('project.cant_delete_last') : ''}
+                onclick={() => requestDelete(cat.slug, cat.name)}
+              >
+                <Trash2 size={14} /> {t('project.action_delete')}
+              </button>
+            </div>
+          {/if}
           {#if open}
             <div class="cat-body">
               <ul class="cards" data-card-list>
@@ -356,9 +572,24 @@
           {/if}
         </section>
       {/each}
+      <button type="button" class="add-category-btn" onclick={handleAddCategory} aria-label={t('project.add_category')}>
+        <Plus size={14} />
+        <span>{t('project.add_category')}</span>
+      </button>
     </div>
   {/if}
 </main>
+
+{#if pendingDelete}
+  <ConfirmDialog
+    title={t('project.delete_category_title', { name: pendingDelete.name })}
+    body={t('project.delete_category_body')}
+    confirmLabel={t('project.action_delete')}
+    destructive
+    onConfirm={confirmDelete}
+    onCancel={() => (pendingDelete = null)}
+  />
+{/if}
 
 <style>
   .topbar {
@@ -600,6 +831,162 @@
     outline-offset: 4px;
     border-radius: 8px;
     transition: outline-color 120ms ease;
+  }
+
+  .add-category-btn {
+    margin-top: 0.6rem;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.65rem 0.75rem;
+    cursor: pointer;
+    background: transparent;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    text-align: left;
+  }
+  .add-category-btn:hover,
+  .add-category-btn:focus-visible {
+    color: var(--text);
+    border-color: var(--text-muted);
+    background: var(--bg-elev-1);
+    outline: none;
+  }
+  .add-category-btn :global(svg) {
+    color: var(--accent);
+  }
+  .empty-add-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1rem;
+    padding: 0.6rem 1rem;
+    background: transparent;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  .empty-add-btn:hover,
+  .empty-add-btn:focus-visible {
+    border-color: var(--accent);
+    background: var(--bg-elev-1);
+    outline: none;
+  }
+  .empty-add-btn :global(svg) {
+    color: var(--accent);
+  }
+
+  .cat-add-card {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 0;
+    color: var(--accent);
+    cursor: pointer;
+    padding: 0 0.55rem;
+    min-width: 36px;
+    min-height: 44px;
+  }
+  .cat-add-card:hover,
+  .cat-add-card:focus-visible {
+    color: var(--text);
+    background: var(--bg-elev-1);
+    outline: none;
+  }
+
+  /* Per-row kebab + popover menu — same shape as BrowsePage's. */
+  .row-kebab,
+  .cat-kebab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 0;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0 0.65rem;
+    min-width: 36px;
+    min-height: 44px;
+  }
+  .row-kebab:hover,
+  .row-kebab:focus-visible {
+    color: var(--text);
+    background: var(--bg-elev-1);
+    outline: none;
+  }
+  .row-menu {
+    display: flex;
+    flex-direction: column;
+    margin: 0.15rem 0.6rem 0.5rem;
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  }
+  .row-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: transparent;
+    border: 0;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.9rem;
+    padding: 0.65rem 0.85rem;
+    cursor: pointer;
+    text-align: left;
+  }
+  .row-menu-item:hover:not(:disabled),
+  .row-menu-item:focus-visible:not(:disabled) {
+    background: var(--bg);
+    outline: none;
+  }
+  .row-menu-item.danger {
+    color: #fca5a5;
+  }
+  .row-menu-item.danger:hover:not(:disabled),
+  .row-menu-item.danger:focus-visible:not(:disabled) {
+    background: rgba(239, 68, 68, 0.12);
+  }
+  .row-menu-item:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .cat-toggle.renaming {
+    background: var(--bg-elev-1);
+    border-radius: 8px 0 0 8px;
+  }
+  .rename-input {
+    flex: 1;
+    min-width: 0;
+    background: var(--bg);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    color: var(--text);
+    font: inherit;
+    font-size: inherit;
+    padding: 0.35rem 0.5rem;
+    outline: none;
+  }
+  .tree-error {
+    margin: 0.25rem 0 0.6rem;
+    padding: 0.5rem 0.75rem;
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    border-radius: 8px;
+    color: #fca5a5;
+    font-size: 0.85rem;
+    text-align: left;
   }
 
   .empty {

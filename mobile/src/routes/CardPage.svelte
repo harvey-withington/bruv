@@ -99,7 +99,11 @@
     pinPickerOpen = false
     saveError = null
     try {
-      await repoRPC('PinCard', [card.id, sel.project.id, sel.category.id])
+      // PinCard's second arg is named projectID server-side, but the
+      // canonical reader (ListCardIDsInCategory) keys on category ID
+      // for both fields. Pass category.id twice or the pin won't show
+      // up on the project page. See repo/pin.go:ListCardsInCategory.
+      await repoRPC('PinCard', [card.id, sel.category.id, sel.category.id])
       await refreshPins()
     } catch (err) {
       saveError = err instanceof Error ? err.message : t('card.err_pin')

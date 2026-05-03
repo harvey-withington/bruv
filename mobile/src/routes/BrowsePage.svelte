@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte'
-  import { Inbox, Search, Bell, Settings, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree } from 'lucide-svelte'
+  import { onMount, onDestroy, tick } from 'svelte'
+  import { Inbox, Search, Bell, Settings, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Plus, MoreVertical, Pencil, Trash2 } from 'lucide-svelte'
   import {
     browse,
     loadBrands,
@@ -11,7 +11,18 @@
     toggleStreamExpansion,
     expandAllBrandsTree,
     collapseAllBrandsTree,
+    createBrand,
+    createStream,
+    createProject,
+    renameBrand,
+    renameStream,
+    renameProject,
+    deleteBrand,
+    deleteStream,
+    deleteProject,
+    uniqueName,
   } from '../lib/browse.svelte'
+  import ConfirmDialog from '../components/ConfirmDialog.svelte'
   import { navigate, projectURL } from '../lib/router.svelte'
   import { readActiveRepoID, apiFetch, repoRPC, machineRPC } from '../lib/auth'
   import { onEvent } from '../lib/events.svelte'
@@ -40,6 +51,252 @@
   let searchOpen = $state(false)
   let notificationsOpen = $state(false)
   let unreadCount = $state(0)
+
+  // Inline rename state. The newly-created entity (after a "+" tap) or
+  // a tapped Rename action enters this state and shows an autofocused
+  // input in place of its name button. One row at a time — tapping "+"
+  // again or another rename target commits the previous one first.
+  type RowTarget =
+    | { kind: 'brand'; brandSlug: string }
+    | { kind: 'stream'; brandSlug: string; streamSlug: string }
+    | { kind: 'project'; brandSlug: string; streamSlug: string; projectSlug: string }
+  // `isCreate` distinguishes "renaming a fresh row" (where blurring
+  // without changes should delete the row, mirroring desktop) from
+  // "renaming an existing row" (where blur leaves the row alone).
+  type RenameState = { target: RowTarget; isCreate: boolean }
+  let renaming = $state<RenameState | null>(null)
+  let renameDraft = $state('')
+  let renameInputEl = $state<HTMLInputElement | null>(null)
+  let renameBusy = $state(false)
+  // Latest error from a create / rename / delete op. Surfaces inline
+  // near the section heading so the user sees why their tap didn't
+  // take. Cleared on the next successful op.
+  let mutationError = $state<string | null>(null)
+  // Per-row action menu (kebab popover). Only one open at a time.
+  let openMenuKey = $state<string | null>(null)
+  // Pending destructive confirmation. When set, ConfirmDialog renders.
+  type DeletePending = { target: RowTarget; name: string }
+  let pendingDelete = $state<DeletePending | null>(null)
+
+  function targetKey(target: RowTarget): string {
+    if (target.kind === 'brand') return `brand:${target.brandSlug}`
+    if (target.kind === 'stream') return `stream:${target.brandSlug}/${target.streamSlug}`
+    return `project:${target.brandSlug}/${target.streamSlug}/${target.projectSlug}`
+  }
+  let renamingKeyValue = $derived(renaming ? targetKey(renaming.target) : null)
+
+  async function focusRenameInput() {
+    await tick()
+    renameInputEl?.focus()
+    renameInputEl?.select()
+  }
+
+  function startRename(target: RowTarget, currentName: string, isCreate = false) {
+    closeMenu()
+    renaming = { target, isCreate }
+    renameDraft = currentName
+    void focusRenameInput()
+  }
+
+  async function commitRename() {
+    if (!renaming || renameBusy) return
+    const { target, isCreate } = renaming
+    const next = renameDraft.trim()
+    const current = currentNameFor(target)
+    // Empty input or unchanged: for a fresh row, treat blur-without-rename
+    // as "cancel" and remove the just-created entity. For existing rows,
+    // just close the input.
+    if (!next || next === current) {
+      renaming = null
+      if (isCreate) await silentDelete(target)
+      return
+    }
+    renameBusy = true
+    try {
+      if (target.kind === 'brand') {
+        await renameBrand(target.brandSlug, next)
+      } else if (target.kind === 'stream') {
+        await renameStream(target.brandSlug, target.streamSlug, next)
+      } else {
+        await renameProject(target.brandSlug, target.streamSlug, target.projectSlug, next)
+      }
+      mutationError = null
+      renaming = null
+    } catch (err) {
+      mutationError = `${t('browse.err_rename')} ${err instanceof Error ? err.message : ''}`.trim()
+      // Keep the input open so the user can correct and retry.
+    } finally {
+      renameBusy = false
+    }
+  }
+
+  function cancelRename() {
+    const wasCreate = renaming?.isCreate
+    const target = renaming?.target
+    renaming = null
+    // Cancelling a fresh-create deletes the entity; cancelling an
+    // existing-row rename leaves it alone.
+    if (wasCreate && target) void silentDelete(target)
+  }
+
+  // Quietly delete the row that was just created when the user backs
+  // out of the rename. Errors here are non-fatal for the UI flow — at
+  // worst the user sees an orphaned default-named row, which they can
+  // delete via the menu.
+  async function silentDelete(target: RowTarget) {
+    try {
+      if (target.kind === 'brand') await deleteBrand(target.brandSlug)
+      else if (target.kind === 'stream') await deleteStream(target.brandSlug, target.streamSlug)
+      else await deleteProject(target.brandSlug, target.streamSlug, target.projectSlug)
+    } catch (err) {
+      mutationError = `${t('browse.err_delete')} ${err instanceof Error ? err.message : ''}`.trim()
+    }
+  }
+
+  function currentNameFor(target: RowTarget): string {
+    if (target.kind === 'brand') {
+      return browse.brands.items.find((b) => b.slug === target.brandSlug)?.name ?? ''
+    }
+    if (target.kind === 'stream') {
+      const cache = browse.streamsFor(target.brandSlug)
+      return cache?.items.find((s) => s.slug === target.streamSlug)?.name ?? ''
+    }
+    const cache = browse.projectsFor(target.brandSlug, target.streamSlug)
+    return cache?.items.find((p) => p.slug === target.projectSlug)?.name ?? ''
+  }
+
+  function onRenameKey(e: KeyboardEvent) {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      void commitRename()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      cancelRename()
+    }
+  }
+
+  // --- Add buttons ---------------------------------------------------
+
+  async function handleAddBrand() {
+    if (renaming) await commitRename()
+    try {
+      const name = uniqueName(
+        t('browse.default_brand_name'),
+        browse.brands.items.map((b) => b.name),
+      )
+      const created = await createBrand(name)
+      mutationError = null
+      startRename({ kind: 'brand', brandSlug: created.slug }, created.name, true)
+    } catch (err) {
+      mutationError = `${t('browse.err_create_brand')} ${err instanceof Error ? err.message : ''}`.trim()
+    }
+  }
+
+  async function handleAddStream(brand: Brand) {
+    if (renaming) await commitRename()
+    try {
+      // Make sure the brand is expanded so the new row is visible.
+      if (!expandedBrands[brand.slug]) toggleBrand(brand)
+      const cache = browse.streamsFor(brand.slug)
+      // The brand may have been just-loaded synchronously from a fresh
+      // toggle; await loadStreams to be safe so the unique-name search
+      // sees the real existing list.
+      if (!cache || cache.state !== 'loaded') await loadStreams(brand.slug)
+      const fresh = browse.streamsFor(brand.slug)
+      const name = uniqueName(
+        t('browse.default_stream_name'),
+        fresh?.items.map((s) => s.name) ?? [],
+      )
+      const created = await createStream(brand.slug, name)
+      mutationError = null
+      startRename(
+        { kind: 'stream', brandSlug: brand.slug, streamSlug: created.slug },
+        created.name,
+        true,
+      )
+    } catch (err) {
+      mutationError = `${t('browse.err_create_stream')} ${err instanceof Error ? err.message : ''}`.trim()
+    }
+  }
+
+  async function handleAddProject(brand: Brand, stream: Stream) {
+    if (renaming) await commitRename()
+    try {
+      const key = `${brand.slug}/${stream.slug}`
+      if (!expandedStreams[key]) toggleStream(brand, stream)
+      const cache = browse.projectsFor(brand.slug, stream.slug)
+      if (!cache || cache.state !== 'loaded') await loadProjects(brand.slug, stream.slug)
+      const fresh = browse.projectsFor(brand.slug, stream.slug)
+      const name = uniqueName(
+        t('browse.default_project_name'),
+        fresh?.items.map((p) => p.name) ?? [],
+      )
+      const created = await createProject(brand.slug, stream.slug, name)
+      mutationError = null
+      startRename(
+        {
+          kind: 'project',
+          brandSlug: brand.slug,
+          streamSlug: stream.slug,
+          projectSlug: created.slug,
+        },
+        created.name,
+        true,
+      )
+    } catch (err) {
+      mutationError = `${t('browse.err_create_project')} ${err instanceof Error ? err.message : ''}`.trim()
+    }
+  }
+
+  // --- Per-row action menu (kebab) -----------------------------------
+
+  function toggleMenu(target: RowTarget) {
+    const key = targetKey(target)
+    openMenuKey = openMenuKey === key ? null : key
+  }
+  function closeMenu() {
+    openMenuKey = null
+  }
+  function onWindowPointerDown(e: PointerEvent) {
+    if (!openMenuKey) return
+    const target = e.target as HTMLElement | null
+    if (target && (target.closest('.row-menu') || target.closest('.row-kebab'))) return
+    closeMenu()
+  }
+
+  // --- Delete flow ---------------------------------------------------
+
+  function requestDelete(target: RowTarget) {
+    closeMenu()
+    pendingDelete = { target, name: currentNameFor(target) || '' }
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete) return
+    const { target } = pendingDelete
+    try {
+      if (target.kind === 'brand') await deleteBrand(target.brandSlug)
+      else if (target.kind === 'stream') await deleteStream(target.brandSlug, target.streamSlug)
+      else await deleteProject(target.brandSlug, target.streamSlug, target.projectSlug)
+      mutationError = null
+    } catch (err) {
+      mutationError = `${t('browse.err_delete')} ${err instanceof Error ? err.message : ''}`.trim()
+    } finally {
+      pendingDelete = null
+    }
+  }
+
+  function deleteDialogTitle(d: DeletePending): string {
+    const name = d.name || '—'
+    if (d.target.kind === 'brand') return t('browse.delete_brand_title', { name })
+    if (d.target.kind === 'stream') return t('browse.delete_stream_title', { name })
+    return t('browse.delete_project_title', { name })
+  }
+  function deleteDialogBody(d: DeletePending): string {
+    if (d.target.kind === 'brand') return t('browse.delete_brand_body')
+    if (d.target.kind === 'stream') return t('browse.delete_stream_body')
+    return t('browse.delete_project_body')
+  }
 
   async function loadUnread() {
     try {
@@ -306,6 +563,8 @@
   }
 </script>
 
+<svelte:window onpointerdown={onWindowPointerDown} />
+
 <header class="topbar">
   <button type="button" class="vault-button" onclick={() => navigate('/repos')} title={t('browse.switch_vault')}>
     <span class="vault-name">{activeRepoName ?? t('common.loading')}</span>
@@ -344,8 +603,8 @@
 
   <div class="brands-header">
     <h2 class="section brands-section">{t('browse.brands')}</h2>
-    {#if browse.brands.items.length > 0}
-      <div class="acc-toolbar" role="toolbar" aria-label={t('browse.accordion_toolbar')}>
+    <div class="acc-toolbar" role="toolbar" aria-label={t('browse.accordion_toolbar')}>
+      {#if browse.brands.items.length > 0}
         <button type="button" class="acc-btn" onclick={expandAllInTree} aria-label={t('project.expand_all')} title={t('project.expand_all')}>
           <ChevronsUpDown size={14} />
         </button>
@@ -365,9 +624,22 @@
             <ListTree size={14} />
           {/if}
         </button>
-      </div>
-    {/if}
+      {/if}
+      <button
+        type="button"
+        class="acc-btn add-brand-btn"
+        onclick={handleAddBrand}
+        aria-label={t('browse.add_brand')}
+        title={t('browse.add_brand')}
+      >
+        <Plus size={14} />
+      </button>
+    </div>
   </div>
+
+  {#if mutationError}
+    <p class="error tree-error" role="alert">{mutationError}</p>
+  {/if}
 
   {#if browse.brands.state === 'loading'}
     <p class="status">{t('common.loading')}</p>
@@ -393,13 +665,54 @@
           data-expand-target="brand"
           data-collapsed={expandedBrands[brand.slug] ? null : 'true'}
         >
-          <button type="button" class="row brand-row" onclick={() => toggleBrand(brand)}>
-            <span class="caret" class:open={expandedBrands[brand.slug]} aria-hidden="true">▸</span>
-            {#if brand.icon}
-              <DynamicIcon name={brand.icon} size={18} />
+          {#if renamingKeyValue === `brand:${brand.slug}`}
+            <div class="row brand-row renaming">
+              <span class="caret row-caret" class:open={expandedBrands[brand.slug]} aria-hidden="true">▸</span>
+              {#if brand.icon}
+                <DynamicIcon name={brand.icon} size={18} />
+              {/if}
+              <input
+                bind:this={renameInputEl}
+                bind:value={renameDraft}
+                onblur={commitRename}
+                onkeydown={onRenameKey}
+                class="rename-input"
+                aria-label={t('browse.rename_brand')}
+                placeholder={t('browse.rename_brand')}
+                disabled={renameBusy}
+              />
+            </div>
+          {:else}
+            <div class="row brand-row">
+              <button type="button" class="row-main" onclick={() => toggleBrand(brand)}>
+                <span class="caret row-caret" class:open={expandedBrands[brand.slug]} aria-hidden="true">▸</span>
+                {#if brand.icon}
+                  <DynamicIcon name={brand.icon} size={18} />
+                {/if}
+                <span class="row-name">{brand.name}</span>
+              </button>
+              <button
+                type="button"
+                class="row-kebab"
+                onclick={(e) => { e.stopPropagation(); toggleMenu({ kind: 'brand', brandSlug: brand.slug }) }}
+                aria-label={t('browse.row_actions', { name: brand.name })}
+                aria-expanded={openMenuKey === `brand:${brand.slug}`}
+                aria-haspopup="menu"
+              >
+                <MoreVertical size={16} />
+              </button>
+            </div>
+            {#if openMenuKey === `brand:${brand.slug}`}
+              <div class="row-menu" role="menu">
+                <button type="button" role="menuitem" class="row-menu-item" onclick={() => startRename({ kind: 'brand', brandSlug: brand.slug }, brand.name)}>
+                  <Pencil size={14} /> {t('browse.action_rename')}
+                </button>
+                <button type="button" role="menuitem" class="row-menu-item danger" onclick={() => requestDelete({ kind: 'brand', brandSlug: brand.slug })}>
+                  <Trash2 size={14} /> {t('browse.action_delete')}
+                </button>
+              </div>
             {/if}
-            <span class="row-name">{brand.name}</span>
-          </button>
+          {/if}
 
           {#if expandedBrands[brand.slug]}
             {@const streams = browse.streamsFor(brand.slug)}
@@ -432,13 +745,54 @@
                     data-expand-target="stream"
                     data-collapsed={expandedStreams[streamKey] ? null : 'true'}
                   >
-                    <button type="button" class="row stream-row" onclick={() => toggleStream(brand, stream)}>
-                      <span class="caret" class:open={expandedStreams[streamKey]} aria-hidden="true">▸</span>
-                      {#if stream.icon}
-                        <DynamicIcon name={stream.icon} size={16} />
+                    {#if renamingKeyValue === `stream:${streamKey}`}
+                      <div class="row stream-row renaming">
+                        <span class="caret row-caret" class:open={expandedStreams[streamKey]} aria-hidden="true">▸</span>
+                        {#if stream.icon}
+                          <DynamicIcon name={stream.icon} size={16} />
+                        {/if}
+                        <input
+                          bind:this={renameInputEl}
+                          bind:value={renameDraft}
+                          onblur={commitRename}
+                          onkeydown={onRenameKey}
+                          class="rename-input"
+                          aria-label={t('browse.rename_stream')}
+                          placeholder={t('browse.rename_stream')}
+                          disabled={renameBusy}
+                        />
+                      </div>
+                    {:else}
+                      <div class="row stream-row">
+                        <button type="button" class="row-main" onclick={() => toggleStream(brand, stream)}>
+                          <span class="caret row-caret" class:open={expandedStreams[streamKey]} aria-hidden="true">▸</span>
+                          {#if stream.icon}
+                            <DynamicIcon name={stream.icon} size={16} />
+                          {/if}
+                          <span class="row-name">{stream.name}</span>
+                        </button>
+                        <button
+                          type="button"
+                          class="row-kebab"
+                          onclick={(e) => { e.stopPropagation(); toggleMenu({ kind: 'stream', brandSlug: brand.slug, streamSlug: stream.slug }) }}
+                          aria-label={t('browse.row_actions', { name: stream.name })}
+                          aria-expanded={openMenuKey === `stream:${streamKey}`}
+                          aria-haspopup="menu"
+                        >
+                          <MoreVertical size={16} />
+                        </button>
+                      </div>
+                      {#if openMenuKey === `stream:${streamKey}`}
+                        <div class="row-menu" role="menu">
+                          <button type="button" role="menuitem" class="row-menu-item" onclick={() => startRename({ kind: 'stream', brandSlug: brand.slug, streamSlug: stream.slug }, stream.name)}>
+                            <Pencil size={14} /> {t('browse.action_rename')}
+                          </button>
+                          <button type="button" role="menuitem" class="row-menu-item danger" onclick={() => requestDelete({ kind: 'stream', brandSlug: brand.slug, streamSlug: stream.slug })}>
+                            <Trash2 size={14} /> {t('browse.action_delete')}
+                          </button>
+                        </div>
                       {/if}
-                      <span class="row-name">{stream.name}</span>
-                    </button>
+                    {/if}
 
                     {#if expandedStreams[streamKey]}
                       {@const projects = browse.projectsFor(brand.slug, stream.slug)}
@@ -465,25 +819,88 @@
                             <li class="empty-hint indent status">{t('browse.empty_project')}</li>
                           {/if}
                           {#each projects.items as project (project.id)}
+                            {@const projectKey = `${brand.slug}/${stream.slug}/${project.slug}`}
                             <li data-project-slug={project.slug}>
-                              <button
-                                type="button"
-                                class="row project-row"
-                                onclick={() => navigate(projectURL(brand.slug, stream.slug, project.slug))}
-                              >
-                                {#if project.icon}
-                                  <DynamicIcon name={project.icon} size={16} />
+                              {#if renamingKeyValue === `project:${projectKey}`}
+                                <div class="row project-row renaming">
+                                  {#if project.icon}
+                                    <DynamicIcon name={project.icon} size={16} />
+                                  {/if}
+                                  <input
+                                    bind:this={renameInputEl}
+                                    bind:value={renameDraft}
+                                    onblur={commitRename}
+                                    onkeydown={onRenameKey}
+                                    class="rename-input"
+                                    aria-label={t('browse.rename_project')}
+                                    placeholder={t('browse.rename_project')}
+                                    disabled={renameBusy}
+                                  />
+                                </div>
+                              {:else}
+                                <div class="row project-row">
+                                  <button
+                                    type="button"
+                                    class="row-main"
+                                    onclick={() => navigate(projectURL(brand.slug, stream.slug, project.slug))}
+                                  >
+                                    {#if project.icon}
+                                      <DynamicIcon name={project.icon} size={16} />
+                                    {/if}
+                                    <span class="row-name">{project.name}</span>
+                                    <span class="row-arrow" aria-hidden="true">›</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    class="row-kebab"
+                                    onclick={(e) => { e.stopPropagation(); toggleMenu({ kind: 'project', brandSlug: brand.slug, streamSlug: stream.slug, projectSlug: project.slug }) }}
+                                    aria-label={t('browse.row_actions', { name: project.name })}
+                                    aria-expanded={openMenuKey === `project:${projectKey}`}
+                                    aria-haspopup="menu"
+                                  >
+                                    <MoreVertical size={16} />
+                                  </button>
+                                </div>
+                                {#if openMenuKey === `project:${projectKey}`}
+                                  <div class="row-menu" role="menu">
+                                    <button type="button" role="menuitem" class="row-menu-item" onclick={() => startRename({ kind: 'project', brandSlug: brand.slug, streamSlug: stream.slug, projectSlug: project.slug }, project.name)}>
+                                      <Pencil size={14} /> {t('browse.action_rename')}
+                                    </button>
+                                    <button type="button" role="menuitem" class="row-menu-item danger" onclick={() => requestDelete({ kind: 'project', brandSlug: brand.slug, streamSlug: stream.slug, projectSlug: project.slug })}>
+                                      <Trash2 size={14} /> {t('browse.action_delete')}
+                                    </button>
+                                  </div>
                                 {/if}
-                                <span class="row-name">{project.name}</span>
-                                <span class="row-arrow" aria-hidden="true">›</span>
-                              </button>
+                              {/if}
                             </li>
                           {/each}
+                          <li class="add-row">
+                            <button
+                              type="button"
+                              class="row add-row-btn"
+                              onclick={() => handleAddProject(brand, stream)}
+                              aria-label={t('browse.add_project')}
+                            >
+                              <span class="add-icon" aria-hidden="true"><Plus size={14} /></span>
+                              <span class="row-name">{t('browse.add_project')}</span>
+                            </button>
+                          </li>
                         </ul>
                       {/if}
                     {/if}
                   </li>
                 {/each}
+                <li class="add-row">
+                  <button
+                    type="button"
+                    class="row add-row-btn"
+                    onclick={() => handleAddStream(brand)}
+                    aria-label={t('browse.add_stream')}
+                  >
+                    <span class="add-icon" aria-hidden="true"><Plus size={14} /></span>
+                    <span class="row-name">{t('browse.add_stream')}</span>
+                  </button>
+                </li>
               </ul>
             {/if}
           {/if}
@@ -499,6 +916,17 @@
 
 {#if notificationsOpen}
   <NotificationsPanel onClose={closeNotifications} />
+{/if}
+
+{#if pendingDelete}
+  <ConfirmDialog
+    title={deleteDialogTitle(pendingDelete)}
+    body={deleteDialogBody(pendingDelete)}
+    confirmLabel={t('browse.action_delete')}
+    destructive
+    onConfirm={confirmDelete}
+    onCancel={() => (pendingDelete = null)}
+  />
 {/if}
 
 <style>
@@ -712,18 +1140,14 @@
 
   .row {
     display: flex;
-    align-items: center;
-    gap: 0.5rem;
+    align-items: stretch;
     width: 100%;
     background: transparent;
     border: 1px solid transparent;
     border-radius: 8px;
-    padding: 0.65rem 0.75rem;
     color: var(--text);
     font: inherit;
     font-size: 0.95rem;
-    cursor: pointer;
-    text-align: left;
     /* Allow vertical scroll on rows; long-press still wins for drag.
        See CardRow.svelte for the rationale and the move-cancel
        threshold tuning that makes the two gestures coexist. */
@@ -731,6 +1155,144 @@
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;
+  }
+  .row.renaming {
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-color: var(--accent);
+    background: var(--bg-elev-1);
+  }
+  .row-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: transparent;
+    border: 0;
+    color: inherit;
+    font: inherit;
+    font-size: inherit;
+    cursor: pointer;
+    text-align: left;
+    padding: 0.65rem 0.5rem 0.65rem 0.75rem;
+    border-top-left-radius: 7px;
+    border-bottom-left-radius: 7px;
+  }
+  .row-kebab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 0;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0 0.65rem;
+    min-width: 36px;
+    border-top-right-radius: 7px;
+    border-bottom-right-radius: 7px;
+  }
+  .row-kebab:hover,
+  .row-kebab:focus-visible {
+    color: var(--text);
+    background: var(--bg-elev-1);
+    outline: none;
+  }
+  .row-menu {
+    display: flex;
+    flex-direction: column;
+    margin: 0.15rem 0 0.5rem 1.85rem;
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  }
+  .row-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: transparent;
+    border: 0;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.9rem;
+    padding: 0.65rem 0.85rem;
+    cursor: pointer;
+    text-align: left;
+  }
+  .row-menu-item:hover,
+  .row-menu-item:focus-visible {
+    background: var(--bg);
+    outline: none;
+  }
+  .row-menu-item.danger {
+    color: #fca5a5;
+  }
+  .row-menu-item.danger:hover,
+  .row-menu-item.danger:focus-visible {
+    background: rgba(239, 68, 68, 0.12);
+  }
+  .add-row {
+    list-style: none;
+  }
+  .add-row-btn {
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    background: transparent;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    text-align: left;
+  }
+  .add-row-btn:hover,
+  .add-row-btn:focus-visible {
+    color: var(--text);
+    border-color: var(--text-muted);
+    background: var(--bg-elev-1);
+    outline: none;
+  }
+  .add-icon {
+    display: inline-flex;
+    align-items: center;
+    color: var(--accent);
+  }
+  .rename-input {
+    flex: 1;
+    min-width: 0;
+    background: var(--bg);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    color: var(--text);
+    font: inherit;
+    font-size: inherit;
+    padding: 0.35rem 0.5rem;
+    outline: none;
+  }
+  .add-brand-btn {
+    color: var(--accent);
+  }
+  .add-brand-btn:hover,
+  .add-brand-btn:focus-visible {
+    color: var(--text);
+    border-color: var(--accent);
+    background: var(--bg-elev-1);
+  }
+  .tree-error {
+    margin: 0.25rem 0.25rem 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    border-radius: 8px;
+    color: #fca5a5;
+    font-size: 0.85rem;
   }
 
   /* DnD visual states (driven by dnd.svelte.ts adding/removing classes) */
@@ -751,10 +1313,12 @@
     pointer-events: none;
   }
 
-  .row:hover,
-  .row:focus-visible {
+  .row:has(.row-main:hover),
+  .row:has(.row-main:focus-visible) {
     background: var(--bg-elev-1);
     border-color: var(--border);
+  }
+  .row-main:focus-visible {
     outline: none;
   }
 

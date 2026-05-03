@@ -300,6 +300,136 @@ export async function loadCategories(
   }
 }
 
+// --- Create / rename -----------------------------------------------
+//
+// Thin wrappers over the Create*/Rename* RPCs. Each create call:
+//   1. Picks a unique default name from the existing siblings (so we
+//      don't trip the backend's "name taken" error on the first tap).
+//   2. Calls Create*, returning the new entity (so the caller can
+//      enter rename mode on it).
+//   3. Refreshes the parent cache so the new entity appears in the
+//      tree without needing the SSE listener above to round-trip.
+//
+// Errors propagate to the caller — the BrowsePage surfaces them as
+// inline error text so the user knows the tap didn't take.
+
+export function uniqueName(base: string, existingNames: string[]): string {
+  const lower = existingNames.map((n) => n.toLowerCase())
+  if (!lower.includes(base.toLowerCase())) return base
+  for (let i = 2; ; i++) {
+    const candidate = `${base} ${i}`
+    if (!lower.includes(candidate.toLowerCase())) return candidate
+  }
+}
+
+export async function createBrand(name: string): Promise<Brand> {
+  const created = await repoRPC<Brand>('CreateBrand', [name])
+  await loadBrands(true)
+  return created
+}
+
+export async function createStream(brandSlug: string, name: string): Promise<Stream> {
+  const created = await repoRPC<Stream>('CreateStream', [brandSlug, name])
+  await loadStreams(brandSlug, true)
+  return created
+}
+
+export async function createProject(
+  brandSlug: string,
+  streamSlug: string,
+  name: string,
+): Promise<Project> {
+  const created = await repoRPC<Project>('CreateProject', [brandSlug, streamSlug, name])
+  await loadProjects(brandSlug, streamSlug, true)
+  return created
+}
+
+/** Rename a brand. Slug may change as a side-effect of renaming, so
+ *  we also fix up expansion state (which is keyed by slug) and refresh
+ *  the brand list. Returns the updated brand. */
+export async function renameBrand(oldSlug: string, newName: string): Promise<Brand> {
+  const updated = await repoRPC<Brand>('RenameBrand', [oldSlug, newName])
+  if (updated.slug !== oldSlug) {
+    if (_expandedBrands[oldSlug]) {
+      _expandedBrands[updated.slug] = true
+      delete _expandedBrands[oldSlug]
+    }
+    // Re-key any cached streams under the old brand slug.
+    if (_streamsByBrand[oldSlug]) {
+      _streamsByBrand[updated.slug] = _streamsByBrand[oldSlug]
+      delete _streamsByBrand[oldSlug]
+    }
+  }
+  await loadBrands(true)
+  return updated
+}
+
+export async function renameStream(
+  brandSlug: string,
+  oldSlug: string,
+  newName: string,
+): Promise<Stream> {
+  const updated = await repoRPC<Stream>('RenameStream', [brandSlug, oldSlug, newName])
+  if (updated.slug !== oldSlug) {
+    const oldKey = `${brandSlug}/${oldSlug}`
+    const newKey = `${brandSlug}/${updated.slug}`
+    if (_expandedStreams[oldKey]) {
+      _expandedStreams[newKey] = true
+      delete _expandedStreams[oldKey]
+    }
+    if (_projectsByStream[oldKey]) {
+      _projectsByStream[newKey] = _projectsByStream[oldKey]
+      delete _projectsByStream[oldKey]
+    }
+  }
+  await loadStreams(brandSlug, true)
+  return updated
+}
+
+export async function renameProject(
+  brandSlug: string,
+  streamSlug: string,
+  oldSlug: string,
+  newName: string,
+): Promise<Project> {
+  const updated = await repoRPC<Project>('RenameProject', [brandSlug, streamSlug, oldSlug, newName])
+  await loadProjects(brandSlug, streamSlug, true)
+  return updated
+}
+
+export async function deleteBrand(slug: string): Promise<void> {
+  await repoRPC<void>('DeleteBrand', [slug])
+  delete _expandedBrands[slug]
+  delete _streamsByBrand[slug]
+  // Drop any expanded-stream / cached-project entries that lived under
+  // this brand, otherwise their stale keys leak into the next session.
+  const prefix = `${slug}/`
+  for (const k of Object.keys(_expandedStreams)) if (k.startsWith(prefix)) delete _expandedStreams[k]
+  for (const k of Object.keys(_projectsByStream)) if (k.startsWith(prefix)) delete _projectsByStream[k]
+  for (const k of Object.keys(_categoriesByProject)) if (k.startsWith(prefix)) delete _categoriesByProject[k]
+  await loadBrands(true)
+}
+
+export async function deleteStream(brandSlug: string, streamSlug: string): Promise<void> {
+  await repoRPC<void>('DeleteStream', [brandSlug, streamSlug])
+  const streamKey = `${brandSlug}/${streamSlug}`
+  delete _expandedStreams[streamKey]
+  delete _projectsByStream[streamKey]
+  const prefix = `${streamKey}/`
+  for (const k of Object.keys(_categoriesByProject)) if (k.startsWith(prefix)) delete _categoriesByProject[k]
+  await loadStreams(brandSlug, true)
+}
+
+export async function deleteProject(
+  brandSlug: string,
+  streamSlug: string,
+  projectSlug: string,
+): Promise<void> {
+  await repoRPC<void>('DeleteProject', [brandSlug, streamSlug, projectSlug])
+  delete _categoriesByProject[`${brandSlug}/${streamSlug}/${projectSlug}`]
+  await loadProjects(brandSlug, streamSlug, true)
+}
+
 /**
  * Drop every cached level so the next browse-page mount refetches.
  * Called when the user switches repos so they don't see the previous

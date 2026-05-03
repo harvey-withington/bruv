@@ -28,6 +28,7 @@ import (
 
 	"bruv/core/supervisor"
 	"bruv/internal/config"
+	"bruv/internal/push"
 	"bruv/internal/logging"
 	transporthttp "bruv/transport/http"
 )
@@ -126,6 +127,28 @@ func Run(opts Options) error {
 	sup.LoadAll()
 	defer sup.Close()
 
+	// Push subsystem: VAPID keypair (generated on first boot, persisted
+	// alongside bootstrap-token.txt) and a per-device subscription
+	// registry. Failures to load are non-fatal — the server keeps
+	// serving non-push traffic, push RPCs return errPushNotConfigured.
+	var pushVAPID *push.VAPID
+	var pushRegistry *push.Registry
+	if v, err := push.LoadOrCreate(opts.ConfigDir); err == nil {
+		pushVAPID = v
+	} else {
+		slog.Warn("push: VAPID keypair unavailable, push notifications disabled", "err", err)
+	}
+	if r, err := push.LoadRegistry(opts.ConfigDir); err == nil {
+		pushRegistry = r
+	} else {
+		slog.Warn("push: subscription registry unavailable, push notifications disabled", "err", err)
+	}
+
+	machineSvc := supervisor.NewMachineService()
+	if pushVAPID != nil && pushRegistry != nil {
+		machineSvc = machineSvc.WithPush(pushVAPID, pushRegistry)
+	}
+
 	srv, err := transporthttp.NewMulti(transporthttp.Config{
 		Addr:          opts.Addr,
 		ConfigDir:     opts.ConfigDir,
@@ -134,7 +157,7 @@ func Run(opts Options) error {
 		StaticAssets:  opts.Assets,
 		MobileAssets:  opts.MobileAssets,
 		Repos:         supervisor.NewHTTPAdapter(sup),
-		MachineTarget: supervisor.NewMachineService(),
+		MachineTarget: machineSvc,
 	})
 	if err != nil {
 		return fmt.Errorf("http transport construct: %w", err)

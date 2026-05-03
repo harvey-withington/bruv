@@ -51,6 +51,8 @@
   "card.edit_title": "Edit card title",
   "card.due": "Due",
   "card.description": "Description",
+  "card.add_description": "Add a description…",
+  "card.edit_description": "Edit description",
   "card.no_blocks": "This card has no blocks yet.",
   "card.back_to_browse": "Back to browse",
   "card.delete": "Delete",

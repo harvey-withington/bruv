@@ -24,14 +24,39 @@ package supervisor
 // point: it works regardless of repo state.
 
 import (
+	"fmt"
+
 	"bruv/internal/config"
+	"bruv/internal/push"
 )
 
 // MachineService is the per-machine RPC surface. Construct via NewMachineService.
-type MachineService struct{}
+type MachineService struct {
+	// Optional. Set via WithPush by the server bootstrap when push is
+	// configured. Nil when the host doesn't support push (Wails desktop
+	// in dev, tests). Push RPC methods return a clear error in that case
+	// rather than panicking.
+	vapid    *push.VAPID
+	registry *push.Registry
+}
 
 // NewMachineService constructs a MachineService.
 func NewMachineService() *MachineService { return &MachineService{} }
+
+// WithPush wires the VAPID keypair + subscription registry into the
+// service. Optional — only the headless server bootstrap calls this
+// today; the desktop and tests run without push and the relevant RPCs
+// return errPushNotConfigured if invoked.
+func (m *MachineService) WithPush(v *push.VAPID, r *push.Registry) *MachineService {
+	m.vapid = v
+	m.registry = r
+	return m
+}
+
+// errPushNotConfigured is returned by push RPCs on a host without
+// push wired up. Phrased so the user-facing toast can render it
+// directly without exposing internals.
+var errPushNotConfigured = fmt.Errorf("push notifications are not configured on this server")
 
 // --- Preferences / Profile / Auth ---
 
@@ -129,4 +154,57 @@ func (m *MachineService) SaveDueDateSettings(enabled bool, thresholds []string, 
 	prefs.DueDateThresholds = thresholds
 	prefs.DueDateChannels = channels
 	return config.SavePreferences(prefs)
+}
+
+// --- Push notifications (Phase 3 prep) ---
+//
+// The mobile PWA's service worker calls navigator.pushManager.subscribe
+// with the public key returned by GetVapidPublicKey, then forwards the
+// resulting endpoint + keys to RegisterPushSubscription. Unregistering
+// is a clean-uninstall path. Send is server-side only (agents, due-
+// date scanner) — there's no RPC for "send a notification to me",
+// because the trust model is the server pushes when it has news.
+//
+// Trust note: deviceID is supplied by the caller and isn't validated
+// against the bearer token. Within a single Tailscale-trust group
+// this is acceptable; the worst case is a malicious paired client
+// stealing notifications meant for another paired client. When the
+// device-store hook lands (auth context → method param), this gets
+// tightened automatically.
+
+// GetVapidPublicKey returns the server's VAPID application server
+// key as a base64url-encoded string. The mobile client passes it to
+// the W3C PushManager.subscribe() call's `applicationServerKey`.
+func (m *MachineService) GetVapidPublicKey() (string, error) {
+	if m.vapid == nil {
+		return "", errPushNotConfigured
+	}
+	return m.vapid.Public(), nil
+}
+
+// RegisterPushSubscription stores (or replaces) the push subscription
+// for a device. Called by the mobile client right after PushManager
+// subscribe() resolves with a fresh PushSubscription.
+func (m *MachineService) RegisterPushSubscription(deviceID, endpoint, p256dh, auth string) error {
+	if m.registry == nil {
+		return errPushNotConfigured
+	}
+	return m.registry.Upsert(push.Subscription{
+		DeviceID: deviceID,
+		Endpoint: endpoint,
+		P256dh:   p256dh,
+		Auth:     auth,
+	})
+}
+
+// UnregisterPushSubscription drops a device's subscription. The
+// mobile client calls this on explicit "stop notifications" actions;
+// the sender also removes subscriptions automatically when the push
+// service returns 410 Gone (a stronger signal that the subscription
+// is dead).
+func (m *MachineService) UnregisterPushSubscription(deviceID string) error {
+	if m.registry == nil {
+		return errPushNotConfigured
+	}
+	return m.registry.Remove(deviceID)
 }

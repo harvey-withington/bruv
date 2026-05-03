@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { repoRPC } from '../lib/auth'
   import { navigate, cardURL, projectURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
@@ -8,6 +8,7 @@
   import DynamicIcon from '../components/DynamicIcon.svelte'
   import CardRow from '../components/CardRow.svelte'
   import { dragSortable, type DragMoveDetail } from '../lib/actions/dnd.svelte'
+  import { onEvent } from '../lib/events.svelte'
 
   // Focused single-category view. Reachable via the three-level zoom
   // (ProjectPage → CategoryPage → CardPage) and as a deep link
@@ -71,6 +72,47 @@
     } finally {
       loading = false
     }
+  })
+
+  // Live updates: refetch cards in this category when any card or
+  // category event fires. Filter on cat.id where the payload provides
+  // it; otherwise reload conservatively.
+  let liveReloadTimer: ReturnType<typeof setTimeout> | null = null
+  async function reloadCards() {
+    if (!cat) return
+    try {
+      const ids = (await repoRPC<string[]>('ListCardIDsInCategory', [cat.id, cat.id])) ?? []
+      const fetched = await Promise.all(
+        ids.map(async (id) => {
+          try { return await repoRPC<CardSummary>('GetCard', [id]) }
+          catch { return null }
+        }),
+      )
+      cards = fetched.filter((c): c is CardSummary => c !== null)
+    } catch {
+      /* transient — keep what we have */
+    }
+  }
+  function scheduleReload() {
+    if (liveReloadTimer) clearTimeout(liveReloadTimer)
+    liveReloadTimer = setTimeout(() => {
+      liveReloadTimer = null
+      void reloadCards()
+    }, 150)
+  }
+  const unsubscribeEvents = onEvent((ev) => {
+    if (
+      ev.topic === 'card:created' ||
+      ev.topic === 'card:updated' ||
+      ev.topic === 'card:deleted' ||
+      ev.topic === 'category:updated'
+    ) {
+      scheduleReload()
+    }
+  })
+  onDestroy(() => {
+    if (liveReloadTimer) clearTimeout(liveReloadTimer)
+    unsubscribeEvents()
   })
 
   async function handleDnDMove(detail: DragMoveDetail) {

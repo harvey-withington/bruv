@@ -1,17 +1,18 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { repoRPC } from '../lib/auth'
   import { navigate } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
   import { Trash2, MapPin, Plus, X } from 'lucide-svelte'
   import EditableText from '../components/EditableText.svelte'
+  import EditableDescription from '../components/EditableDescription.svelte'
   import TagsEditor from '../components/TagsEditor.svelte'
   import BlockEditor from '../components/blocks/BlockEditor.svelte'
   import ConfirmDialog from '../components/ConfirmDialog.svelte'
   import PinPicker from '../components/PinPicker.svelte'
   import { getCardTypeColor, getCardTypeTextColor, getCardTypeLabel } from '@shared/cardTypes'
-  import { renderMarkdown } from '@shared/markdown'
   import { repoMeta, loadProjectTags, projectKey as makeProjectKey } from '../lib/repoMeta.svelte'
+  import { onEvent } from '../lib/events.svelte'
   import type { Block, Card, CardPin } from '@shared/types'
 
   // Card view + basic edit. Phase 1 scope:
@@ -148,6 +149,19 @@
     }
   }
 
+  async function saveDescription(next: string) {
+    if (!card) return
+    const previous = card.description
+    card.description = next
+    saveError = null
+    try {
+      await repoRPC('UpdateCardDescription', [card.id, next])
+    } catch (err) {
+      card.description = previous
+      saveError = err instanceof Error ? err.message : t('card.err_save')
+    }
+  }
+
   function flashSaved() {
     savedFlash = true
     if (savedFlashTimer) clearTimeout(savedFlashTimer)
@@ -187,6 +201,37 @@
     if (blockSaveTimer) clearTimeout(blockSaveTimer)
     if (savedFlashTimer) clearTimeout(savedFlashTimer)
   })
+
+  // Live updates: when the backend emits card:updated for THIS card,
+  // refetch so external edits (desktop, agent, share-sheet) reflect
+  // here without a manual refresh. card:deleted while open pops back
+  // to the previous view. Filter by id so unrelated cards don't
+  // trigger a refetch storm.
+  const unsubscribe = onEvent(async (ev) => {
+    const eventCardID = typeof ev.payload.cardID === 'string' ? ev.payload.cardID : null
+    if (eventCardID !== id) return
+
+    if (ev.topic === 'card:updated') {
+      // Skip refetch if a local save is in flight — it would clobber
+      // the user's pending input. The save's own success/failure path
+      // owns the canonical state for that window.
+      if (blockSaveTimer || savingBlocks) return
+      try {
+        const fresh = await repoRPC<Card>('GetCard', [id])
+        if (fresh) {
+          card = fresh
+          lastSavedBlocks = fresh.blocks ?? []
+        }
+      } catch {
+        /* transient — keep showing what we have */
+      }
+    } else if (ev.topic === 'card:deleted') {
+      if (window.history.length > 1) history.back()
+      else navigate('/')
+    }
+  })
+
+  onDestroy(unsubscribe)
 
   function formatDueDate(due: string | null): string {
     if (!due) return ''
@@ -303,16 +348,14 @@
       {/if}
     </section>
 
-    {#if card.description}
-      <section class="description">
-        <h3 class="section-title">{t('card.description')}</h3>
-        <!-- shared/markdown.ts: marked + custom link renderer; output
-             is trusted markdown HTML, safe to inject. Single newlines
-             become <br> via marked's `breaks: true`, so multi-line
-             text from a share preserves its structure. -->
-        <div class="prose">{@html renderMarkdown(card.description)}</div>
-      </section>
-    {/if}
+    <section class="description">
+      <h3 class="section-title">{t('card.description')}</h3>
+      <EditableDescription
+        value={card.description ?? ''}
+        placeholder={t('card.add_description')}
+        onSave={saveDescription}
+      />
+    </section>
 
     {#if card.blocks?.length}
       <section class="blocks">
@@ -320,8 +363,6 @@
           <BlockEditor {block} cardId={card.id} onChange={(next) => updateBlock(block.id, next)} />
         {/each}
       </section>
-    {:else if !card.description}
-      <p class="no-blocks">{t('card.no_blocks')}</p>
     {/if}
 
     <footer class="actions">
@@ -582,62 +623,12 @@
     letter-spacing: 0.04em;
   }
 
-  .prose {
-    font-size: 0.95rem;
-    line-height: 1.55;
-    color: var(--text);
-  }
-  .prose :global(p) {
-    margin: 0 0 0.75rem;
-  }
-  .prose :global(p:last-child) {
-    margin-bottom: 0;
-  }
-  .prose :global(a) {
-    color: var(--accent);
-    word-break: break-word;
-  }
-  .prose :global(code) {
-    background: var(--bg-elev-1);
-    padding: 0.1rem 0.3rem;
-    border-radius: 3px;
-    font-size: 0.85em;
-  }
-  .prose :global(pre) {
-    background: var(--bg-elev-1);
-    padding: 0.65rem;
-    border-radius: 6px;
-    overflow-x: auto;
-  }
-  .prose :global(pre code) {
-    background: transparent;
-    padding: 0;
-  }
-  .prose :global(blockquote) {
-    margin: 0.5rem 0;
-    padding-left: 0.75rem;
-    border-left: 3px solid var(--border);
-    color: var(--text-muted);
-  }
-  .prose :global(ul),
-  .prose :global(ol) {
-    padding-left: 1.25rem;
-    margin: 0.5rem 0;
-  }
-
   .blocks {
     border-top: 1px solid var(--border);
     padding-top: 1.25rem;
     margin-bottom: 2rem;
   }
 
-  .no-blocks {
-    color: var(--text-faint);
-    font-size: 0.85rem;
-    font-style: italic;
-    text-align: center;
-    margin: 1.5rem 0;
-  }
 
   .actions {
     display: flex;

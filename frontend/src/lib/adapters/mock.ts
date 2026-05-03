@@ -243,6 +243,10 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     GetDueDateSettings: async () => ({ enabled: true, thresholds: ['24h', '1h', '0'], channels: 'in-app,system' }),
     SaveDueDateSettings: async () => {},
 
+    GetVapidPublicKey: async () => '',
+    RegisterPushSubscription: async () => {},
+    UnregisterPushSubscription: async () => {},
+
     GetPreferences: async () => ({}),
     SetPreferences: async () => {},
 

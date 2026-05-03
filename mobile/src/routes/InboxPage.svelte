@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { repoRPC } from '../lib/auth'
   import { navigate, cardURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
   import { repoMeta } from '../lib/repoMeta.svelte'
   import { getCardTypeColor, getCardTypeTextColor, getCardTypeLabel } from '@shared/cardTypes'
+  import { onEvent } from '../lib/events.svelte'
   import type { CardSummary } from '../lib/model'
 
   // Inbox = orphaned cards (created but not yet pinned to any
@@ -17,7 +18,7 @@
   let loading = $state(true)
   let errorMsg = $state<string | null>(null)
 
-  onMount(async () => {
+  async function reload() {
     try {
       const ids = (await repoRPC<string[]>('ListOrphanedCardIDs')) ?? []
       const fetched = await Promise.all(
@@ -38,6 +39,26 @@
     } finally {
       loading = false
     }
+  }
+
+  onMount(reload)
+
+  // Live: any card event reshuffles the inbox (a new capture, a pin
+  // that orphans the card, a deletion). Coalesce bursts via a tiny
+  // debounce so 50 imports fire one reload.
+  let liveReloadTimer: ReturnType<typeof setTimeout> | null = null
+  const unsubscribeEvents = onEvent((ev) => {
+    if (ev.topic === 'card:created' || ev.topic === 'card:updated' || ev.topic === 'card:deleted') {
+      if (liveReloadTimer) clearTimeout(liveReloadTimer)
+      liveReloadTimer = setTimeout(() => {
+        liveReloadTimer = null
+        void reload()
+      }, 150)
+    }
+  })
+  onDestroy(() => {
+    if (liveReloadTimer) clearTimeout(liveReloadTimer)
+    unsubscribeEvents()
   })
 </script>
 

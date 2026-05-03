@@ -762,6 +762,15 @@ export interface BackendAdapter {
   GetDueDateSettings(): Promise<{ enabled: boolean; thresholds: string[]; channels: string }>
   SaveDueDateSettings(enabled: boolean, thresholds: string[], channels: string): Promise<void>
 
+  // Web Push (Phase 3 prep). The mobile service worker subscribes
+  // against the public VAPID key and forwards the resulting endpoint
+  // + keys via RegisterPushSubscription. Returns errPushNotConfigured
+  // on a host without push wired up — clients should treat that as
+  // "push is disabled here" rather than a hard failure.
+  GetVapidPublicKey(): Promise<string>
+  RegisterPushSubscription(deviceID: string, endpoint: string, p256dh: string, auth: string): Promise<void>
+  UnregisterPushSubscription(deviceID: string): Promise<void>
+
   // User preferences
   GetPreferences(): Promise<any>
   SetPreferences(p: any): Promise<void>

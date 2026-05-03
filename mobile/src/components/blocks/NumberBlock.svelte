@@ -22,8 +22,6 @@
     draft = next
     const trimmed = next.trim()
     if (trimmed === '') {
-      // Clearing the field saves a null-ish zero (the model uses
-      // numbers, not nullable fields, so 0 is the conventional empty).
       if (lastSavedNumber !== null) {
         lastSavedNumber = null
         onChange(withValue(block, null))
@@ -36,6 +34,18 @@
       onChange(withValue(block, parsed))
     }
   }
+
+  // External-edit sync (SSE → block replaced from outside). Re-seed
+  // the draft when block.value changes externally AND the user isn't
+  // mid-typing.
+  $effect(() => {
+    const nextNum = asNumber(block.value)
+    if (nextNum === lastSavedNumber) return
+    const draftNum = draft.trim() === '' ? null : Number(draft)
+    if (draftNum !== lastSavedNumber) return // in-flight typing
+    lastSavedNumber = nextNum
+    draft = nextNum === null ? '' : String(nextNum)
+  })
 </script>
 
 <div class="row">

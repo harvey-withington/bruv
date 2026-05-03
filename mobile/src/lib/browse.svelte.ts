@@ -9,6 +9,7 @@
 // of small helpers.
 
 import { repoRPC } from './auth'
+import { onEvent } from './events.svelte'
 import type { Brand, Stream, Project, Category } from './model'
 
 type LoadState = 'idle' | 'loading' | 'loaded' | 'error'
@@ -150,4 +151,54 @@ function streamKey(brandSlug: string, streamSlug: string): string {
 
 function projectKeyStr(brandSlug: string, streamSlug: string, projectSlug: string): string {
   return `${brandSlug}/${streamSlug}/${projectSlug}`
+}
+
+// Always-on SSE listener: when the backend publishes a brand / stream
+// / project / category mutation, refresh the affected cache level so
+// every page that draws from the browse store reflects the change
+// without needing a manual refresh. Card-specific events are handled
+// per-page (CardPage refetches its card). Subscribing once at module
+// load is cheap — onEvent is a no-op until startEvents() attaches
+// the EventSource, and the listener stays put across the app's life.
+onEvent((ev) => {
+  switch (ev.topic) {
+    case 'brand:updated':
+    case 'brand:deleted':
+      void loadBrands(true)
+      return
+    case 'stream:updated':
+    case 'stream:deleted': {
+      const brand = readSlug(ev.payload, 'brandSlug', 'brand_id', 'brandID')
+      if (brand) void loadStreams(brand, true)
+      else void loadBrands(true)
+      return
+    }
+    case 'project:updated':
+    case 'project:deleted': {
+      const brand = readSlug(ev.payload, 'brandSlug', 'brand_id', 'brandID')
+      const stream = readSlug(ev.payload, 'streamSlug', 'stream_id', 'streamID')
+      if (brand && stream) void loadProjects(brand, stream, true)
+      else void loadBrands(true)
+      return
+    }
+    case 'category:updated':
+    case 'category:deleted': {
+      const brand = readSlug(ev.payload, 'brandSlug')
+      const stream = readSlug(ev.payload, 'streamSlug')
+      const project = readSlug(ev.payload, 'projectSlug')
+      if (brand && stream && project) void loadCategories(brand, stream, project, true)
+      return
+    }
+  }
+})
+
+/** Pull a slug-shaped string out of an event payload, trying multiple
+ *  field names because the backend sometimes emits the domain object
+ *  (brand.slug) and sometimes a {slug} map. */
+function readSlug(payload: Record<string, unknown>, ...keys: string[]): string | null {
+  for (const k of keys) {
+    const v = payload[k]
+    if (typeof v === 'string' && v !== '') return v
+  }
+  return null
 }

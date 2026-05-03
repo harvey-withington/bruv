@@ -12,10 +12,17 @@
   let captionDraft = $state(value.caption ?? '')
   let urlTimer: ReturnType<typeof setTimeout> | null = null
   let captionTimer: ReturnType<typeof setTimeout> | null = null
+  // External-edit sync state: tracks the last value we ourselves
+  // committed, so the $effect below can distinguish our own echoes
+  // from genuinely-external changes.
+  let lastSavedUrl = $state(value.url)
+  let lastSavedCaption = $state(value.caption ?? '')
 
   function commit() {
     const next: { url: string; caption?: string } = { url: urlDraft }
     if (captionDraft.trim() !== '') next.caption = captionDraft
+    lastSavedUrl = urlDraft
+    lastSavedCaption = captionDraft
     onChange(withValue(block, next))
   }
 
@@ -52,6 +59,21 @@
   $effect(() => () => {
     if (urlTimer) clearTimeout(urlTimer)
     if (captionTimer) clearTimeout(captionTimer)
+  })
+
+  // External-edit sync. Track last committed url + caption to detect
+  // external changes vs our own echos. Skip when the user has unsaved
+  // typing in either field.
+  $effect(() => {
+    const next = asUrlValue(block.value)
+    const incomingUrl = next.url
+    const incomingCaption = next.caption ?? ''
+    if (incomingUrl === lastSavedUrl && incomingCaption === lastSavedCaption) return
+    if (urlDraft !== lastSavedUrl || captionDraft !== lastSavedCaption) return // mid-type
+    lastSavedUrl = incomingUrl
+    lastSavedCaption = incomingCaption
+    urlDraft = incomingUrl
+    captionDraft = incomingCaption
   })
 </script>
 

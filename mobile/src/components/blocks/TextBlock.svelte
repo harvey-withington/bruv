@@ -55,6 +55,18 @@
       if (timer) clearTimeout(timer)
     }
   })
+
+  // External-edit sync: when block.value changes from outside (SSE
+  // event refetch on the page) AND the user isn't holding an in-flight
+  // local edit, re-seed the draft. This is the path that lets a
+  // desktop edit to the same card appear on the phone live.
+  $effect(() => {
+    const next = asString(block.value)
+    if (next === lastSaved) return
+    if (draft !== lastSaved) return // user has unsaved typing — don't clobber
+    draft = next
+    lastSaved = next
+  })
 </script>
 
 <div class="text-block">

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { route, replace, navigate, cardURL } from './lib/router.svelte'
   import { isEnrolled, hasActiveRepo } from './lib/auth'
+  import { startEvents, stopEvents } from './lib/events.svelte'
   import { t } from './lib/i18n.svelte'
   import EnrolPage from './routes/EnrolPage.svelte'
   import RepoPickerPage from './routes/RepoPickerPage.svelte'
@@ -26,11 +27,19 @@
     const r = route.current
     if (r.name === 'enrol') return
     if (!isEnrolled()) {
+      stopEvents()
       replace('/enrol')
       return
     }
     if (r.name !== 'repos' && !hasActiveRepo()) {
+      stopEvents()
       replace('/repos')
+      return
+    }
+    if (hasActiveRepo()) {
+      // Idempotent — startEvents() bails if a stream is already
+      // attached to the same repo.
+      startEvents()
     }
   })
 

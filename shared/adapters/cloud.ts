@@ -228,6 +228,9 @@ const SERVER_METHODS = new Set<string>([
   'GetNotifications',
   'GetDueDateSettings',
   'SaveDueDateSettings',
+  'GetVapidPublicKey',
+  'RegisterPushSubscription',
+  'UnregisterPushSubscription',
 ])
 
 // --- Event stream via SSE ---

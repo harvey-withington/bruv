@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { repoRPC } from '../lib/auth'
   import { navigate, cardURL, categoryURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
@@ -8,6 +8,7 @@
   import DynamicIcon from '../components/DynamicIcon.svelte'
   import CardRow from '../components/CardRow.svelte'
   import { dragSortable, type DragMoveDetail } from '../lib/actions/dnd.svelte'
+  import { onEvent } from '../lib/events.svelte'
 
   // Project view: list of categories with their cards. Phase 1 ships
   // this as a vertical scroll — categories stacked, each with its
@@ -78,6 +79,58 @@
     } finally {
       loading = false
     }
+  })
+
+  // Live updates: refetch the project's categories+cards when any
+  // card or category event fires. Coarse, but the fetch is cheap
+  // and avoids tracking which event affects which view. Coalesced
+  // by a tiny debounce so a burst of N events fires one reload.
+  let liveReloadTimer: ReturnType<typeof setTimeout> | null = null
+  async function reloadProject() {
+    try {
+      const cats = (await repoRPC<Category[]>('ListCategories', [brand, stream, project])) ?? []
+      const populated = await Promise.all(
+        cats.map(async (cat) => {
+          let cards: CardSummary[] = []
+          try {
+            const ids = (await repoRPC<string[]>('ListCardIDsInCategory', [cat.id, cat.id])) ?? []
+            const fetched = await Promise.all(
+              ids.map(async (id) => {
+                try { return await repoRPC<CardSummary>('GetCard', [id]) }
+                catch { return null }
+              }),
+            )
+            cards = fetched.filter((c): c is CardSummary => c !== null)
+          } catch { cards = [] }
+          return { ...cat, cards }
+        }),
+      )
+      categories = populated
+    } catch {
+      /* transient — keep what we have */
+    }
+  }
+  function scheduleReload() {
+    if (liveReloadTimer) clearTimeout(liveReloadTimer)
+    liveReloadTimer = setTimeout(() => {
+      liveReloadTimer = null
+      void reloadProject()
+    }, 150)
+  }
+  const unsubscribeEvents = onEvent((ev) => {
+    if (
+      ev.topic === 'card:created' ||
+      ev.topic === 'card:updated' ||
+      ev.topic === 'card:deleted' ||
+      ev.topic === 'category:updated' ||
+      ev.topic === 'category:deleted'
+    ) {
+      scheduleReload()
+    }
+  })
+  onDestroy(() => {
+    if (liveReloadTimer) clearTimeout(liveReloadTimer)
+    unsubscribeEvents()
   })
 
   // Drag-drop reorder + cross-category move. The dnd action mutates

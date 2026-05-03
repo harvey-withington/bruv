@@ -11,6 +11,15 @@
   let draft = $state(block.label ?? '')
   let inputEl: HTMLInputElement | null = $state(null)
 
+  // External-edit sync: when the label changes externally and we're
+  // not actively editing, refresh the draft so the next edit starts
+  // from the new server-truth value.
+  $effect(() => {
+    const next = block.label ?? ''
+    if (editing) return
+    if (draft !== next) draft = next
+  })
+
   async function startEdit() {
     editing = true
     await tick()

@@ -237,6 +237,12 @@ export const IsLLMConfigured = () => getBackend().IsLLMConfigured()
 export const TestLLMConnection = () => getBackend().TestLLMConnection()
 export const TestSystemNotification = () => getBackend().TestSystemNotification()
 
+// Web Push (Phase 3 prep — server registers VAPID + subscriptions today;
+// the SW push handler + UI subscribe flow follow when Phase 3 lands).
+export const GetVapidPublicKey = () => getBackend().GetVapidPublicKey()
+export const RegisterPushSubscription = (...args: Parameters<ReturnType<typeof getBackend>['RegisterPushSubscription']>) => getBackend().RegisterPushSubscription(...args)
+export const UnregisterPushSubscription = (...args: Parameters<ReturnType<typeof getBackend>['UnregisterPushSubscription']>) => getBackend().UnregisterPushSubscription(...args)
+
 // Pin suggestions (from AI)
 export const AcceptPinSuggestion = (...args: Parameters<ReturnType<typeof getBackend>['AcceptPinSuggestion']>) => getBackend().AcceptPinSuggestion(...args)
 export const RejectPinSuggestion = (...args: Parameters<ReturnType<typeof getBackend>['RejectPinSuggestion']>) => getBackend().RejectPinSuggestion(...args)

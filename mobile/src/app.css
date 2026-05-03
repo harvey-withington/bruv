@@ -61,3 +61,32 @@ button {
   animation-duration: 220ms;
   animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+/* DnD ghost: copy-mode visual. The ghost element is body-appended by
+ * dragSortable so its styles live globally rather than scoped to a
+ * Svelte component. Engaging copy mode (a second finger touches during
+ * an armed drag) toggles the dnd-ghost-copy class, switching the
+ * shadow to green and adding a "+" badge in the top-right corner —
+ * the touch equivalent of holding Ctrl on desktop. */
+.dnd-ghost-copy {
+  box-shadow: 0 0 0 2px #22c55e, 0 12px 28px rgba(34, 197, 94, 0.45) !important;
+}
+.dnd-ghost-copy::after {
+  content: '+';
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #22c55e;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 18px;
+  line-height: 1;
+  pointer-events: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}

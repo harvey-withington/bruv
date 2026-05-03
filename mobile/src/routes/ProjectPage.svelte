@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
-  import { ChevronRight, Maximize2, Minimize2, Square, ListTree } from 'lucide-svelte'
+  import { ChevronRight, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree } from 'lucide-svelte'
   import { repoRPC } from '../lib/auth'
   import { navigate, cardURL, categoryURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
@@ -188,11 +188,12 @@
     unsubscribeEvents()
   })
 
-  // Drag-drop reorder + cross-category move. The dnd action mutates
-  // the DOM live during drag for visual feedback; we mirror the move
-  // into our reactive state on drop and persist via the right RPC.
-  // On failure, the UI re-loads the project so it returns to the
-  // server-truth ordering.
+  // Drag-drop reorder + cross-category move + two-finger-copy. The dnd
+  // action mutates the DOM live during drag for visual feedback; we
+  // mirror the move into our reactive state on drop and persist via
+  // the right RPC. Copy mode (engaged by a second pointer during drag)
+  // routes to DuplicateCard. On failure, the UI re-loads the project
+  // so it returns to the server-truth ordering.
   async function handleDnDMove(detail: DragMoveDetail) {
     const fromCat = categories.find((c) => c.id === detail.fromCategoryID)
     const toCat = categories.find((c) => c.id === detail.toCategoryID)
@@ -200,7 +201,23 @@
     const card = fromCat.cards.find((c) => c.id === detail.cardID)
     if (!card) return
 
-    // Optimistic state update mirroring the DOM the action just produced.
+    // Copy mode: duplicate the card into the destination category.
+    // Don't mutate the source — the original stays put. Refetch on
+    // success so the new card's server-side ID + state lands locally.
+    if (detail.isCopy) {
+      try {
+        await repoRPC('DuplicateCard', [detail.cardID, detail.toCategoryID])
+      } catch (err) {
+        console.error('duplicate card failed:', err)
+        errorMsg = err instanceof Error ? err.message : t('project.err_load')
+      }
+      // SSE will refresh the destination's card list shortly. No
+      // optimistic update — we don't have a real card ID for the dupe.
+      return
+    }
+
+    // Move (default): optimistic state update mirroring the DOM the
+    // action just produced.
     fromCat.cards = fromCat.cards.filter((c) => c.id !== detail.cardID)
     const toIdx = Math.max(0, Math.min(detail.toPosition, toCat.cards.length))
     toCat.cards = [...toCat.cards.slice(0, toIdx), card, ...toCat.cards.slice(toIdx)]
@@ -257,10 +274,10 @@
   {:else}
     <div class="acc-toolbar" role="toolbar" aria-label={t('project.accordion_toolbar')}>
       <button type="button" class="tool-btn" onclick={expandAll} aria-label={t('project.expand_all')} title={t('project.expand_all')}>
-        <Maximize2 size={15} />
+        <ChevronsUpDown size={15} />
       </button>
       <button type="button" class="tool-btn" onclick={collapseAll} aria-label={t('project.collapse_all')} title={t('project.collapse_all')}>
-        <Minimize2 size={15} />
+        <ChevronsDownUp size={15} />
       </button>
       <button
         type="button"
@@ -270,7 +287,7 @@
         title={browse.accordionMode === 'single' ? t('project.mode_single_hint') : t('project.mode_multi_hint')}
       >
         {#if browse.accordionMode === 'single'}
-          <Square size={15} />
+          <ListCollapse size={15} />
         {:else}
           <ListTree size={15} />
         {/if}
@@ -317,17 +334,16 @@
           </header>
           {#if open}
             <div class="cat-body">
-              {#if cat.cards.length === 0}
-                <p class="cat-empty">{t('project.category_empty')}</p>
-              {:else}
-                <ul class="cards" data-card-list>
-                  {#each cat.cards as card (card.id)}
-                    <li data-card-id={card.id}>
-                      <CardRow {card} projectKey={pkey} onClick={() => navigate(cardURL(card.id))} />
-                    </li>
-                  {/each}
-                </ul>
-              {/if}
+              <ul class="cards" data-card-list>
+                {#if cat.cards.length === 0}
+                  <li class="empty-hint cat-empty">{t('project.category_empty')}</li>
+                {/if}
+                {#each cat.cards as card (card.id)}
+                  <li data-card-id={card.id}>
+                    <CardRow {card} projectKey={pkey} onClick={() => navigate(cardURL(card.id))} />
+                  </li>
+                {/each}
+              </ul>
             </div>
           {/if}
         </section>
@@ -535,6 +551,14 @@
     font-size: 0.85rem;
     margin: 0.25rem 0.5rem;
     font-style: italic;
+    list-style: none;
+  }
+
+  /* Non-interactive empty-list hint inside an otherwise-empty drop-
+     target <ul>. Gives the <ul> hit-testable height so dragging a
+     card into an empty category lands correctly. */
+  .empty-hint {
+    pointer-events: none;
   }
 
   /* DnD visual states (driven by dnd.svelte.ts adding/removing classes) */

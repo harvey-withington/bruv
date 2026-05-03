@@ -3,10 +3,11 @@
   import { Inbox } from 'lucide-svelte'
   import { browse, loadBrands, loadStreams, loadProjects } from '../lib/browse.svelte'
   import { navigate, projectURL } from '../lib/router.svelte'
-  import { readEnrolment, readActiveRepoID, apiFetch } from '../lib/auth'
+  import { readEnrolment, readActiveRepoID, apiFetch, repoRPC } from '../lib/auth'
   import { t } from '../lib/i18n.svelte'
   import type { Brand, Stream } from '../lib/model'
   import DynamicIcon from '../components/DynamicIcon.svelte'
+  import { dragSortable, type DragMoveDetail } from '../lib/actions/dnd.svelte'
 
   // Top-level mobile entry: Inbox tile + browsable Brand → Stream →
   // Project tree. Tapping a project navigates to /m/p/<b>/<s>/<p>.
@@ -50,6 +51,191 @@
     expandedStreams[key] = open
     if (open) loadProjects(brand.slug, stream.slug)
   }
+
+  // --- DnD handlers ---
+  //
+  // Each level of the tree gets its own dragSortable instance scoped
+  // to that level's <ul>. Three behaviours per handler:
+  //   - Same parent + isCopy=false  → Reorder* RPC
+  //   - Same parent + isCopy=true   → Copy* (no-op for in-place; ignored)
+  //   - Cross parent + isCopy=false → Move* RPC
+  //   - Cross parent + isCopy=true  → Copy* RPC
+  // Cross-parent direction comes from data-brand-slug / data-stream-slug
+  // on the destination <ul>, captured at the moment the drag commits.
+  // Brands have no parent, so cross-parent doesn't apply at that level.
+
+  async function handleBrandDrop(detail: DragMoveDetail) {
+    if (detail.isCopy) {
+      // CopyBrand has no destination position — call and refresh.
+      try {
+        await repoRPC('CopyBrand', [detail.cardID])
+      } catch (err) {
+        console.error('copy brand failed:', err)
+      }
+      void loadBrands(true)
+      return
+    }
+    const items = browse.brands.items
+    const idx = items.findIndex((b) => b.slug === detail.cardID)
+    if (idx === -1) return
+    const updated = [...items]
+    const [moved] = updated.splice(idx, 1)
+    const toIdx = Math.max(0, Math.min(detail.toPosition, updated.length))
+    updated.splice(toIdx, 0, moved)
+    browse.brands.items = updated
+    try {
+      await repoRPC('ReorderBrands', [updated.map((b) => b.slug)])
+    } catch (err) {
+      console.error('reorder brands failed:', err)
+      void loadBrands(true)
+    }
+  }
+
+  async function handleStreamDrop(srcBrand: Brand, detail: DragMoveDetail) {
+    const dstBrandSlug = detail.toTarget.getAttribute('data-brand-slug') ?? srcBrand.slug
+    const sameBrand = dstBrandSlug === srcBrand.slug
+
+    if (!sameBrand && detail.isCopy) {
+      // Copy: can't optimistically insert (no client-known ID). Trust
+      // the silent refresh — items stay rendered while the new copy
+      // arrives in the destination cache.
+      try {
+        await repoRPC('CopyStream', [srcBrand.slug, detail.cardID, dstBrandSlug])
+      } catch (err) {
+        console.error('copy stream failed:', err)
+      }
+      void loadStreams(srcBrand.slug, true)
+      void loadStreams(dstBrandSlug, true)
+      return
+    }
+    if (!sameBrand) {
+      // Move: optimistically remove from source, append to destination.
+      // Both caches stay populated through the refresh thanks to the
+      // silent-refresh change in browse.svelte.ts.
+      const srcCache = browse.streamsFor(srcBrand.slug)
+      const dstCache = browse.streamsFor(dstBrandSlug)
+      const item = srcCache?.items.find((s) => s.slug === detail.cardID)
+      if (srcCache && dstCache && item) {
+        srcCache.items = srcCache.items.filter((s) => s.slug !== detail.cardID)
+        dstCache.items = [...dstCache.items, item]
+      }
+      try {
+        await repoRPC('MoveStream', [srcBrand.slug, detail.cardID, dstBrandSlug])
+      } catch (err) {
+        console.error('move stream failed:', err)
+      }
+      void loadStreams(srcBrand.slug, true)
+      void loadStreams(dstBrandSlug, true)
+      return
+    }
+
+    // Same-brand reorder.
+    const cache = browse.streamsFor(srcBrand.slug)
+    if (!cache || cache.state !== 'loaded') return
+    const items = cache.items
+    const idx = items.findIndex((s) => s.slug === detail.cardID)
+    if (idx === -1) return
+    const updated = [...items]
+    const [moved] = updated.splice(idx, 1)
+    const toIdx = Math.max(0, Math.min(detail.toPosition, updated.length))
+    updated.splice(toIdx, 0, moved)
+    cache.items = updated
+    try {
+      await repoRPC('ReorderStreams', [srcBrand.slug, updated.map((s) => s.slug)])
+    } catch (err) {
+      console.error('reorder streams failed:', err)
+      void loadStreams(srcBrand.slug, true)
+    }
+  }
+
+  // Hover-expand for the tree: when a drag stalls over a collapsed
+  // parent row, expand it after 500ms so its child list becomes a
+  // valid drop target. Lets the user drop a stream into a collapsed
+  // brand, or a project into a collapsed stream, without manually
+  // expanding first. Target reads its own data-expand-target kind to
+  // dispatch — same callback handles brand and stream expansions.
+  function handleTreeHoverExpand(target: HTMLElement) {
+    const kind = target.getAttribute('data-expand-target')
+    if (kind === 'brand') {
+      const slug = target.getAttribute('data-brand-slug')
+      const brand = slug ? browse.brands.items.find((b) => b.slug === slug) : null
+      if (brand && !expandedBrands[brand.slug]) toggleBrand(brand)
+      return
+    }
+    if (kind === 'stream') {
+      const streamSlug = target.getAttribute('data-stream-slug')
+      const parentList = target.closest('[data-drop-target="stream-list"]') as HTMLElement | null
+      const brandSlug = parentList?.getAttribute('data-brand-slug') ?? null
+      if (!streamSlug || !brandSlug) return
+      const brand = browse.brands.items.find((b) => b.slug === brandSlug)
+      const cache = browse.streamsFor(brandSlug)
+      const stream = cache?.items.find((s) => s.slug === streamSlug)
+      const key = `${brandSlug}/${streamSlug}`
+      if (brand && stream && !expandedStreams[key]) toggleStream(brand, stream)
+    }
+  }
+
+  async function handleProjectDrop(srcBrand: Brand, srcStream: Stream, detail: DragMoveDetail) {
+    const dstBrandSlug = detail.toTarget.getAttribute('data-brand-slug') ?? srcBrand.slug
+    const dstStreamSlug = detail.toTarget.getAttribute('data-stream-slug') ?? srcStream.slug
+    const sameStream = dstBrandSlug === srcBrand.slug && dstStreamSlug === srcStream.slug
+
+    if (!sameStream && detail.isCopy) {
+      try {
+        await repoRPC('CopyProject', [
+          srcBrand.slug, srcStream.slug, detail.cardID,
+          dstBrandSlug, dstStreamSlug, detail.toPosition,
+        ])
+      } catch (err) {
+        console.error('copy project failed:', err)
+      }
+      void loadProjects(srcBrand.slug, srcStream.slug, true)
+      void loadProjects(dstBrandSlug, dstStreamSlug, true)
+      return
+    }
+    if (!sameStream) {
+      // Optimistic move: pluck from source, insert into dest at the
+      // user's drop position. Caches stay populated through the silent
+      // refresh that follows.
+      const srcCache = browse.projectsFor(srcBrand.slug, srcStream.slug)
+      const dstCache = browse.projectsFor(dstBrandSlug, dstStreamSlug)
+      const item = srcCache?.items.find((p) => p.slug === detail.cardID)
+      if (srcCache && dstCache && item) {
+        srcCache.items = srcCache.items.filter((p) => p.slug !== detail.cardID)
+        const toIdx = Math.max(0, Math.min(detail.toPosition, dstCache.items.length))
+        dstCache.items = [...dstCache.items.slice(0, toIdx), item, ...dstCache.items.slice(toIdx)]
+      }
+      try {
+        await repoRPC('MoveProject', [
+          srcBrand.slug, srcStream.slug, detail.cardID,
+          dstBrandSlug, dstStreamSlug,
+        ])
+      } catch (err) {
+        console.error('move project failed:', err)
+      }
+      void loadProjects(srcBrand.slug, srcStream.slug, true)
+      void loadProjects(dstBrandSlug, dstStreamSlug, true)
+      return
+    }
+
+    // Same-stream reorder.
+    const cache = browse.projectsFor(srcBrand.slug, srcStream.slug)
+    if (!cache || cache.state !== 'loaded') return
+    const items = cache.items
+    const idx = items.findIndex((p) => p.slug === detail.cardID)
+    if (idx === -1) return
+    const updated = [...items]
+    const [moved] = updated.splice(idx, 1)
+    const toIdx = Math.max(0, Math.min(detail.toPosition, updated.length))
+    updated.splice(toIdx, 0, moved)
+    cache.items = updated
+    try {
+      await repoRPC('ReorderProjects', [srcBrand.slug, srcStream.slug, updated.map((p) => p.slug)])
+    } catch (err) {
+      console.error('reorder projects failed:', err)
+      void loadProjects(srcBrand.slug, srcStream.slug, true)
+    }
+  }
 </script>
 
 <header class="topbar">
@@ -77,9 +263,23 @@
   {:else if browse.brands.items.length === 0}
     <p class="status">{t('browse.empty')}</p>
   {:else}
-    <ul class="tree">
+    <ul
+      class="tree"
+      data-drop-target="brand-list"
+      use:dragSortable={{
+        onMove: handleBrandDrop,
+        rowSelector: '[data-brand-slug]',
+        dropTargetSelector: '[data-drop-target="brand-list"]',
+        rowIdAttribute: 'data-brand-slug',
+      }}
+    >
       {#each browse.brands.items as brand (brand.id)}
-        <li class="brand">
+        <li
+          class="brand"
+          data-brand-slug={brand.slug}
+          data-expand-target="brand"
+          data-collapsed={expandedBrands[brand.slug] ? null : 'true'}
+        >
           <button type="button" class="row brand-row" onclick={() => toggleBrand(brand)}>
             <span class="caret" class:open={expandedBrands[brand.slug]} aria-hidden="true">▸</span>
             {#if brand.icon}
@@ -90,17 +290,35 @@
 
           {#if expandedBrands[brand.slug]}
             {@const streams = browse.streamsFor(brand.slug)}
-            {#if !streams || streams.state === 'loading'}
+            {#if !streams || (streams.state === 'loading' && streams.items.length === 0)}
               <p class="indent status">{t('common.loading')}</p>
-            {:else if streams.state === 'error'}
+            {:else if streams.state === 'error' && streams.items.length === 0}
               <p class="indent error">{streams.error}</p>
-            {:else if streams.items.length === 0}
-              <p class="indent status">{t('browse.empty_stream')}</p>
             {:else}
-              <ul class="streams">
+              <ul
+                class="streams"
+                data-drop-target="stream-list"
+                data-brand-slug={brand.slug}
+                use:dragSortable={{
+                  onMove: (d) => handleStreamDrop(brand, d),
+                  onHoverExpand: handleTreeHoverExpand,
+                  rowSelector: '[data-stream-slug]',
+                  dropTargetSelector: '[data-drop-target="stream-list"]',
+                  rowIdAttribute: 'data-stream-slug',
+                  expandOnHoverSelector: '[data-expand-target="brand"]',
+                }}
+              >
+                {#if streams.items.length === 0}
+                  <li class="empty-hint indent status">{t('browse.empty_stream')}</li>
+                {/if}
                 {#each streams.items as stream (stream.id)}
                   {@const streamKey = `${brand.slug}/${stream.slug}`}
-                  <li class="stream">
+                  <li
+                    class="stream"
+                    data-stream-slug={stream.slug}
+                    data-expand-target="stream"
+                    data-collapsed={expandedStreams[streamKey] ? null : 'true'}
+                  >
                     <button type="button" class="row stream-row" onclick={() => toggleStream(brand, stream)}>
                       <span class="caret" class:open={expandedStreams[streamKey]} aria-hidden="true">▸</span>
                       {#if stream.icon}
@@ -111,16 +329,30 @@
 
                     {#if expandedStreams[streamKey]}
                       {@const projects = browse.projectsFor(brand.slug, stream.slug)}
-                      {#if !projects || projects.state === 'loading'}
+                      {#if !projects || (projects.state === 'loading' && projects.items.length === 0)}
                         <p class="indent status">{t('common.loading')}</p>
-                      {:else if projects.state === 'error'}
+                      {:else if projects.state === 'error' && projects.items.length === 0}
                         <p class="indent error">{projects.error}</p>
-                      {:else if projects.items.length === 0}
-                        <p class="indent status">{t('browse.empty_project')}</p>
                       {:else}
-                        <ul class="projects">
+                        <ul
+                          class="projects"
+                          data-drop-target="project-list"
+                          data-brand-slug={brand.slug}
+                          data-stream-slug={stream.slug}
+                          use:dragSortable={{
+                            onMove: (d) => handleProjectDrop(brand, stream, d),
+                            onHoverExpand: handleTreeHoverExpand,
+                            rowSelector: '[data-project-slug]',
+                            dropTargetSelector: '[data-drop-target="project-list"]',
+                            rowIdAttribute: 'data-project-slug',
+                            expandOnHoverSelector: '[data-expand-target]',
+                          }}
+                        >
+                          {#if projects.items.length === 0}
+                            <li class="empty-hint indent status">{t('browse.empty_project')}</li>
+                          {/if}
                           {#each projects.items as project (project.id)}
-                            <li>
+                            <li data-project-slug={project.slug}>
                               <button
                                 type="button"
                                 class="row project-row"
@@ -285,6 +517,31 @@
     font-size: 0.95rem;
     cursor: pointer;
     text-align: left;
+    /* Allow vertical scroll on rows; long-press still wins for drag.
+       See CardRow.svelte for the rationale and the move-cancel
+       threshold tuning that makes the two gestures coexist. */
+    touch-action: pan-y;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  /* DnD visual states (driven by dnd.svelte.ts adding/removing classes) */
+  :global(.tree .dnd-source),
+  :global(.streams .dnd-source),
+  :global(.projects .dnd-source) {
+    opacity: 0.35;
+    transition: opacity 120ms ease;
+  }
+
+  /* Empty-list hint inside an otherwise-empty drop-target <ul>. Gives
+     the <ul> hit-testable height so the user can drop into a brand
+     with no streams, or a stream with no projects, and have it land
+     correctly. Non-interactive: no data-*-slug, so the action skips
+     it for row purposes. */
+  .empty-hint {
+    list-style: none;
+    pointer-events: none;
   }
 
   .row:hover,

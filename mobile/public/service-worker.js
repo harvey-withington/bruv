@@ -17,9 +17,11 @@
 
 // Bump CACHE_VERSION whenever the SW logic itself changes OR when a
 // caching-policy bug shipped in the prior version needs old caches
-// flushed on next install. v4 marks the Phase 2 polish — accordion
-// project view, single-/multi-expand mode toggle, hover-expand DnD.
-const CACHE_VERSION = 'v4'
+// flushed on next install. v8 fixes empty drop-targets (you can now
+// drop into a brand with no streams, a stream with no projects, an
+// empty category) plus a silent-refresh tweak that keeps items
+// rendered through cross-parent move reloads.
+const CACHE_VERSION = 'v8'
 const SHELL_CACHE = `bruv-mobile-shell-${CACHE_VERSION}`
 const ASSET_CACHE = `bruv-mobile-assets-${CACHE_VERSION}`
 const SHELL_URL = '/m/'

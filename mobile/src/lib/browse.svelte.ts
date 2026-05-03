@@ -165,6 +165,10 @@ export function ensureInitialExpansion(
 
 export async function loadBrands(force = false): Promise<void> {
   if (!force && (_brands.state === 'loading' || _brands.state === 'loaded')) return
+  // Silent refresh: keep existing items while refetching so the UI
+  // doesn't flash empty during a force-reload (typical after a DnD
+  // drop or an SSE-driven invalidation). State flag still flips to
+  // 'loading' for any spinner that wants it; items stay put.
   _brands.state = 'loading'
   _brands.error = null
   try {
@@ -180,13 +184,20 @@ export async function loadBrands(force = false): Promise<void> {
 export async function loadStreams(brandSlug: string, force = false): Promise<void> {
   const existing = _streamsByBrand[brandSlug]
   if (!force && existing && (existing.state === 'loading' || existing.state === 'loaded')) return
-  _streamsByBrand[brandSlug] = { items: [], state: 'loading', error: null }
+  // First load: nothing to keep. Force refresh: keep existing items
+  // (silent refresh — see loadBrands).
+  if (existing && (existing.state === 'loaded' || existing.state === 'error')) {
+    existing.state = 'loading'
+    existing.error = null
+  } else {
+    _streamsByBrand[brandSlug] = { items: [], state: 'loading', error: null }
+  }
   try {
     const items = (await repoRPC<Stream[]>('ListStreams', [brandSlug])) ?? []
     _streamsByBrand[brandSlug] = { items, state: 'loaded', error: null }
   } catch (err) {
     _streamsByBrand[brandSlug] = {
-      items: [],
+      items: existing?.items ?? [],
       state: 'error',
       error: err instanceof Error ? err.message : String(err),
     }
@@ -197,13 +208,18 @@ export async function loadProjects(brandSlug: string, streamSlug: string, force 
   const key = streamKey(brandSlug, streamSlug)
   const existing = _projectsByStream[key]
   if (!force && existing && (existing.state === 'loading' || existing.state === 'loaded')) return
-  _projectsByStream[key] = { items: [], state: 'loading', error: null }
+  if (existing && (existing.state === 'loaded' || existing.state === 'error')) {
+    existing.state = 'loading'
+    existing.error = null
+  } else {
+    _projectsByStream[key] = { items: [], state: 'loading', error: null }
+  }
   try {
     const items = (await repoRPC<Project[]>('ListProjects', [brandSlug, streamSlug])) ?? []
     _projectsByStream[key] = { items, state: 'loaded', error: null }
   } catch (err) {
     _projectsByStream[key] = {
-      items: [],
+      items: existing?.items ?? [],
       state: 'error',
       error: err instanceof Error ? err.message : String(err),
     }

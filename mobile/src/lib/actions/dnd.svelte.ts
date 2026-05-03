@@ -37,6 +37,20 @@ export type DragMoveDetail = {
   toCategoryID: string
   /** Final position within the destination category's card list. */
   toPosition: number
+  /** The drop-target element the drag started from. Captured at arm
+   *  time so it survives a mid-drag DOM unmount of the source (e.g.
+   *  single-expand accordion collapsing the source category). May be
+   *  detached from the document by commit time — the host should read
+   *  attributes off it, not insert into it. Null only if arm couldn't
+   *  find a containing drop target (shouldn't happen). */
+  fromTarget: HTMLElement | null
+  /** The drop-target element the drag ended over. Always live and in
+   *  the document. */
+  toTarget: HTMLElement
+  /** True when a second pointer touched the screen at any point during
+   *  the armed drag — the touch equivalent of holding Ctrl on desktop.
+   *  Hosts use this to route to a Copy / Duplicate RPC instead of Move. */
+  isCopy: boolean
 }
 
 type Options = {
@@ -52,16 +66,55 @@ type Options = {
    *  pointermove finds the now-revealed inner card list as the drop
    *  container automatically. */
   onHoverExpand?: (target: HTMLElement) => void
+  /** CSS selector matching draggable rows. Defaults to the cards-page
+   *  convention. Generalised so the same action can drive tree-level
+   *  reorder lists (brands / streams / projects) — see BrowsePage. */
+  rowSelector?: string
+  /** CSS selector matching drop-target containers. Drag-overs walk up
+   *  via closest(). Defaults to the cards-page convention. */
+  dropTargetSelector?: string
+  /** Attribute on rows that holds the item identifier emitted in
+   *  DragMoveDetail.cardID. Defaults to `data-card-id`. For tree
+   *  lists this is `data-brand-slug` etc. */
+  rowIdAttribute?: string
+  /** Optional selector for "expand on hover" targets that aren't
+   *  drop targets themselves. When the finger holds over an element
+   *  matching this selector AND carrying `data-collapsed="true"`,
+   *  onHoverExpand fires after HOVER_EXPAND_MS. Use this for tree
+   *  navigation: drag-hover a collapsed parent row to reveal its
+   *  child list as a valid drop target. By default, hover-expand
+   *  only fires on the action's own drop targets — this widens the
+   *  set without affecting the drop-target hit-test. */
+  expandOnHoverSelector?: string
 }
 
 const LONG_PRESS_MS = 250
-const MOVE_CANCEL_PX = 6
+// Tight cancel threshold so the action gives up arming BEFORE the
+// browser's scroll-commit threshold (~5–10px on Android Chrome). Hosts
+// that want scroll on draggable rows set the row's `touch-action: pan-y`
+// instead of `none` — the browser then handles scroll from the moment
+// the user moves, and our action cancels its press timer when the
+// movement exceeds this threshold (so we don't end up "armed" while
+// the page is already scrolling). 4px is enough to count as
+// "intentional move" without being so tight that natural finger drift
+// during a hold cancels the press.
+const MOVE_CANCEL_PX = 4
 const AUTOSCROLL_EDGE = 70 // px from viewport edge that triggers autoscroll
 const AUTOSCROLL_MAX = 18  // px per frame at the very edge
 const HOVER_EXPAND_MS = 500
 
 export function dragSortable(node: HTMLElement, options: Options) {
   let opts = options
+
+  function rowSel(): string {
+    return opts.rowSelector ?? '[data-card-id]'
+  }
+  function targetSel(): string {
+    return opts.dropTargetSelector ?? '[data-drop-target="category"]'
+  }
+  function idAttr(): string {
+    return opts.rowIdAttribute ?? 'data-card-id'
+  }
 
   // Per-drag state. All null when no drag is in flight.
   let dragRow: HTMLElement | null = null
@@ -83,6 +136,15 @@ export function dragSortable(node: HTMLElement, options: Options) {
   // the IDs by commit time. Capturing eagerly is the simpler fix.
   let originalCategoryID = ''
   let originalProjectID = ''
+  // Source drop-target captured at arm time for the same reason —
+  // hosts that need additional context (data-brand-slug etc. for
+  // tree-level cross-parent moves) read attributes off this element.
+  let originalTarget: HTMLElement | null = null
+  // Copy mode: ratcheted once a second pointer joins during an armed
+  // drag, the touch-equivalent of holding Ctrl on desktop. Stays true
+  // for the duration of the drag — releasing the second finger doesn't
+  // un-engage copy.
+  let isCopyMode = false
   let activeDropTarget: HTMLElement | null = null
   let autoScrollHandle: number | null = null
   // Hover-expand: when a drag stalls over a collapsed drop target,
@@ -141,12 +203,12 @@ export function dragSortable(node: HTMLElement, options: Options) {
 
   function findDropTarget(el: HTMLElement | null): HTMLElement | null {
     if (!el) return null
-    return el.closest('[data-drop-target="category"]') as HTMLElement | null
+    return el.closest(targetSel()) as HTMLElement | null
   }
 
   function findRowUnder(el: HTMLElement | null): HTMLElement | null {
     if (!el) return null
-    return el.closest('[data-card-id]') as HTMLElement | null
+    return el.closest(rowSel()) as HTMLElement | null
   }
 
   function highlightTarget(target: HTMLElement | null) {
@@ -189,8 +251,35 @@ export function dragSortable(node: HTMLElement, options: Options) {
     hoverExpandTarget = null
   }
 
+  /** Find the element (if any) the host wants expanded after a hover-
+   *  hold. Two paths:
+   *
+   *    1. The current drop target itself, if it's marked collapsed.
+   *       This is the project-page accordion's "drop on a collapsed
+   *       category to open it" pattern.
+   *    2. Any element matching `expandOnHoverSelector` (BrowsePage tree
+   *       wires brand / stream rows here) that's marked collapsed.
+   *       This makes parent rows in a tree act as expand-targets so
+   *       the user can drag through nested levels.
+   *
+   *  Drop-target match takes priority over expand-on-hover match — if
+   *  the user is hovering directly on a collapsed drop container, that
+   *  container is what we want to expand, not its parent. */
+  function findExpandTarget(under: HTMLElement | null, dropTarget: HTMLElement | null): HTMLElement | null {
+    if (dropTarget && dropTarget.getAttribute('data-collapsed') === 'true') {
+      return dropTarget
+    }
+    const sel = opts.expandOnHoverSelector
+    if (!sel || !under) return null
+    const candidate = under.closest(sel) as HTMLElement | null
+    if (candidate && candidate.getAttribute('data-collapsed') === 'true') {
+      return candidate
+    }
+    return null
+  }
+
   function maybeStartHoverExpand(target: HTMLElement | null) {
-    if (!target || target.getAttribute('data-collapsed') !== 'true') {
+    if (!target) {
       clearHoverExpand()
       return
     }
@@ -259,6 +348,8 @@ export function dragSortable(node: HTMLElement, options: Options) {
     originalNext = null
     originalCategoryID = ''
     originalProjectID = ''
+    originalTarget = null
+    isCopyMode = false
   }
 
   function arm(row: HTMLElement, ev: PointerEvent) {
@@ -266,12 +357,14 @@ export function dragSortable(node: HTMLElement, options: Options) {
     dragRow = row
     originalParent = row.parentElement
     originalNext = row.nextElementSibling
-    // Capture source category attributes BEFORE the drag mutates the
-    // DOM (or before single-expand mode collapses the source category
-    // and unmounts its <ul>). Reading these at commit time would race.
-    const sourceTarget = row.closest('[data-drop-target="category"]') as HTMLElement | null
+    // Capture source attributes BEFORE the drag mutates the DOM (or
+    // before single-expand mode collapses the source category and
+    // unmounts its <ul>). Reading these at commit time would race.
+    const sourceTarget = row.closest(targetSel()) as HTMLElement | null
+    originalTarget = sourceTarget
     originalCategoryID = sourceTarget?.getAttribute('data-category-id') ?? ''
     originalProjectID = sourceTarget?.getAttribute('data-project-id') ?? ''
+    isCopyMode = false
     row.classList.add('dnd-source')
     // Lock the page's touch-action + overflow so the browser stops
     // interpreting subsequent pointer movement as scroll. setPointer-
@@ -305,10 +398,37 @@ export function dragSortable(node: HTMLElement, options: Options) {
   }
 
   function onPointerDown(ev: PointerEvent) {
+    // Second-pointer-during-armed-drag = engage copy mode. Once
+    // engaged, ratchets — releasing the second finger doesn't revert.
+    // Visual: ghost gets the dnd-ghost-copy class, hosts get isCopy
+    // in the emitted detail.
+    if (armed && ev.pointerId !== pointerID) {
+      if (!isCopyMode) {
+        isCopyMode = true
+        ghost?.classList.add('dnd-ghost-copy')
+        try {
+          navigator.vibrate?.(10)
+        } catch {
+          /* not all browsers support vibrate */
+        }
+      }
+      ev.stopPropagation()
+      return
+    }
     // Ignore non-primary buttons & non-pointer-down phases.
     if (ev.button !== 0 && ev.pointerType === 'mouse') return
     const row = findRowUnder(ev.target as HTMLElement)
     if (!row) return
+    // Make sure the row belongs to THIS action's container — when
+    // multiple dragSortable instances are nested (e.g. brand-list
+    // contains stream-lists contains project-lists in BrowsePage),
+    // event bubbling reaches every ancestor's listener and each one
+    // would otherwise try to arm independently. node.contains catches
+    // the deepest action that owns this row.
+    if (!node.contains(row)) return
+    // Stop propagation so outer actions in a nested layout don't
+    // also see this pointerdown and start their own press timer.
+    ev.stopPropagation()
     pointerID = ev.pointerId
     startX = ev.clientX
     startY = ev.clientY
@@ -344,7 +464,7 @@ export function dragSortable(node: HTMLElement, options: Options) {
     const under = findElementUnder(ev.clientX, ev.clientY)
     const target = findDropTarget(under)
     highlightTarget(target)
-    maybeStartHoverExpand(target)
+    maybeStartHoverExpand(findExpandTarget(under, target))
 
     if (!target) return
 
@@ -374,7 +494,7 @@ export function dragSortable(node: HTMLElement, options: Options) {
     const target = findDropTarget(dragRow.parentElement)
     if (!target) return
 
-    const cardID = dragRow.getAttribute('data-card-id') ?? ''
+    const cardID = dragRow.getAttribute(idAttr()) ?? ''
     const toCategoryID = target.getAttribute('data-category-id') ?? ''
     const toProjectID = target.getAttribute('data-project-id') ?? ''
 
@@ -385,10 +505,10 @@ export function dragSortable(node: HTMLElement, options: Options) {
     const fromCategoryID = originalCategoryID || toCategoryID
     const fromProjectID = originalProjectID || toProjectID
 
-    // Position is the index of dragRow among its siblings with
-    // data-card-id attributes — read BEFORE we restore dragRow to
-    // source, otherwise the index reflects the source list.
-    const siblings = Array.from(target.querySelectorAll('[data-card-id]')) as HTMLElement[]
+    // Position is the index of dragRow among its siblings matching
+    // the row selector — read BEFORE we restore dragRow to source,
+    // otherwise the index reflects the source list.
+    const siblings = Array.from(target.querySelectorAll(rowSel())) as HTMLElement[]
     const toPosition = siblings.indexOf(dragRow)
 
     // Restore dragRow to its original position before letting Svelte
@@ -414,7 +534,17 @@ export function dragSortable(node: HTMLElement, options: Options) {
     }
 
     void ev
-    void opts.onMove({ cardID, fromProjectID, fromCategoryID, toProjectID, toCategoryID, toPosition })
+    void opts.onMove({
+      cardID,
+      fromProjectID,
+      fromCategoryID,
+      toProjectID,
+      toCategoryID,
+      toPosition,
+      fromTarget: originalTarget,
+      toTarget: target,
+      isCopy: isCopyMode,
+    })
   }
 
   function onPointerUp(ev: PointerEvent) {
@@ -450,12 +580,38 @@ export function dragSortable(node: HTMLElement, options: Options) {
     teardown()
   }
 
+  // Document-level non-passive touchmove. Pointer events use a separate
+  // event family from touch events; touch-action only governs touch
+  // events (and the gesture-recognition path the browser feeds them
+  // into). When `touch-action: pan-y` is set on a row, the browser
+  // commits to a vertical scroll on the first touchmove with material
+  // movement — and once committed, our pointer events stop firing.
+  //
+  // The fix the major DnD libraries (svelte-dnd-action, react-beautiful-
+  // dnd, dnd-kit) all converge on: register a non-passive touchmove
+  // listener that calls preventDefault while a drag is armed. The
+  // browser checks preventDefault on the FIRST touchmove BEFORE
+  // committing to scroll, so getting in there early — synchronously,
+  // from a non-passive listener — wins. Any later than that and
+  // commitment is irreversible.
+  //
+  // Why on document and not on node: setPointerCapture redirects
+  // pointer events to the captured element, but TOUCH events still
+  // dispatch to the originally-touched element and bubble through the
+  // DOM. We want the preventDefault to fire regardless of where the
+  // finger is now, so the listener has to be on a high-enough ancestor
+  // to catch every touch. document is the safest place.
+  const blockTouchScroll = (e: TouchEvent) => {
+    if (armed && e.cancelable) e.preventDefault()
+  }
+
   // Pointer events on the action's element bubble up from rows,
   // so a single set of listeners is enough.
   node.addEventListener('pointerdown', onPointerDown)
   node.addEventListener('pointermove', onPointerMove)
   node.addEventListener('pointerup', onPointerUp)
   node.addEventListener('pointercancel', onPointerCancel)
+  document.addEventListener('touchmove', blockTouchScroll, { passive: false })
 
   return {
     update(next: Options) {
@@ -466,6 +622,7 @@ export function dragSortable(node: HTMLElement, options: Options) {
       node.removeEventListener('pointermove', onPointerMove)
       node.removeEventListener('pointerup', onPointerUp)
       node.removeEventListener('pointercancel', onPointerCancel)
+      document.removeEventListener('touchmove', blockTouchScroll)
       teardown()
     },
   }

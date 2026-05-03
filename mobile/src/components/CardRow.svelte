@@ -72,14 +72,15 @@
     gap: 0.75rem;
     text-align: left;
     transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
-    /* Drag-pickup needs to win against the browser's scroll handler.
-       touch-action: none on the card row tells the browser "don't
-       interpret a touch starting here as a scroll" — without it,
-       Android Chrome commits to scroll on the first few px of finger
-       movement after long-press, cancelling our pointer events.
-       Page scroll still works by touching anywhere outside cards
-       (collapsed category headers, toolbar, topbar, gaps). */
-    touch-action: none;
+    /* Allow vertical scroll on cards (browser handles pan-y). Long-
+       press DnD coexists with this: if the user moves their finger
+       more than MOVE_CANCEL_PX (~4px) before the press timer fires,
+       the action cancels arming and the browser's already-running
+       scroll continues smoothly. If the user holds still, the press
+       timer fires and the action sets touch-action: none on the row
+       to lock further scroll for the duration of the drag. Net
+       behaviour: drag from a card to scroll, hold a card to drag. */
+    touch-action: pan-y;
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;

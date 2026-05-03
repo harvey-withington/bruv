@@ -72,9 +72,14 @@
     gap: 0.75rem;
     text-align: left;
     transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
-    /* Prevent the browser's default text-selection on long-press —
-       drag-pickup needs a clean hold gesture. The DnD action sets
-       touch-action: none on the wrapping <li> when drag is armed. */
+    /* Drag-pickup needs to win against the browser's scroll handler.
+       touch-action: none on the card row tells the browser "don't
+       interpret a touch starting here as a scroll" — without it,
+       Android Chrome commits to scroll on the first few px of finger
+       movement after long-press, cancelling our pointer events.
+       Page scroll still works by touching anywhere outside cards
+       (collapsed category headers, toolbar, topbar, gaps). */
+    touch-action: none;
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;

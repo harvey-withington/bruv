@@ -126,9 +126,12 @@
     updated.splice(toIdx, 0, card)
     cards = updated
     try {
+      // Server's projectID arg is overloaded with categoryID — same
+      // quirk Board.svelte (desktop) works around. See ProjectPage's
+      // handleDnDMove for the explanation.
       await repoRPC('MoveCardInCategory', [
         detail.cardID,
-        detail.toProjectID,
+        detail.toCategoryID,
         detail.toCategoryID,
         detail.toPosition,
       ])

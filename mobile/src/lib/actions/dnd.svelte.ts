@@ -45,12 +45,20 @@ type Options = {
    *  reorder Svelte state — only the DOM during the drag — so the
    *  handler is responsible for persisting and refreshing. */
   onMove: (detail: DragMoveDetail) => void | Promise<void>
+  /** Called when the user holds a dragged item over a drop target
+   *  marked `data-collapsed="true"` for HOVER_EXPAND_MS. The handler
+   *  should expand whatever the target represents (e.g. an accordion
+   *  category) so the drop can land. The drag continues; the next
+   *  pointermove finds the now-revealed inner card list as the drop
+   *  container automatically. */
+  onHoverExpand?: (target: HTMLElement) => void
 }
 
 const LONG_PRESS_MS = 250
 const MOVE_CANCEL_PX = 6
 const AUTOSCROLL_EDGE = 70 // px from viewport edge that triggers autoscroll
 const AUTOSCROLL_MAX = 18  // px per frame at the very edge
+const HOVER_EXPAND_MS = 500
 
 export function dragSortable(node: HTMLElement, options: Options) {
   let opts = options
@@ -67,8 +75,28 @@ export function dragSortable(node: HTMLElement, options: Options) {
   let lastClientY = 0
   let originalParent: HTMLElement | null = null
   let originalNext: Element | null = null
+  // Source category IDs captured at arm time. Stored separately from
+  // originalParent because in single-expand accordion mode the source
+  // can collapse mid-drag (auto-expanding the destination collapses
+  // the source), unmounting originalParent and detaching it from the
+  // DOM. closest() on a detached element returns null, so we'd lose
+  // the IDs by commit time. Capturing eagerly is the simpler fix.
+  let originalCategoryID = ''
+  let originalProjectID = ''
   let activeDropTarget: HTMLElement | null = null
   let autoScrollHandle: number | null = null
+  // Hover-expand: when a drag stalls over a collapsed drop target,
+  // fire opts.onHoverExpand so the host can reveal the contents.
+  let hoverExpandTarget: HTMLElement | null = null
+  let hoverExpandTimer: ReturnType<typeof setTimeout> | null = null
+  // Saved values so teardown restores the page's scroll behaviour
+  // exactly as it was. We freeze body scroll for the duration of a
+  // drag — without this, Android Chrome commits to a vertical scroll
+  // gesture before setPointerCapture / preventDefault take effect,
+  // and the drag visually "pops" but the page scrolls underneath
+  // until release.
+  let prevBodyTouchAction = ''
+  let prevBodyOverflow = ''
 
   function originRect(el: HTMLElement): DOMRect {
     return el.getBoundingClientRect()
@@ -131,8 +159,19 @@ export function dragSortable(node: HTMLElement, options: Options) {
     activeDropTarget = target
   }
 
-  function reorderInDOM(beforeRow: HTMLElement | null, container: HTMLElement) {
+  /** Find the container we should insert dragRow into. When the
+   *  drop target is the outer wrapper of an accordion (a `<section>`),
+   *  the actual card-list `<ul>` lives inside and is the right place
+   *  to put the row. data-card-list marks it explicitly; absent that,
+   *  we fall back to the drop target itself (the original layout). */
+  function dropContainer(target: HTMLElement): HTMLElement {
+    const inner = target.querySelector('[data-card-list]') as HTMLElement | null
+    return inner ?? target
+  }
+
+  function reorderInDOM(beforeRow: HTMLElement | null, dropTarget: HTMLElement) {
     if (!dragRow) return
+    const container = dropContainer(dropTarget)
     if (!beforeRow) {
       // Append to end of container.
       container.appendChild(dragRow)
@@ -140,6 +179,30 @@ export function dragSortable(node: HTMLElement, options: Options) {
     }
     if (beforeRow === dragRow) return
     container.insertBefore(dragRow, beforeRow)
+  }
+
+  function clearHoverExpand() {
+    if (hoverExpandTimer) {
+      clearTimeout(hoverExpandTimer)
+      hoverExpandTimer = null
+    }
+    hoverExpandTarget = null
+  }
+
+  function maybeStartHoverExpand(target: HTMLElement | null) {
+    if (!target || target.getAttribute('data-collapsed') !== 'true') {
+      clearHoverExpand()
+      return
+    }
+    if (hoverExpandTarget === target) return // already armed for this target
+    clearHoverExpand()
+    hoverExpandTarget = target
+    hoverExpandTimer = setTimeout(() => {
+      const t = hoverExpandTarget
+      hoverExpandTarget = null
+      hoverExpandTimer = null
+      if (t) opts.onHoverExpand?.(t)
+    }, HOVER_EXPAND_MS)
   }
 
   function startAutoScroll() {
@@ -172,6 +235,7 @@ export function dragSortable(node: HTMLElement, options: Options) {
       pressTimer = null
     }
     stopAutoScroll()
+    clearHoverExpand()
     if (ghost) {
       ghost.remove()
       ghost = null
@@ -181,10 +245,20 @@ export function dragSortable(node: HTMLElement, options: Options) {
       dragRow = null
     }
     highlightTarget(null)
+    if (armed) {
+      // Restore the page's scroll behaviour. Only undo our overrides
+      // if we actually armed — short taps that never armed never
+      // touched these styles.
+      document.body.style.touchAction = prevBodyTouchAction
+      document.body.style.overflow = prevBodyOverflow
+      node.style.touchAction = ''
+    }
     armed = false
     pointerID = -1
     originalParent = null
     originalNext = null
+    originalCategoryID = ''
+    originalProjectID = ''
   }
 
   function arm(row: HTMLElement, ev: PointerEvent) {
@@ -192,7 +266,28 @@ export function dragSortable(node: HTMLElement, options: Options) {
     dragRow = row
     originalParent = row.parentElement
     originalNext = row.nextElementSibling
+    // Capture source category attributes BEFORE the drag mutates the
+    // DOM (or before single-expand mode collapses the source category
+    // and unmounts its <ul>). Reading these at commit time would race.
+    const sourceTarget = row.closest('[data-drop-target="category"]') as HTMLElement | null
+    originalCategoryID = sourceTarget?.getAttribute('data-category-id') ?? ''
+    originalProjectID = sourceTarget?.getAttribute('data-project-id') ?? ''
     row.classList.add('dnd-source')
+    // Lock the page's touch-action + overflow so the browser stops
+    // interpreting subsequent pointer movement as scroll. setPointer-
+    // Capture alone redirects pointer EVENTS to our element, but
+    // doesn't stop the browser's parallel scroll handler — it has
+    // already committed by the time our pointermove fires preventDefault.
+    // Locking body is the surest cross-browser way to guarantee our
+    // drag wins.
+    prevBodyTouchAction = document.body.style.touchAction
+    prevBodyOverflow = document.body.style.overflow
+    document.body.style.touchAction = 'none'
+    document.body.style.overflow = 'hidden'
+    // The action's node also needs touch-action: none so any pointer
+    // event delivered to it (after setPointerCapture) doesn't get
+    // re-interpreted as a scroll attempt.
+    node.style.touchAction = 'none'
     ghost = makeGhost(row)
     moveGhost(ev.clientX, ev.clientY)
     try {
@@ -249,8 +344,16 @@ export function dragSortable(node: HTMLElement, options: Options) {
     const under = findElementUnder(ev.clientX, ev.clientY)
     const target = findDropTarget(under)
     highlightTarget(target)
+    maybeStartHoverExpand(target)
 
     if (!target) return
+
+    // Collapsed drop targets defer to onHoverExpand — moving rows
+    // into a hidden container produces a confusing visual state.
+    // Once the host expands the target (data-collapsed flips off
+    // and a [data-card-list] appears), the next pointermove drops
+    // through to the normal reorder path.
+    if (target.getAttribute('data-collapsed') === 'true') return
 
     // Live reorder: when over another card in the same target,
     // swap; when over a category that's not the row's parent,
@@ -275,14 +378,40 @@ export function dragSortable(node: HTMLElement, options: Options) {
     const toCategoryID = target.getAttribute('data-category-id') ?? ''
     const toProjectID = target.getAttribute('data-project-id') ?? ''
 
-    // Source category is read from the original parent.
-    const fromCategoryID = (originalParent?.getAttribute('data-category-id')) ?? toCategoryID
-    const fromProjectID = (originalParent?.getAttribute('data-project-id')) ?? toProjectID
+    // Source IDs were captured at arm time to survive a possible
+    // mid-drag DOM unmount of the source <section>. Fall back to
+    // destination IDs only if arm() couldn't find them (no closest
+    // drop target — shouldn't happen in practice).
+    const fromCategoryID = originalCategoryID || toCategoryID
+    const fromProjectID = originalProjectID || toProjectID
 
     // Position is the index of dragRow among its siblings with
-    // data-card-id attributes.
+    // data-card-id attributes — read BEFORE we restore dragRow to
+    // source, otherwise the index reflects the source list.
     const siblings = Array.from(target.querySelectorAll('[data-card-id]')) as HTMLElement[]
     const toPosition = siblings.indexOf(dragRow)
+
+    // Restore dragRow to its original position before letting Svelte
+    // see the state change. The action moves dragRow during the drag
+    // for visual feedback, but Svelte's keyed {#each} reconciler is
+    // blind to manual DOM mutation — leaving dragRow in the destination
+    // while Svelte also CREATES a new <li> for the moved card produces
+    // a duplicate that lingers until refresh. Snapping back gives
+    // Svelte a clean baseline (source has dragRow, destination doesn't)
+    // and the upcoming state update remaps cleanly.
+    if (originalParent && originalParent.isConnected) {
+      if (originalNext && originalNext.parentNode === originalParent) {
+        originalParent.insertBefore(dragRow, originalNext)
+      } else {
+        originalParent.appendChild(dragRow)
+      }
+    } else {
+      // Source unmounted mid-drag (e.g. single-expand collapsed it).
+      // Detach dragRow rather than leaving it in the destination —
+      // Svelte will re-create it cleanly when its state update for
+      // the destination renders.
+      dragRow.remove()
+    }
 
     void ev
     void opts.onMove({ cardID, fromProjectID, fromCategoryID, toProjectID, toCategoryID, toPosition })

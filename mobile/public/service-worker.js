@@ -17,10 +17,9 @@
 
 // Bump CACHE_VERSION whenever the SW logic itself changes OR when a
 // caching-policy bug shipped in the prior version needs old caches
-// flushed on next install. v3 marks the Phase 2 shell — block editor,
-// drag-and-drop, AI chat sheet, three-level zoom. The shell pre-cache
-// must be invalidated so phones pick up the new bundle.
-const CACHE_VERSION = 'v3'
+// flushed on next install. v4 marks the Phase 2 polish — accordion
+// project view, single-/multi-expand mode toggle, hover-expand DnD.
+const CACHE_VERSION = 'v4'
 const SHELL_CACHE = `bruv-mobile-shell-${CACHE_VERSION}`
 const ASSET_CACHE = `bruv-mobile-assets-${CACHE_VERSION}`
 const SHELL_URL = '/m/'

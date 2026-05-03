@@ -39,6 +39,30 @@ const _categoriesByProject = $state<Record<string, { items: Category[]; state: L
 const _expandedBrands = $state<Record<string, boolean>>({})
 const _expandedStreams = $state<Record<string, boolean>>({})
 
+// Per-project category expansion for the ProjectPage accordion. Outer
+// key = project ID, inner key = category ID, value = boolean.
+//   - Single-expand mode: opening a category sweeps all others to
+//     false in the same project, then sets the tapped one to true (or
+//     toggles to false if it was already open).
+//   - Multi-expand mode: tapping a category just toggles its own
+//     boolean — others are unaffected.
+// Persistence is in-memory only for now (matches the brand/stream tree).
+// Promote to localStorage if it turns out users notice losing this on
+// app reload.
+const _expandedCategories = $state<Record<string, Record<string, boolean>>>({})
+
+// Accordion mode preference. Global, persisted to localStorage —
+// "I prefer single-expand" is a personal taste, not a per-project
+// setting. Default 'single' because the whole point of the accordion
+// on mobile is small-screen-fit.
+export type AccordionMode = 'single' | 'multi'
+const ACCORDION_MODE_KEY = 'bruv:accordionMode'
+function readAccordionMode(): AccordionMode {
+  const v = typeof localStorage !== 'undefined' ? localStorage.getItem(ACCORDION_MODE_KEY) : null
+  return v === 'multi' ? 'multi' : 'single'
+}
+let _accordionMode = $state<AccordionMode>(readAccordionMode())
+
 export const browse = {
   get brands() {
     return _brands
@@ -58,6 +82,85 @@ export const browse = {
   get expandedStreams() {
     return _expandedStreams
   },
+  get accordionMode(): AccordionMode {
+    return _accordionMode
+  },
+  /** Returns the per-category expansion map for a project, creating
+   *  one if absent. Mutating the returned object updates the store. */
+  categoryExpansionFor(projectID: string): Record<string, boolean> {
+    if (!_expandedCategories[projectID]) {
+      _expandedCategories[projectID] = {}
+    }
+    return _expandedCategories[projectID]
+  },
+}
+
+/** Persist the accordion mode preference to localStorage and update
+ *  the reactive state. */
+export function setAccordionMode(mode: AccordionMode): void {
+  _accordionMode = mode
+  try {
+    localStorage.setItem(ACCORDION_MODE_KEY, mode)
+  } catch {
+    /* private mode / storage full — non-fatal */
+  }
+}
+
+/** Toggle a single category's expansion, respecting the current mode.
+ *  In single-expand mode this collapses every other category in the
+ *  same project; in multi-expand it just flips this one. */
+export function toggleCategoryExpansion(
+  projectID: string,
+  categoryID: string,
+  allCategoryIDs: string[],
+): void {
+  const map = browse.categoryExpansionFor(projectID)
+  const isOpen = map[categoryID] === true
+  if (_accordionMode === 'single') {
+    // Replace the whole map so the inner $state proxy emits one
+    // update instead of N — fewer re-renders, smoother on slower
+    // phones with many categories.
+    const next: Record<string, boolean> = {}
+    for (const id of allCategoryIDs) next[id] = false
+    next[categoryID] = !isOpen
+    _expandedCategories[projectID] = next
+  } else {
+    map[categoryID] = !isOpen
+  }
+}
+
+/** Force-expand every category in a project. */
+export function expandAllCategories(projectID: string, categoryIDs: string[]): void {
+  const next: Record<string, boolean> = {}
+  for (const id of categoryIDs) next[id] = true
+  _expandedCategories[projectID] = next
+}
+
+/** Force-collapse every category in a project. */
+export function collapseAllCategories(projectID: string, categoryIDs: string[]): void {
+  const next: Record<string, boolean> = {}
+  for (const id of categoryIDs) next[id] = false
+  _expandedCategories[projectID] = next
+}
+
+/** First-visit default: expand the first non-empty category if no
+ *  expansion state exists yet for this project. No-op if the user has
+ *  already touched the accordion (any state present). */
+export function ensureInitialExpansion(
+  projectID: string,
+  categories: { id: string; cardCount: number }[],
+): void {
+  const map = browse.categoryExpansionFor(projectID)
+  if (Object.keys(map).length > 0) return
+  const firstNonEmpty = categories.find((c) => c.cardCount > 0)
+  if (firstNonEmpty) {
+    map[firstNonEmpty.id] = true
+  } else if (categories.length > 0) {
+    // Project has categories but no cards anywhere — open the first
+    // one so the empty-state hint is visible without the user having
+    // to fish for it.
+    map[categories[0].id] = true
+  }
 }
 
 export async function loadBrands(force = false): Promise<void> {
@@ -143,6 +246,7 @@ export function resetBrowseCache(): void {
   for (const k of Object.keys(_categoriesByProject)) delete _categoriesByProject[k]
   for (const k of Object.keys(_expandedBrands)) delete _expandedBrands[k]
   for (const k of Object.keys(_expandedStreams)) delete _expandedStreams[k]
+  for (const k of Object.keys(_expandedCategories)) delete _expandedCategories[k]
 }
 
 function streamKey(brandSlug: string, streamSlug: string): string {

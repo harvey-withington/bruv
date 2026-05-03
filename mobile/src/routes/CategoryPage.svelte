@@ -7,6 +7,8 @@
   import type { Category, CardSummary } from '../lib/model'
   import DynamicIcon from '../components/DynamicIcon.svelte'
   import CardRow from '../components/CardRow.svelte'
+  import SearchSheet from '../components/SearchSheet.svelte'
+  import { Search } from 'lucide-svelte'
   import { dragSortable, type DragMoveDetail } from '../lib/actions/dnd.svelte'
   import { onEvent } from '../lib/events.svelte'
 
@@ -34,6 +36,7 @@
   let errorMsg = $state<string | null>(null)
   let cat = $state<Category | null>(null)
   let cards = $state<CardSummary[]>([])
+  let searchOpen = $state(false)
 
   // svelte-ignore state_referenced_locally
   const pkey = $state(makeProjectKey(brand, stream, project))
@@ -149,8 +152,14 @@
   <h1 title={cat?.name ?? category}>
     {cat?.name ?? category}
   </h1>
-  <span class="spacer"></span>
+  <button type="button" class="topbar-search" onclick={() => (searchOpen = true)} aria-label={t('browse.search')} title={t('browse.search')}>
+    <Search size={18} />
+  </button>
 </header>
+
+{#if searchOpen}
+  <SearchSheet onClose={() => (searchOpen = false)} />
+{/if}
 
 <main style:view-transition-name={cat ? `category-${cat.id}` : undefined}>
   {#if loading}
@@ -227,6 +236,26 @@
 
   .back:hover,
   .back:focus-visible {
+    color: var(--text);
+    background: var(--bg-elev-1);
+    outline: none;
+  }
+  .topbar-search {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 8px;
+    justify-self: end;
+    min-width: 40px;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .topbar-search:hover,
+  .topbar-search:focus-visible {
     color: var(--text);
     background: var(--bg-elev-1);
     outline: none;

@@ -20,6 +20,8 @@ export type Route =
   | { name: 'category'; brand: string; stream: string; project: string; category: string }
   | { name: 'card'; id: string }
   | { name: 'share' }
+  | { name: 'settings' }
+  | { name: 'activity' }
   | { name: 'unknown'; path: string }
 
 let _route = $state<Route>(parse(currentPath()))
@@ -45,6 +47,10 @@ function parse(path: string): Route {
       return { name: 'inbox' }
     case 'share':
       return { name: 'share' }
+    case 'settings':
+      return { name: 'settings' }
+    case 'activity':
+      return { name: 'activity' }
     case 'p':
       // /p/<brand>/<stream>/<project>          → project view
       // /p/<brand>/<stream>/<project>/<cat>    → focused single-category view

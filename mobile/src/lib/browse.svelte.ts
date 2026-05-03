@@ -163,6 +163,58 @@ export function ensureInitialExpansion(
   }
 }
 
+// --- Tree accordion (BrowsePage) helpers --------------------------
+//
+// Same single/multi-expand model as the project-page accordion but
+// nested: a brand toggle affects sibling brands, a stream toggle only
+// affects siblings within its parent brand. Streams in other brands
+// stay where they are.
+
+/** Toggle a brand's expansion, respecting the global accordion mode.
+ *  In single mode this collapses every other brand. */
+export function toggleBrandExpansion(brandSlug: string, allBrandSlugs: string[]): void {
+  const isOpen = _expandedBrands[brandSlug] === true
+  if (_accordionMode === 'single') {
+    for (const s of allBrandSlugs) _expandedBrands[s] = false
+    _expandedBrands[brandSlug] = !isOpen
+  } else {
+    _expandedBrands[brandSlug] = !isOpen
+  }
+}
+
+/** Toggle a stream's expansion, respecting accordion mode. Single
+ *  mode collapses only siblings within the same parent brand. */
+export function toggleStreamExpansion(
+  brandSlug: string,
+  streamSlug: string,
+  allStreamSlugsInBrand: string[],
+): void {
+  const key = `${brandSlug}/${streamSlug}`
+  const isOpen = _expandedStreams[key] === true
+  if (_accordionMode === 'single') {
+    for (const ss of allStreamSlugsInBrand) {
+      _expandedStreams[`${brandSlug}/${ss}`] = false
+    }
+    _expandedStreams[key] = !isOpen
+  } else {
+    _expandedStreams[key] = !isOpen
+  }
+}
+
+/** Force-expand every brand. Streams stay where they are — expanding
+ *  them all on a large vault would be visually overwhelming. */
+export function expandAllBrandsTree(brandSlugs: string[]): void {
+  for (const s of brandSlugs) _expandedBrands[s] = true
+}
+
+/** Force-collapse every brand. Stream state is also flipped to false
+ *  — they're invisible anyway, but this stops single-mode from leaving
+ *  a stream "remembered open" when the user comes back. */
+export function collapseAllBrandsTree(brandSlugs: string[]): void {
+  for (const s of brandSlugs) _expandedBrands[s] = false
+  for (const k of Object.keys(_expandedStreams)) _expandedStreams[k] = false
+}
+
 export async function loadBrands(force = false): Promise<void> {
   if (!force && (_brands.state === 'loading' || _brands.state === 'loaded')) return
   // Silent refresh: keep existing items while refetching so the UI

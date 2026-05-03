@@ -57,6 +57,33 @@ export const repoMeta = {
     }
     return _state.globalTagColors[tag] || _state.globalTagColors[lower] || 'var(--border)'
   },
+
+  /**
+   * Snapshot of every tag the user is likely to want to autocomplete
+   * against: the project's tag definitions (winning) plus the global
+   * tag colour map's keys (falling back). De-duplicated case-
+   * insensitively. Cheap to call — derived from already-loaded state.
+   */
+  knownTags(projectKey?: string): string[] {
+    const seen = new Set<string>()
+    const out: string[] = []
+    if (projectKey) {
+      const projectTags = _state.projectTagsByKey[projectKey] ?? []
+      for (const t of projectTags) {
+        const key = t.name.toLowerCase()
+        if (seen.has(key)) continue
+        seen.add(key)
+        out.push(t.name)
+      }
+    }
+    for (const name of Object.keys(_state.globalTagColors)) {
+      const key = name.toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(name)
+    }
+    return out
+  },
 }
 
 /** Build the canonical project key — same shape used by the cache. */

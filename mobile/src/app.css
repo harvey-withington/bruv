@@ -1,4 +1,7 @@
 :root {
+  /* Dark theme is the default — see lib/theme.svelte.ts for the user
+   * toggle (Auto / Light / Dark). The .theme-* class lands on <html>
+   * and overrides these vars below. */
   color-scheme: dark;
   --bg: #18181b;
   --bg-elev-1: #27272a;
@@ -14,6 +17,35 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Light theme — used when .theme-light is set unconditionally, or when
+ * .theme-auto is set AND the system reports a light preference. */
+:root.theme-light,
+:root.theme-auto {
+  /* placeholder — overridden inside the media query below */
+}
+:root.theme-light {
+  color-scheme: light;
+  --bg: #fafafa;
+  --bg-elev-1: #f4f4f5;
+  --text: #18181b;
+  --text-muted: #52525b;
+  --text-faint: #a1a1aa;
+  --accent: #d97706;
+  --border: #d4d4d8;
+}
+@media (prefers-color-scheme: light) {
+  :root.theme-auto {
+    color-scheme: light;
+    --bg: #fafafa;
+    --bg-elev-1: #f4f4f5;
+    --text: #18181b;
+    --text-muted: #52525b;
+    --text-faint: #a1a1aa;
+    --accent: #d97706;
+    --border: #d4d4d8;
+  }
 }
 
 * {

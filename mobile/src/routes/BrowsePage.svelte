@@ -1,19 +1,32 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import { Inbox } from 'lucide-svelte'
-  import { browse, loadBrands, loadStreams, loadProjects } from '../lib/browse.svelte'
+  import { onMount, onDestroy } from 'svelte'
+  import { Inbox, Search, Bell, Settings, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree } from 'lucide-svelte'
+  import {
+    browse,
+    loadBrands,
+    loadStreams,
+    loadProjects,
+    setAccordionMode,
+    toggleBrandExpansion,
+    toggleStreamExpansion,
+    expandAllBrandsTree,
+    collapseAllBrandsTree,
+  } from '../lib/browse.svelte'
   import { navigate, projectURL } from '../lib/router.svelte'
-  import { readEnrolment, readActiveRepoID, apiFetch, repoRPC } from '../lib/auth'
+  import { readActiveRepoID, apiFetch, repoRPC, machineRPC } from '../lib/auth'
+  import { onEvent } from '../lib/events.svelte'
   import { t } from '../lib/i18n.svelte'
   import type { Brand, Stream } from '../lib/model'
+  import type { AppNotification } from '@shared/types'
   import DynamicIcon from '../components/DynamicIcon.svelte'
+  import NotificationsPanel from '../components/NotificationsPanel.svelte'
+  import SearchSheet from '../components/SearchSheet.svelte'
   import { dragSortable, type DragMoveDetail } from '../lib/actions/dnd.svelte'
 
-  // Top-level mobile entry: Inbox tile + browsable Brand → Stream →
-  // Project tree. Tapping a project navigates to /m/p/<b>/<s>/<p>.
-  // The full zoom UI for Project ↔ Category ↔ Card lands in step 10.
-
-  const enrolment = readEnrolment()
+  // Top-level mobile entry: vault switcher + global search + notification
+  // bell + settings gear in the topbar. Body has the Inbox tile, a
+  // recently-updated cards shelf, and the Brand → Stream → Project tree
+  // (with full DnD reordering / cross-parent moves / two-finger copy).
 
   let activeRepoName = $state<string | null>(null)
   // Expansion state lives in the browse store so it survives the
@@ -23,8 +36,23 @@
   const expandedBrands = browse.expandedBrands
   const expandedStreams = browse.expandedStreams
 
+  // Header surfaces.
+  let searchOpen = $state(false)
+  let notificationsOpen = $state(false)
+  let unreadCount = $state(0)
+
+  async function loadUnread() {
+    try {
+      const list = (await machineRPC<AppNotification[]>('GetNotifications')) ?? []
+      unreadCount = list.filter((n) => !n.read).length
+    } catch {
+      /* non-fatal — badge stays at last known count */
+    }
+  }
+
   onMount(async () => {
     loadBrands()
+    void loadUnread()
     // Cosmetic: show the active vault name in the header. Best-effort;
     // missing/failed lookup doesn't block browsing.
     try {
@@ -39,17 +67,57 @@
     }
   })
 
+  const unsubEvents = onEvent((ev) => {
+    if (ev.topic === 'notification:new') void loadUnread()
+  })
+  onDestroy(unsubEvents)
+
+  function closeNotifications() {
+    notificationsOpen = false
+    void loadUnread() // refresh badge after potential mark-read actions
+  }
+
   function toggleBrand(brand: Brand) {
-    const open = !expandedBrands[brand.slug]
-    expandedBrands[brand.slug] = open
-    if (open) loadStreams(brand.slug)
+    const allSlugs = browse.brands.items.map((b) => b.slug)
+    toggleBrandExpansion(brand.slug, allSlugs)
+    if (expandedBrands[brand.slug]) loadStreams(brand.slug)
   }
 
   function toggleStream(brand: Brand, stream: Stream) {
+    const cache = browse.streamsFor(brand.slug)
+    const all = cache?.items?.map((s) => s.slug) ?? []
+    toggleStreamExpansion(brand.slug, stream.slug, all)
     const key = `${brand.slug}/${stream.slug}`
-    const open = !expandedStreams[key]
-    expandedStreams[key] = open
-    if (open) loadProjects(brand.slug, stream.slug)
+    if (expandedStreams[key]) loadProjects(brand.slug, stream.slug)
+  }
+
+  async function expandAllInTree() {
+    const slugs = browse.brands.items.map((b) => b.slug)
+    expandAllBrandsTree(slugs)
+    // Recursively expand streams under every brand. Wait for each
+    // brand's streams to load, then mark every stream open. Project
+    // lists themselves stay lazy — they're leaves in the expansion
+    // sense (tapping a project navigates rather than expanding inline).
+    await Promise.all(slugs.map((s) => loadStreams(s)))
+    for (const brandSlug of slugs) {
+      const cache = browse.streamsFor(brandSlug)
+      if (!cache) continue
+      for (const stream of cache.items) {
+        expandedStreams[`${brandSlug}/${stream.slug}`] = true
+        // Eagerly fetch projects for each expanded stream too so the
+        // tree fills out without the user drilling into each one.
+        void loadProjects(brandSlug, stream.slug)
+      }
+    }
+  }
+
+  function collapseAllInTree() {
+    const slugs = browse.brands.items.map((b) => b.slug)
+    collapseAllBrandsTree(slugs)
+  }
+
+  function toggleAccordionMode() {
+    setAccordionMode(browse.accordionMode === 'single' ? 'multi' : 'single')
   }
 
   // --- DnD handlers ---
@@ -243,6 +311,26 @@
     <span class="vault-name">{activeRepoName ?? t('common.loading')}</span>
     <span class="vault-arrow">›</span>
   </button>
+  <div class="topbar-actions">
+    <button type="button" class="icon-btn" onclick={() => (searchOpen = true)} aria-label={t('browse.search')} title={t('browse.search')}>
+      <Search size={18} />
+    </button>
+    <button
+      type="button"
+      class="icon-btn bell"
+      onclick={() => (notificationsOpen = true)}
+      aria-label={t('browse.notifications')}
+      title={t('browse.notifications')}
+    >
+      <Bell size={18} />
+      {#if unreadCount > 0}
+        <span class="badge" aria-label={String(unreadCount)}>{unreadCount > 99 ? '99+' : unreadCount}</span>
+      {/if}
+    </button>
+    <button type="button" class="icon-btn" onclick={() => navigate('/settings')} aria-label={t('browse.settings')} title={t('browse.settings')}>
+      <Settings size={18} />
+    </button>
+  </div>
 </header>
 
 <main>
@@ -254,7 +342,32 @@
     </div>
   </button>
 
-  <h2 class="section">{t('browse.brands')}</h2>
+  <div class="brands-header">
+    <h2 class="section brands-section">{t('browse.brands')}</h2>
+    {#if browse.brands.items.length > 0}
+      <div class="acc-toolbar" role="toolbar" aria-label={t('browse.accordion_toolbar')}>
+        <button type="button" class="acc-btn" onclick={expandAllInTree} aria-label={t('project.expand_all')} title={t('project.expand_all')}>
+          <ChevronsUpDown size={14} />
+        </button>
+        <button type="button" class="acc-btn" onclick={collapseAllInTree} aria-label={t('project.collapse_all')} title={t('project.collapse_all')}>
+          <ChevronsDownUp size={14} />
+        </button>
+        <button
+          type="button"
+          class="acc-btn"
+          onclick={toggleAccordionMode}
+          aria-label={browse.accordionMode === 'single' ? t('project.mode_single') : t('project.mode_multi')}
+          title={browse.accordionMode === 'single' ? t('project.mode_single_hint') : t('project.mode_multi_hint')}
+        >
+          {#if browse.accordionMode === 'single'}
+            <ListCollapse size={14} />
+          {:else}
+            <ListTree size={14} />
+          {/if}
+        </button>
+      </div>
+    {/if}
+  </div>
 
   {#if browse.brands.state === 'loading'}
     <p class="status">{t('common.loading')}</p>
@@ -380,17 +493,68 @@
   {/if}
 </main>
 
+{#if searchOpen}
+  <SearchSheet onClose={() => (searchOpen = false)} />
+{/if}
+
+{#if notificationsOpen}
+  <NotificationsPanel onClose={closeNotifications} />
+{/if}
+
 <style>
   .topbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.85rem 1rem;
+    gap: 0.5rem;
+    padding: 0.65rem 0.65rem 0.65rem 1rem;
     border-bottom: 1px solid var(--border);
     position: sticky;
     top: 0;
     background: var(--bg);
     z-index: 10;
+  }
+
+  .topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+  }
+  .icon-btn {
+    position: relative;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 8px;
+    min-width: 40px;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .icon-btn:hover,
+  .icon-btn:focus-visible {
+    color: var(--text);
+    background: var(--bg-elev-1);
+    outline: none;
+  }
+  .badge {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #18181b;
+    font-size: 0.65rem;
+    font-weight: 700;
+    line-height: 18px;
+    text-align: center;
+    box-sizing: border-box;
   }
 
   .vault-button {
@@ -403,8 +567,10 @@
     display: flex;
     align-items: center;
     gap: 0.35rem;
-    padding: 0.25rem 0.5rem;
+    padding: 0.35rem 0.5rem;
     border-radius: 6px;
+    flex: 1;
+    min-width: 0;
   }
 
   .vault-button:hover {
@@ -476,6 +642,9 @@
   }
 
   .section {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
     font-size: 0.7rem;
     font-weight: 600;
     text-transform: uppercase;
@@ -483,6 +652,44 @@
     color: var(--text-faint);
     margin: 1.75rem 0.25rem 0.75rem;
   }
+
+  .brands-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 1.75rem;
+    margin-bottom: 0.75rem;
+    padding: 0 0.25rem;
+  }
+  .brands-section {
+    margin: 0;
+  }
+  .acc-toolbar {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+  }
+  .acc-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 6px;
+    width: 32px;
+    height: 32px;
+    cursor: pointer;
+    padding: 0;
+  }
+  .acc-btn:hover,
+  .acc-btn:focus-visible {
+    color: var(--text);
+    border-color: var(--text-muted);
+    background: var(--bg-elev-1);
+    outline: none;
+  }
+
 
   .tree,
   .streams,

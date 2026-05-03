@@ -11,6 +11,8 @@
   import CategoryPage from './routes/CategoryPage.svelte'
   import CardPage from './routes/CardPage.svelte'
   import SharePage from './routes/SharePage.svelte'
+  import SettingsPage from './routes/SettingsPage.svelte'
+  import ActivityPage from './routes/ActivityPage.svelte'
   import CaptureFAB from './components/CaptureFAB.svelte'
   import ChatFAB from './components/ChatFAB.svelte'
 
@@ -101,6 +103,10 @@
   <CardPage id={route.current.id} />
 {:else if route.current.name === 'share'}
   <SharePage />
+{:else if route.current.name === 'settings'}
+  <SettingsPage />
+{:else if route.current.name === 'activity'}
+  <ActivityPage />
 {:else}
   <main class="not-found">
     <h1>{t('not_found.title')}</h1>

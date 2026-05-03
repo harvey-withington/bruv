@@ -3,13 +3,16 @@
   import { repoRPC } from '../lib/auth'
   import { navigate } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
-  import { Trash2, MapPin, Plus, X } from 'lucide-svelte'
+  import { Trash2, MapPin, Plus, X, RefreshCw, Search } from 'lucide-svelte'
   import EditableText from '../components/EditableText.svelte'
   import EditableDescription from '../components/EditableDescription.svelte'
   import TagsEditor from '../components/TagsEditor.svelte'
   import BlockEditor from '../components/blocks/BlockEditor.svelte'
   import ConfirmDialog from '../components/ConfirmDialog.svelte'
   import PinPicker from '../components/PinPicker.svelte'
+  import CardTypePicker from '../components/CardTypePicker.svelte'
+  import CommentsSection from '../components/CommentsSection.svelte'
+  import SearchSheet from '../components/SearchSheet.svelte'
   import { getCardTypeColor, getCardTypeTextColor, getCardTypeLabel } from '@shared/cardTypes'
   import { repoMeta, loadProjectTags, projectKey as makeProjectKey } from '../lib/repoMeta.svelte'
   import { onEvent } from '../lib/events.svelte'
@@ -149,6 +152,31 @@
     }
   }
 
+  async function saveDueDate(next: string) {
+    if (!card) return
+    const previous = card.due_date
+    card.due_date = next || null
+    saveError = null
+    try {
+      await repoRPC('UpdateCardDueDate', [card.id, next])
+    } catch (err) {
+      card.due_date = previous
+      saveError = err instanceof Error ? err.message : t('card.err_save')
+    }
+  }
+
+  // Native date input wants `YYYY-MM-DD`; the model stores ISO 8601 or
+  // similar. Convert both directions, leaving the original on parse fail.
+  function dueInputValue(raw: string | null | undefined): string {
+    if (!raw) return ''
+    const d = new Date(raw)
+    if (Number.isNaN(d.getTime())) return ''
+    const y = d.getFullYear().toString().padStart(4, '0')
+    const m = (d.getMonth() + 1).toString().padStart(2, '0')
+    const day = d.getDate().toString().padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+
   async function saveDescription(next: string) {
     if (!card) return
     const previous = card.description
@@ -175,6 +203,34 @@
     // Optimistic local update — replace the matching block.
     card.blocks = card.blocks.map((b) => (b.id === blockID ? next : b))
     saveError = null
+    scheduleSave()
+  }
+
+  async function deleteBlock(blockID: string) {
+    if (!card) return
+    card.blocks = card.blocks.filter((b) => b.id !== blockID)
+    saveError = null
+    // Flush pending typing-style debounce so the delete commits
+    // immediately rather than waiting another 200ms.
+    if (blockSaveTimer) {
+      clearTimeout(blockSaveTimer)
+      blockSaveTimer = null
+    }
+    const snapshot = card.blocks
+    savingBlocks = true
+    try {
+      await repoRPC('UpdateCardBlocks', [card.id, snapshot])
+      lastSavedBlocks = snapshot
+      flashSaved()
+    } catch (err) {
+      if (card) card.blocks = lastSavedBlocks
+      saveError = err instanceof Error ? err.message : t('card.err_save')
+    } finally {
+      savingBlocks = false
+    }
+  }
+
+  function scheduleSave() {
     if (blockSaveTimer) clearTimeout(blockSaveTimer)
     blockSaveTimer = setTimeout(async () => {
       blockSaveTimer = null
@@ -233,11 +289,43 @@
 
   onDestroy(unsubscribe)
 
-  function formatDueDate(due: string | null): string {
-    if (!due) return ''
-    const d = new Date(due)
-    if (Number.isNaN(d.getTime())) return due
-    return d.toLocaleDateString()
+  // --- Type picker / refresh ---
+
+  let typePickerOpen = $state(false)
+  let confirmingRefresh = $state(false)
+  let refreshing = $state(false)
+  let searchOpen = $state(false)
+
+  async function pickType(typeID: string) {
+    typePickerOpen = false
+    if (!card || card.type === typeID) return
+    const previous = card.type
+    card.type = typeID
+    saveError = null
+    try {
+      await repoRPC('UpdateCardType', [card.id, typeID])
+    } catch (err) {
+      card.type = previous
+      saveError = err instanceof Error ? err.message : t('card.err_save')
+    }
+  }
+
+  async function performRefresh() {
+    confirmingRefresh = false
+    if (!card || refreshing) return
+    refreshing = true
+    saveError = null
+    try {
+      const fresh = await repoRPC<Card>('RefreshTypeBlocks', [card.id])
+      if (fresh) {
+        card = fresh
+        lastSavedBlocks = fresh.blocks ?? []
+      }
+    } catch (err) {
+      saveError = err instanceof Error ? err.message : t('card.err_save')
+    } finally {
+      refreshing = false
+    }
   }
 
   // --- Delete ---
@@ -271,14 +359,23 @@
   <span class="topbar-title" title={card?.title ?? ''}>
     {card?.title ?? t('common.loading')}
   </span>
-  <span class="save-state" aria-live="polite">
-    {#if savingBlocks}
-      <span class="chip">{t('card.saving')}</span>
-    {:else if savedFlash}
-      <span class="chip saved">{t('card.saved')}</span>
-    {/if}
-  </span>
+  <div class="topbar-right">
+    <span class="save-state" aria-live="polite">
+      {#if savingBlocks}
+        <span class="chip">{t('card.saving')}</span>
+      {:else if savedFlash}
+        <span class="chip saved">{t('card.saved')}</span>
+      {/if}
+    </span>
+    <button type="button" class="topbar-search" onclick={() => (searchOpen = true)} aria-label={t('browse.search')} title={t('browse.search')}>
+      <Search size={18} />
+    </button>
+  </div>
 </header>
+
+{#if searchOpen}
+  <SearchSheet onClose={() => (searchOpen = false)} />
+{/if}
 
 <main style:view-transition-name={`card-${id}`}>
   {#if loading}
@@ -296,18 +393,43 @@
       />
 
       <div class="meta-row">
+        <button
+          type="button"
+          class="type-badge"
+          style:background={card.type ? getCardTypeColor(card.type, repoMeta.cardTypes) : undefined}
+          style:color={card.type ? getCardTypeTextColor(card.type) : undefined}
+          class:placeholder={!card.type}
+          onclick={() => (typePickerOpen = true)}
+          aria-label={t('card.choose_type')}
+        >
+          {card.type ? getCardTypeLabel(card.type, repoMeta.cardTypes) : t('card.choose_type')}
+        </button>
         {#if card.type}
-          <span
-            class="type-badge"
-            style:background={getCardTypeColor(card.type, repoMeta.cardTypes)}
-            style:color={getCardTypeTextColor(card.type)}
+          <button
+            type="button"
+            class="type-refresh"
+            onclick={() => (confirmingRefresh = true)}
+            aria-label={t('card.refresh_blocks')}
+            title={t('card.refresh_blocks')}
+            disabled={refreshing}
           >
-            {getCardTypeLabel(card.type, repoMeta.cardTypes)}
-          </span>
+            <RefreshCw size={13} />
+          </button>
         {/if}
-        {#if card.due_date}
-          <span class="due">{t('card.due')} {formatDueDate(card.due_date)}</span>
-        {/if}
+        <div class="due-row">
+          <span class="due-label">{t('card.due')}</span>
+          <input
+            type="date"
+            class="due-input"
+            value={dueInputValue(card.due_date)}
+            oninput={(e) => saveDueDate((e.currentTarget as HTMLInputElement).value)}
+          />
+          {#if card.due_date}
+            <button type="button" class="due-clear" onclick={() => saveDueDate('')} aria-label={t('card.clear_due')} title={t('card.clear_due')}>
+              <X size={12} />
+            </button>
+          {/if}
+        </div>
       </div>
 
       <TagsEditor tags={card.tags ?? []} {projectKey} onChange={saveTags} />
@@ -360,10 +482,17 @@
     {#if card.blocks?.length}
       <section class="blocks">
         {#each card.blocks as block (block.id)}
-          <BlockEditor {block} cardId={card.id} onChange={(next) => updateBlock(block.id, next)} />
+          <BlockEditor
+            {block}
+            cardId={card.id}
+            onChange={(next) => updateBlock(block.id, next)}
+            onDelete={() => deleteBlock(block.id)}
+          />
         {/each}
       </section>
     {/if}
+
+    <CommentsSection cardId={card.id} />
 
     <footer class="actions">
       <button type="button" class="ghost" onclick={() => navigate('/')}>
@@ -392,6 +521,20 @@
   <PinPicker onSelect={pinTo} onClose={() => (pinPickerOpen = false)} />
 {/if}
 
+{#if typePickerOpen && card}
+  <CardTypePicker current={card.type} onPick={pickType} onClose={() => (typePickerOpen = false)} />
+{/if}
+
+{#if confirmingRefresh}
+  <ConfirmDialog
+    title={t('card.refresh_blocks')}
+    body={t('card.refresh_blocks_body')}
+    confirmLabel={t('card.refresh_blocks_confirm')}
+    onConfirm={performRefresh}
+    onCancel={() => (confirmingRefresh = false)}
+  />
+{/if}
+
 <style>
   .topbar {
     display: grid;
@@ -417,9 +560,33 @@
     max-width: 60vw;
   }
 
-  .save-state {
+  .topbar-right {
     justify-self: end;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  .save-state {
     min-width: 0;
+  }
+  .topbar-search {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 8px;
+    min-width: 40px;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .topbar-search:hover,
+  .topbar-search:focus-visible {
+    color: var(--text);
+    background: var(--bg-elev-1);
+    outline: none;
   }
 
   .chip {
@@ -497,14 +664,85 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
     /* background + color set inline via style: bindings */
-    padding: 0.2rem 0.55rem;
+    padding: 0.25rem 0.6rem;
     border-radius: 4px;
     font-weight: 500;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    touch-action: manipulation;
+  }
+  .type-badge.placeholder {
+    background: var(--bg-elev-1);
+    color: var(--text-muted);
+    border: 1px dashed var(--border);
+  }
+  .type-refresh {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.2rem 0.35rem;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 28px;
+    min-height: 26px;
+  }
+  .type-refresh:hover,
+  .type-refresh:focus-visible {
+    color: var(--accent);
+    border-color: var(--accent);
+    outline: none;
+  }
+  .type-refresh:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 
-  .due {
+  .due-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
     font-size: 0.8rem;
     color: var(--text-muted);
+  }
+  .due-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .due-input {
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.45rem;
+    color-scheme: dark light;
+  }
+  .due-input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .due-clear {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-faint);
+    cursor: pointer;
+    padding: 0.25rem 0.35rem;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .due-clear:hover,
+  .due-clear:focus-visible {
+    color: #ef4444;
+    border-color: rgba(239, 68, 68, 0.35);
+    outline: none;
   }
 
   .pins {

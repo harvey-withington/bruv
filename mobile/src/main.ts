@@ -5,6 +5,11 @@ import { registerServiceWorker } from './lib/serviceWorker'
 import { loadLocale } from './lib/i18n.svelte'
 import { hasActiveRepo, isEnrolled } from './lib/auth'
 import { loadRepoMeta } from './lib/repoMeta.svelte'
+// Side-effectful import — applies the user's persisted theme class to
+// <html> at module load, before any render. Without this the page
+// would briefly flash the default dark theme even for users who
+// previously picked light.
+import './lib/theme.svelte'
 
 // Restore the user's previously-chosen locale before any component
 // renders. Synchronous; no network — safe to do before mount.

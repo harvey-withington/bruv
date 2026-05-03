@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
-  import { ChevronRight, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree } from 'lucide-svelte'
+  import { ChevronRight, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Search } from 'lucide-svelte'
   import { repoRPC } from '../lib/auth'
   import { navigate, cardURL, categoryURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
@@ -16,6 +16,7 @@
   import type { Category, CardSummary } from '../lib/model'
   import DynamicIcon from '../components/DynamicIcon.svelte'
   import CardRow from '../components/CardRow.svelte'
+  import SearchSheet from '../components/SearchSheet.svelte'
   import { dragSortable, type DragMoveDetail } from '../lib/actions/dnd.svelte'
   import { onEvent } from '../lib/events.svelte'
 
@@ -31,6 +32,7 @@
   let categories = $state<CategoryWithCards[]>([])
   let loading = $state(true)
   let errorMsg = $state<string | null>(null)
+  let searchOpen = $state(false)
   // svelte-ignore state_referenced_locally
   let projectName = $state<string>(project) // fallback to slug until the real name loads
 
@@ -258,8 +260,14 @@
     <span aria-hidden="true">‹</span> {t('common.back')}
   </button>
   <h1 title={projectName}>{projectName}</h1>
-  <span class="spacer"></span>
+  <button type="button" class="topbar-search" onclick={() => (searchOpen = true)} aria-label={t('browse.search')} title={t('browse.search')}>
+    <Search size={18} />
+  </button>
 </header>
+
+{#if searchOpen}
+  <SearchSheet onClose={() => (searchOpen = false)} />
+{/if}
 
 <main>
   {#if loading}
@@ -391,6 +399,26 @@
 
   .back:hover,
   .back:focus-visible {
+    color: var(--text);
+    background: var(--bg-elev-1);
+    outline: none;
+  }
+  .topbar-search {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 8px;
+    justify-self: end;
+    min-width: 40px;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .topbar-search:hover,
+  .topbar-search:focus-visible {
     color: var(--text);
     background: var(--bg-elev-1);
     outline: none;

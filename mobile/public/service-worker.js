@@ -17,11 +17,12 @@
 
 // Bump CACHE_VERSION whenever the SW logic itself changes OR when a
 // caching-policy bug shipped in the prior version needs old caches
-// flushed on next install. v8 fixes empty drop-targets (you can now
-// drop into a brand with no streams, a stream with no projects, an
-// empty category) plus a silent-refresh tweak that keeps items
-// rendered through cross-parent move reloads.
-const CACHE_VERSION = 'v8'
+// flushed on next install. v9 is the alpha bundle: settings page,
+// push notification mobile UI, in-app notification feed + bell badge,
+// recently-updated shelf, activity log, search sheet, inbox bulk-
+// select, card type picker, type refresh, and comments — every "ship
+// for alpha" gap closed.
+const CACHE_VERSION = 'v12'
 const SHELL_CACHE = `bruv-mobile-shell-${CACHE_VERSION}`
 const ASSET_CACHE = `bruv-mobile-assets-${CACHE_VERSION}`
 const SHELL_URL = '/m/'
@@ -109,3 +110,68 @@ async function cacheFirst(req, cacheName) {
   if (fresh.ok) cache.put(req, fresh.clone())
   return fresh
 }
+
+// --- Web Push -----------------------------------------------------
+//
+// Push payload shape from the backend (internal/push/sender.go's
+// Notification type):
+//
+//   { title: string, body?: string, url?: string, icon?: string, tag?: string }
+//
+// Title is required; everything else optional. URL is the path to
+// navigate on tap (eg /m/c/<id>). Tag is a collapse key — same tag
+// replaces an earlier notification rather than stacking.
+//
+// Permission is requested by the page, not the SW. By the time we
+// receive a push event we already have permission; if we didn't,
+// the push subscription wouldn't exist.
+
+self.addEventListener('push', (event) => {
+  let data = {}
+  try {
+    data = event.data ? event.data.json() : {}
+  } catch (_) {
+    // Non-JSON payload — fall through with an empty object.
+  }
+  const title = data.title || 'BRUV'
+  const opts = {
+    body: data.body || '',
+    icon: data.icon || '/m/icon-192.png',
+    badge: '/m/icon-192.png',
+    tag: data.tag || undefined,
+    data: { url: data.url || '/m/' },
+    // Respect the user's preference for silent vs ringing pushes —
+    // most BRUV agent pings are informational. Setting requireInteraction
+    // false keeps notifications dismissible without user action.
+    requireInteraction: false,
+  }
+  event.waitUntil(self.registration.showNotification(title, opts))
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const target = (event.notification.data && event.notification.data.url) || '/m/'
+  event.waitUntil(
+    (async () => {
+      // If the PWA is already open, focus the existing window and
+      // navigate it. Otherwise open a fresh one. clients.matchAll
+      // returns every controlled tab/window in scope.
+      const all = await clients.matchAll({ type: 'window', includeUncontrolled: true })
+      for (const c of all) {
+        // c.url may be a deep path; just need to find any in-scope client.
+        if (c.url.includes('/m/')) {
+          await c.focus()
+          // navigate is a feature flag in some browsers — fall back to
+          // a postMessage if the API is missing.
+          if ('navigate' in c && typeof c.navigate === 'function') {
+            try { await c.navigate(target) } catch (_) { /* best effort */ }
+          } else {
+            c.postMessage({ type: 'bruv:navigate', url: target })
+          }
+          return
+        }
+      }
+      await clients.openWindow(target)
+    })(),
+  )
+})

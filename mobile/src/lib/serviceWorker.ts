@@ -18,4 +18,19 @@ export async function registerServiceWorker(): Promise<void> {
     // so a deploy issue is visible to anyone watching DevTools.
     console.warn('[bruv] service worker registration failed:', err)
   }
+
+  // Listen for messages from the SW. The notificationclick handler in
+  // service-worker.js falls back to postMessage when client.navigate
+  // isn't available, telling us where the user wanted to go. Sync the
+  // browser URL + the router state.
+  navigator.serviceWorker.addEventListener('message', (ev) => {
+    const msg = ev.data
+    if (msg && typeof msg === 'object' && msg.type === 'bruv:navigate' && typeof msg.url === 'string') {
+      // Strip any leading /m/ since the router operates within that scope.
+      const path = msg.url.replace(/^\/m/, '') || '/'
+      window.history.pushState({}, '', `/m${path}`)
+      // Force a popstate-like update so the reactive router picks it up.
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    }
+  })
 }

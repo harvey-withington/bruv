@@ -18,7 +18,32 @@ Be kind. Assume good faith. Disagree with ideas, not people. That's the whole th
 
 - [Go 1.23+](https://go.dev/dl/)
 - [Node.js 20+](https://nodejs.org/)
-- [Wails CLI v2](https://wails.io/docs/gettingstarted/installation)
+- **Wails CLI — version must match the pin in [go.mod](go.mod).** Currently `v2.10.1`. Install with:
+  ```powershell
+  go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1
+  ```
+  Verify with `wails version`. **A version mismatch will silently rewrite `go.mod` / `go.sum` on every `wails dev` or `wails build`** — the CLI auto-bumps the project's Wails dependency to its own version, which then fails to compile if the corresponding `go-webview2` is incompatible (this manifests as `cannot use f.processMessage` and `GetSource undefined` errors). If you ever see those errors, check `wails version` first.
+
+### Windows-specific
+
+- **PowerShell execution policy** must allow local scripts, otherwise `npm`/`vite`/`tsc` fail with `running scripts is disabled on this system`. One-time fix:
+  ```powershell
+  Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+  ```
+
+## First-time setup on a new machine
+
+The repo has three `package.json` files: at the **root** (so `shared/*.ts` can resolve imports like `marked`), in **`frontend/`** (the desktop UI), and in **`mobile/`** (the PWA). The root's `postinstall` cascades into the other two, and Wails' [frontend:install](wails.json) hook drives the root install — so on a clean checkout, the first `wails dev` populates all three `node_modules/` automatically.
+
+If you ever need to install manually (e.g. running `go test` without `wails dev`), one command at the root suffices:
+
+```powershell
+npm install   # at the repo root — cascades to frontend/ and mobile/ via postinstall
+```
+
+Diagnostic mapping if you skip the cascade:
+- `Rollup failed to resolve import "marked" from "shared/markdown.ts"` — root install missing.
+- `'vite' is not recognized as an internal or external command` during the mobile build — mobile install missing.
 
 ## Running in development
 

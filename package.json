@@ -4,7 +4,8 @@
   "version": "0.0.0",
   "description": "Root package only carries deps that shared/ needs to resolve. Both frontend/ and mobile/ install their own copies for runtime; this top-level entry exists so svelte-check / TypeScript can resolve imports from inside shared/*.ts without parent-walking past the repo root.",
   "scripts": {
-    "build:all": "npm run build --prefix frontend && npm run build --prefix mobile"
+    "build:all": "npm run build --prefix frontend && npm run build --prefix mobile",
+    "postinstall": "npm install --prefix frontend && npm install --prefix mobile"
   },
   "dependencies": {
     "lucide-svelte": "^0.577.0",

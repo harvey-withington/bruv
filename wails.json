@@ -2,7 +2,7 @@
   "$schema": "https://wails.io/schemas/config.v2.json",
   "name": "bruv",
   "outputfilename": "bruv-1.0",
-  "frontend:install": "npm install",
+  "frontend:install": "npm --prefix .. install",
   "frontend:build": "npm --prefix .. run build:all",
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "http://localhost:5173",

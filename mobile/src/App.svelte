@@ -8,7 +8,6 @@
   import BrowsePage from './routes/BrowsePage.svelte'
   import InboxPage from './routes/InboxPage.svelte'
   import ProjectPage from './routes/ProjectPage.svelte'
-  import CategoryPage from './routes/CategoryPage.svelte'
   import CardPage from './routes/CardPage.svelte'
   import SharePage from './routes/SharePage.svelte'
   import SettingsPage from './routes/SettingsPage.svelte'
@@ -46,26 +45,24 @@
   })
 
   // The capture FAB is for *capturing while browsing* — show it on home,
-  // inbox, project, and category pages. Hide on the auth/picker flows
+  // inbox, and project pages. Hide on the auth/picker flows
   // (pre-enrolment-meaningless) and on Card detail (the user is already
   // editing a specific card; a "create new" button there is noise).
   const showCaptureFAB = $derived(
     route.current.name === 'home' ||
       route.current.name === 'inbox' ||
-      route.current.name === 'project' ||
-      route.current.name === 'category',
+      route.current.name === 'project',
   )
 
-  // The chat FAB needs a scope. Show on Card (per-card chat) and
-  // Project / Category (project chat) pages — wherever an existing
-  // desktop chat surface is available. Hide on Home / Inbox where
-  // there's no scope available (vault-level chat doesn't exist on
-  // desktop, so it doesn't ship on mobile).
+  // The chat FAB needs a scope. Show on Card (per-card chat) and Project
+  // (project chat) pages — wherever an existing desktop chat surface is
+  // available. Hide on Home / Inbox where there's no scope available
+  // (vault-level chat doesn't exist on desktop, so it doesn't ship on
+  // mobile).
   const chatScope = $derived.by(() => {
     const r = route.current
     if (r.name === 'card') return { kind: 'card' as const, cardID: r.id }
     if (r.name === 'project') return { kind: 'project' as const, brand: r.brand, stream: r.stream, project: r.project }
-    if (r.name === 'category') return { kind: 'project' as const, brand: r.brand, stream: r.stream, project: r.project }
     return null
   })
 
@@ -91,13 +88,6 @@
     brand={route.current.brand}
     stream={route.current.stream}
     project={route.current.project}
-  />
-{:else if route.current.name === 'category'}
-  <CategoryPage
-    brand={route.current.brand}
-    stream={route.current.stream}
-    project={route.current.project}
-    category={route.current.category}
   />
 {:else if route.current.name === 'card'}
   <CardPage id={route.current.id} />

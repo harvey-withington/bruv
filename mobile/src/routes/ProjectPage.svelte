@@ -2,7 +2,7 @@
   import { onMount, onDestroy, tick } from 'svelte'
   import { ChevronRight, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Search, Plus, MoreVertical, Pencil, Trash2 } from 'lucide-svelte'
   import { repoRPC } from '../lib/auth'
-  import { navigate, cardURL, categoryURL } from '../lib/router.svelte'
+  import { navigate, cardURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
   import { loadProjectTags, projectKey as makeProjectKey } from '../lib/repoMeta.svelte'
   import {
@@ -547,15 +547,6 @@
               >
                 <MoreVertical size={16} />
               </button>
-              <button
-                type="button"
-                class="cat-zoom"
-                onclick={() => navigate(categoryURL(brand, stream, project, cat.slug))}
-                aria-label={t('project.zoom_into_category', { name: cat.name })}
-                title={t('project.zoom_into_category', { name: cat.name })}
-              >
-                <ChevronRight size={16} />
-              </button>
             {/if}
           </header>
           {#if openMenuKey === targetKey(cat.slug)}
@@ -736,6 +727,26 @@
     margin: 0;
     padding: 0;
     gap: 0;
+    border-radius: 9px;
+    transition: background 120ms ease;
+  }
+  /* When the category is expanded, the header sits flush against the
+     panel body below — square off the bottom corners so the hover/focus
+     fill follows the panel's rectangle rather than rounding off mid-row. */
+  .category.expanded .cat-header {
+    border-radius: 9px 9px 0 0;
+  }
+  /* Hover (or keyboard-focus on any header button) tints the whole row,
+     including the right-side action buttons. Without this, the
+     individual button hovers only paint themselves, so the highlight
+     looks like it stops two-thirds across the row. */
+  .cat-header:hover,
+  .cat-header:focus-within {
+    background: var(--bg-elev-1);
+  }
+  .category.expanded .cat-header:hover,
+  .category.expanded .cat-header:focus-within {
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
   }
 
   .cat-toggle {
@@ -747,7 +758,6 @@
     padding: 0.65rem 0.6rem;
     background: transparent;
     border: none;
-    border-radius: 8px 0 0 8px;
     color: inherit;
     font: inherit;
     font-size: 0.95rem;
@@ -756,14 +766,8 @@
     text-align: left;
     min-height: 44px;
   }
-  .cat-toggle:hover,
   .cat-toggle:focus-visible {
-    background: var(--bg-elev-1);
     outline: none;
-  }
-  .category.expanded .cat-toggle:hover,
-  .category.expanded .cat-toggle:focus-visible {
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
   }
 
   .caret {
@@ -789,26 +793,6 @@
     font-size: 0.75rem;
     color: var(--text-faint);
     margin-right: 0.25rem;
-  }
-
-  .cat-zoom {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: none;
-    border-radius: 0 8px 8px 0;
-    color: var(--text-faint);
-    cursor: pointer;
-    padding: 0 0.55rem;
-    min-width: 44px;
-    min-height: 44px;
-  }
-  .cat-zoom:hover,
-  .cat-zoom:focus-visible {
-    color: var(--accent);
-    background: var(--bg-elev-1);
-    outline: none;
   }
 
   .cat-body {
@@ -917,7 +901,6 @@
   .cat-add-card:hover,
   .cat-add-card:focus-visible {
     color: var(--text);
-    background: var(--bg-elev-1);
     outline: none;
   }
 
@@ -938,7 +921,6 @@
   .row-kebab:hover,
   .row-kebab:focus-visible {
     color: var(--text);
-    background: var(--bg-elev-1);
     outline: none;
   }
   .row-menu {

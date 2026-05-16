@@ -12,7 +12,7 @@
   // small placeholder rather than crashing.
 
   import { tick, untrack } from 'svelte'
-  import { Trash2, Pencil } from 'lucide-svelte'
+  import { Trash2, Pencil, Eye, PencilLine } from 'lucide-svelte'
   import type { Block } from '@shared/types'
   import { t } from '../../lib/i18n.svelte'
   import ConfirmDialog from '../ConfirmDialog.svelte'
@@ -81,6 +81,15 @@
   }
 
   let confirmingDelete = $state(false)
+
+  // Text blocks toggle between edit and preview. The state lives here so
+  // the toggle button can sit alongside the trash button in this shared
+  // toolbar (a row per-block is enough — TextBlock used to render its
+  // own toolbar, which doubled the vertical space).
+  let textMode = $state<'edit' | 'preview'>('edit')
+  function toggleTextMode() {
+    textMode = textMode === 'edit' ? 'preview' : 'edit'
+  }
 </script>
 
 <section class="block" class:has-label={!ownsLabel}>
@@ -114,9 +123,24 @@
     {:else}
       <span class="spacer"></span>
     {/if}
+    {#if block.type === 'text'}
+      <button
+        type="button"
+        class="icon-btn"
+        onclick={toggleTextMode}
+        aria-label={textMode === 'edit' ? t('block.text.show_preview') : t('block.text.show_edit')}
+        title={textMode === 'edit' ? t('block.text.show_preview') : t('block.text.show_edit')}
+      >
+        {#if textMode === 'edit'}
+          <Eye size={13} />
+        {:else}
+          <PencilLine size={13} />
+        {/if}
+      </button>
+    {/if}
     <button
       type="button"
-      class="trash-btn"
+      class="icon-btn trash-btn"
       onclick={() => (confirmingDelete = true)}
       aria-label={t('block.delete')}
       title={t('block.delete')}
@@ -126,7 +150,7 @@
   </header>
 
   {#if block.type === 'text'}
-    <TextBlock {block} {onChange} />
+    <TextBlock {block} mode={textMode} {onChange} />
   {:else if block.type === 'checklist'}
     <ChecklistBlock {block} {onChange} />
   {:else if block.type === 'list'}
@@ -244,7 +268,7 @@
     outline: none;
   }
 
-  .trash-btn {
+  .icon-btn {
     background: transparent;
     border: 1px solid transparent;
     color: var(--text-faint);
@@ -258,12 +282,19 @@
     min-width: 30px;
     min-height: 30px;
   }
+  .icon-btn:hover,
+  .icon-btn:focus-visible {
+    color: var(--text);
+    border-color: var(--border);
+    background: var(--bg-elev-1);
+    outline: none;
+  }
+  /* Trash gets the destructive accent on hover instead of the neutral one. */
   .trash-btn:hover,
   .trash-btn:focus-visible {
     color: #ef4444;
     border-color: rgba(239, 68, 68, 0.4);
     background: rgba(239, 68, 68, 0.08);
-    outline: none;
   }
 
   .placeholder {

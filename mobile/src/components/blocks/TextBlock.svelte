@@ -2,15 +2,21 @@
   import { untrack } from 'svelte'
   import { t } from '../../lib/i18n.svelte'
   import { renderMarkdown } from '@shared/markdown'
-  import { Eye, PencilLine } from 'lucide-svelte'
   import type { Block } from '@shared/types'
   import { asString, withValue } from './narrow'
 
-  let { block, onChange }: { block: Block; onChange: (next: Block) => void } = $props()
-
-  // Edit-by-default; tap "Preview" to swap. Mirrors the desktop text
-  // block's behaviour but with a tap target sized for fingers.
-  let mode = $state<'edit' | 'preview'>('edit')
+  // `mode` is owned by the parent BlockEditor so the edit/preview toggle
+  // can live in the shared block toolbar (next to the trash button)
+  // rather than taking its own row inside this component.
+  let {
+    block,
+    mode = 'edit',
+    onChange,
+  }: {
+    block: Block
+    mode?: 'edit' | 'preview'
+    onChange: (next: Block) => void
+  } = $props()
   // untrack: draft is intentionally seeded from block.value once and
   // then owned by the textarea — we don't want it to clobber the user's
   // in-flight typing whenever the parent re-renders.
@@ -74,36 +80,6 @@
 </script>
 
 <div class="text-block">
-  <div class="toolbar">
-    <button
-      type="button"
-      class="mode-btn"
-      class:active={mode === 'edit'}
-      onclick={() => (mode = 'edit')}
-      aria-label={t('block.text.edit')}
-    >
-      <PencilLine size={14} />
-      {t('block.text.edit')}
-    </button>
-    <button
-      type="button"
-      class="mode-btn"
-      class:active={mode === 'preview'}
-      onclick={() => {
-        if (timer) {
-          clearTimeout(timer)
-          timer = null
-        }
-        commit(draft)
-        mode = 'preview'
-      }}
-      aria-label={t('block.text.preview')}
-    >
-      <Eye size={14} />
-      {t('block.text.preview')}
-    </button>
-  </div>
-
   {#if mode === 'edit'}
     <textarea
       bind:this={textareaEl}
@@ -131,37 +107,6 @@
     display: flex;
     flex-direction: column;
     gap: 0.4rem;
-  }
-
-  .toolbar {
-    display: inline-flex;
-    gap: 0.25rem;
-    align-self: flex-end;
-  }
-
-  .mode-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    background: transparent;
-    border: 1px solid transparent;
-    color: var(--text-faint);
-    font: inherit;
-    font-size: 0.75rem;
-    padding: 0.3rem 0.5rem;
-    border-radius: 6px;
-    cursor: pointer;
-  }
-  .mode-btn:hover,
-  .mode-btn:focus-visible {
-    color: var(--text);
-    background: var(--bg-elev-1);
-    border-color: var(--border);
-    outline: none;
-  }
-  .mode-btn.active {
-    color: var(--accent);
-    border-color: color-mix(in srgb, var(--accent) 50%, transparent);
   }
 
   .text-input {

@@ -27,6 +27,11 @@
       "program": "${workspaceFolder}/cmd/bruv-server",
       "args": ["--addr", "127.0.0.1:9870"],
       "cwd": "${workspaceFolder}",
+      // Park the compiled debug binary in the OS temp dir instead of
+      // letting delve drop it into cmd/bruv-server/. Crashed/force-
+      // killed sessions otherwise leave __debug_bin*.exe cruft behind
+      // in the source tree; TEMP gets cleaned by the OS regardless.
+      "output": "${env:TEMP}/bruv-server-dlv-debug",
       // Route the server's stdout/stderr to an integrated terminal
       // rather than the Debug Console. In a compound launch, the Debug
       // Console only shows one session at a time (selected via dropdown);

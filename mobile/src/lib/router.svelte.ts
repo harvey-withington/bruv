@@ -24,11 +24,32 @@ export type Route =
   | { name: 'activity' }
   | { name: 'unknown'; path: string }
 
-let _route = $state<Route>(parse(currentPath()))
+let _route = $state<Route>(parseAndMaybeMigrate(currentPath()))
 
 function currentPath(): string {
   if (typeof window === 'undefined') return BASE
   return window.location.pathname
+}
+
+// Wraps parse() with a synchronous redirect for deprecated routes. The
+// only one today is the focused single-category URL — Project view in
+// single-expand mode delivers the same effect with no second route to
+// maintain, and CategoryPage has been removed. Old /p/a/b/c/d deep
+// links get rewritten to /p/a/b/c#cat=d before the first render so
+// there's no flash of "not found" while a $effect catches up.
+function parseAndMaybeMigrate(path: string): Route {
+  const r = parse(path)
+  if (r.name !== 'category') return r
+  if (typeof window === 'undefined') {
+    return { name: 'project', brand: r.brand, stream: r.stream, project: r.project }
+  }
+  const newPath =
+    `${BASE.replace(/\/$/, '')}/p/${encodeURIComponent(r.brand)}/${encodeURIComponent(r.stream)}/${encodeURIComponent(r.project)}` +
+    `#cat=${encodeURIComponent(r.category)}`
+  // replaceState (not pushState) — we're rewriting history in place so
+  // back doesn't take the user back to the now-defunct deep link.
+  window.history.replaceState({}, '', newPath)
+  return { name: 'project', brand: r.brand, stream: r.stream, project: r.project }
 }
 
 function parse(path: string): Route {
@@ -110,7 +131,7 @@ function withViewTransition(mutate: () => void): void {
 if (typeof window !== 'undefined') {
   window.addEventListener('popstate', () => {
     withViewTransition(() => {
-      _route = parse(currentPath())
+      _route = parseAndMaybeMigrate(currentPath())
     })
   })
 }
@@ -155,13 +176,6 @@ export function replace(to: string): void {
  */
 export function projectURL(brand: string, stream: string, project: string): string {
   return `/p/${encodeURIComponent(brand)}/${encodeURIComponent(stream)}/${encodeURIComponent(project)}`
-}
-
-/**
- * Build the canonical URL for a focused single-category view.
- */
-export function categoryURL(brand: string, stream: string, project: string, category: string): string {
-  return `/p/${encodeURIComponent(brand)}/${encodeURIComponent(stream)}/${encodeURIComponent(project)}/${encodeURIComponent(category)}`
 }
 
 /**

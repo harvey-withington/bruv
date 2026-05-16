@@ -35,6 +35,12 @@ export default defineConfig({
       '/pair':    { target: backendTarget, changeOrigin: true },
       '/healthz': { target: backendTarget, changeOrigin: true },
       '/version': { target: backendTarget, changeOrigin: true },
+      // The Go server synthesises /m/manifest.webmanifest (mobileManifestHandler).
+      // Vite doesn't, so without this the browser pulls back HTML/empty
+      // and complains "Manifest: Line 1, column 1, Syntax error." in the
+      // console. Cosmetic in dev; proxy it so install/share-target/
+      // theme-color work the same as the production single-binary build.
+      '/m/manifest.webmanifest': { target: backendTarget, changeOrigin: true },
     },
   },
 })

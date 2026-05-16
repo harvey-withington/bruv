@@ -179,6 +179,8 @@
   "block.text.placeholder": "Write something…",
   "block.text.preview": "Preview",
   "block.text.edit": "Edit",
+  "block.text.show_preview": "Show preview",
+  "block.text.show_edit": "Show editor",
   "block.checklist.add": "Add item",
   "block.checklist.placeholder": "New item",
   "block.checklist.delete": "Delete item",

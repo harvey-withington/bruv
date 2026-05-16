@@ -32,13 +32,16 @@
   // dropdown unmounts, and the click never lands. Acts as a debounce.
   let suppressBlurCommit = $state(false)
 
+  // Show every known tag (minus the ones already on this card) as soon
+  // as the input opens, so a tap on "+ Add tag" reveals the picker
+  // without the user having to type first. Typing narrows the list.
+  // Matches the desktop CardDetail behaviour.
   const suggestions = $derived.by(() => {
     const q = draft.trim().toLowerCase()
-    if (!q) return [] as string[]
     const all = repoMeta.knownTags(projectKey)
-    return all
-      .filter((name) => name.toLowerCase().includes(q) && !tags.includes(name))
-      .slice(0, 8)
+    return all.filter(
+      (name) => !tags.includes(name) && (!q || name.toLowerCase().includes(q)),
+    )
   })
 
   function startAdd() {

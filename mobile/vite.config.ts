@@ -8,6 +8,15 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 // The Go backend serves the mobile bundle at /m/. Vite's `base` puts
 // every asset URL under that prefix so direct loads (Add to Home Screen,
 // share_target deep links) resolve without 404s.
+//
+// In dev, the PWA assumes same-origin enrolment + RPC (the production
+// Go server hosts both UI and API). Vite alone has no backend, so we
+// proxy the backend paths to bruv-server on 9870 — that keeps the
+// "same-origin" assumption true from the browser's point of view.
+// VITE_BACKEND lets the operator override the target (e.g. a Tailscale
+// hostname for testing against a remote dev server).
+const backendTarget = process.env.VITE_BACKEND ?? 'http://127.0.0.1:9870'
+
 export default defineConfig({
   base: '/m/',
   plugins: [svelte()],
@@ -19,5 +28,13 @@ export default defineConfig({
   server: {
     port: 5174,
     strictPort: true,
+    proxy: {
+      '/auth':    { target: backendTarget, changeOrigin: true },
+      '/repos':   { target: backendTarget, changeOrigin: true, ws: true },
+      '/server':  { target: backendTarget, changeOrigin: true },
+      '/pair':    { target: backendTarget, changeOrigin: true },
+      '/healthz': { target: backendTarget, changeOrigin: true },
+      '/version': { target: backendTarget, changeOrigin: true },
+    },
   },
 })

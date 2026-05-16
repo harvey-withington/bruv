@@ -254,7 +254,7 @@
               try {
                 const newCard = await CreateCard(card?.type || 'task', text)
                 if (newCard && currentCategoryId) {
-                  await PinCard(newCard.id, currentCategoryId, currentCategoryId)
+                  await PinCard(newCard.id, currentCategoryId)
                 }
                 showToast(t('card.promoted_to_card', { title: text }), 'success')
                 onUpdated?.()

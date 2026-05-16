@@ -448,9 +448,9 @@ func ImportTrello(r *repo.Repository, brandSlug, streamSlug string, parsed *Pars
 			return nil, fmt.Errorf("update imported card %q: %w", title, err)
 		}
 
-		// Pin to the target category. Convention: projectID == categoryID.
+		// Pin to the target category.
 		pos := catPositions[targetCatID]
-		if err := r.PinCardAt(card.ID, targetCatID, targetCatID, pos); err != nil {
+		if err := r.PinCardAt(card.ID, targetCatID, pos); err != nil {
 			return nil, fmt.Errorf("pin imported card %q: %w", title, err)
 		}
 		catPositions[targetCatID] = pos + 1

@@ -81,13 +81,13 @@ func (s *Service) RefreshIndex() (*index.RebuildStats, error) {
 	return idx.IncrementalRefresh(r.Root)
 }
 
-// ListCardIDsInCategory returns card IDs pinned to a project/category.
-func (s *Service) ListCardIDsInCategory(projectID, categoryID string) ([]string, error) {
+// ListCardIDsInCategory returns card IDs pinned to a category.
+func (s *Service) ListCardIDsInCategory(categoryID string) ([]string, error) {
 	idx := s.deps.Index()
 	if idx == nil {
 		return nil, fmt.Errorf("no index available")
 	}
-	return idx.ListCardIDsInCategory(projectID, categoryID)
+	return idx.ListCardIDsInCategory(categoryID)
 }
 
 // ListOrphanedCardIDs returns IDs of cards that have no pins (Inbox cards).

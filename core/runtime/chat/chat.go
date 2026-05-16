@@ -246,7 +246,7 @@ func (rt *Runtime) SendProject(brandSlug, streamSlug, projectSlug, userMessage, 
 		CardIDs:     make(map[string]bool),
 	}
 	for _, cat := range categories {
-		pins, _ := rt.deps.Repo().ListCardsInCategory(cat.ID, cat.ID)
+		pins, _ := rt.deps.Repo().ListCardsInCategory(cat.ID)
 		for _, p := range pins {
 			scope.CardIDs[p.CardID] = true
 		}

@@ -140,6 +140,7 @@
   "card.no_pins": "Not pinned anywhere yet.",
   "card.pin_to": "Pin to category…",
   "card.unpin": "Unpin",
+  "card.go_to_project": "Go to project",
 
   "pin_picker.title": "Pin to category",
   "pin_picker.subtitle": "Pick a category to pin this card to. You can pin to multiple places.",

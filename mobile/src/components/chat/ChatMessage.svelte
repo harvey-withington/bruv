@@ -32,6 +32,16 @@
     for (const e of msg.pending_edits) {
       if (e.status === 'pending') init[e.id] = true
     }
+    // Bail out when there's nothing to seed. Without this guard, a
+    // message that has pending_edits but no entries in 'pending' status
+    // (all already accepted/rejected) drives an infinite update loop:
+    // init is `{}`, `checked` stays `{}` (Object.keys length 0), so the
+    // gate below keeps writing `{}` to `checked` — and Svelte sees each
+    // assignment as a new reference, re-fires the effect, and tips into
+    // effect_update_depth_exceeded. That error then breaks event wiring
+    // for the entire chat sheet, which is why the parent's clicks and
+    // bind:value silently stop working.
+    if (Object.keys(init).length === 0) return
     // Only seed once per message ID lifetime — preserve user choices
     // across re-renders triggered by streaming or new messages.
     if (Object.keys(checked).length === 0) {

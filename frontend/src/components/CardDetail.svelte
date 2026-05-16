@@ -959,10 +959,9 @@
           ? t('card.confirm_unpin_last').replace('{name}', name)
           : t('card.confirm_unpin').replace('{name}', name)
         if (!await showConfirm(msg)) { pinActionLoading = false; return }
-        const unpinProject = currentPin.pinnedProjectId || currentPin.categoryId
-        await UnpinCard(cardId, unpinProject, currentPin.categoryId)
+        await UnpinCard(cardId, currentPin.categoryId)
       } else {
-        await PinCard(cardId, effectiveCategoryId!, effectiveCategoryId!)
+        await PinCard(cardId, effectiveCategoryId!)
       }
       pinBreadcrumbs = await GetCardPinBreadcrumbs(cardId) || []
       document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
@@ -991,11 +990,10 @@
     const wasPinningFromInbox = pinPickerMode === 'pin' && !currentCategoryId && !inboxPinCategoryId
     try {
       if (pinPickerMode === 'move' && pinPickerSourcePin) {
-        const unpinProject = pinPickerSourcePin.pinnedProjectId || pinPickerSourcePin.categoryId
-        await UnpinCard(cardId, unpinProject, pinPickerSourcePin.categoryId)
-        await PinCard(cardId, target.categoryId, target.categoryId)
+        await UnpinCard(cardId, pinPickerSourcePin.categoryId)
+        await PinCard(cardId, target.categoryId)
       } else {
-        await PinCard(cardId, target.categoryId, target.categoryId)
+        await PinCard(cardId, target.categoryId)
       }
       pinBreadcrumbs = await GetCardPinBreadcrumbs(cardId) || []
       document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
@@ -1038,8 +1036,7 @@
     if (!await showConfirm(msg)) return
     pinActionLoading = true
     try {
-      const unpinProject = pin.pinnedProjectId || pin.categoryId
-      await UnpinCard(cardId, unpinProject, pin.categoryId)
+      await UnpinCard(cardId, pin.categoryId)
       pinBreadcrumbs = await GetCardPinBreadcrumbs(cardId) || []
       document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
       onPin?.()

@@ -236,6 +236,11 @@
 
   // --- Swipe-to-dismiss on the header ---
   function onHeaderPointerDown(e: PointerEvent) {
+    // Skip drag setup when the pointerdown lands on a button inside the
+    // header. Capturing the pointer here re-targets the resulting click
+    // event to the header itself, so the X / clear button's onclick
+    // would never fire — leaving the user with no way to close the sheet.
+    if ((e.target as HTMLElement | null)?.closest('button')) return
     dragStartY = e.clientY
     dragCurrentY = e.clientY
     dragging = true
@@ -268,14 +273,14 @@
   onMount(() => {
     void load()
     autoGrow()
-    // Push a synthetic history entry so hardware Back closes the sheet.
+    // Push a synthetic history entry so hardware Back closes the sheet
+    // without leaving the underlying route. The cleanup pops it on any
+    // other close path.
     history.pushState({ chat: true }, '')
     const onPop = () => onClose()
     window.addEventListener('popstate', onPop)
     return () => {
       window.removeEventListener('popstate', onPop)
-      // If the sheet is closing for any other reason (button tap),
-      // drop the history entry we pushed so we don't leave dangling.
       if (history.state?.chat) history.back()
     }
   })
@@ -383,27 +388,6 @@
   </div>
 
   <footer class="composer">
-    <button
-      type="button"
-      class="mode-btn mode-{aiMode}"
-      onclick={toggleMode}
-      title={aiMode === 'edit'
-        ? t('chat.mode_edit_hint')
-        : aiMode === 'suggest'
-          ? t('chat.mode_suggest_hint')
-          : t('chat.mode_chat_hint')}
-    >
-      {#if aiMode === 'edit'}
-        <PencilLine size={12} />
-        {t('chat.mode_edit')}
-      {:else if aiMode === 'suggest'}
-        <ListChecks size={12} />
-        {t('chat.mode_suggest')}
-      {:else}
-        <MessageCircle size={12} />
-        {t('chat.mode_chat')}
-      {/if}
-    </button>
     <textarea
       bind:this={textareaEl}
       bind:value={inputText}
@@ -413,15 +397,38 @@
       disabled={sending}
       rows="2"
     ></textarea>
-    <button
-      type="button"
-      class="send-btn"
-      disabled={!inputText.trim() || sending}
-      onclick={send}
-      aria-label={t('chat.send')}
-    >
-      <Send size={16} />
-    </button>
+    <div class="composer-actions">
+      <button
+        type="button"
+        class="mode-btn mode-{aiMode}"
+        onclick={toggleMode}
+        title={aiMode === 'edit'
+          ? t('chat.mode_edit_hint')
+          : aiMode === 'suggest'
+            ? t('chat.mode_suggest_hint')
+            : t('chat.mode_chat_hint')}
+      >
+        {#if aiMode === 'edit'}
+          <PencilLine size={12} />
+          {t('chat.mode_edit')}
+        {:else if aiMode === 'suggest'}
+          <ListChecks size={12} />
+          {t('chat.mode_suggest')}
+        {:else}
+          <MessageCircle size={12} />
+          {t('chat.mode_chat')}
+        {/if}
+      </button>
+      <button
+        type="button"
+        class="send-btn"
+        disabled={!inputText.trim() || sending}
+        onclick={send}
+        aria-label={t('chat.send')}
+      >
+        <Send size={16} />
+      </button>
+    </div>
   </footer>
 </div>
 
@@ -628,21 +635,28 @@
     border-color: var(--accent);
   }
 
+  .composer-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex-shrink: 0;
+    width: 80px;
+  }
+
   .mode-btn {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 4px;
     background: var(--bg-elev-1);
     border: 1px solid var(--border);
     color: var(--text-muted);
     border-radius: 999px;
-    padding: 0.4rem 0.65rem;
+    padding: 0.3rem 0.5rem;
     font: inherit;
-    font-size: 0.72rem;
+    font-size: 0.7rem;
     cursor: pointer;
-    flex-shrink: 0;
-    align-self: flex-end;
-    margin-bottom: 1px;
+    width: 100%;
   }
   .mode-btn.mode-edit { color: #ef4444; border-color: rgba(239, 68, 68, 0.5); }
   .mode-btn.mode-suggest { color: #f59e0b; border-color: rgba(245, 158, 11, 0.5); }
@@ -653,13 +667,12 @@
     border: none;
     color: #fff;
     border-radius: 10px;
-    width: 44px;
+    width: 100%;
     height: 44px;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    flex-shrink: 0;
   }
   .send-btn:disabled { opacity: 0.4; cursor: default; }
 

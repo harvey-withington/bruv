@@ -59,7 +59,7 @@
         errorMsg = t('category.err_not_found')
         return
       }
-      const ids = (await repoRPC<string[]>('ListCardIDsInCategory', [found.id, found.id])) ?? []
+      const ids = (await repoRPC<string[]>('ListCardIDsInCategory', [found.id])) ?? []
       const fetched = await Promise.all(
         ids.map(async (id) => {
           try {
@@ -84,7 +84,7 @@
   async function reloadCards() {
     if (!cat) return
     try {
-      const ids = (await repoRPC<string[]>('ListCardIDsInCategory', [cat.id, cat.id])) ?? []
+      const ids = (await repoRPC<string[]>('ListCardIDsInCategory', [cat.id])) ?? []
       const fetched = await Promise.all(
         ids.map(async (id) => {
           try { return await repoRPC<CardSummary>('GetCard', [id]) }
@@ -129,12 +129,8 @@
     updated.splice(toIdx, 0, card)
     cards = updated
     try {
-      // Server's projectID arg is overloaded with categoryID — same
-      // quirk Board.svelte (desktop) works around. See ProjectPage's
-      // handleDnDMove for the explanation.
       await repoRPC('MoveCardInCategory', [
         detail.cardID,
-        detail.toCategoryID,
         detail.toCategoryID,
         detail.toPosition,
       ])

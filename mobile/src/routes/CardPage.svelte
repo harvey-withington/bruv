@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
   import { repoRPC } from '../lib/auth'
-  import { navigate } from '../lib/router.svelte'
+  import { navigate, projectURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
   import { Trash2, MapPin, Plus, X, RefreshCw, Search } from 'lucide-svelte'
   import EditableText from '../components/EditableText.svelte'
@@ -99,11 +99,7 @@
     pinPickerOpen = false
     saveError = null
     try {
-      // PinCard's second arg is named projectID server-side, but the
-      // canonical reader (ListCardIDsInCategory) keys on category ID
-      // for both fields. Pass category.id twice or the pin won't show
-      // up on the project page. See repo/pin.go:ListCardsInCategory.
-      await repoRPC('PinCard', [card.id, sel.category.id, sel.category.id])
+      await repoRPC('PinCard', [card.id, sel.category.id])
       await refreshPins()
     } catch (err) {
       saveError = err instanceof Error ? err.message : t('card.err_pin')
@@ -117,7 +113,7 @@
     const previous = pins
     pins = pins.filter((p) => p !== pin)
     try {
-      await repoRPC('UnpinCard', [card.id, pin.projectId, pin.categoryId])
+      await repoRPC('UnpinCard', [card.id, pin.categoryId])
     } catch (err) {
       pins = previous
       saveError = err instanceof Error ? err.message : t('card.err_unpin')
@@ -285,6 +281,10 @@
       } catch {
         /* transient — keep showing what we have */
       }
+      // Pin/unpin mutations emit card:updated without changing card
+      // fields. Refresh the "Pinned in" rail so it reflects the
+      // LLM-suggestion-accept (or any cross-device pin change) too.
+      void refreshPins()
     } else if (ev.topic === 'card:deleted') {
       if (window.history.length > 1) history.back()
       else navigate('/')
@@ -449,7 +449,15 @@
           <ul class="pin-list">
             {#each pins as pin (pin.projectId + ':' + pin.categoryId)}
               <li class="pin">
-                <span class="pin-text">{pin.breadcrumb}</span>
+                <button
+                  type="button"
+                  class="pin-text"
+                  onclick={() => navigate(
+                    projectURL(pin.brandSlug, pin.streamSlug, pin.projectSlug)
+                      + '#cat=' + encodeURIComponent(pin.categorySlug),
+                  )}
+                  title={t('card.go_to_project')}
+                >{pin.breadcrumb}</button>
                 <button
                   type="button"
                   class="pin-remove"
@@ -499,9 +507,6 @@
     <CommentsSection cardId={card.id} />
 
     <footer class="actions">
-      <button type="button" class="ghost" onclick={() => navigate('/')}>
-        {t('card.back_to_browse')}
-      </button>
       <button type="button" class="danger-link" onclick={() => (confirmingDelete = true)}>
         <Trash2 size={14} />
         {t('card.delete')}
@@ -801,6 +806,17 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--text);
+    background: transparent;
+    border: none;
+    padding: 0;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .pin-text:hover,
+  .pin-text:focus-visible {
+    color: var(--accent);
+    outline: none;
   }
 
   .pin-remove {
@@ -874,7 +890,7 @@
 
   .actions {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: center;
     gap: 0.5rem;
     margin-top: 1.5rem;

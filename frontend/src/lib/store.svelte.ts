@@ -180,7 +180,7 @@ export async function loadBoard(brandSlug: string, streamSlug: string, projectSl
     const populated = await Promise.all(cats.map(async (cat: any) => {
       let cardIds: string[] = []
       try {
-        cardIds = await ListCardIDsInCategory(cat.id, cat.id) || []
+        cardIds = await ListCardIDsInCategory(cat.id) || []
       } catch { /* no cards pinned yet */ }
 
       const cards = await Promise.all(cardIds.map(async (id: string) => {

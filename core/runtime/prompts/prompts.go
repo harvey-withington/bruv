@@ -101,7 +101,7 @@ func (b *Builder) Project(brandSlug, streamSlug, projectSlug string, brand *mode
 			sb.WriteString("## Categories and cards (titles only)\n\n")
 			for _, cat := range categories {
 				sb.WriteString(promptfmt.RenderCategoryHeader(cat))
-				pins, _ := b.deps.Repo().ListCardsInCategory(cat.ID, cat.ID)
+				pins, _ := b.deps.Repo().ListCardsInCategory(cat.ID)
 				if len(pins) == 0 {
 					sb.WriteString("  (empty)\n\n")
 					continue
@@ -137,7 +137,7 @@ func (b *Builder) Project(brandSlug, streamSlug, projectSlug string, brand *mode
 			sb.WriteString("## Categories and cards\n\n")
 			for _, cat := range categories {
 				sb.WriteString(promptfmt.RenderCategoryHeader(cat))
-				pins, _ := b.deps.Repo().ListCardsInCategory(cat.ID, cat.ID)
+				pins, _ := b.deps.Repo().ListCardsInCategory(cat.ID)
 				if len(pins) == 0 {
 					sb.WriteString("  (empty)\n\n")
 					continue

@@ -7,8 +7,15 @@ import (
 	"time"
 )
 
-// PinCard pins a Card to a specific Project/Category.
-func (r *Repository) PinCard(cardID, projectID, categoryID string) error {
+// PinCard pins a Card to a specific Category.
+//
+// The Pin record on disk also carries a ProjectID field — historically
+// kept as a separate composite-key element, in practice always equal to
+// CategoryID across every production caller. The field is preserved for
+// on-disk format compatibility (older vaults still have it set), but
+// the lookup APIs below key purely on CategoryID. New writes set
+// ProjectID = CategoryID for consistency.
+func (r *Repository) PinCard(cardID, categoryID string) error {
 	// Verify card exists
 	if _, err := r.GetCard(cardID); err != nil {
 		return err
@@ -19,16 +26,17 @@ func (r *Repository) PinCard(cardID, projectID, categoryID string) error {
 		return err
 	}
 
-	// Check for duplicate pin
+	// Check for duplicate pin (category-keyed; same card can't be pinned
+	// twice to the same category).
 	for _, p := range pinFile.Pins {
-		if p.ProjectID == projectID && p.CategoryID == categoryID {
-			return fmt.Errorf("card %q is already pinned to project %q / category %q", cardID, projectID, categoryID)
+		if p.CategoryID == categoryID {
+			return fmt.Errorf("card %q is already pinned to category %q", cardID, categoryID)
 		}
 	}
 
 	pin := model.Pin{
 		CardID:     cardID,
-		ProjectID:  projectID,
+		ProjectID:  categoryID, // see doc comment — kept = CategoryID
 		CategoryID: categoryID,
 		Position:   len(pinFile.Pins),
 		PinnedAt:   time.Now().UTC(),
@@ -38,8 +46,8 @@ func (r *Repository) PinCard(cardID, projectID, categoryID string) error {
 	return r.savePinFile(pinFile)
 }
 
-// PinCardAt pins a Card to a specific Project/Category with an explicit position.
-func (r *Repository) PinCardAt(cardID, projectID, categoryID string, position int) error {
+// PinCardAt pins a Card to a specific Category with an explicit position.
+func (r *Repository) PinCardAt(cardID, categoryID string, position int) error {
 	if _, err := r.GetCard(cardID); err != nil {
 		return err
 	}
@@ -50,14 +58,14 @@ func (r *Repository) PinCardAt(cardID, projectID, categoryID string, position in
 	}
 
 	for _, p := range pinFile.Pins {
-		if p.ProjectID == projectID && p.CategoryID == categoryID {
-			return fmt.Errorf("card %q is already pinned to project %q / category %q", cardID, projectID, categoryID)
+		if p.CategoryID == categoryID {
+			return fmt.Errorf("card %q is already pinned to category %q", cardID, categoryID)
 		}
 	}
 
 	pin := model.Pin{
 		CardID:     cardID,
-		ProjectID:  projectID,
+		ProjectID:  categoryID,
 		CategoryID: categoryID,
 		Position:   position,
 		PinnedAt:   time.Now().UTC(),
@@ -67,8 +75,11 @@ func (r *Repository) PinCardAt(cardID, projectID, categoryID string, position in
 	return r.savePinFile(pinFile)
 }
 
-// UnpinCard removes a Card's pin from a specific Project/Category.
-func (r *Repository) UnpinCard(cardID, projectID, categoryID string) error {
+// UnpinCard removes a Card's pin from a specific Category. Matches on
+// CategoryID alone — any pin record with that CategoryID is removed,
+// regardless of what its (now-vestigial) ProjectID field happens to be.
+// This means stale pins from older buggy writes get cleaned up too.
+func (r *Repository) UnpinCard(cardID, categoryID string) error {
 	pinFile, err := r.loadPinFile(cardID)
 	if err != nil {
 		return err
@@ -77,7 +88,7 @@ func (r *Repository) UnpinCard(cardID, projectID, categoryID string) error {
 	found := false
 	filtered := make([]model.Pin, 0, len(pinFile.Pins))
 	for _, p := range pinFile.Pins {
-		if p.ProjectID == projectID && p.CategoryID == categoryID {
+		if p.CategoryID == categoryID {
 			found = true
 			continue
 		}
@@ -85,7 +96,7 @@ func (r *Repository) UnpinCard(cardID, projectID, categoryID string) error {
 	}
 
 	if !found {
-		return fmt.Errorf("card %q is not pinned to project %q / category %q", cardID, projectID, categoryID)
+		return fmt.Errorf("card %q is not pinned to category %q", cardID, categoryID)
 	}
 
 	pinFile.Pins = filtered
@@ -111,9 +122,14 @@ func (r *Repository) GetCardPins(cardID string) ([]model.Pin, error) {
 	return pinFile.Pins, nil
 }
 
-// ListCardsInCategory returns all card IDs pinned to a specific project/category.
-// This is a scan operation — the SQLite index will make this fast in Phase 2.
-func (r *Repository) ListCardsInCategory(projectID, categoryID string) ([]model.Pin, error) {
+// ListCardsInCategory returns all pin records for the given category.
+// Keys on CategoryID alone — pins written by older buggy code paths
+// where ProjectID held a real project ID instead of the category ID
+// will still be discovered.
+//
+// This is a scan operation — the SQLite index makes the equivalent
+// query fast in core/services/search.
+func (r *Repository) ListCardsInCategory(categoryID string) ([]model.Pin, error) {
 	cardDirs, err := listSubdirs(r.pinsBasePath())
 	if err != nil {
 		return nil, fmt.Errorf("list pin directories: %w", err)
@@ -126,7 +142,7 @@ func (r *Repository) ListCardsInCategory(projectID, categoryID string) ([]model.
 			continue
 		}
 		for _, p := range pinFile.Pins {
-			if p.ProjectID == projectID && p.CategoryID == categoryID {
+			if p.CategoryID == categoryID {
 				matched = append(matched, p)
 			}
 		}
@@ -145,7 +161,7 @@ func (r *Repository) ListCardsInCategory(projectID, categoryID string) ([]model.
 }
 
 // MoveCardInCategory updates a card's position within a category.
-func (r *Repository) MoveCardInCategory(cardID, projectID, categoryID string, newPosition int) error {
+func (r *Repository) MoveCardInCategory(cardID, categoryID string, newPosition int) error {
 	pinFile, err := r.loadPinFile(cardID)
 	if err != nil {
 		return err
@@ -153,7 +169,7 @@ func (r *Repository) MoveCardInCategory(cardID, projectID, categoryID string, ne
 
 	found := false
 	for i := range pinFile.Pins {
-		if pinFile.Pins[i].ProjectID == projectID && pinFile.Pins[i].CategoryID == categoryID {
+		if pinFile.Pins[i].CategoryID == categoryID {
 			pinFile.Pins[i].Position = newPosition
 			found = true
 			break
@@ -161,14 +177,16 @@ func (r *Repository) MoveCardInCategory(cardID, projectID, categoryID string, ne
 	}
 
 	if !found {
-		return fmt.Errorf("card %q is not pinned to project %q / category %q", cardID, projectID, categoryID)
+		return fmt.Errorf("card %q is not pinned to category %q", cardID, categoryID)
 	}
 
 	return r.savePinFile(pinFile)
 }
 
-// MoveCardToCategory moves a card from one category to another within the same project.
-func (r *Repository) MoveCardToCategory(cardID, projectID, fromCategoryID, toCategoryID string, newPosition int) error {
+// MoveCardToCategory moves a card from one category to another. Both
+// IDs are categories; ProjectID stored on the pin is set = CategoryID
+// per the doc comment on PinCard.
+func (r *Repository) MoveCardToCategory(cardID, fromCategoryID, toCategoryID string, newPosition int) error {
 	pinFile, err := r.loadPinFile(cardID)
 	if err != nil {
 		return err
@@ -176,9 +194,7 @@ func (r *Repository) MoveCardToCategory(cardID, projectID, fromCategoryID, toCat
 
 	found := false
 	for i := range pinFile.Pins {
-		if pinFile.Pins[i].ProjectID == projectID && pinFile.Pins[i].CategoryID == fromCategoryID {
-			// Update both ProjectID and CategoryID: the frontend convention is
-			// projectID == categoryID, so both must change to keep the pin visible.
+		if pinFile.Pins[i].CategoryID == fromCategoryID {
 			pinFile.Pins[i].ProjectID = toCategoryID
 			pinFile.Pins[i].CategoryID = toCategoryID
 			pinFile.Pins[i].Position = newPosition
@@ -188,7 +204,7 @@ func (r *Repository) MoveCardToCategory(cardID, projectID, fromCategoryID, toCat
 	}
 
 	if !found {
-		return fmt.Errorf("card %q is not pinned to project %q / category %q", cardID, projectID, fromCategoryID)
+		return fmt.Errorf("card %q is not pinned to category %q", cardID, fromCategoryID)
 	}
 
 	return r.savePinFile(pinFile)

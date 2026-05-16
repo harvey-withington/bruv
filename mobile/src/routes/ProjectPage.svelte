@@ -72,7 +72,7 @@
             // Server-side method takes (projectID, categoryID); the
             // desktop store passes cat.id for both, which is what
             // works in practice — see frontend/src/lib/store.svelte.ts.
-            const ids = (await repoRPC<string[]>('ListCardIDsInCategory', [cat.id, cat.id])) ?? []
+            const ids = (await repoRPC<string[]>('ListCardIDsInCategory', [cat.id])) ?? []
             const fetched = await Promise.all(
               ids.map(async (id) => {
                 try {
@@ -90,9 +90,38 @@
         }),
       )
       categories = populated
-      // First-visit default: expand the first non-empty category if
-      // the user hasn't touched the accordion yet for this project.
-      if (categories.length > 0) {
+      // Hash-driven focus: a #cat=<slug> in the URL (set when arriving
+      // via a pin breadcrumb on a card view) overrides the default
+      // first-non-empty expansion. We force the matching category open
+      // and scroll it into view so the card's "home" is immediately
+      // visible — without this, the user lands at the top of the
+      // project and has to hunt for the category their card lives in.
+      const hashMatch = window.location.hash.match(/^#cat=(.+)$/)
+      const focusSlug = hashMatch ? decodeURIComponent(hashMatch[1]) : null
+      const focusCat = focusSlug ? categories.find((c) => c.slug === focusSlug) : null
+
+      if (focusCat) {
+        // toggleCategoryExpansion inverts state; only call it when the
+        // target is currently closed so we never accidentally collapse
+        // the very category we're trying to focus. Read the store
+        // directly here rather than via the `expanded` $derived above —
+        // the derived chains through `projectID = categories[0]?...`,
+        // which may not have settled in the same tick that we just
+        // assigned `categories = populated`.
+        const currentExpansion = browse.categoryExpansionFor(focusCat.project_id)
+        if (currentExpansion[focusCat.id] !== true) {
+          toggleCategoryExpansion(
+            focusCat.project_id,
+            focusCat.id,
+            categories.map((c) => c.id),
+          )
+        }
+        await tick()
+        const el = document.querySelector(`[data-category-id="${focusCat.id}"]`)
+        if (el) (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'start' })
+      } else if (categories.length > 0) {
+        // First-visit default: expand the first non-empty category if
+        // the user hasn't touched the accordion yet for this project.
         ensureInitialExpansion(
           categories[0].project_id,
           categories.map((c) => ({ id: c.id, cardCount: c.cards.length })),
@@ -270,9 +299,7 @@
   // --- Add card directly into a category -----------------------------
   //
   // Mirrors desktop Board.svelte: CreateCard with the empty-string type
-  // (None — user can pick later), then PinCard to this category. The
-  // PinCard quirk — projectID and categoryID are both the category ID —
-  // is the same one ListCardIDsInCategory and MoveCardToCategory use.
+  // (None — user can pick later), then PinCard to this category.
   // Navigates to the new card so the user can fill in the title and
   // body without an extra hop.
 
@@ -281,7 +308,7 @@
     closeMenu()
     try {
       const card = await repoRPC<{ id: string }>('CreateCard', ['', t('project.default_card_name')])
-      await repoRPC('PinCard', [card.id, cat.id, cat.id])
+      await repoRPC('PinCard', [card.id, cat.id])
       mutationError = null
       navigate(cardURL(card.id))
     } catch (err) {
@@ -301,7 +328,7 @@
         cats.map(async (cat) => {
           let cards: CardSummary[] = []
           try {
-            const ids = (await repoRPC<string[]>('ListCardIDsInCategory', [cat.id, cat.id])) ?? []
+            const ids = (await repoRPC<string[]>('ListCardIDsInCategory', [cat.id])) ?? []
             const fetched = await Promise.all(
               ids.map(async (id) => {
                 try { return await repoRPC<CardSummary>('GetCard', [id]) }
@@ -376,23 +403,15 @@
     toCat.cards = [...toCat.cards.slice(0, toIdx), card, ...toCat.cards.slice(toIdx)]
 
     try {
-      // Quirk: the server's RPC declares its second arg as `projectID`,
-      // but the canonical caller (desktop Board.svelte) passes the
-      // SOURCE category ID there. Pin records on cards use the
-      // category ID where the API names suggest project ID — same
-      // workaround as ListCardIDsInCategory(cat.id, cat.id). Mobile
-      // mirrors what desktop does so the server's pin-lookup matches.
       if (detail.fromCategoryID === detail.toCategoryID) {
         await repoRPC('MoveCardInCategory', [
           detail.cardID,
-          detail.toCategoryID,
           detail.toCategoryID,
           detail.toPosition,
         ])
       } else {
         await repoRPC('MoveCardToCategory', [
           detail.cardID,
-          detail.fromCategoryID,
           detail.fromCategoryID,
           detail.toCategoryID,
           detail.toPosition,

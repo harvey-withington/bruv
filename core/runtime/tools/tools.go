@@ -708,7 +708,7 @@ func (d *Dispatcher) toolSuggestPin(cardID string, card *model.Card, tc llm.Tool
 	// approval step). Suggest mode stages the call via the separate
 	// executeToolCallSuggest path, so this branch only runs when the
 	// user has opted into direct edits.
-	if err := d.deps.Card().Pin(cardID, catID, catID); err != nil {
+	if err := d.deps.Card().Pin(cardID, catID); err != nil {
 		return "error pinning card: " + err.Error(), nil, nil
 	}
 	ps := &model.PinSuggestion{
@@ -902,7 +902,7 @@ func (d *Dispatcher) ExecuteProject(tc llm.ToolCall, scope ProjectChatScope) (st
 			if err != nil {
 				return "error: " + err.Error(), nil
 			}
-			_ = d.deps.Card().Pin(cardID, resolvedID, resolvedID)
+			_ = d.deps.Card().Pin(cardID, resolvedID)
 			categoryID = resolvedID
 		}
 		// Add tags if specified
@@ -1020,7 +1020,7 @@ func (d *Dispatcher) ExecuteProject(tc llm.ToolCall, scope ProjectChatScope) (st
 		if fromCat == toCat {
 			return "error: source and destination categories are the same", nil
 		}
-		if err := d.deps.Card().MoveToCategory(cardID, fromCat, fromCat, toCat, 0); err != nil {
+		if err := d.deps.Card().MoveToCategory(cardID, fromCat, toCat, 0); err != nil {
 			return "error: " + err.Error(), nil
 		}
 		result := "Card moved to new category"
@@ -1452,7 +1452,7 @@ func (d *Dispatcher) findCardCurrentCategory(scope ProjectChatScope, cardID stri
 		return "", err
 	}
 	for _, cat := range cats {
-		pins, _ := d.deps.Repo().ListCardsInCategory(cat.ID, cat.ID)
+		pins, _ := d.deps.Repo().ListCardsInCategory(cat.ID)
 		for _, p := range pins {
 			if p.CardID == cardID {
 				return cat.ID, nil

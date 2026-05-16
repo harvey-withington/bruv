@@ -129,9 +129,9 @@ func (s *Service) DeleteBrand(slug string) error {
 		for _, proj := range projects {
 			cats, _ := r.ListCategories(slug, stream.Slug, proj.Slug)
 			for _, cat := range cats {
-				pins, _ := r.ListCardsInCategory(cat.ID, cat.ID)
+				pins, _ := r.ListCardsInCategory(cat.ID)
 				for _, p := range pins {
-					_ = r.UnpinCard(p.CardID, p.ProjectID, p.CategoryID)
+					_ = r.UnpinCard(p.CardID, p.CategoryID)
 				}
 			}
 		}
@@ -216,9 +216,9 @@ func (s *Service) DeleteStream(brandSlug, streamSlug string) error {
 	for _, proj := range projects {
 		cats, _ := r.ListCategories(brandSlug, streamSlug, proj.Slug)
 		for _, cat := range cats {
-			pins, _ := r.ListCardsInCategory(cat.ID, cat.ID)
+			pins, _ := r.ListCardsInCategory(cat.ID)
 			for _, p := range pins {
-				_ = r.UnpinCard(p.CardID, p.ProjectID, p.CategoryID)
+				_ = r.UnpinCard(p.CardID, p.CategoryID)
 			}
 		}
 	}
@@ -307,9 +307,9 @@ func (s *Service) DeleteProject(brandSlug, streamSlug, projectSlug string) error
 	}
 	cats, _ := r.ListCategories(brandSlug, streamSlug, projectSlug)
 	for _, cat := range cats {
-		pins, _ := r.ListCardsInCategory(cat.ID, cat.ID)
+		pins, _ := r.ListCardsInCategory(cat.ID)
 		for _, p := range pins {
-			_ = r.UnpinCard(p.CardID, p.ProjectID, p.CategoryID)
+			_ = r.UnpinCard(p.CardID, p.CategoryID)
 		}
 	}
 	err := r.DeleteProject(brandSlug, streamSlug, projectSlug)
@@ -396,9 +396,9 @@ func (s *Service) DeleteCategory(brandSlug, streamSlug, projectSlug, categorySlu
 	}
 	cat, err := r.GetCategory(brandSlug, streamSlug, projectSlug, categorySlug)
 	if err == nil {
-		pins, _ := r.ListCardsInCategory(cat.ID, cat.ID)
+		pins, _ := r.ListCardsInCategory(cat.ID)
 		for _, p := range pins {
-			_ = r.UnpinCard(p.CardID, p.ProjectID, p.CategoryID)
+			_ = r.UnpinCard(p.CardID, p.CategoryID)
 		}
 	}
 	err = r.DeleteCategory(brandSlug, streamSlug, projectSlug, categorySlug)
@@ -432,12 +432,12 @@ func (s *Service) MoveCategoryCards(brandSlug, streamSlug, projectSlug, fromCate
 	if idx == nil {
 		return fmt.Errorf("no index available")
 	}
-	cardIDs, err := idx.ListCardIDsInCategory(fromCategoryID, fromCategoryID)
+	cardIDs, err := idx.ListCardIDsInCategory(fromCategoryID)
 	if err != nil {
 		return fmt.Errorf("list cards in category: %w", err)
 	}
 	for i, cardID := range cardIDs {
-		if err := r.MoveCardToCategory(cardID, fromCategoryID, fromCategoryID, toCategoryID, i); err != nil {
+		if err := r.MoveCardToCategory(cardID, fromCategoryID, toCategoryID, i); err != nil {
 			return fmt.Errorf("move card %s: %w", cardID, err)
 		}
 		if pins, err := r.GetCardPins(cardID); err == nil {
@@ -496,7 +496,7 @@ func (s *Service) duplicateCardsForProject(oldCatIDs, newCatIDs map[string]strin
 		if !ok {
 			continue
 		}
-		cardIDs, err := idx.ListCardIDsInCategory(oldCatID, oldCatID)
+		cardIDs, err := idx.ListCardIDsInCategory(oldCatID)
 		if err != nil || len(cardIDs) == 0 {
 			continue
 		}
@@ -505,7 +505,7 @@ func (s *Service) duplicateCardsForProject(oldCatIDs, newCatIDs map[string]strin
 			if err != nil {
 				continue
 			}
-			_ = r.PinCardAt(newCard.ID, newCatID, newCatID, i)
+			_ = r.PinCardAt(newCard.ID, newCatID, i)
 		}
 	}
 }

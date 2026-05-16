@@ -34,7 +34,10 @@ function currentPath(): string {
 function parse(path: string): Route {
   // Strip the /m/ prefix; everything after is what we route on.
   const tail = path.startsWith(BASE) ? path.slice(BASE.length) : path.replace(/^\/+/, '')
-  const segments = tail.split('?')[0].split('/').filter(Boolean)
+  // Strip both `?query` and `#hash` before path-splitting so URLs like
+  // /p/a/b/c#cat=foo route to project, not to a phantom 4-segment route
+  // ending in "c#cat=foo".
+  const segments = tail.split(/[?#]/)[0].split('/').filter(Boolean)
 
   if (segments.length === 0) return { name: 'home' }
 

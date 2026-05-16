@@ -101,11 +101,11 @@ func (r *Runtime) UpdateCardDueDate(id, dueDate string) (*model.Card, error) {
 func (r *Runtime) GetCategoryAcceptedTypes(categoryID string) ([]string, error) {
 	return r.Card.GetCategoryAcceptedTypes(categoryID)
 }
-func (r *Runtime) PinCard(cardID, projectID, categoryID string) error {
-	return r.Card.Pin(cardID, projectID, categoryID)
+func (r *Runtime) PinCard(cardID, categoryID string) error {
+	return r.Card.Pin(cardID, categoryID)
 }
-func (r *Runtime) UnpinCard(cardID, projectID, categoryID string) error {
-	return r.Card.Unpin(cardID, projectID, categoryID)
+func (r *Runtime) UnpinCard(cardID, categoryID string) error {
+	return r.Card.Unpin(cardID, categoryID)
 }
 func (r *Runtime) GetCardPins(cardID string) ([]model.Pin, error) {
 	return r.Card.GetPins(cardID)
@@ -122,11 +122,11 @@ func (r *Runtime) ListAllCategories() ([]CategoryPath, error) {
 func (r *Runtime) GetCardPinBreadcrumbs(cardID string) ([]CategoryPath, error) {
 	return r.Card.GetPinBreadcrumbs(cardID)
 }
-func (r *Runtime) MoveCardInCategory(cardID, projectID, categoryID string, newPosition int) error {
-	return r.Card.MoveInCategory(cardID, projectID, categoryID, newPosition)
+func (r *Runtime) MoveCardInCategory(cardID, categoryID string, newPosition int) error {
+	return r.Card.MoveInCategory(cardID, categoryID, newPosition)
 }
-func (r *Runtime) MoveCardToCategory(cardID, projectID, fromCategoryID, toCategoryID string, newPosition int) error {
-	return r.Card.MoveToCategory(cardID, projectID, fromCategoryID, toCategoryID, newPosition)
+func (r *Runtime) MoveCardToCategory(cardID, fromCategoryID, toCategoryID string, newPosition int) error {
+	return r.Card.MoveToCategory(cardID, fromCategoryID, toCategoryID, newPosition)
 }
 
 // --- Comments ---
@@ -426,9 +426,9 @@ func (r *Runtime) RefreshIndex() (*index.RebuildStats, error) {
 	return r.Search.RefreshIndex()
 }
 
-// ListCardIDsInCategory returns card IDs pinned to a project/category via the index.
-func (r *Runtime) ListCardIDsInCategory(projectID, categoryID string) ([]string, error) {
-	return r.Search.ListCardIDsInCategory(projectID, categoryID)
+// ListCardIDsInCategory returns card IDs pinned to a category via the index.
+func (r *Runtime) ListCardIDsInCategory(categoryID string) ([]string, error) {
+	return r.Search.ListCardIDsInCategory(categoryID)
 }
 
 // ListOrphanedCardIDs returns IDs of cards that have no pins (Inbox cards).
@@ -810,7 +810,7 @@ func (r *Runtime) ApplyProjectPendingEdits(brandSlug, streamSlug, projectSlug, m
 		CardIDs:     make(map[string]bool),
 	}
 	for _, cat := range categories {
-		pins, _ := r.repo.ListCardsInCategory(cat.ID, cat.ID)
+		pins, _ := r.repo.ListCardsInCategory(cat.ID)
 		for _, p := range pins {
 			applyScope.CardIDs[p.CardID] = true
 		}
@@ -1031,8 +1031,7 @@ func (r *Runtime) AcceptPinSuggestion(cardID, messageID string) error {
 	}
 	for i, m := range cf.Messages {
 		if m.ID == messageID && m.PinSuggestion != nil && m.PinSuggestion.Status == "pending" {
-			// Pin convention: projectID == categoryID
-			if err := r.PinCard(cardID, m.PinSuggestion.CategoryID, m.PinSuggestion.CategoryID); err != nil {
+			if err := r.PinCard(cardID, m.PinSuggestion.CategoryID); err != nil {
 				return err
 			}
 			cf.Messages[i].PinSuggestion.Status = "accepted"

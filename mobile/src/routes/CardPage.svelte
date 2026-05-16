@@ -896,24 +896,6 @@
     margin-top: 1.5rem;
   }
 
-  .ghost {
-    background: transparent;
-    color: var(--text-muted);
-    border: 1px solid var(--border);
-    padding: 0.55rem 1rem;
-    border-radius: 6px;
-    font: inherit;
-    font-size: 0.85rem;
-    cursor: pointer;
-  }
-
-  .ghost:hover,
-  .ghost:focus-visible {
-    color: var(--text);
-    border-color: var(--text-muted);
-    outline: none;
-  }
-
   .danger-link {
     background: transparent;
     border: none;

@@ -73,11 +73,23 @@ jobs:
       # Root package.json carries deps that `shared/*.ts` imports (marked,
       # lucide-svelte). Vite resolves those by walking up from shared/ to
       # the repo root's node_modules.
+      #
+      # --ignore-scripts: the root's postinstall chains into
+      # `npm install --prefix frontend && npm install --prefix mobile`
+      # for local-dev ergonomics. Running that here populates frontend/
+      # and mobile/ node_modules, then the explicit installs below try
+      # to clean and reinstall — on Windows the cleanup hits EPERM
+      # because the previous npm process still has handles open.
       - name: Install root deps (for shared/)
-        run: npm ci || npm install
+        run: npm ci --ignore-scripts || npm install --ignore-scripts
 
       - name: Install frontend deps
         working-directory: frontend
+        run: |
+          npm ci || npm install
+
+      - name: Install mobile deps
+        working-directory: mobile
         run: |
           npm ci || npm install
 

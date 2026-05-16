@@ -5,7 +5,8 @@
   "description": "Root package only carries deps that shared/ needs to resolve. Both frontend/ and mobile/ install their own copies for runtime; this top-level entry exists so svelte-check / TypeScript can resolve imports from inside shared/*.ts without parent-walking past the repo root.",
   "scripts": {
     "build:all": "npm run build --prefix frontend && npm run build --prefix mobile",
-    "postinstall": "npm install --prefix frontend && npm install --prefix mobile"
+    "// postinstall": "Skips in CI (process.env.CI is set by every major CI runner). CI runs explicit npm installs in each workspace already, and chaining nested installs through postinstall causes EPERM file-lock failures on Windows when CI cleanup races the wails-build-triggered re-install.",
+    "postinstall": "node -e \"if (process.env.CI) { process.exit(0) } require('child_process').execSync('npm install --prefix frontend && npm install --prefix mobile', { stdio: 'inherit' })\""
   },
   "dependencies": {
     "lucide-svelte": "^0.577.0",

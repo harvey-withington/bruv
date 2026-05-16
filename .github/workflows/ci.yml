@@ -75,9 +75,16 @@ jobs:
       # lucide-svelte). Both frontend/ and mobile/ resolve those by walking
       # up from shared/ to the repo root's node_modules — so this install
       # has to happen even though no app entrypoint lives here.
+      #
+      # --ignore-scripts: the root's postinstall script chains into
+      # `npm install --prefix frontend && npm install --prefix mobile`
+      # for local-dev convenience. In CI we run those installs explicitly
+      # below; without --ignore-scripts the frontend/mobile node_modules
+      # get populated twice and the second pass dies with EPERM on
+      # Windows when it tries to clean files still locked by the first.
       - name: Install root deps (for shared/)
         shell: bash
-        run: npm ci || npm install
+        run: npm ci --ignore-scripts || npm install --ignore-scripts
 
       - name: Install frontend deps
         working-directory: frontend
@@ -155,8 +162,11 @@ jobs:
       # Root package.json carries deps that `shared/*.ts` imports (marked,
       # lucide-svelte). svelte-check resolves those by walking up from
       # shared/ to the repo root's node_modules.
+      #
+      # --ignore-scripts on the root install — see the go-test job for
+      # why; same double-install / Windows EPERM dance applies here.
       - name: Install root deps (for shared/)
-        run: npm ci || npm install
+        run: npm ci --ignore-scripts || npm install --ignore-scripts
 
       - name: Install frontend deps
         working-directory: frontend

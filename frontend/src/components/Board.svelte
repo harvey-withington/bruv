@@ -50,7 +50,7 @@
       const card = await CreateCard(cardType, t('default.card_name'))
 
       if (cat) {
-        await PinCard(card.id, cat.id, cat.id)
+        await PinCard(card.id, cat.id)
       }
 
       await refreshBoard()
@@ -151,7 +151,7 @@
             col.cards.splice(insertIdx, 0, card)
             // Persist all positions
             for (let i = 0; i < col.cards.length; i++) {
-              await MoveCardInCategory(col.cards[i].id, toCategoryId, toCategoryId, i)
+              await MoveCardInCategory(col.cards[i].id, toCategoryId, i)
             }
           }
         }
@@ -164,15 +164,15 @@
           if (fromIdx !== -1) {
             const card = fromCol.cards.splice(fromIdx, 1)[0]
             toCol.cards.splice(toIndex, 0, card)
-            // Move the card on backend (updates both ProjectID and CategoryID)
-            await MoveCardToCategory(cardId, fromCategoryId, fromCategoryId, toCategoryId, toIndex)
+            // Move the card on backend
+            await MoveCardToCategory(cardId, fromCategoryId, toCategoryId, toIndex)
             // Re-persist positions in source column
             for (let i = 0; i < fromCol.cards.length; i++) {
-              try { await MoveCardInCategory(fromCol.cards[i].id, fromCategoryId, fromCategoryId, i) } catch { /* skip */ }
+              try { await MoveCardInCategory(fromCol.cards[i].id, fromCategoryId, i) } catch { /* skip */ }
             }
-            // Re-persist positions in target column (moved card now has toCategoryId as projectID)
+            // Re-persist positions in target column
             for (let i = 0; i < toCol.cards.length; i++) {
-              try { await MoveCardInCategory(toCol.cards[i].id, toCategoryId, toCategoryId, i) } catch { /* skip */ }
+              try { await MoveCardInCategory(toCol.cards[i].id, toCategoryId, i) } catch { /* skip */ }
             }
           }
         }

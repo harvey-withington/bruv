@@ -16,6 +16,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -163,6 +164,22 @@ func Run(opts Options) error {
 		return fmt.Errorf("http transport construct: %w", err)
 	}
 	if err := srv.Start(); err != nil {
+		if isAddrInUse(err) {
+			// The dev workflow's most common stumble: the installed
+			// bruv.exe Windows service holds 9870 as LocalSystem, silent
+			// in the process list, so the dev server's Listen fails with
+			// a generic "address in use" that doesn't hint at the cause.
+			// Print the concrete next step before bubbling the error.
+			fmt.Fprintf(os.Stderr,
+				"\nPort %s is already in use.\n\n"+
+					"  If you've installed BRUV as a Windows service, that's almost\n"+
+					"  certainly what's squatting — stop it before launching the dev\n"+
+					"  server:\n\n"+
+					"      Stop-Service BRUV-Server\n\n"+
+					"  Otherwise, find the process holding the port:\n\n"+
+					"      netstat -ano | findstr \":%s\"\n\n",
+				opts.Addr, portOf(opts.Addr))
+		}
 		return fmt.Errorf("http transport start: %w", err)
 	}
 	slog.Info("bruv-server listening",
@@ -201,5 +218,28 @@ func Run(opts Options) error {
 	_ = srv.Stop()
 	_ = ctx
 	return nil
+}
+
+// isAddrInUse reports whether err is a "TCP address already bound" error
+// from net.Listen. Cross-platform: errors.Is matches the POSIX errno,
+// the substring fallbacks catch Windows (which uses WSAEADDRINUSE, a
+// different errno, and a wordier message).
+func isAddrInUse(err error) bool {
+	if errors.Is(err, syscall.EADDRINUSE) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "address already in use") ||
+		strings.Contains(msg, "only one usage of each socket address")
+}
+
+// portOf returns the port half of a host:port address, or the address
+// itself if it has no colon. Used purely for shaping a netstat hint —
+// not worth pulling in net.SplitHostPort for.
+func portOf(addr string) string {
+	if i := strings.LastIndex(addr, ":"); i >= 0 {
+		return addr[i+1:]
+	}
+	return addr
 }
 

@@ -622,8 +622,8 @@ export interface BackendAdapter {
   UpdateCardDueDate(id: string, dueDate: string): Promise<any>
 
   // Pins
-  PinCard(cardID: string, projectID: string, categoryID: string): Promise<void>
-  UnpinCard(cardID: string, projectID: string, categoryID: string): Promise<void>
+  PinCard(cardID: string, categoryID: string): Promise<void>
+  UnpinCard(cardID: string, categoryID: string): Promise<void>
   GetCardPins(cardID: string): Promise<any[]>
   GetCardLocation(cardID: string): Promise<{ brandSlug: string; streamSlug: string; projectSlug: string }>
   GetProjectLocation(projectID: string): Promise<{ brandSlug: string; streamSlug: string; projectSlug: string }>
@@ -631,8 +631,8 @@ export interface BackendAdapter {
   GetCardPinBreadcrumbs(cardID: string): Promise<any[]>
 
   // Move & reorder
-  MoveCardInCategory(cardID: string, projectID: string, categoryID: string, newPosition: number): Promise<void>
-  MoveCardToCategory(cardID: string, projectID: string, fromCategoryID: string, toCategoryID: string, newPosition: number): Promise<void>
+  MoveCardInCategory(cardID: string, categoryID: string, newPosition: number): Promise<void>
+  MoveCardToCategory(cardID: string, fromCategoryID: string, toCategoryID: string, newPosition: number): Promise<void>
   ReorderBrands(orderedSlugs: string[]): Promise<void>
   ReorderStreams(brandSlug: string, orderedSlugs: string[]): Promise<void>
   ReorderProjects(brandSlug: string, streamSlug: string, orderedSlugs: string[]): Promise<void>
@@ -680,7 +680,7 @@ export interface BackendAdapter {
   GetCardProjectContext(cardID: string): Promise<string>
   RebuildIndex(): Promise<any>
   RefreshIndex(): Promise<any>
-  ListCardIDsInCategory(projectID: string, categoryID: string): Promise<string[]>
+  ListCardIDsInCategory(categoryID: string): Promise<string[]>
   ListOrphanedCardIDs(): Promise<string[]>
   ListCardIDsByTag(tag: string): Promise<string[]>
 

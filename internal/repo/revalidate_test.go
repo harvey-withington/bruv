@@ -42,8 +42,8 @@ func TestRevalidateRemovesStalePins(t *testing.T) {
 	r.CreateCategory("brand", "stream", "project", "Done", 1)
 
 	card, _ := r.CreateCard("task", "Test Card")
-	project, _ := r.GetProject("brand", "stream", "project")
-	r.PinCard(card.ID, project.ID, cat.ID)
+	_, _ = r.GetProject("brand", "stream", "project")
+	r.PinCard(card.ID, cat.ID)
 
 	// Verify pin exists
 	pins, _ := r.GetCardPins(card.ID)
@@ -113,8 +113,8 @@ func TestRevalidatePreservesValidPins(t *testing.T) {
 	cat, _ := r.CreateCategory("brand", "stream", "project", "Backlog", 0)
 
 	card, _ := r.CreateCard("task", "Test Card")
-	project, _ := r.GetProject("brand", "stream", "project")
-	r.PinCard(card.ID, project.ID, cat.ID)
+	_, _ = r.GetProject("brand", "stream", "project")
+	r.PinCard(card.ID, cat.ID)
 
 	stats, _ := r.Revalidate()
 	if stats.StalePinsRemoved != 0 {

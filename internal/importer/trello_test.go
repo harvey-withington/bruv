@@ -209,7 +209,7 @@ func TestImportTrello_ArchiveSkip(t *testing.T) {
 	}
 
 	// Verify card 1 has description + checklist + image block + url block.
-	pins, _ := r.ListCardsInCategory(cats[0].ID, cats[0].ID)
+	pins, _ := r.ListCardsInCategory(cats[0].ID)
 	if len(pins) != 1 {
 		t.Fatalf("to-do pins = %d, want 1", len(pins))
 	}

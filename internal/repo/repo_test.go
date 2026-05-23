@@ -329,71 +329,32 @@ func TestMoveCardToCategory(t *testing.T) {
 	catB, _ := r.CreateCategory("b", "v1", "p", "Done", 1)
 
 	card, _ := r.CreateCard("task", "Move me")
-	r.PinCard(card.ID, proj.ID, catA.ID)
+	_ = proj // proj fixture left for clarity; pin keys on category alone now
+	r.PinCard(card.ID, catA.ID)
 
 	// Move card from Todo to Done
-	if err := r.MoveCardToCategory(card.ID, proj.ID, catA.ID, catB.ID, 0); err != nil {
+	if err := r.MoveCardToCategory(card.ID, catA.ID, catB.ID, 0); err != nil {
 		t.Fatalf("MoveCardToCategory: %v", err)
 	}
 
 	// Card should no longer be in Todo
-	pinsInA, _ := r.ListCardsInCategory(proj.ID, catA.ID)
+	pinsInA, _ := r.ListCardsInCategory(catA.ID)
 	if len(pinsInA) != 0 {
 		t.Errorf("Todo should have 0 cards, got %d", len(pinsInA))
 	}
 
-	// Card should be in Done — both ProjectID and CategoryID updated
-	pinsInB, _ := r.ListCardsInCategory(catB.ID, catB.ID)
+	// Card should be in Done — pin's CategoryID now reflects the destination
+	pinsInB, _ := r.ListCardsInCategory(catB.ID)
 	if len(pinsInB) != 1 {
 		t.Errorf("Done should have 1 card, got %d", len(pinsInB))
 	}
 
-	// Verify pin fields were both updated
 	pins, _ := r.GetCardPins(card.ID)
 	if len(pins) != 1 {
 		t.Fatalf("expected 1 pin, got %d", len(pins))
 	}
-	if pins[0].ProjectID != catB.ID {
-		t.Errorf("pin ProjectID = %q, want %q", pins[0].ProjectID, catB.ID)
-	}
 	if pins[0].CategoryID != catB.ID {
 		t.Errorf("pin CategoryID = %q, want %q", pins[0].CategoryID, catB.ID)
-	}
-}
-
-func TestMoveCardToCategoryFrontendConvention(t *testing.T) {
-	// Simulates the frontend convention where projectID == categoryID
-	r := setupTestRepo(t)
-	r.CreateBrand("B")
-	r.CreateStream("b", "v1")
-	r.CreateProject("b", "v1", "P")
-	catA, _ := r.CreateCategory("b", "v1", "p", "Todo", 0)
-	catB, _ := r.CreateCategory("b", "v1", "p", "Done", 1)
-
-	card, _ := r.CreateCard("task", "Drag me")
-	// Pin with projectID == categoryID (frontend convention)
-	r.PinCard(card.ID, catA.ID, catA.ID)
-
-	// Move using fromCategoryId as projectID (frontend convention)
-	if err := r.MoveCardToCategory(card.ID, catA.ID, catA.ID, catB.ID, 0); err != nil {
-		t.Fatalf("MoveCardToCategory: %v", err)
-	}
-
-	// Card must be findable via ListCardsInCategory(catB.ID, catB.ID)
-	pinsInB, _ := r.ListCardsInCategory(catB.ID, catB.ID)
-	if len(pinsInB) != 1 {
-		t.Errorf("card should be visible in target category, got %d pins", len(pinsInB))
-	}
-
-	// Must NOT appear in source category
-	pinsInA, _ := r.ListCardsInCategory(catA.ID, catA.ID)
-	if len(pinsInA) != 0 {
-		t.Errorf("card should not be in source category, got %d pins", len(pinsInA))
-	}
-
-	// MoveCardInCategory should work on the moved card with new IDs
-	if err := r.MoveCardInCategory(card.ID, catB.ID, catB.ID, 5); err != nil {
-		t.Fatalf("MoveCardInCategory after cross-column move should work: %v", err)
 	}
 }
 
@@ -401,22 +362,22 @@ func TestMoveCardInCategoryReorder(t *testing.T) {
 	r := setupTestRepo(t)
 	r.CreateBrand("B")
 	r.CreateStream("b", "v1")
-	proj, _ := r.CreateProject("b", "v1", "P")
+	r.CreateProject("b", "v1", "P")
 	cat, _ := r.CreateCategory("b", "v1", "p", "Todo", 0)
 
 	card1, _ := r.CreateCard("task", "First")
 	card2, _ := r.CreateCard("task", "Second")
-	r.PinCard(card1.ID, proj.ID, cat.ID)
-	r.PinCard(card2.ID, proj.ID, cat.ID)
+	r.PinCard(card1.ID, cat.ID)
+	r.PinCard(card2.ID, cat.ID)
 
 	// Move card1 to position 1 (after card2)
-	if err := r.MoveCardInCategory(card1.ID, proj.ID, cat.ID, 1); err != nil {
+	if err := r.MoveCardInCategory(card1.ID, cat.ID, 1); err != nil {
 		t.Fatalf("MoveCardInCategory: %v", err)
 	}
 
 	pins, _ := r.GetCardPins(card1.ID)
 	for _, p := range pins {
-		if p.ProjectID == proj.ID && p.CategoryID == cat.ID {
+		if p.CategoryID == cat.ID {
 			if p.Position != 1 {
 				t.Errorf("card1 position = %d, want 1", p.Position)
 			}
@@ -540,26 +501,31 @@ func TestCardCRUD(t *testing.T) {
 // --- Pins ---
 
 func TestPinning(t *testing.T) {
+	// Cross-category pinning across two projects: same card pinned to a
+	// category in Brand A's Project Alpha, and a category in Brand B's
+	// Project Beta. The Pin API keys on category alone, so this tests
+	// both the "card has multiple homes" semantics and the "same card
+	// in different projects" capability.
 	r := setupTestRepo(t)
 	r.CreateBrand("Brand A")
 	r.CreateStream("brand-a", "v1")
-	projA, _ := r.CreateProject("brand-a", "v1", "Project Alpha")
+	r.CreateProject("brand-a", "v1", "Project Alpha")
 	catA, _ := r.CreateCategory("brand-a", "v1", "project-alpha", "Todo", 0)
 
 	r.CreateBrand("Brand B")
 	r.CreateStream("brand-b", "v1")
-	projB, _ := r.CreateProject("brand-b", "v1", "Project Beta")
+	r.CreateProject("brand-b", "v1", "Project Beta")
 	catB, _ := r.CreateCategory("brand-b", "v1", "project-beta", "Backlog", 0)
 
 	card, _ := r.CreateCard("reference", "Bitcoin Self-Custody Guide")
 
-	// Pin to first project
-	if err := r.PinCard(card.ID, projA.ID, catA.ID); err != nil {
+	// Pin to first category
+	if err := r.PinCard(card.ID, catA.ID); err != nil {
 		t.Fatalf("PinCard to A: %v", err)
 	}
 
-	// Pin to second project
-	if err := r.PinCard(card.ID, projB.ID, catB.ID); err != nil {
+	// Pin to second category (different project)
+	if err := r.PinCard(card.ID, catB.ID); err != nil {
 		t.Fatalf("PinCard to B: %v", err)
 	}
 
@@ -573,12 +539,12 @@ func TestPinning(t *testing.T) {
 	}
 
 	// Duplicate pin should fail
-	if err := r.PinCard(card.ID, projA.ID, catA.ID); err == nil {
+	if err := r.PinCard(card.ID, catA.ID); err == nil {
 		t.Fatal("expected error on duplicate pin")
 	}
 
 	// List cards in category
-	cardsInA, err := r.ListCardsInCategory(projA.ID, catA.ID)
+	cardsInA, err := r.ListCardsInCategory(catA.ID)
 	if err != nil {
 		t.Fatalf("ListCardsInCategory: %v", err)
 	}
@@ -586,8 +552,8 @@ func TestPinning(t *testing.T) {
 		t.Errorf("cards in A = %d, want 1", len(cardsInA))
 	}
 
-	// Unpin from first project
-	if err := r.UnpinCard(card.ID, projA.ID, catA.ID); err != nil {
+	// Unpin from first category
+	if err := r.UnpinCard(card.ID, catA.ID); err != nil {
 		t.Fatalf("UnpinCard: %v", err)
 	}
 	pins, _ = r.GetCardPins(card.ID)
@@ -596,7 +562,7 @@ func TestPinning(t *testing.T) {
 	}
 
 	// Unpin from second — should clean up pin directory
-	if err := r.UnpinCard(card.ID, projB.ID, catB.ID); err != nil {
+	if err := r.UnpinCard(card.ID, catB.ID); err != nil {
 		t.Fatalf("UnpinCard last: %v", err)
 	}
 	pins, _ = r.GetCardPins(card.ID)
@@ -609,11 +575,11 @@ func TestDeleteCardRemovesPins(t *testing.T) {
 	r := setupTestRepo(t)
 	r.CreateBrand("B")
 	r.CreateStream("b", "v1")
-	proj, _ := r.CreateProject("b", "v1", "P")
+	r.CreateProject("b", "v1", "P")
 	cat, _ := r.CreateCategory("b", "v1", "p", "Todo", 0)
 
 	card, _ := r.CreateCard("task", "Do something")
-	r.PinCard(card.ID, proj.ID, cat.ID)
+	r.PinCard(card.ID, cat.ID)
 
 	// Delete card should also remove pins
 	if err := r.DeleteCard(card.ID); err != nil {

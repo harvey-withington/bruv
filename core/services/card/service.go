@@ -166,7 +166,7 @@ func (s *Service) Duplicate(cardID, categoryID string) (*model.Card, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := r.PinCard(newCard.ID, categoryID, categoryID); err != nil {
+	if err := r.PinCard(newCard.ID, categoryID); err != nil {
 		return nil, err
 	}
 	s.idxRefresh()
@@ -198,15 +198,15 @@ func (s *Service) CopyCategory(brandSlug, streamSlug, projectSlug, categorySlug 
 		return nil, err
 	}
 	if idx := s.deps.Index(); idx != nil {
-		cardIDs, err := idx.ListCardIDsInCategory(srcCat.ID, srcCat.ID)
+		cardIDs, err := idx.ListCardIDsInCategory(srcCat.ID)
 		if err == nil {
 			for i, cardID := range cardIDs {
 				newCard, err := r.DuplicateCard(cardID)
 				if err != nil {
 					continue
 				}
-				_ = r.PinCard(newCard.ID, newCat.ID, newCat.ID)
-				_ = r.MoveCardInCategory(newCard.ID, newCat.ID, newCat.ID, i)
+				_ = r.PinCard(newCard.ID, newCat.ID)
+				_ = r.MoveCardInCategory(newCard.ID, newCat.ID, i)
 			}
 		}
 		s.idxRefresh()
@@ -455,7 +455,7 @@ func (s *Service) validateCardTypeForCategory(cardID, categoryID string) error {
 
 // --- Pin / unpin ---
 
-func (s *Service) Pin(cardID, projectID, categoryID string) error {
+func (s *Service) Pin(cardID, categoryID string) error {
 	r := s.deps.Repo()
 	if r == nil {
 		return fmt.Errorf("no repository open")
@@ -463,7 +463,7 @@ func (s *Service) Pin(cardID, projectID, categoryID string) error {
 	if err := s.validateCardTypeForCategory(cardID, categoryID); err != nil {
 		return err
 	}
-	if err := r.PinCard(cardID, projectID, categoryID); err != nil {
+	if err := r.PinCard(cardID, categoryID); err != nil {
 		return err
 	}
 	if idx := s.deps.Index(); idx != nil {
@@ -474,16 +474,23 @@ func (s *Service) Pin(cardID, projectID, categoryID string) error {
 	}
 	s.syncCardTagsToProject(cardID, categoryID)
 	s.deps.LogActivity(cardID, model.ActivityPinned, "")
+	// Card fields themselves are unchanged, but the "Pinned in" rail on
+	// open card views needs to redraw. Reusing card:updated (rather than
+	// a separate card:pinned) keeps every mutation channelled through one
+	// listener — the LLM-suggestion-accept path was silent without this.
+	if card, err := r.GetCard(cardID); err == nil {
+		s.emitCardUpdated(card)
+	}
 	return nil
 }
 
-func (s *Service) Unpin(cardID, projectID, categoryID string) error {
+func (s *Service) Unpin(cardID, categoryID string) error {
 	r := s.deps.Repo()
 	if r == nil {
 		return fmt.Errorf("no repository open")
 	}
 	s.deps.LogActivity(cardID, model.ActivityUnpinned, "")
-	if err := r.UnpinCard(cardID, projectID, categoryID); err != nil {
+	if err := r.UnpinCard(cardID, categoryID); err != nil {
 		return err
 	}
 	if idx := s.deps.Index(); idx != nil {
@@ -491,6 +498,9 @@ func (s *Service) Unpin(cardID, projectID, categoryID string) error {
 		if err == nil {
 			s.logIdxErr("IndexPins", idx.IndexPins(cardID, pins))
 		}
+	}
+	if card, err := r.GetCard(cardID); err == nil {
+		s.emitCardUpdated(card)
 	}
 	return nil
 }
@@ -657,12 +667,12 @@ func (s *Service) GetPinBreadcrumbs(cardID string) ([]CategoryPath, error) {
 
 // --- Moves ---
 
-func (s *Service) MoveInCategory(cardID, projectID, categoryID string, newPosition int) error {
+func (s *Service) MoveInCategory(cardID, categoryID string, newPosition int) error {
 	r := s.deps.Repo()
 	if r == nil {
 		return fmt.Errorf("no repository open")
 	}
-	if err := r.MoveCardInCategory(cardID, projectID, categoryID, newPosition); err != nil {
+	if err := r.MoveCardInCategory(cardID, categoryID, newPosition); err != nil {
 		return err
 	}
 	if idx := s.deps.Index(); idx != nil {
@@ -674,7 +684,7 @@ func (s *Service) MoveInCategory(cardID, projectID, categoryID string, newPositi
 	return nil
 }
 
-func (s *Service) MoveToCategory(cardID, projectID, fromCategoryID, toCategoryID string, newPosition int) error {
+func (s *Service) MoveToCategory(cardID, fromCategoryID, toCategoryID string, newPosition int) error {
 	r := s.deps.Repo()
 	if r == nil {
 		return fmt.Errorf("no repository open")
@@ -682,7 +692,7 @@ func (s *Service) MoveToCategory(cardID, projectID, fromCategoryID, toCategoryID
 	if err := s.validateCardTypeForCategory(cardID, toCategoryID); err != nil {
 		return err
 	}
-	if err := r.MoveCardToCategory(cardID, projectID, fromCategoryID, toCategoryID, newPosition); err != nil {
+	if err := r.MoveCardToCategory(cardID, fromCategoryID, toCategoryID, newPosition); err != nil {
 		return err
 	}
 	if idx := s.deps.Index(); idx != nil {

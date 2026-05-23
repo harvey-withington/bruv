@@ -31,6 +31,10 @@ Thumbs.db
 *.dll
 *.so
 *.dylib
+# delve writes a debug binary on launch — VS Code's launch.json
+# redirects it to $TEMP, but belt-and-braces against numbered variants
+# (e.g. __debug_bin.exe1149149217) that `*.exe` doesn't catch.
+__debug_bin*
 
 # Claude
 .claude/settings.local.json

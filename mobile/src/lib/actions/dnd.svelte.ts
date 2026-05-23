@@ -1,6 +1,6 @@
 // dnd.svelte.ts — touch + pointer drag-and-drop for sortable card
 // lists on mobile. Used by ProjectPage (move cards between categories
-// and reorder within) and CategoryPage (reorder within one).
+// and reorder within).
 //
 // HTML5 native DnD doesn't fire on touch devices, and `svelte-dnd-action`
 // is more machinery than we need for two surfaces. This is a hand-rolled

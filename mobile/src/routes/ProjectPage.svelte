@@ -2,7 +2,7 @@
   import { onMount, onDestroy, tick } from 'svelte'
   import { ChevronRight, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Search, Plus, MoreVertical, Pencil, Trash2 } from 'lucide-svelte'
   import { repoRPC } from '../lib/auth'
-  import { navigate, cardURL, categoryURL } from '../lib/router.svelte'
+  import { navigate, cardURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
   import { loadProjectTags, projectKey as makeProjectKey } from '../lib/repoMeta.svelte'
   import {
@@ -72,7 +72,7 @@
             // Server-side method takes (projectID, categoryID); the
             // desktop store passes cat.id for both, which is what
             // works in practice — see frontend/src/lib/store.svelte.ts.
-            const ids = (await repoRPC<string[]>('ListCardIDsInCategory', [cat.id, cat.id])) ?? []
+            const ids = (await repoRPC<string[]>('ListCardIDsInCategory', [cat.id])) ?? []
             const fetched = await Promise.all(
               ids.map(async (id) => {
                 try {
@@ -90,9 +90,38 @@
         }),
       )
       categories = populated
-      // First-visit default: expand the first non-empty category if
-      // the user hasn't touched the accordion yet for this project.
-      if (categories.length > 0) {
+      // Hash-driven focus: a #cat=<slug> in the URL (set when arriving
+      // via a pin breadcrumb on a card view) overrides the default
+      // first-non-empty expansion. We force the matching category open
+      // and scroll it into view so the card's "home" is immediately
+      // visible — without this, the user lands at the top of the
+      // project and has to hunt for the category their card lives in.
+      const hashMatch = window.location.hash.match(/^#cat=(.+)$/)
+      const focusSlug = hashMatch ? decodeURIComponent(hashMatch[1]) : null
+      const focusCat = focusSlug ? categories.find((c) => c.slug === focusSlug) : null
+
+      if (focusCat) {
+        // toggleCategoryExpansion inverts state; only call it when the
+        // target is currently closed so we never accidentally collapse
+        // the very category we're trying to focus. Read the store
+        // directly here rather than via the `expanded` $derived above —
+        // the derived chains through `projectID = categories[0]?...`,
+        // which may not have settled in the same tick that we just
+        // assigned `categories = populated`.
+        const currentExpansion = browse.categoryExpansionFor(focusCat.project_id)
+        if (currentExpansion[focusCat.id] !== true) {
+          toggleCategoryExpansion(
+            focusCat.project_id,
+            focusCat.id,
+            categories.map((c) => c.id),
+          )
+        }
+        await tick()
+        const el = document.querySelector(`[data-category-id="${focusCat.id}"]`)
+        if (el) (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'start' })
+      } else if (categories.length > 0) {
+        // First-visit default: expand the first non-empty category if
+        // the user hasn't touched the accordion yet for this project.
         ensureInitialExpansion(
           categories[0].project_id,
           categories.map((c) => ({ id: c.id, cardCount: c.cards.length })),
@@ -270,9 +299,7 @@
   // --- Add card directly into a category -----------------------------
   //
   // Mirrors desktop Board.svelte: CreateCard with the empty-string type
-  // (None — user can pick later), then PinCard to this category. The
-  // PinCard quirk — projectID and categoryID are both the category ID —
-  // is the same one ListCardIDsInCategory and MoveCardToCategory use.
+  // (None — user can pick later), then PinCard to this category.
   // Navigates to the new card so the user can fill in the title and
   // body without an extra hop.
 
@@ -281,7 +308,7 @@
     closeMenu()
     try {
       const card = await repoRPC<{ id: string }>('CreateCard', ['', t('project.default_card_name')])
-      await repoRPC('PinCard', [card.id, cat.id, cat.id])
+      await repoRPC('PinCard', [card.id, cat.id])
       mutationError = null
       navigate(cardURL(card.id))
     } catch (err) {
@@ -301,7 +328,7 @@
         cats.map(async (cat) => {
           let cards: CardSummary[] = []
           try {
-            const ids = (await repoRPC<string[]>('ListCardIDsInCategory', [cat.id, cat.id])) ?? []
+            const ids = (await repoRPC<string[]>('ListCardIDsInCategory', [cat.id])) ?? []
             const fetched = await Promise.all(
               ids.map(async (id) => {
                 try { return await repoRPC<CardSummary>('GetCard', [id]) }
@@ -376,23 +403,15 @@
     toCat.cards = [...toCat.cards.slice(0, toIdx), card, ...toCat.cards.slice(toIdx)]
 
     try {
-      // Quirk: the server's RPC declares its second arg as `projectID`,
-      // but the canonical caller (desktop Board.svelte) passes the
-      // SOURCE category ID there. Pin records on cards use the
-      // category ID where the API names suggest project ID — same
-      // workaround as ListCardIDsInCategory(cat.id, cat.id). Mobile
-      // mirrors what desktop does so the server's pin-lookup matches.
       if (detail.fromCategoryID === detail.toCategoryID) {
         await repoRPC('MoveCardInCategory', [
           detail.cardID,
-          detail.toCategoryID,
           detail.toCategoryID,
           detail.toPosition,
         ])
       } else {
         await repoRPC('MoveCardToCategory', [
           detail.cardID,
-          detail.fromCategoryID,
           detail.fromCategoryID,
           detail.toCategoryID,
           detail.toPosition,
@@ -527,15 +546,6 @@
                 aria-haspopup="menu"
               >
                 <MoreVertical size={16} />
-              </button>
-              <button
-                type="button"
-                class="cat-zoom"
-                onclick={() => navigate(categoryURL(brand, stream, project, cat.slug))}
-                aria-label={t('project.zoom_into_category', { name: cat.name })}
-                title={t('project.zoom_into_category', { name: cat.name })}
-              >
-                <ChevronRight size={16} />
               </button>
             {/if}
           </header>
@@ -717,6 +727,26 @@
     margin: 0;
     padding: 0;
     gap: 0;
+    border-radius: 9px;
+    transition: background 120ms ease;
+  }
+  /* When the category is expanded, the header sits flush against the
+     panel body below — square off the bottom corners so the hover/focus
+     fill follows the panel's rectangle rather than rounding off mid-row. */
+  .category.expanded .cat-header {
+    border-radius: 9px 9px 0 0;
+  }
+  /* Hover (or keyboard-focus on any header button) tints the whole row,
+     including the right-side action buttons. Without this, the
+     individual button hovers only paint themselves, so the highlight
+     looks like it stops two-thirds across the row. */
+  .cat-header:hover,
+  .cat-header:focus-within {
+    background: var(--bg-elev-1);
+  }
+  .category.expanded .cat-header:hover,
+  .category.expanded .cat-header:focus-within {
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
   }
 
   .cat-toggle {
@@ -728,7 +758,6 @@
     padding: 0.65rem 0.6rem;
     background: transparent;
     border: none;
-    border-radius: 8px 0 0 8px;
     color: inherit;
     font: inherit;
     font-size: 0.95rem;
@@ -737,14 +766,8 @@
     text-align: left;
     min-height: 44px;
   }
-  .cat-toggle:hover,
   .cat-toggle:focus-visible {
-    background: var(--bg-elev-1);
     outline: none;
-  }
-  .category.expanded .cat-toggle:hover,
-  .category.expanded .cat-toggle:focus-visible {
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
   }
 
   .caret {
@@ -770,26 +793,6 @@
     font-size: 0.75rem;
     color: var(--text-faint);
     margin-right: 0.25rem;
-  }
-
-  .cat-zoom {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: none;
-    border-radius: 0 8px 8px 0;
-    color: var(--text-faint);
-    cursor: pointer;
-    padding: 0 0.55rem;
-    min-width: 44px;
-    min-height: 44px;
-  }
-  .cat-zoom:hover,
-  .cat-zoom:focus-visible {
-    color: var(--accent);
-    background: var(--bg-elev-1);
-    outline: none;
   }
 
   .cat-body {
@@ -898,7 +901,6 @@
   .cat-add-card:hover,
   .cat-add-card:focus-visible {
     color: var(--text);
-    background: var(--bg-elev-1);
     outline: none;
   }
 
@@ -919,7 +921,6 @@
   .row-kebab:hover,
   .row-kebab:focus-visible {
     color: var(--text);
-    background: var(--bg-elev-1);
     outline: none;
   }
   .row-menu {

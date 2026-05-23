@@ -30,6 +30,20 @@
       }
     },
     {
+      "label": "wails: build & run",
+      "type": "shell",
+      "command": "${workspaceFolder}/build/bin/bruv-1.0.exe",
+      "isBackground": true,
+      "dependsOn": "wails: build",
+      "problemMatcher": [],
+      "detail": "Builds the production desktop binary, then launches it. No debugger attached — use 'Debug: Client with internal server' if you need breakpoints.",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
       "label": "wails: build installer (Windows)",
       "type": "shell",
       "command": "wails build -platform windows/amd64 -nsis -trimpath",
@@ -71,11 +85,27 @@
       }
     },
     {
-      "label": "go: test all",
+      "label": "go: test internal",
       "type": "shell",
       "command": "go test ./internal/... -v -count=1",
       "group": "test",
       "problemMatcher": ["$go"],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "go: test all",
+      "type": "shell",
+      "command": "go test ./... -count=1",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": ["$go"],
+      "detail": "Runs the entire Go test suite (core/, internal/, transport/, ...). Slower than 'go: test internal' but catches regressions outside internal/.",
       "presentation": {
         "reveal": "always",
         "panel": "dedicated",

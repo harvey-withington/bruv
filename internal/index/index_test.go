@@ -233,20 +233,20 @@ func TestPinIndexAndQuery(t *testing.T) {
 		t.Fatalf("IndexPins c2: %v", err)
 	}
 
-	ids, err := idx.ListCardIDsInCategory("proj-a", "cat-1")
+	ids, err := idx.ListCardIDsInCategory("cat-1")
 	if err != nil {
 		t.Fatalf("ListCardIDsInCategory: %v", err)
 	}
 	if len(ids) != 2 {
-		t.Errorf("proj-a/cat-1: got %d cards, want 2", len(ids))
+		t.Errorf("cat-1: got %d cards, want 2", len(ids))
 	}
 	if ids[0] != "c1" || ids[1] != "c2" {
-		t.Errorf("proj-a/cat-1 order: got %v, want [c1, c2]", ids)
+		t.Errorf("cat-1 order: got %v, want [c1, c2]", ids)
 	}
 
-	ids, _ = idx.ListCardIDsInCategory("proj-b", "cat-2")
+	ids, _ = idx.ListCardIDsInCategory("cat-2")
 	if len(ids) != 1 || ids[0] != "c1" {
-		t.Errorf("proj-b/cat-2: got %v, want [c1]", ids)
+		t.Errorf("cat-2: got %v, want [c1]", ids)
 	}
 }
 
@@ -265,8 +265,9 @@ func TestFullRebuild(t *testing.T) {
 	card2, _ := r.CreateCard("task", "Write tests")
 	card3, _ := r.CreateCard("brainstorm", "Future ideas")
 
-	r.PinCard(card1.ID, proj.ID, cat.ID)
-	r.PinCard(card2.ID, proj.ID, cat.ID)
+	r.PinCard(card1.ID, cat.ID)
+	r.PinCard(card2.ID, cat.ID)
+	_ = proj // proj fixture left for clarity; pin keys on category alone now
 
 	// Full rebuild
 	stats, err := idx.FullRebuild(r.Root)
@@ -293,7 +294,7 @@ func TestFullRebuild(t *testing.T) {
 	}
 
 	// Pin query should work
-	ids, _ := idx.ListCardIDsInCategory(proj.ID, cat.ID)
+	ids, _ := idx.ListCardIDsInCategory(cat.ID)
 	if len(ids) != 2 {
 		t.Errorf("category cards after rebuild: got %d, want 2", len(ids))
 	}

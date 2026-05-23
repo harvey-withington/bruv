@@ -381,13 +381,17 @@ func (idx *Index) SearchOrphanedCards(query string, limit int) ([]SearchResult, 
 	return results, rows.Err()
 }
 
-// ListCardIDsInCategory returns card IDs pinned to a specific project/category, ordered by position.
-func (idx *Index) ListCardIDsInCategory(projectID, categoryID string) ([]string, error) {
+// ListCardIDsInCategory returns card IDs pinned to a specific category,
+// ordered by position. Keys on category_id alone — older rows where
+// project_id != category_id (legacy buggy writes) are still returned,
+// and DISTINCT collapses any duplicate (card_id, *, category_id) rows
+// that may exist from cross-version writes.
+func (idx *Index) ListCardIDsInCategory(categoryID string) ([]string, error) {
 	rows, err := idx.db.Query(`
-		SELECT card_id FROM pins
-		WHERE project_id = ? AND category_id = ?
+		SELECT DISTINCT card_id FROM pins
+		WHERE category_id = ?
 		ORDER BY position`,
-		projectID, categoryID,
+		categoryID,
 	)
 	if err != nil {
 		return nil, err

@@ -56,7 +56,7 @@ func ExportProject(r *repo.Repository, brandSlug, streamSlug, projectSlug string
 	cards := make([]ExportedCard, 0)
 	seen := make(map[string]bool) // card dedup: a card pinned to multiple cats still exports once
 	for _, cat := range categories {
-		pins, _ := r.ListCardsInCategory(cat.ID, cat.ID)
+		pins, _ := r.ListCardsInCategory(cat.ID)
 		for _, p := range pins {
 			if seen[p.CardID] {
 				continue

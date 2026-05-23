@@ -1,4 +1,4 @@
-import type { BackendAdapter, EventCallback, CardTypeInfo, CardTemplate, UserCardType } from '@shared/types'
+import type { BackendAdapter, EventCallback, CardTypeInfo, CardTemplate, UserCardType, ProjectMember } from '@shared/types'
 
 /**
  * In-memory mock adapter for testing.
@@ -108,6 +108,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     UpdateProjectDescription: async () => ({ slug: 'test-project', name: 'Test Project' }),
     UpdateProjectIcon: async () => ({ slug: 'test-project', name: 'Test Project' }),
     DeleteProject: async () => {},
+    GetProjectMembers: async () => [],
 
     CreateCategory: async () => ({ slug: 'test-category', name: 'Test Category' }),
     ListCategories: async () => [],
@@ -261,11 +262,11 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     UpdateCardComment: async () => ({ id: 'mock', author: 'Test', created_at: '', updated_at: '', text: '' }),
     DeleteCardComment: async () => {},
 
-    ImportTrelloBoard: async () => ({
+    ImportTrelloBoard: async (brandSlug: string, streamSlug: string, filePath: string, archiveMode: any, apiKey?: string, apiToken?: string) => ({
       project_slug: 'mock', project_name: 'Mock', categories: 0, cards: 0,
       labels: 0, comments: 0, archived: 0, skipped_closed: 0,
     }),
-    ImportTrelloBoardFromJSON: async () => ({
+    ImportTrelloBoardFromJSON: async (brandSlug: string, streamSlug: string, jsonContent: string, archiveMode: any, apiKey?: string, apiToken?: string) => ({
       project_slug: 'mock', project_name: 'Mock', categories: 0, cards: 0,
       labels: 0, comments: 0, archived: 0, skipped_closed: 0,
     }),

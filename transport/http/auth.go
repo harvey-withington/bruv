@@ -11,6 +11,13 @@ import (
 // only useful against POST /auth/enrol (see requireBootstrap).
 func requireAuth(store *DeviceStore, next nethttp.Handler) nethttp.Handler {
 	return nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		// Bypass bearer token check for signed attachment URLs. These are verified
+		// using HMAC-SHA256 signature/expiry check inside attachmentHandler.
+		if strings.Contains(r.URL.Path, "/attachments/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		provided := extractBearer(r)
 		if provided == "" {
 			nethttp.Error(w, `{"error":"missing bearer token"}`, nethttp.StatusUnauthorized)

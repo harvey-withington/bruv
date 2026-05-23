@@ -406,6 +406,7 @@
         {:else if block.type === 'image'}
           <ImageBlock
             value={block.value as string | { url: string; caption?: string } | null}
+            cardId={cardId}
             onUpdate={(val) => {
               if (!card) return
               block.value = val

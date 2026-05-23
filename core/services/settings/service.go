@@ -7,7 +7,11 @@
 // is formally extracted.
 package settings
 
-import "bruv/internal/config"
+import (
+	"encoding/json"
+
+	"bruv/internal/config"
+)
 
 // Service exposes user preference + profile operations.
 type Service struct{}
@@ -21,8 +25,8 @@ func (s *Service) GetPreferences() (config.Preferences, error) {
 }
 
 // SetPreferences persists user preferences.
-func (s *Service) SetPreferences(p config.Preferences) error {
-	return config.SavePreferences(p)
+func (s *Service) SetPreferences(p json.RawMessage) error {
+	return config.UpdatePreferencesPartial(p)
 }
 
 // GetProfile returns the user display profile.

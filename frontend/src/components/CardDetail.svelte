@@ -1,10 +1,10 @@
 <script lang="ts">
   import { GetCard, UpdateCardTitle, UpdateCardType, RefreshTypeBlocks, UpdateCardDescription, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
-    DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, AddProjectLabel, GetProjectLabels, GetCategoryAcceptedTypes, GetAgentConfig } from '@shared/api'
+    DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, AddProjectLabel, GetProjectLabels, GetCategoryAcceptedTypes, GetAgentConfig, GetProjectMembers, ListCardComments } from '@shared/api'
   import { onEvent } from '../lib/events'
   import { projectTags, nav, getTagColor, getTagIcon, cardTypes } from '../lib/store.svelte'
   import DynamicIcon from './DynamicIcon.svelte'
-  import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, BotMessageSquare, ChevronDown, ChevronsUpDown, ChevronsDownUp, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell, ClipboardList } from 'lucide-svelte'
+  import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, BotMessageSquare, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell, ClipboardList, MessageSquare, Paperclip } from 'lucide-svelte'
   import { renderMarkdown } from '@shared/markdown'
   import { t } from '../lib/i18n.svelte'
   import MentionPicker from './MentionPicker.svelte'
@@ -43,13 +43,15 @@
 
   let card = $state<Card | null>(null)
   let loading = $state(true)
-  // notFound = the card doesn't exist (or no longer exists). Hit when
-  // a stale link in Inbox / Activity points at a deleted card. We
-  // surface a friendly "Card no longer exists" panel rather than an
-  // empty modal + cryptic toast — the user knows immediately why
-  // nothing's loading and can close out.
   let notFound = $state(false)
   let pinBreadcrumbs = $state<CardPin[]>([])
+  let projectMembers = $state<any[]>([])
+  let assignedMembers = $derived(
+    (card?.members || []).map(mId => {
+      const pm = projectMembers.find(m => m.id === mId)
+      return pm ? pm.fullName || pm.username || mId : mId
+    })
+  )
   // svelte-ignore state_referenced_locally
   let acceptedTypes = $state<string[] | undefined>(categoryAcceptedTypes)
   let hasAgent = $state(false)
@@ -92,6 +94,10 @@
   let activeTab = $state<'details' | 'agent' | 'runs'>(initialTab ?? readStoredTab() ?? 'details')
   $effect(() => { localStorage.setItem(CHAT_VISIBLE_KEY, String(showChat)) })
   $effect(() => { localStorage.setItem(ACTIVE_TAB_KEY, activeTab) })
+
+  let activeMetaTab = $state<'attachments' | 'comments'>('attachments')
+  let commentCount = $state(0)
+  let metaPanelCollapsed = $state(false)
 
   // Splitter: redistributes space between main and chat when chat is open.
   // Default is 880px so Details/Agent/Runs tabs all render at the same
@@ -503,9 +509,17 @@
       if (autoEditTitle) editingTitle = true
       // Check if card has an agent configured
       try { const af = await GetAgentConfig(cardId); hasAgent = af?.config?.enabled ?? false } catch { hasAgent = false }
+      // Load comment count
+      try {
+        const comments = await ListCardComments(cardId) || []
+        commentCount = comments.length
+      } catch (e) {
+        console.error('load comments count', e)
+      }
       // Refresh project tags so new tags (e.g. added by AI) get their colors
       if (nav.brandSlug && nav.streamSlug && nav.projectSlug) {
         try { projectTags.list = await GetProjectLabels(nav.brandSlug, nav.streamSlug, nav.projectSlug) || [] } catch {}
+        try { projectMembers = await GetProjectMembers(nav.brandSlug, nav.streamSlug, nav.projectSlug) || [] } catch {}
       }
     } catch (e) {
       // Backend returns "card %q not found" for missing cards (the
@@ -1148,7 +1162,7 @@
         <AgentRunsTab {cardId} />
       </div>
       <div class="modal-body" hidden={activeTab !== 'details'}>
-        <!-- Standard fields: compact 2-column grid + FAB in third column -->
+        <!-- Standard fields: compact flex layout for responsiveness -->
         <div class="fields-grid">
           <div class="field-cell">
             <span class="field-label">{t('card.due_date')}</span>
@@ -1159,7 +1173,20 @@
               onchange={handleDueDateChange}
             />
           </div>
-          <div class="field-cell">
+          {#if assignedMembers.length > 0}
+            <div class="field-cell">
+              <span class="field-label">Assignees</span>
+              <div class="assignees-list">
+                {#each assignedMembers as name}
+                  <span class="assignee-chip" title={name}>
+                    <span class="assignee-avatar">{name.slice(0, 2).toUpperCase()}</span>
+                    <span class="assignee-name">{name}</span>
+                  </span>
+                {/each}
+              </div>
+            </div>
+          {/if}
+          <div class="field-cell tags-cell">
             <span class="field-label">{t('card.tags')}</span>
             <div class="tags-list">
               {#each (card.tags || []) as tag}
@@ -1264,36 +1291,87 @@
           {/if}
         </div>
 
-        <!-- Card comments — first-class thread, not a block -->
-        <CardComments {cardId} />
+
 
       </div>
 
-      <!-- Card-level attachments (pinned between scrollable body and footer) -->
+      <!-- Card-level attachments & comments tabbed panel (pinned between scrollable body and footer) -->
       {#if activeTab === 'details'}
-        <div class="card-attachments-pinned">
-          <div class="add-block-toolbar">
-            <button class="add-block-btn" bind:this={addBlockBtnEl} onclick={() => showBlockPicker = !showBlockPicker} title={t('tooltip.add_block')}>
-              <Plus size={12} />
-              <span>{t('tooltip.add_block')}</span>
-            </button>
-            {#if showBlockPicker && addBlockBtnEl}
-              <div class="add-block-picker" use:floatingDropdown={{ trigger: addBlockBtnEl }}>
-                {#each BLOCK_OPTIONS as opt}
-                  {@const Icon = BLOCK_ICON_MAP[opt.icon]}
-                  <button class="block-picker-item" onclick={() => { addBlock(opt.type); showBlockPicker = false }} title={opt.label}>
-                    <Icon size={14} />
-                    <span>{opt.label}</span>
-                  </button>
-                {/each}
-              </div>
-            {/if}
+        <div class="card-meta-tabs-pinned" class:collapsed={metaPanelCollapsed}>
+          <div class="meta-tabs-header">
+            <div class="meta-tabs-buttons">
+              <button
+                class="meta-collapse-btn"
+                onclick={() => metaPanelCollapsed = !metaPanelCollapsed}
+                title={metaPanelCollapsed ? t('tooltip.expand_block') : t('tooltip.collapse_block')}
+              >
+                {#if metaPanelCollapsed}
+                  <ChevronRight size={14} />
+                {:else}
+                  <ChevronDown size={14} />
+                {/if}
+              </button>
+
+              <button
+                class="meta-tab-btn"
+                class:active={activeMetaTab === 'attachments'}
+                onclick={() => { activeMetaTab = 'attachments'; metaPanelCollapsed = false }}
+              >
+                <Paperclip size={13} />
+                <span>{t('attachment.title')}</span>
+                {#if card.file_attachments?.length > 0}
+                  <span class="meta-count">{card.file_attachments.length}</span>
+                {/if}
+              </button>
+
+              <button
+                class="meta-tab-btn"
+                class:active={activeMetaTab === 'comments'}
+                onclick={() => { activeMetaTab = 'comments'; metaPanelCollapsed = false }}
+              >
+                <MessageSquare size={13} />
+                <span>{t('comments.title')}</span>
+                {#if commentCount > 0}
+                  <span class="meta-count">{commentCount}</span>
+                {/if}
+              </button>
+            </div>
+
+            <div class="add-block-toolbar">
+              <button class="add-block-btn" bind:this={addBlockBtnEl} onclick={() => showBlockPicker = !showBlockPicker} title={t('tooltip.add_block')}>
+                <Plus size={12} />
+                <span>{t('tooltip.add_block')}</span>
+              </button>
+              {#if showBlockPicker && addBlockBtnEl}
+                <div class="add-block-picker" use:floatingDropdown={{ trigger: addBlockBtnEl }}>
+                  {#each BLOCK_OPTIONS as opt}
+                    {@const Icon = BLOCK_ICON_MAP[opt.icon]}
+                    <button class="block-picker-item" onclick={() => { addBlock(opt.type); showBlockPicker = false }} title={opt.label}>
+                      <Icon size={14} />
+                      <span>{opt.label}</span>
+                    </button>
+                  {/each}
+                </div>
+              {/if}
+            </div>
           </div>
-          <CardAttachments
-            {cardId}
-            attachments={card.file_attachments || []}
-            onCardUpdated={handleAttachmentUpdate}
-          />
+
+          {#if !metaPanelCollapsed}
+            <div class="meta-tab-content">
+              {#if activeMetaTab === 'attachments'}
+                <CardAttachments
+                  {cardId}
+                  attachments={card.file_attachments || []}
+                  onCardUpdated={handleAttachmentUpdate}
+                />
+              {:else if activeMetaTab === 'comments'}
+                <CardComments
+                  {cardId}
+                  bind:count={commentCount}
+                />
+              {/if}
+            </div>
+          {/if}
         </div>
       {/if}
 
@@ -1599,16 +1677,61 @@
   .date-input:focus { border-color: var(--accent); }
 
   .fields-grid {
-    display: grid;
-    grid-template-columns: auto 1fr 40px;
-    gap: 0.5rem 1rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.5rem;
     align-items: start;
+    margin-bottom: 0.5rem;
   }
 
   .field-cell {
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
+  }
+
+  .tags-cell {
+    flex: 1;
+    min-width: 200px;
+  }
+
+  .assignees-list {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .assignee-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 0.15rem 0.6rem 0.15rem 0.2rem;
+    font-size: 0.75rem;
+    color: var(--text-body);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+
+  .assignee-avatar {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .assignee-name {
+    font-weight: 500;
+    white-space: nowrap;
   }
 
   .field-label {
@@ -1674,10 +1797,140 @@
     flex-shrink: 1;
   }
 
-  .card-attachments-pinned {
+  .card-meta-tabs-pinned {
     flex-shrink: 0;
-    padding: 0 1.25rem;
+    padding: 0.5rem 1.25rem 0.75rem 1.25rem;
     border-top: 1px solid var(--border-muted);
+    background: var(--bg-surface);
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .card-meta-tabs-pinned.collapsed {
+    padding-bottom: 0.5rem;
+  }
+
+  .meta-tabs-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border-muted);
+    position: relative;
+  }
+
+  .meta-collapse-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    padding: 0.25rem;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-radius: 4px;
+    margin-right: 0.15rem;
+    transition: background var(--duration-fast), color var(--duration-fast);
+  }
+  .meta-collapse-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-elevated);
+  }
+
+  .meta-tabs-buttons {
+    display: flex;
+    gap: 0.25rem;
+  }
+
+  .meta-tab-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.5rem 0.6rem;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    position: relative;
+    transition: color var(--duration-fast);
+  }
+
+  .meta-tab-btn::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: transparent;
+    transition: background var(--duration-fast);
+  }
+
+  .meta-tab-btn:hover {
+    color: var(--text-primary);
+  }
+
+  .meta-tab-btn.active {
+    color: var(--accent);
+  }
+
+  .meta-tab-btn.active::after {
+    background: var(--accent);
+  }
+
+  .meta-count {
+    font-size: 0.65rem;
+    font-weight: 600;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0 0.3rem;
+    color: var(--text-muted);
+    margin-left: 0.15rem;
+  }
+
+  .meta-tab-btn.active .meta-count {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .meta-tab-content {
+    height: 12rem;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .add-block-toolbar {
+    position: relative;
+    display: flex;
+    align-items: center;
+    top: -1.45rem;
+  }
+  .add-block-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    background: #22c55e;
+    border: 1px solid #22c55e;
+    border-radius: 4px;
+    padding: 0.15rem 0.55rem 0.15rem 0.35rem;
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background var(--duration-normal), transform var(--duration-fast);
+    z-index: 1;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  }
+  .add-block-btn:hover {
+    background: #16a34a;
+    border-color: #16a34a;
   }
 
   .modal-footer {
@@ -1747,34 +2000,7 @@
     background: var(--bg-elevated);
   }
 
-  .add-block-toolbar {
-    position: relative;
-    height: 0;
-  }
-  .add-block-btn {
-    position: absolute;
-    right: 0.5rem;
-    top: 50%;
-    transform: translateY(-50%);
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-    background: #22c55e;
-    border: 1px solid #22c55e;
-    border-radius: 4px;
-    padding: 0.15rem 0.55rem 0.15rem 0.35rem;
-    color: #fff;
-    font-size: 0.75rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background var(--duration-normal), transform var(--duration-fast);
-    z-index: 1;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
-  }
-  .add-block-btn:hover {
-    background: #16a34a;
-    border-color: #16a34a;
-  }
+
 
   :global(.add-block-picker) {
     background: var(--bg-surface);

@@ -322,6 +322,14 @@ func (s *Service) DeleteProject(brandSlug, streamSlug, projectSlug string) error
 	return err
 }
 
+func (s *Service) GetProjectMembers(brandSlug, streamSlug, projectSlug string) ([]model.ProjectMember, error) {
+	r := s.deps.Repo()
+	if r == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return r.GetProjectMembers(brandSlug, streamSlug, projectSlug)
+}
+
 // --- Category ---
 
 func (s *Service) CreateCategory(brandSlug, streamSlug, projectSlug, name string, position int) (*model.Category, error) {

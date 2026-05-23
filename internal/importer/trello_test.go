@@ -1,8 +1,11 @@
 package importer
 
 import (
+	"bytes"
 	"bruv/internal/model"
 	"bruv/internal/repo"
+	"io"
+	"net/http"
 	"testing"
 	"time"
 )
@@ -26,22 +29,23 @@ const fixtureBoard = `{
   ],
   "cards": [
     {
-      "id": "card-1",
+      "id": "507f1f77bcf86cd799439011",
       "name": "First card",
       "desc": "This is the description.",
       "closed": false,
       "idList": "list-todo",
       "idLabels": ["lbl-red"],
       "idChecklists": ["chk-1"],
+      "idMembers": ["m-1"],
       "due": "2026-05-01T09:00:00.000Z",
       "pos": 1000,
       "attachments": [
-        {"id": "att-1", "name": "diagram.png", "url": "https://example.com/diagram.png", "mimeType": "image/png"},
-        {"id": "att-2", "name": "spec", "url": "https://example.com/spec.pdf", "mimeType": "application/pdf"}
+        {"id": "att-1", "name": "diagram.png", "url": "https://example.com/diagram.png", "mimeType": "image/png", "isUpload": true},
+        {"id": "att-2", "name": "spec", "url": "https://example.com/spec.pdf", "mimeType": "application/pdf", "isUpload": true}
       ]
     },
     {
-      "id": "card-2",
+      "id": "507f1f77bcf86cd799439022",
       "name": "Second card",
       "desc": "",
       "closed": false,
@@ -53,7 +57,7 @@ const fixtureBoard = `{
       "attachments": []
     },
     {
-      "id": "card-3",
+      "id": "507f1f77bcf86cd799439033",
       "name": "Archived card",
       "desc": "This was done.",
       "closed": true,
@@ -69,7 +73,7 @@ const fixtureBoard = `{
     {
       "id": "chk-1",
       "name": "Subtasks",
-      "idCard": "card-1",
+      "idCard": "507f1f77bcf86cd799439011",
       "checkItems": [
         {"id": "ci-1", "name": "Sketch it", "state": "complete", "pos": 1000},
         {"id": "ci-2", "name": "Build it",  "state": "incomplete", "pos": 2000}
@@ -82,11 +86,26 @@ const fixtureBoard = `{
       "type": "commentCard",
       "date": "2026-04-10T12:34:56.000Z",
       "memberCreator": {"fullName": "Harvey", "username": "harvey"},
-      "data": {"text": "This needs clarifying.", "card": {"id": "card-1"}}
+      "data": {"text": "This needs clarifying.", "card": {"id": "507f1f77bcf86cd799439011"}}
     }
   ],
   "members": [{"id": "m-1", "fullName": "Harvey", "username": "harvey"}]
 }`
+
+type mockTransport struct{}
+
+func (m *mockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	header := make(http.Header)
+	header.Set("Content-Type", "image/png")
+	return &http.Response{
+		StatusCode: 200,
+		Proto:      "HTTP/1.1",
+		ProtoMajor: 1,
+		ProtoMinor: 1,
+		Body:       io.NopCloser(bytes.NewReader([]byte("fake data"))),
+		Header:     header,
+	}, nil
+}
 
 // setupImporterRepo creates a fresh repo with a brand + stream ready for imports.
 func setupImporterRepo(t *testing.T) *repo.Repository {
@@ -102,6 +121,14 @@ func setupImporterRepo(t *testing.T) *repo.Repository {
 	if _, err := r.CreateStream("test-brand", "Main"); err != nil {
 		t.Fatalf("CreateStream: %v", err)
 	}
+
+	// Override default transport to mock downloads
+	oldTransport := http.DefaultClient.Transport
+	http.DefaultClient.Transport = &mockTransport{}
+	t.Cleanup(func() {
+		http.DefaultClient.Transport = oldTransport
+	})
+
 	return r
 }
 
@@ -211,16 +238,52 @@ func TestImportTrello_ArchiveSkip(t *testing.T) {
 	if card.Description != "This is the description." {
 		t.Errorf("Description = %q, want %q", card.Description, "This is the description.")
 	}
-	// Expect 3 blocks: checklist, image, url. The description used
-	// to be the first block (key="description") but now lives on the
-	// card directly, so the block list is one shorter than before.
-	wantTypes := []string{model.BlockChecklist, model.BlockImage, model.BlockURL}
+	// Expect only 1 block: checklist. The description lives on the card
+	// directly, and the upload attachments land in card.FileAttachments rather
+	// than being duplicated as blocks.
+	wantTypes := []string{model.BlockChecklist}
 	if len(card.Blocks) != len(wantTypes) {
 		t.Fatalf("blocks = %d (%v), want %d", len(card.Blocks), blockTypes(card.Blocks), len(wantTypes))
 	}
 	for i, wt := range wantTypes {
 		if card.Blocks[i].Type != wt {
 			t.Errorf("block[%d].Type = %q, want %q", i, card.Blocks[i].Type, wt)
+		}
+	}
+
+	// Verify creation and update times extracted from ObjectID and actions
+	expectedCreated := time.Unix(1350508407, 0).UTC() // 507f1f77... -> 1350508407
+	if !card.CreatedAt.Equal(expectedCreated) {
+		t.Errorf("card CreatedAt = %v, want %v", card.CreatedAt, expectedCreated)
+	}
+	expectedUpdated, _ := time.Parse(time.RFC3339, "2026-04-10T12:34:56Z")
+	if !card.UpdatedAt.Equal(expectedUpdated) {
+		t.Errorf("card UpdatedAt = %v, want %v", card.UpdatedAt, expectedUpdated)
+	}
+
+	// Verify card members
+	if len(card.Members) != 1 || card.Members[0] != "m-1" {
+		t.Errorf("card members = %v, want [m-1]", card.Members)
+	}
+
+	// Verify project members
+	pm, err := r.GetProjectMembers("test-brand", "main", result.ProjectSlug)
+	if err != nil {
+		t.Fatalf("GetProjectMembers: %v", err)
+	}
+	if len(pm) != 1 || pm[0].ID != "m-1" || pm[0].FullName != "Harvey" || pm[0].Username != "harvey" {
+		t.Errorf("project members = %+v, want m-1 (Harvey, harvey)", pm)
+	}
+
+	// Verify local file attachments
+	if len(card.FileAttachments) != 2 {
+		t.Errorf("card FileAttachments length = %d, want 2", len(card.FileAttachments))
+	} else {
+		if card.FileAttachments[0].Name != "diagram.png" {
+			t.Errorf("attachment[0].Name = %q, want diagram.png", card.FileAttachments[0].Name)
+		}
+		if card.FileAttachments[1].Name != "spec" {
+			t.Errorf("attachment[1].Name = %q, want spec", card.FileAttachments[1].Name)
 		}
 	}
 

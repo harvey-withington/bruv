@@ -1,11 +1,14 @@
 <script lang="ts">
   import { t } from '../lib/i18n.svelte'
+  import { SignAttachmentURL } from '@shared/api'
 
   let {
     value,
+    cardId,
     onUpdate
   }: {
     value: string | { url: string; caption?: string } | null
+    cardId: string
     onUpdate: (value: { url: string; caption?: string }) => void
   } = $props()
 
@@ -15,6 +18,23 @@
     (value && typeof value === 'object' && 'url' in value) ? value as { url: string; caption?: string } :
     { url: '', caption: '' }
   )
+
+  let resolvedURL = $state('')
+
+  $effect(() => {
+    const url = imgData.url
+    if (url && url.startsWith('att-')) {
+      SignAttachmentURL(cardId, url)
+        .then(path => {
+          resolvedURL = path
+        })
+        .catch(() => {
+          resolvedURL = ''
+        })
+    } else {
+      resolvedURL = url
+    }
+  })
 
   // Draft state seeded once from the incoming value. The edit flow writes
   // back through onUpdate, so drafts don't need to track prop changes.
@@ -55,7 +75,7 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div class="image-display" onclick={() => { urlDraft = imgData.url; captionDraft = imgData.caption || ''; editing = true }}>
-      <img src={imgData.url} alt={imgData.caption || ''} class="block-image" />
+      <img src={resolvedURL} alt={imgData.caption || ''} class="block-image" />
       {#if imgData.caption}
         <p class="image-caption">{imgData.caption}</p>
       {/if}

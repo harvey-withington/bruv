@@ -23,8 +23,9 @@ function apply(t: Theme): void {
   html.classList.add(`theme-${t}`)
 }
 
-let _theme = $state<Theme>(read())
-apply(_theme)
+const initialTheme = read()
+let _theme = $state<Theme>(initialTheme)
+apply(initialTheme)
 
 export const theme = {
   get current(): Theme {

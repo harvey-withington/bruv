@@ -48,7 +48,7 @@ func (s *Service) UpdateDescription(description string) error {
 
 // --- Import / Export ---
 
-func (s *Service) ImportTrelloBoard(brandSlug, streamSlug, filePath, archiveMode string) (*importer.Result, error) {
+func (s *Service) ImportTrelloBoard(brandSlug, streamSlug, filePath, archiveMode, apiKey, apiToken string) (*importer.Result, error) {
 	r := s.deps.Repo()
 	if r == nil {
 		return nil, fmt.Errorf("no repository open")
@@ -57,18 +57,18 @@ func (s *Service) ImportTrelloBoard(brandSlug, streamSlug, filePath, archiveMode
 	if err != nil {
 		return nil, fmt.Errorf("read file: %w", err)
 	}
-	return s.importTrelloBytes(brandSlug, streamSlug, data, archiveMode)
+	return s.importTrelloBytes(brandSlug, streamSlug, data, archiveMode, apiKey, apiToken)
 }
 
-func (s *Service) ImportTrelloBoardFromJSON(brandSlug, streamSlug, jsonContent, archiveMode string) (*importer.Result, error) {
+func (s *Service) ImportTrelloBoardFromJSON(brandSlug, streamSlug, jsonContent, archiveMode, apiKey, apiToken string) (*importer.Result, error) {
 	r := s.deps.Repo()
 	if r == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
-	return s.importTrelloBytes(brandSlug, streamSlug, []byte(jsonContent), archiveMode)
+	return s.importTrelloBytes(brandSlug, streamSlug, []byte(jsonContent), archiveMode, apiKey, apiToken)
 }
 
-func (s *Service) importTrelloBytes(brandSlug, streamSlug string, data []byte, archiveMode string) (*importer.Result, error) {
+func (s *Service) importTrelloBytes(brandSlug, streamSlug string, data []byte, archiveMode, apiKey, apiToken string) (*importer.Result, error) {
 	parsed, err := importer.ParseTrelloJSON(data)
 	if err != nil {
 		return nil, err
@@ -85,7 +85,11 @@ func (s *Service) importTrelloBytes(brandSlug, streamSlug string, data []byte, a
 	}
 
 	r := s.deps.Repo()
-	result, err := importer.ImportTrello(r, brandSlug, streamSlug, parsed, importer.Options{Archive: mode})
+	result, err := importer.ImportTrello(r, brandSlug, streamSlug, parsed, importer.Options{
+		Archive:  mode,
+		APIKey:   apiKey,
+		APIToken: apiToken,
+	})
 	if err != nil {
 		return nil, err
 	}

@@ -2,7 +2,7 @@
 
 import { getBackend } from './adapters'
 
-export type { UserProfile, AuthInfo, LLMConfig, LLMAccount, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard, AgentConfig, AgentRun, AgentFile, AgentStatus, AgentSummary, AgentRunEntry, AgentAnalytics, AppNotification, NotifyConfig, ModelPricing, BuildInfo, UpdateCheckResult, CardTypesImportMode, CardTypesImportResult, MCPServerSpec, MCPServerView, MCPServerHealth, MCPHealthStatus, MCPServerViewTool, Connection, ConnectionStore } from './types'
+export type { UserProfile, AuthInfo, LLMConfig, LLMAccount, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard, AgentConfig, AgentRun, AgentFile, AgentStatus, AgentSummary, AgentRunEntry, AgentAnalytics, AppNotification, NotifyConfig, ModelPricing, BuildInfo, UpdateCheckResult, CardTypesImportMode, CardTypesImportResult, MCPServerSpec, MCPServerView, MCPServerHealth, MCPHealthStatus, MCPServerViewTool, Connection, ConnectionStore, ProjectMember } from './types'
 
 // Capabilities
 export const getCapabilities = () => getBackend().getCapabilities()
@@ -89,6 +89,7 @@ export const RenameProject = (...args: Parameters<ReturnType<typeof getBackend>[
 export const UpdateProjectDescription = (...args: Parameters<ReturnType<typeof getBackend>['UpdateProjectDescription']>) => getBackend().UpdateProjectDescription(...args)
 export const UpdateProjectIcon = (...args: Parameters<ReturnType<typeof getBackend>['UpdateProjectIcon']>) => getBackend().UpdateProjectIcon(...args)
 export const DeleteProject = (...args: Parameters<ReturnType<typeof getBackend>['DeleteProject']>) => getBackend().DeleteProject(...args)
+export const GetProjectMembers = (...args: Parameters<ReturnType<typeof getBackend>['GetProjectMembers']>) => getBackend().GetProjectMembers(...args)
 
 // Category CRUD
 export const CreateCategory = (...args: Parameters<ReturnType<typeof getBackend>['CreateCategory']>) => getBackend().CreateCategory(...args)

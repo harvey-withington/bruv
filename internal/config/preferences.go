@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 )
+
+var prefsMu sync.Mutex
 
 // Preferences holds user-level application settings.
 type Preferences struct {
@@ -18,6 +21,9 @@ type Preferences struct {
 	InboxRecentCardsLimit int    `json:"inbox_recent_cards_limit"` // max cards shown in Recently Updated panel
 	InboxActivityLimit     int  `json:"inbox_activity_limit"`     // max entries shown in Activity feed
 	SidebarCollapseDefault bool `json:"sidebar_collapse_default"` // if true, tree starts fully collapsed on load
+
+	TrelloAPIKey   string `json:"trello_api_key"`
+	TrelloAPIToken string `json:"trello_api_token"`
 
 	// Due-date notifications
 	DueDateNotify     bool     `json:"due_date_notify"`
@@ -57,6 +63,12 @@ func prefsPath() (string, error) {
 
 // LoadPreferences reads preferences from disk, returning defaults if not found.
 func LoadPreferences() (Preferences, error) {
+	prefsMu.Lock()
+	defer prefsMu.Unlock()
+	return loadPreferencesUnlocked()
+}
+
+func loadPreferencesUnlocked() (Preferences, error) {
 	p := DefaultPreferences()
 	path, err := prefsPath()
 	if err != nil {
@@ -77,6 +89,12 @@ func LoadPreferences() (Preferences, error) {
 
 // SavePreferences writes preferences to disk.
 func SavePreferences(p Preferences) error {
+	prefsMu.Lock()
+	defer prefsMu.Unlock()
+	return savePreferencesUnlocked(p)
+}
+
+func savePreferencesUnlocked(p Preferences) error {
 	path, err := prefsPath()
 	if err != nil {
 		return err
@@ -86,4 +104,19 @@ func SavePreferences(p Preferences) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+// UpdatePreferencesPartial merges partial JSON bytes into the loaded preferences.
+func UpdatePreferencesPartial(raw []byte) error {
+	prefsMu.Lock()
+	defer prefsMu.Unlock()
+
+	p, err := loadPreferencesUnlocked()
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return err
+	}
+	return savePreferencesUnlocked(p)
 }

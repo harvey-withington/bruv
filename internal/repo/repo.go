@@ -281,6 +281,10 @@ func (r *Repository) projectFilePath(brandSlug, streamSlug, projectSlug string) 
 	return filepath.Join(r.projectPath(brandSlug, streamSlug, projectSlug), "project.json")
 }
 
+func (r *Repository) projectMembersFilePath(brandSlug, streamSlug, projectSlug string) string {
+	return filepath.Join(r.projectPath(brandSlug, streamSlug, projectSlug), "members.json")
+}
+
 func (r *Repository) categoriesPath(brandSlug, streamSlug, projectSlug string) string {
 	return filepath.Join(r.projectPath(brandSlug, streamSlug, projectSlug), categoriesDir)
 }

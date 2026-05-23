@@ -8,6 +8,10 @@ import (
 	"bruv/internal/repo"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -84,6 +88,7 @@ type TrelloCard struct {
 	IDList       string             `json:"idList"`
 	IDLabels     []string           `json:"idLabels"`
 	IDChecklists []string           `json:"idChecklists"`
+	IDMembers    []string           `json:"idMembers"`
 	Due          *time.Time         `json:"due"`
 	Pos          float64            `json:"pos"`
 	Attachments  []TrelloAttachment `json:"attachments"`
@@ -156,7 +161,9 @@ const (
 
 // Options tunes an import run.
 type Options struct {
-	Archive ArchiveMode
+	Archive  ArchiveMode
+	APIKey   string
+	APIToken string
 }
 
 // Result summarises what the importer did.
@@ -231,6 +238,19 @@ func ImportTrello(r *repo.Repository, brandSlug, streamSlug string, parsed *Pars
 	// Persist the board description (if any) as the project description.
 	if board.Desc != "" {
 		_, _ = r.UpdateProjectDescription(brandSlug, streamSlug, project.Slug, board.Desc)
+	}
+
+	// 1b) Write project-scoped members to members.json.
+	projectMembers := make([]model.ProjectMember, 0, len(board.Members))
+	for _, tm := range board.Members {
+		projectMembers = append(projectMembers, model.ProjectMember{
+			ID:       tm.ID,
+			FullName: tm.FullName,
+			Username: tm.Username,
+		})
+	}
+	if err := r.SaveProjectMembers(brandSlug, streamSlug, project.Slug, projectMembers); err != nil {
+		return nil, fmt.Errorf("save project members: %w", err)
 	}
 
 	result := &Result{
@@ -412,7 +432,27 @@ func ImportTrello(r *repo.Repository, brandSlug, streamSlug string, parsed *Pars
 			return nil, fmt.Errorf("create card %q: %w", title, err)
 		}
 
-		blocks := buildCardBlocks(tc, parsed.Checklists)
+		// Download attachments first so we have the local IDs
+		localAttachments := make(map[string]string)
+		var fileAttachments []model.FileAttachment
+		for _, att := range tc.Attachments {
+			if att.URL == "" {
+				continue
+			}
+			if !att.IsUpload {
+				continue
+			}
+			fa, err := downloadAndSaveAttachment(r, card.ID, tc.ID, att, opts.APIKey, opts.APIToken)
+			if err != nil {
+				// Non-fatal: log warning and continue so the import succeeds.
+				fmt.Printf("Warning: failed to download attachment %s: %v\n", att.Name, err)
+				continue
+			}
+			fileAttachments = append(fileAttachments, *fa)
+			localAttachments[att.URL] = fa.ID
+		}
+
+		blocks := buildCardBlocks(tc, parsed.Checklists, localAttachments)
 
 		// Due date
 		var dueDate *time.Time
@@ -436,15 +476,20 @@ func ImportTrello(r *repo.Repository, brandSlug, streamSlug string, parsed *Pars
 			}
 		}
 
-		if _, err := r.UpdateCard(card.ID, func(c *model.Card) {
-			c.Blocks = blocks
-			c.DueDate = dueDate
-			c.Labels = labelIDs
-			c.Tags = tagNames
-			// Description is now an intrinsic field on the card —
-			// no more denormalised Fields-map mirror.
-			c.Description = strings.TrimSpace(tc.Desc)
-		}); err != nil {
+		// Update card details directly, overriding timestamps
+		card.Blocks = blocks
+		card.DueDate = dueDate
+		card.Labels = labelIDs
+		card.Tags = tagNames
+		card.Description = strings.TrimSpace(tc.Desc)
+		card.Members = tc.IDMembers
+		card.FileAttachments = fileAttachments
+
+		// Extract creation and update dates
+		card.CreatedAt = extractTimeFromObjectID(tc.ID)
+		card.UpdatedAt = findLatestActionDate(board.Actions, tc.ID, card.CreatedAt)
+
+		if err := r.UpdateCardDirect(card.ID, card); err != nil {
 			return nil, fmt.Errorf("update imported card %q: %w", title, err)
 		}
 
@@ -491,7 +536,7 @@ func findListActive(lists []TrelloList, id string) (TrelloList, bool) {
 // The Trello card's description is NOT included here — it lands on
 // card.Description (the intrinsic field) via the caller, not as a
 // block. The block list is for structured content only.
-func buildCardBlocks(tc TrelloCard, checklists map[string]TrelloChecklist) []model.Block {
+func buildCardBlocks(tc TrelloCard, checklists map[string]TrelloChecklist, localAttachments map[string]string) []model.Block {
 	blocks := make([]model.Block, 0, 3)
 
 	// Checklists → one checklist block each
@@ -524,9 +569,13 @@ func buildCardBlocks(tc TrelloCard, checklists map[string]TrelloChecklist) []mod
 		})
 	}
 
-	// Attachments → image block for image MIMEs, URL block otherwise.
+	// Attachments → URL block for link attachments. Upload attachments are skipped
+	// here since they land in card.FileAttachments and are rendered in the list.
 	for _, att := range tc.Attachments {
 		if att.URL == "" {
+			continue
+		}
+		if att.IsUpload {
 			continue
 		}
 		if isImageAttachment(att) {
@@ -578,4 +627,100 @@ func isImageAttachment(att TrelloAttachment) bool {
 
 func newBlockID() string {
 	return fmt.Sprintf("blk-%s", uuid.New().String()[:8])
+}
+
+// extractTimeFromObjectID extracts the creation time from a 24-character hex MongoDB ObjectID.
+// The first 8 hex characters represent the seconds since epoch in big-endian.
+func extractTimeFromObjectID(id string) time.Time {
+	if len(id) != 24 {
+		return time.Now().UTC()
+	}
+	var sec int64
+	_, err := fmt.Sscanf(id[:8], "%x", &sec)
+	if err != nil {
+		return time.Now().UTC()
+	}
+	return time.Unix(sec, 0).UTC()
+}
+
+// findLatestActionDate returns the latest timestamp of an action on a card, or falls back to defaultTime.
+func findLatestActionDate(actions []TrelloAction, cardID string, defaultTime time.Time) time.Time {
+	latest := defaultTime
+	for _, act := range actions {
+		if act.Data.Card.ID == cardID {
+			if act.Date.After(latest) {
+				latest = act.Date
+			}
+		}
+	}
+	return latest
+}
+
+// downloadAndSaveAttachment fetches the attachment from the URL and saves it to the repo attachments path.
+func downloadAndSaveAttachment(r *repo.Repository, bruvCardID, trelloCardID string, att TrelloAttachment, apiKey, apiToken string) (*model.FileAttachment, error) {
+	targetURL := att.URL
+	if apiKey != "" && apiToken != "" {
+		// If it's a Trello attachment, download it via the Trello API endpoint which redirects to a fresh S3 URL.
+		// Appending key/token directly to an expired S3 URL will fail signature checks on Amazon S3.
+		if strings.Contains(targetURL, "trello-attachments.s3.amazonaws.com") || strings.Contains(targetURL, "api.trello.com") {
+			targetURL = fmt.Sprintf("https://api.trello.com/1/cards/%s/attachments/%s/download/%s", trelloCardID, att.ID, url.PathEscape(att.Name))
+		}
+	}
+
+	req, err := http.NewRequest("GET", targetURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if apiKey != "" && apiToken != "" {
+		// Trello's attachment download endpoint does not support key/token query parameters.
+		// It requires authenticating via the Authorization OAuth header.
+		// Go's http.Client automatically strips this header on redirecting to S3, which prevents S3 from rejecting the request.
+		req.Header.Set("Authorization", fmt.Sprintf(`OAuth oauth_consumer_key="%s", oauth_token="%s"`, apiKey, apiToken))
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		// Mask token in error URL if printing targetURL to prevent leaking in logs, but printing body is safe and helpful
+		return nil, fmt.Errorf("HTTP status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	dir := filepath.Join(r.Root, "attachments", bruvCardID)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, err
+	}
+
+	id := fmt.Sprintf("att-%s", uuid.New().String())
+	filePath := filepath.Join(dir, id)
+	out, err := os.Create(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer out.Close()
+
+	n, err := io.Copy(out, resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	mime := att.MimeType
+	if mime == "" {
+		mime = resp.Header.Get("Content-Type")
+	}
+	if mime == "" {
+		mime = repo.DetectMime(att.Name)
+	}
+
+	return &model.FileAttachment{
+		ID:      id,
+		Name:    fallbackAttachmentName(att),
+		Mime:    mime,
+		Size:    n,
+		AddedAt: time.Now().UTC().Format(time.RFC3339),
+	}, nil
 }

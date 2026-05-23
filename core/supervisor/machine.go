@@ -24,6 +24,7 @@ package supervisor
 // point: it works regardless of repo state.
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"bruv/internal/config"
@@ -61,7 +62,7 @@ var errPushNotConfigured = fmt.Errorf("push notifications are not configured on 
 // --- Preferences / Profile / Auth ---
 
 func (m *MachineService) GetPreferences() (config.Preferences, error) { return config.LoadPreferences() }
-func (m *MachineService) SetPreferences(p config.Preferences) error   { return config.SavePreferences(p) }
+func (m *MachineService) SetPreferences(p json.RawMessage) error       { return config.UpdatePreferencesPartial(p) }
 func (m *MachineService) GetProfile() (config.UserProfile, error)     { return config.LoadProfile() }
 func (m *MachineService) SetProfile(p config.UserProfile) error       { return config.SaveProfile(p) }
 func (m *MachineService) GetAuthInfo() config.AuthInfo                { return config.GetLocalAuthInfo() }

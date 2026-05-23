@@ -201,6 +201,9 @@ func (r *Runtime) RenameProject(brandSlug, streamSlug, projectSlug, newName stri
 func (r *Runtime) UpdateProjectDescription(brandSlug, streamSlug, projectSlug, description string) (*model.Project, error) {
 	return r.Project.UpdateProjectDescription(brandSlug, streamSlug, projectSlug, description)
 }
+func (r *Runtime) GetProjectMembers(brandSlug, streamSlug, projectSlug string) ([]model.ProjectMember, error) {
+	return r.Project.GetProjectMembers(brandSlug, streamSlug, projectSlug)
+}
 func (r *Runtime) UpdateProjectIcon(brandSlug, streamSlug, projectSlug, icon string) (*model.Project, error) {
 	return r.Project.UpdateProjectIcon(brandSlug, streamSlug, projectSlug, icon)
 }
@@ -742,12 +745,12 @@ func coerceBlockValueForBlock(b *model.Block, val any) (any, error) {
 // Domain logic lives in core/services/repository.
 
 
-func (r *Runtime) ImportTrelloBoard(brandSlug, streamSlug, filePath, archiveMode string) (*importer.Result, error) {
-	return r.Repository.ImportTrelloBoard(brandSlug, streamSlug, filePath, archiveMode)
+func (r *Runtime) ImportTrelloBoard(brandSlug, streamSlug, filePath, archiveMode, apiKey, apiToken string) (*importer.Result, error) {
+	return r.Repository.ImportTrelloBoard(brandSlug, streamSlug, filePath, archiveMode, apiKey, apiToken)
 }
 
-func (r *Runtime) ImportTrelloBoardFromJSON(brandSlug, streamSlug, jsonContent, archiveMode string) (*importer.Result, error) {
-	return r.Repository.ImportTrelloBoardFromJSON(brandSlug, streamSlug, jsonContent, archiveMode)
+func (r *Runtime) ImportTrelloBoardFromJSON(brandSlug, streamSlug, jsonContent, archiveMode, apiKey, apiToken string) (*importer.Result, error) {
+	return r.Repository.ImportTrelloBoardFromJSON(brandSlug, streamSlug, jsonContent, archiveMode, apiKey, apiToken)
 }
 
 // ExportProjectToFile writes a project export to the given absolute path.

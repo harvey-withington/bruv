@@ -253,7 +253,7 @@ func (r *Repository) AddCardAttachment(cardID, name, data string) (*model.Card, 
 		card.FileAttachments = append(card.FileAttachments, model.FileAttachment{
 			ID:      id,
 			Name:    name,
-			Mime:    detectMime(name),
+			Mime:    DetectMime(name),
 			Size:    int64(len(decoded)),
 			AddedAt: time.Now().UTC().Format(time.RFC3339),
 		})
@@ -298,12 +298,13 @@ func (r *Repository) FindAttachment(cardID, attachmentID string) (*model.FileAtt
 }
 
 // base64Decode decodes a base64 string.
+// base64Decode decodes a base64 string.
 func base64Decode(data string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(data)
 }
 
-// detectMime returns a MIME type guess from the file extension.
-func detectMime(name string) string {
+// DetectMime returns a MIME type guess from the file extension.
+func DetectMime(name string) string {
 	lower := strings.ToLower(name)
 	switch {
 	case strings.HasSuffix(lower, ".jpg"), strings.HasSuffix(lower, ".jpeg"):

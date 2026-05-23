@@ -73,6 +73,12 @@ export type CardComment = {
 
 export type TrelloArchiveMode = 'skip' | 'archive' | 'inline'
 
+export type ProjectMember = {
+  id: string
+  fullName: string
+  username: string
+}
+
 export type TrelloImportResult = {
   project_slug: string
   project_name: string
@@ -106,6 +112,7 @@ export type Card = {
   created_at: string
   blocks: Block[]
   file_attachments: Attachment[]
+  members?: string[]
 }
 
 export type CardPin = {
@@ -584,6 +591,7 @@ export interface BackendAdapter {
   UpdateProjectDescription(brandSlug: string, streamSlug: string, projectSlug: string, description: string): Promise<any>
   UpdateProjectIcon(brandSlug: string, streamSlug: string, projectSlug: string, icon: string): Promise<any>
   DeleteProject(brandSlug: string, streamSlug: string, projectSlug: string): Promise<void>
+  GetProjectMembers(brandSlug: string, streamSlug: string, projectSlug: string): Promise<ProjectMember[]>
 
   // Category CRUD
   CreateCategory(brandSlug: string, streamSlug: string, projectSlug: string, name: string, position: number): Promise<any>
@@ -754,8 +762,8 @@ export interface BackendAdapter {
   DeleteCardComment(cardID: string, commentID: string): Promise<void>
 
   // Import / Export
-  ImportTrelloBoard(brandSlug: string, streamSlug: string, filePath: string, archiveMode: TrelloArchiveMode): Promise<TrelloImportResult>
-  ImportTrelloBoardFromJSON(brandSlug: string, streamSlug: string, jsonContent: string, archiveMode: TrelloArchiveMode): Promise<TrelloImportResult>
+  ImportTrelloBoard(brandSlug: string, streamSlug: string, filePath: string, archiveMode: TrelloArchiveMode, apiKey?: string, apiToken?: string): Promise<TrelloImportResult>
+  ImportTrelloBoardFromJSON(brandSlug: string, streamSlug: string, jsonContent: string, archiveMode: TrelloArchiveMode, apiKey?: string, apiToken?: string): Promise<TrelloImportResult>
   ExportProjectToFile(brandSlug: string, streamSlug: string, projectSlug: string, filePath: string): Promise<number>
 
   // Due-date notifications

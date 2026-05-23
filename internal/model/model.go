@@ -86,6 +86,13 @@ type Label struct {
 	Icon  string `json:"icon,omitempty"`
 }
 
+// ProjectMember represents a user who is a member of a project.
+type ProjectMember struct {
+	ID       string `json:"id"`
+	FullName string `json:"full_name"`
+	Username string `json:"username"`
+}
+
 // ContextLevel controls how much repository context the LLM receives for a card.
 type ContextLevel string
 
@@ -215,6 +222,7 @@ type Card struct {
 	DueDate         *time.Time       `json:"due_date"`
 	Tags            []string         `json:"tags"`
 	Labels          []string         `json:"labels,omitempty"` // label IDs from project's tags.json
+	Members         []string         `json:"members,omitempty"` // member IDs/usernames
 	Blocks          []Block          `json:"blocks"`
 	FileAttachments []FileAttachment `json:"file_attachments,omitempty"`
 }

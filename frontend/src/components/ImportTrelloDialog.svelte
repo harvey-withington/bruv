@@ -4,7 +4,7 @@
   import { t } from '../lib/i18n.svelte'
   import { focusTrap } from '../lib/actions'
   import { showToast } from '../lib/toast.svelte'
-  import { ImportTrelloBoardFromJSON } from '@shared/api'
+  import { ImportTrelloBoardFromJSON, GetPreferences, SetPreferences } from '@shared/api'
   import type { TrelloArchiveMode, TrelloImportResult } from '@shared/types'
 
   let {
@@ -31,9 +31,28 @@
   let fileName = $state('')
   let fileInputEl = $state<HTMLInputElement | null>(null)
   let archiveMode = $state<TrelloArchiveMode>('archive')
+  let apiKey = $state('')
+  let apiToken = $state('')
   let importing = $state(false)
   let errorMsg = $state('')
   let dragActive = $state(false)
+
+  // Load saved credentials from backend preferences on mount
+  $effect(() => {
+    loadPrefs()
+  })
+
+  async function loadPrefs() {
+    try {
+      const prefs = await GetPreferences()
+      if (prefs) {
+        apiKey = prefs.trello_api_key || ''
+        apiToken = prefs.trello_api_token || ''
+      }
+    } catch (e) {
+      console.error('Failed to load preferences', e)
+    }
+  }
 
   const ARCHIVE_CHOICES: Array<{ value: TrelloArchiveMode; label: string; hint: string }> = [
     { value: 'archive', label: t('import.trello.archive.archive'), hint: t('import.trello.archive.archive_hint') },
@@ -108,7 +127,18 @@
     importing = true
     errorMsg = ''
     try {
-      const result = await ImportTrelloBoardFromJSON(brandSlug, streamSlug, fileContent, archiveMode)
+      const result = await ImportTrelloBoardFromJSON(brandSlug, streamSlug, fileContent, archiveMode, apiKey || undefined, apiToken || undefined)
+      
+      // Save credentials back to backend preferences
+      try {
+        const prefs = await GetPreferences() || {}
+        prefs.trello_api_key = apiKey
+        prefs.trello_api_token = apiToken
+        await SetPreferences(prefs)
+      } catch (pe) {
+        console.error('Failed to save preferences', pe)
+      }
+
       showToast(
         t('import.trello.success', {
           project: result.project_name,
@@ -181,6 +211,29 @@
             class="import-file-input"
           />
         </div>
+      </div>
+
+      <div class="import-field">
+        <span class="import-label">Trello API Credentials (Optional)</span>
+        <div class="import-creds-row">
+          <input
+            type="text"
+            placeholder="API Key"
+            bind:value={apiKey}
+            class="import-input"
+            disabled={importing}
+          />
+          <input
+            type="password"
+            placeholder="API Token"
+            bind:value={apiToken}
+            class="import-input"
+            disabled={importing}
+          />
+        </div>
+        <p class="import-help-text">
+          Required to download attachments from private boards. Get yours at <a href="https://trello.com/app-key" target="_blank" rel="noopener noreferrer">trello.com/app-key</a>.
+        </p>
       </div>
 
       <div class="import-field">
@@ -288,6 +341,43 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--text-muted);
+  }
+
+  .import-creds-row {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .import-input {
+    flex: 1;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    font-family: inherit;
+    transition: border-color 0.15s;
+  }
+
+  .import-input:focus {
+    border-color: var(--accent);
+    outline: none;
+  }
+
+  .import-help-text {
+    margin: 0.2rem 0 0;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+
+  .import-help-text a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  .import-help-text a:hover {
+    text-decoration: underline;
   }
 
   .import-dropzone {

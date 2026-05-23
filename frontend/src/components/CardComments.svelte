@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { MessageSquare, Pencil, Trash2, Check, X } from 'lucide-svelte'
+  import { Pencil, Trash2, Check, X } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
@@ -12,13 +12,17 @@
   } from '@shared/api'
   import type { CardComment } from '@shared/types'
 
-  let { cardId }: { cardId: string } = $props()
+  let { cardId, count = $bindable(0) }: { cardId: string; count?: number } = $props()
 
   let comments = $state<CardComment[]>([])
   let draft = $state('')
   let posting = $state(false)
   let editingId = $state<string | null>(null)
   let editDraft = $state('')
+
+  $effect(() => {
+    count = comments.length
+  })
 
   onMount(load)
 
@@ -127,11 +131,6 @@
 </script>
 
 <section class="comments-section">
-  <header class="comments-header">
-    <MessageSquare size={14} />
-    <h3 class="comments-title">{t('comments.title')}</h3>
-    <span class="comments-count">{comments.length}</span>
-  </header>
 
   {#if comments.length === 0}
     <p class="comments-empty">{t('comments.empty')}</p>
@@ -202,37 +201,18 @@
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    padding: 0.75rem 0;
-    border-top: 1px solid var(--border);
-    margin-top: 0.75rem;
+    padding: 0.35rem 0;
+    height: 100%;
+    min-height: 0;
   }
 
-  .comments-header {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    color: var(--text-muted);
-  }
-  .comments-title {
-    margin: 0;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-  .comments-count {
-    font-size: 0.7rem;
-    color: var(--text-faint);
-    background: var(--bg-elevated);
-    padding: 0.05rem 0.4rem;
-    border-radius: 10px;
-  }
 
   .comments-empty {
     font-size: 0.8rem;
     color: var(--text-muted);
     font-style: italic;
     margin: 0;
+    flex: 1;
   }
 
   .comments-list {
@@ -242,6 +222,9 @@
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+    flex: 1;
+    overflow-y: auto;
+    padding-right: 0.25rem;
   }
 
   .comment {

@@ -4,7 +4,7 @@
   import { onEvent } from '../lib/events'
   import { projectTags, nav, getTagColor, getTagIcon, cardTypes } from '../lib/store.svelte'
   import DynamicIcon from './DynamicIcon.svelte'
-  import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, BotMessageSquare, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell, ClipboardList, MessageSquare, Paperclip, History, Timer } from 'lucide-svelte'
+  import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, BotMessageSquare, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell, ClipboardList, MessageSquare, Paperclip, History, Timer } from 'lucide-svelte'
   import { renderMarkdown } from '@shared/markdown'
   import { t } from '../lib/i18n.svelte'
   import MentionPicker from './MentionPicker.svelte'
@@ -341,15 +341,42 @@
     Type, ListChecks, List, Film, Link, Minus, ChevronDown, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell, ClipboardList,
   }
 
-  // --- Block collapse/expand ---
+  // --- Block collapse/expand + accordion mode ---
+  //
+  // Session-only collapsed state (Set<block.id>); accordion mode is
+  // persisted across sessions in localStorage. Shared key with mobile
+  // so the preference can converge through user prefs in future.
+  // Dividers are always shown — BlockItem ignores their collapsed
+  // flag — so we filter them out of bulk collapse / single-mode logic.
+  const BLOCK_ACCORDION_MODE_KEY = 'bruv:blockAccordionMode'
+  type AccordionMode = 'single' | 'multi'
+  function readBlockAccordionMode(): AccordionMode {
+    const v = localStorage.getItem(BLOCK_ACCORDION_MODE_KEY)
+    return v === 'multi' ? 'multi' : 'single'
+  }
   let collapsedBlocks = $state<Set<string>>(new Set())
+  let blockAccordionMode = $state<AccordionMode>(readBlockAccordionMode())
   // Expanded text blocks (override max-height scroll)
   let expandedTextBlocks = $state<Set<string>>(new Set())
 
+  function isCollapsibleBlock(b: Block): boolean {
+    return b.key !== 'description' && b.type !== 'divider'
+  }
+
   function toggleBlockCollapse(blockId: string) {
     const next = new Set(collapsedBlocks)
-    if (next.has(blockId)) next.delete(blockId)
-    else next.add(blockId)
+    if (next.has(blockId)) {
+      // Expanding. In single mode, collapse every other collapsible
+      // block first so only this one stays open.
+      if (blockAccordionMode === 'single' && card) {
+        for (const b of card.blocks) {
+          if (b.id !== blockId && isCollapsibleBlock(b)) next.add(b.id)
+        }
+      }
+      next.delete(blockId)
+    } else {
+      next.add(blockId)
+    }
     collapsedBlocks = next
   }
 
@@ -360,6 +387,27 @@
 
   function expandAllBlocks() {
     collapsedBlocks = new Set()
+  }
+
+  // Switching INTO single mode: keep the topmost currently-open block
+  // open, collapse the rest. Switching to multi is a no-op.
+  function applySingleModeCollapse() {
+    if (!card) return
+    const collapsible = card.blocks.filter(isCollapsibleBlock)
+    const open = collapsible.filter(b => !collapsedBlocks.has(b.id))
+    if (open.length <= 1) return
+    const keepOpen = open[0].id
+    const next = new Set(collapsedBlocks)
+    for (const b of collapsible) {
+      if (b.id !== keepOpen) next.add(b.id)
+    }
+    collapsedBlocks = next
+  }
+
+  function toggleAccordionMode() {
+    blockAccordionMode = blockAccordionMode === 'single' ? 'multi' : 'single'
+    try { localStorage.setItem(BLOCK_ACCORDION_MODE_KEY, blockAccordionMode) } catch { /* private mode, etc. */ }
+    if (blockAccordionMode === 'single') applySingleModeCollapse()
   }
 
   function toggleTextExpand(blockId: string) {
@@ -1227,7 +1275,7 @@
           onBlur={handleDescBlur}
         />
 
-        <!-- Block toolbar: divider line with expand/collapse when multiple blocks -->
+        <!-- Block toolbar: divider line with expand/collapse + single/multi mode when multiple blocks -->
         <div class="block-toolbar-divider">
           {#if (card.blocks || []).filter(b => b.key !== 'description' && b.type !== 'divider').length > 1}
             <div class="block-toolbar-group">
@@ -1236,6 +1284,18 @@
               </button>
               <button class="block-toolbar-btn" onclick={collapseAllBlocks} title={t('block.collapse_all')}>
                 <ChevronsDownUp size={12} />
+              </button>
+              <button
+                class="block-toolbar-btn"
+                onclick={toggleAccordionMode}
+                aria-label={blockAccordionMode === 'single' ? t('block.mode_single') : t('block.mode_multi')}
+                title={blockAccordionMode === 'single' ? t('block.mode_single_hint') : t('block.mode_multi_hint')}
+              >
+                {#if blockAccordionMode === 'single'}
+                  <ListCollapse size={12} />
+                {:else}
+                  <ListTree size={12} />
+                {/if}
               </button>
             </div>
           {/if}

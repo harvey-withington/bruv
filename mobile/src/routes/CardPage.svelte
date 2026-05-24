@@ -3,7 +3,7 @@
   import { repoRPC } from '../lib/auth'
   import { navigate, projectURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
-  import { Trash2, MapPin, Plus, X, RefreshCw, Search, Paperclip, MessageSquare } from 'lucide-svelte'
+  import { Trash2, MapPin, Plus, X, RefreshCw, Search, Paperclip, MessageSquare, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree } from 'lucide-svelte'
   import EditableText from '../components/EditableText.svelte'
   import EditableDescription from '../components/EditableDescription.svelte'
   import TagsEditor from '../components/TagsEditor.svelte'
@@ -53,6 +53,82 @@
   let savingBlocks = $state(false)
   let savedFlash = $state(false)
   let savedFlashTimer: ReturnType<typeof setTimeout> | null = null
+
+  // --- Block expand/collapse + accordion mode ---
+  //
+  // Session-only collapsed state, keyed by stable block.id (per
+  // CLAUDE.md — never index-based). Mode preference (single vs multi)
+  // persists across cards/sessions in localStorage; same storage key
+  // as the desktop equivalent so the choice carries across platforms
+  // when both use the shared backing user prefs in future.
+  const BLOCK_ACCORDION_MODE_KEY = 'bruv:blockAccordionMode'
+  type AccordionMode = 'single' | 'multi'
+  function readBlockAccordionMode(): AccordionMode {
+    const v = typeof localStorage !== 'undefined' ? localStorage.getItem(BLOCK_ACCORDION_MODE_KEY) : null
+    return v === 'multi' ? 'multi' : 'single'
+  }
+  let collapsedBlocks = $state<Set<string>>(new Set())
+  let blockAccordionMode = $state<AccordionMode>(readBlockAccordionMode())
+
+  function isCollapsibleBlock(b: Block): boolean {
+    return b.type !== 'divider'
+  }
+
+  // Number of blocks that can actually collapse — drives toolbar
+  // visibility. One collapsible block doesn't need expand-all/single
+  // controls; the per-block chevron is enough.
+  const collapsibleBlockCount = $derived(
+    (card?.blocks ?? []).filter(isCollapsibleBlock).length,
+  )
+
+  function toggleBlockCollapse(blockID: string) {
+    const next = new Set(collapsedBlocks)
+    if (next.has(blockID)) {
+      // Expanding this block. In single mode, collapse every other
+      // collapsible block first so only this one remains open.
+      if (blockAccordionMode === 'single' && card) {
+        for (const b of card.blocks) {
+          if (b.id !== blockID && isCollapsibleBlock(b)) next.add(b.id)
+        }
+      }
+      next.delete(blockID)
+    } else {
+      next.add(blockID)
+    }
+    collapsedBlocks = next
+  }
+
+  function expandAllBlocks() {
+    collapsedBlocks = new Set()
+  }
+
+  function collapseAllBlocks() {
+    if (!card) return
+    collapsedBlocks = new Set(card.blocks.filter(isCollapsibleBlock).map((b) => b.id))
+  }
+
+  // Switching INTO single mode: collapse all but one currently-open
+  // block (preferring the first one in card order so the user keeps
+  // the same visual anchor). Switching to multi is a no-op — multi is
+  // a superset of single's allowed states.
+  function applySingleModeCollapse() {
+    if (!card) return
+    const collapsible = card.blocks.filter(isCollapsibleBlock)
+    const openBlocks = collapsible.filter((b) => !collapsedBlocks.has(b.id))
+    if (openBlocks.length <= 1) return
+    const keepOpen = openBlocks[0].id
+    const next = new Set(collapsedBlocks)
+    for (const b of collapsible) {
+      if (b.id !== keepOpen) next.add(b.id)
+    }
+    collapsedBlocks = next
+  }
+
+  function toggleAccordionMode() {
+    blockAccordionMode = blockAccordionMode === 'single' ? 'multi' : 'single'
+    try { localStorage.setItem(BLOCK_ACCORDION_MODE_KEY, blockAccordionMode) } catch { /* private mode, etc. */ }
+    if (blockAccordionMode === 'single') applySingleModeCollapse()
+  }
 
   onMount(async () => {
     try {
@@ -530,6 +606,41 @@
     </section>
 
     {#if card.blocks?.length}
+      {#if collapsibleBlockCount > 1}
+        <div class="block-acc-toolbar" role="toolbar" aria-label={t('block.accordion_toolbar')}>
+          <button
+            type="button"
+            class="block-tool-btn"
+            onclick={expandAllBlocks}
+            aria-label={t('block.expand_all')}
+            title={t('block.expand_all')}
+          >
+            <ChevronsUpDown size={14} />
+          </button>
+          <button
+            type="button"
+            class="block-tool-btn"
+            onclick={collapseAllBlocks}
+            aria-label={t('block.collapse_all')}
+            title={t('block.collapse_all')}
+          >
+            <ChevronsDownUp size={14} />
+          </button>
+          <button
+            type="button"
+            class="block-tool-btn mode-btn"
+            onclick={toggleAccordionMode}
+            aria-label={blockAccordionMode === 'single' ? t('block.mode_single') : t('block.mode_multi')}
+            title={blockAccordionMode === 'single' ? t('block.mode_single_hint') : t('block.mode_multi_hint')}
+          >
+            {#if blockAccordionMode === 'single'}
+              <ListCollapse size={14} />
+            {:else}
+              <ListTree size={14} />
+            {/if}
+          </button>
+        </div>
+      {/if}
       <section
         class="blocks"
         data-drop-target="block-list"
@@ -545,8 +656,10 @@
           <BlockEditor
             {block}
             cardId={card.id}
+            collapsed={collapsedBlocks.has(block.id)}
             onChange={(next) => updateBlock(block.id, next)}
             onDelete={() => deleteBlock(block.id)}
+            onToggleCollapse={isCollapsibleBlock(block) ? () => toggleBlockCollapse(block.id) : undefined}
           />
         {/each}
       </section>
@@ -971,6 +1084,44 @@
     border-top: 1px solid var(--border);
     padding-top: 1.25rem;
     margin-bottom: 2rem;
+  }
+
+  /* When the accordion toolbar sits above the blocks list, the
+     toolbar owns the top divider so the two read as one section. */
+  .block-acc-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    border-top: 1px solid var(--border);
+    padding: 0.65rem 0.25rem 0.55rem;
+  }
+  .block-acc-toolbar + .blocks {
+    border-top: none;
+    padding-top: 0;
+  }
+  .block-tool-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 6px;
+    width: 34px;
+    height: 34px;
+    cursor: pointer;
+    padding: 0;
+    touch-action: manipulation;
+  }
+  .block-tool-btn:hover,
+  .block-tool-btn:focus-visible {
+    color: var(--text);
+    border-color: var(--text-muted);
+    background: var(--bg-elev-1);
+    outline: none;
+  }
+  .block-tool-btn.mode-btn {
+    margin-left: auto;
   }
 
 

@@ -12,7 +12,7 @@
   // small placeholder rather than crashing.
 
   import { tick, untrack } from 'svelte'
-  import { Trash2, Pencil, Eye, PencilLine } from 'lucide-svelte'
+  import { Trash2, Pencil, Eye, PencilLine, ChevronDown, ChevronRight } from 'lucide-svelte'
   import type { Block } from '@shared/types'
   import { t } from '../../lib/i18n.svelte'
   import ConfirmDialog from '../ConfirmDialog.svelte'
@@ -37,16 +37,25 @@
   let {
     block,
     cardId,
+    collapsed = false,
     onChange,
     onDelete,
+    onToggleCollapse,
   }: {
     block: Block
     /** Card ID — passed to ImageBlock for attachment uploads. */
     cardId: string
+    /** Whether the block body is currently hidden. Divider blocks
+     *  ignore this — they have no body to collapse. */
+    collapsed?: boolean
     onChange: (next: Block) => void
     /** Called when the user taps trash and confirms. Parent should
      *  remove this block from card.blocks and persist. */
     onDelete: () => void
+    /** Tap the chevron to toggle collapse. Parent owns the set so it
+     *  can implement single/multi-expand modes. Omit on blocks that
+     *  can't collapse (e.g. divider) to hide the chevron. */
+    onToggleCollapse?: () => void
   } = $props()
 
   // Block types that show the BlockEditor's own label header. Divider
@@ -54,6 +63,9 @@
   // component); checkbox shows the label inline next to the toggle.
   // For everything else, BlockEditor renders an editable header.
   const ownsLabel = $derived(block.type === 'divider' || block.type === 'checkbox')
+  // Dividers can't meaningfully collapse (they're the divider line)
+  const canCollapse = $derived(block.type !== 'divider' && !!onToggleCollapse)
+  const isCollapsed = $derived(canCollapse && collapsed)
 
   // Inline label rename. untrack: seed once; startLabelEdit() refreshes
   // from the current block.label when the user actually opens the input.
@@ -92,8 +104,27 @@
   }
 </script>
 
-<section class="block" class:has-label={!ownsLabel} data-block-id={block.id}>
+<section class="block" class:has-label={!ownsLabel} class:collapsed={isCollapsed} data-block-id={block.id}>
   <header class="block-toolbar">
+    {#if canCollapse}
+      <button
+        type="button"
+        class="icon-btn chevron-btn"
+        onclick={onToggleCollapse}
+        aria-label={isCollapsed
+          ? t('block.expand', { name: block.label || t('block.unlabelled') })
+          : t('block.collapse', { name: block.label || t('block.unlabelled') })}
+        title={isCollapsed
+          ? t('block.expand', { name: block.label || t('block.unlabelled') })
+          : t('block.collapse', { name: block.label || t('block.unlabelled') })}
+      >
+        {#if isCollapsed}
+          <ChevronRight size={13} />
+        {:else}
+          <ChevronDown size={13} />
+        {/if}
+      </button>
+    {/if}
     {#if !ownsLabel}
       {#if labelEditing}
         <input
@@ -149,7 +180,7 @@
     </button>
   </header>
 
-  <div class="block-body">
+  <div class="block-body" hidden={isCollapsed}>
     {#if block.type === 'text'}
       <TextBlock {block} mode={textMode} {onChange} />
     {:else if block.type === 'checklist'}
@@ -301,6 +332,25 @@
     color: #ef4444;
     border-color: rgba(239, 68, 68, 0.4);
     background: rgba(239, 68, 68, 0.08);
+  }
+
+  /* Chevron is part of the label group — narrow + low-contrast so it
+     doesn't compete with the label text the user is reading. */
+  .chevron-btn {
+    min-width: 24px;
+    min-height: 24px;
+    padding: 0.2rem 0.25rem;
+    margin-right: -0.15rem;
+  }
+
+  /* Collapsed state — toolbar reads as the block's header. The
+     label-btn loses its hover affordance when there's no body to
+     reveal underneath (collapse is the chevron's job). */
+  .block.collapsed {
+    margin-bottom: 0.6rem;
+  }
+  .block.collapsed .block-toolbar {
+    margin-bottom: 0;
   }
 
   .placeholder {

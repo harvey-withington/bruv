@@ -86,6 +86,10 @@ type Options = {
    *  only fires on the action's own drop targets — this widens the
    *  set without affecting the drop-target hit-test. */
   expandOnHoverSelector?: string
+  /** Optional flag to restore the dragged DOM element to its original position
+   *  before calling onMove. Defaults to true. Set to false if Svelte 5 reconciles
+   *  better directly from the manually reordered DOM state. */
+  restoreDOM?: boolean
 }
 
 const LONG_PRESS_MS = 250
@@ -167,6 +171,7 @@ export function dragSortable(node: HTMLElement, options: Options) {
   function makeGhost(row: HTMLElement): HTMLElement {
     const rect = originRect(row)
     const clone = row.cloneNode(true) as HTMLElement
+    clone.classList.add('dnd-ghost')
     clone.style.position = 'fixed'
     clone.style.left = `${rect.left}px`
     clone.style.top = `${rect.top}px`
@@ -335,6 +340,7 @@ export function dragSortable(node: HTMLElement, options: Options) {
     }
     highlightTarget(null)
     if (armed) {
+      node.classList.remove('dnd-active')
       // Restore the page's scroll behaviour. Only undo our overrides
       // if we actually armed — short taps that never armed never
       // touched these styles.
@@ -366,6 +372,7 @@ export function dragSortable(node: HTMLElement, options: Options) {
     originalProjectID = sourceTarget?.getAttribute('data-project-id') ?? ''
     isCopyMode = false
     row.classList.add('dnd-source')
+    node.classList.add('dnd-active')
     // Lock the page's touch-action + overflow so the browser stops
     // interpreting subsequent pointer movement as scroll. setPointer-
     // Capture alone redirects pointer EVENTS to our element, but
@@ -519,18 +526,20 @@ export function dragSortable(node: HTMLElement, options: Options) {
     // a duplicate that lingers until refresh. Snapping back gives
     // Svelte a clean baseline (source has dragRow, destination doesn't)
     // and the upcoming state update remaps cleanly.
-    if (originalParent && originalParent.isConnected) {
-      if (originalNext && originalNext.parentNode === originalParent) {
-        originalParent.insertBefore(dragRow, originalNext)
+    if (opts.restoreDOM !== false) {
+      if (originalParent && originalParent.isConnected) {
+        if (originalNext && originalNext.parentNode === originalParent) {
+          originalParent.insertBefore(dragRow, originalNext)
+        } else {
+          originalParent.appendChild(dragRow)
+        }
       } else {
-        originalParent.appendChild(dragRow)
+        // Source unmounted mid-drag (e.g. single-expand collapsed it).
+        // Detach dragRow rather than leaving it in the destination —
+        // Svelte will re-create it cleanly when its state update for
+        // the destination renders.
+        dragRow.remove()
       }
-    } else {
-      // Source unmounted mid-drag (e.g. single-expand collapsed it).
-      // Detach dragRow rather than leaving it in the destination —
-      // Svelte will re-create it cleanly when its state update for
-      // the destination renders.
-      dragRow.remove()
     }
 
     void ev

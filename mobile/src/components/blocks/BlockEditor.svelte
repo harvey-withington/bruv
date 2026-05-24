@@ -92,7 +92,7 @@
   }
 </script>
 
-<section class="block" class:has-label={!ownsLabel}>
+<section class="block" class:has-label={!ownsLabel} data-block-id={block.id}>
   <header class="block-toolbar">
     {#if !ownsLabel}
       {#if labelEditing}
@@ -149,45 +149,47 @@
     </button>
   </header>
 
-  {#if block.type === 'text'}
-    <TextBlock {block} mode={textMode} {onChange} />
-  {:else if block.type === 'checklist'}
-    <ChecklistBlock {block} {onChange} />
-  {:else if block.type === 'list'}
-    <ListBlock {block} {onChange} />
-  {:else if block.type === 'divider'}
-    <DividerBlock {block} {onChange} />
-  {:else if block.type === 'url'}
-    <UrlBlock {block} {onChange} />
-  {:else if block.type === 'date'}
-    <DateBlock {block} {onChange} />
-  {:else if block.type === 'number'}
-    <NumberBlock {block} {onChange} />
-  {:else if block.type === 'rating'}
-    <RatingBlock {block} {onChange} />
-  {:else if block.type === 'checkbox'}
-    <CheckboxBlock {block} {onChange} />
-  {:else if block.type === 'select'}
-    <SelectBlock {block} {onChange} />
-  {:else if block.type === 'radio'}
-    <RadioBlock {block} {onChange} />
-  {:else if block.type === 'checkbox_group'}
-    <CheckboxGroupBlock {block} {onChange} />
-  {:else if block.type === 'image'}
-    <ImageBlock {block} {cardId} {onChange} />
-  {:else if block.type === 'media'}
-    <MediaBlock {block} />
-  {:else if block.type === 'progress'}
-    <ProgressBlock {block} {onChange} />
-  {:else if block.type === 'alarm'}
-    <AlarmBlock {block} {onChange} />
-  {:else if block.type === 'survey'}
-    <SurveyBlock {block} {onChange} />
-  {:else}
-    <p class="placeholder">
-      {t('block.unsupported_on_mobile', { type: block.type })}
-    </p>
-  {/if}
+  <div class="block-body">
+    {#if block.type === 'text'}
+      <TextBlock {block} mode={textMode} {onChange} />
+    {:else if block.type === 'checklist'}
+      <ChecklistBlock {block} {onChange} />
+    {:else if block.type === 'list'}
+      <ListBlock {block} {onChange} />
+    {:else if block.type === 'divider'}
+      <DividerBlock {block} {onChange} />
+    {:else if block.type === 'url'}
+      <UrlBlock {block} {onChange} />
+    {:else if block.type === 'date'}
+      <DateBlock {block} {onChange} />
+    {:else if block.type === 'number'}
+      <NumberBlock {block} {onChange} />
+    {:else if block.type === 'rating'}
+      <RatingBlock {block} {onChange} />
+    {:else if block.type === 'checkbox'}
+      <CheckboxBlock {block} {onChange} />
+    {:else if block.type === 'select'}
+      <SelectBlock {block} {onChange} />
+    {:else if block.type === 'radio'}
+      <RadioBlock {block} {onChange} />
+    {:else if block.type === 'checkbox_group'}
+      <CheckboxGroupBlock {block} {onChange} />
+    {:else if block.type === 'image'}
+      <ImageBlock {block} {cardId} {onChange} />
+    {:else if block.type === 'media'}
+      <MediaBlock {block} />
+    {:else if block.type === 'progress'}
+      <ProgressBlock {block} {onChange} />
+    {:else if block.type === 'alarm'}
+      <AlarmBlock {block} {onChange} />
+    {:else if block.type === 'survey'}
+      <SurveyBlock {block} {onChange} />
+    {:else}
+      <p class="placeholder">
+        {t('block.unsupported_on_mobile', { type: block.type })}
+      </p>
+    {/if}
+  </div>
 </section>
 
 {#if confirmingDelete}
@@ -205,6 +207,10 @@
   .block {
     margin-bottom: 1.25rem;
     position: relative;
+    touch-action: pan-y;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
   }
 
   .block-toolbar {
@@ -306,5 +312,12 @@
     color: var(--text-faint);
     font-size: 0.85rem;
     font-style: italic;
+  }
+
+  .block-body {
+    transition: max-height 180ms ease, opacity 120ms ease;
+    max-height: 2000px;
+    opacity: 1;
+    overflow: visible;
   }
 </style>

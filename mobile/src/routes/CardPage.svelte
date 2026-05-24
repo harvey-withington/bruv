@@ -17,6 +17,7 @@
   import { getCardTypeColor, getCardTypeTextColor, getCardTypeLabel } from '@shared/cardTypes'
   import { repoMeta, loadProjectTags, projectKey as makeProjectKey } from '../lib/repoMeta.svelte'
   import { onEvent } from '../lib/events.svelte'
+  import { dragSortable, type DragMoveDetail } from '../lib/actions/dnd.svelte'
   import type { Block, Card, CardPin } from '@shared/types'
 
   // Card view + basic edit. Phase 1 scope:
@@ -199,6 +200,40 @@
     savedFlashTimer = setTimeout(() => {
       savedFlash = false
     }, 1200)
+  }
+
+  async function handleBlockMove(detail: DragMoveDetail) {
+    if (!card) return
+    const blockID = detail.cardID
+    const toPosition = detail.toPosition
+
+    const currentIndex = card.blocks.findIndex((b) => b.id === blockID)
+    const clampedPosition = Math.max(0, Math.min(toPosition, card.blocks.length - 1))
+    if (currentIndex === -1 || currentIndex === clampedPosition) return
+
+    const blocksCopy = [...card.blocks]
+    const [movedBlock] = blocksCopy.splice(currentIndex, 1)
+    blocksCopy.splice(clampedPosition, 0, movedBlock)
+
+    card.blocks = blocksCopy
+    saveError = null
+
+    if (blockSaveTimer) {
+      clearTimeout(blockSaveTimer)
+      blockSaveTimer = null
+    }
+    const snapshot = card.blocks
+    savingBlocks = true
+    try {
+      await repoRPC('UpdateCardBlocks', [card.id, snapshot])
+      lastSavedBlocks = snapshot
+      flashSaved()
+    } catch (err) {
+      if (card) card.blocks = lastSavedBlocks
+      saveError = err instanceof Error ? err.message : t('card.err_save')
+    } finally {
+      savingBlocks = false
+    }
   }
 
   function updateBlock(blockID: string, next: Block) {
@@ -495,7 +530,17 @@
     </section>
 
     {#if card.blocks?.length}
-      <section class="blocks">
+      <section
+        class="blocks"
+        data-drop-target="block-list"
+        use:dragSortable={{
+          onMove: handleBlockMove,
+          rowSelector: '.block',
+          dropTargetSelector: '[data-drop-target="block-list"]',
+          rowIdAttribute: 'data-block-id',
+          restoreDOM: false,
+        }}
+      >
         {#each card.blocks as block (block.id)}
           <BlockEditor
             {block}
@@ -1029,5 +1074,18 @@
   }
   .meta-tab-content {
     min-height: 120px;
+  }
+
+  /* DnD visual states for blocks */
+  .blocks :global(.dnd-source) {
+    opacity: 0.35;
+    transition: opacity 120ms ease;
+  }
+  :global(.blocks.dnd-target-active),
+  .blocks :global(.dnd-target-active) {
+    outline: 2px dashed var(--accent);
+    outline-offset: 4px;
+    border-radius: 8px;
+    transition: outline-color 120ms ease;
   }
 </style>

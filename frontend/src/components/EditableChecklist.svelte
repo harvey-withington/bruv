@@ -208,9 +208,10 @@
     display: flex;
     align-items: center;
     gap: 0.35rem;
-    /* Indent so the icon lines up with the checkbox column below
-       (skipping the row's leading drag-handle slot). */
-    padding-left: calc(12px + 0.35rem);
+    /* Indent past the drag-handle column (16px) + row gap (0.35rem)
+       so the uncheck-all icon's left edge lines up with the row
+       checkbox's left edge below. */
+    padding-left: calc(16px + 0.35rem);
     margin-bottom: 0.4rem;
   }
   .cl-bar {

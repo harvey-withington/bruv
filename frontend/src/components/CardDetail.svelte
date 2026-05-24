@@ -4,7 +4,7 @@
   import { onEvent } from '../lib/events'
   import { projectTags, nav, getTagColor, getTagIcon, cardTypes } from '../lib/store.svelte'
   import DynamicIcon from './DynamicIcon.svelte'
-  import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, BotMessageSquare, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell, ClipboardList, MessageSquare, Paperclip } from 'lucide-svelte'
+  import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, BotMessageSquare, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell, ClipboardList, MessageSquare, Paperclip, History, Timer } from 'lucide-svelte'
   import { renderMarkdown } from '@shared/markdown'
   import { t } from '../lib/i18n.svelte'
   import MentionPicker from './MentionPicker.svelte'
@@ -92,12 +92,14 @@
   }
   // svelte-ignore state_referenced_locally
   let activeTab = $state<'details' | 'agent' | 'runs'>(initialTab ?? readStoredTab() ?? 'details')
+  const META_PANEL_COLLAPSED_KEY = 'bruv:metaPanelCollapsed'
+  let metaPanelCollapsed = $state(localStorage.getItem(META_PANEL_COLLAPSED_KEY) === 'true')
   $effect(() => { localStorage.setItem(CHAT_VISIBLE_KEY, String(showChat)) })
   $effect(() => { localStorage.setItem(ACTIVE_TAB_KEY, activeTab) })
+  $effect(() => { localStorage.setItem(META_PANEL_COLLAPSED_KEY, String(metaPanelCollapsed)) })
 
   let activeMetaTab = $state<'attachments' | 'comments'>('attachments')
   let commentCount = $state(0)
-  let metaPanelCollapsed = $state(false)
 
   // Splitter: redistributes space between main and chat when chat is open.
   // Default is 880px so Details/Agent/Runs tabs all render at the same
@@ -1140,15 +1142,20 @@
 
       <!-- Tab bar: Details / Agent -->
       <div class="card-tab-bar">
-        <button class="card-tab" class:active={activeTab === 'details'} onclick={() => activeTab = 'details'}>{t('card.tab_details')}</button>
+        <button class="card-tab" class:active={activeTab === 'details'} onclick={() => activeTab = 'details'}>
+          <ClipboardList size={13} />
+          <span>{t('card.tab_details')}</span>
+        </button>
         <button class="card-tab" class:active={activeTab === 'agent'} onclick={() => activeTab = 'agent'}>
-          {t('card.tab_agent')}
+          <Timer size={13} />
+          <span>{t('card.tab_agent')}</span>
           {#if hasAgent}
             <span class="agent-dot"></span>
           {/if}
         </button>
         <button class="card-tab" class:active={activeTab === 'runs'} onclick={() => activeTab = 'runs'}>
-          {t('card.tab_runs')}
+          <History size={13} />
+          <span>{t('card.tab_runs')}</span>
         </button>
       </div>
 
@@ -1534,27 +1541,45 @@
 
   .card-tab-bar {
     display: flex;
-    gap: 0;
+    gap: 0.25rem;
     border-bottom: 1px solid var(--border-muted);
     padding: 0 1.25rem;
     flex-shrink: 0;
   }
   .card-tab {
-    padding: 0.4rem 0.75rem;
-    font-size: 0.8rem;
-    font-weight: 500;
-    color: var(--text-muted);
     background: none;
     border: none;
-    border-bottom: 2px solid transparent;
     cursor: pointer;
-    transition: color var(--duration-normal) var(--ease-out),
-                border-color var(--duration-moderate) var(--ease-out);
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.5rem 0.6rem;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    position: relative;
+    transition: color var(--duration-fast);
   }
-  .card-tab:hover { color: var(--text); }
+  .card-tab::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: transparent;
+    transition: background var(--duration-fast);
+  }
+  .card-tab:hover {
+    color: var(--text-primary);
+  }
   .card-tab.active {
-    color: var(--text);
-    border-bottom-color: var(--accent);
+    color: var(--accent);
+  }
+  .card-tab.active::after {
+    background: var(--accent);
   }
 
   .agent-dot {
@@ -1563,8 +1588,7 @@
     height: 6px;
     border-radius: 50%;
     background: var(--accent);
-    margin-left: 0.3rem;
-    vertical-align: middle;
+    flex-shrink: 0;
   }
 
   .modal-actions {
@@ -1802,6 +1826,9 @@
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
+    box-shadow: 0 -4px 12px var(--shadow);
+    position: relative;
+    z-index: 1;
   }
   .card-meta-tabs-pinned.collapsed {
     padding-bottom: 0.5rem;

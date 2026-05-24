@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import { nav, board, loadBoard } from '../lib/store.svelte'
   import { CreateBrand, RenameBrand, UpdateBrandDescription, UpdateBrandIcon, CreateStream, RenameStream, UpdateStreamDescription, UpdateStreamIcon, CreateProject, RenameProject, UpdateProjectDescription, UpdateProjectIcon, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, GetCard, ListOrphanedCardIDs, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject, GetPreferences, GetRepoDescription, UpdateRepoDescription } from '@shared/api'
-  import { ChevronLeft, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox, Timer, ChevronsUpDown, ChevronsDownUp, Smile, Upload, Info, Server, Monitor } from 'lucide-svelte'
+  import { ChevronLeft, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox, Timer, ChevronsUpDown, ChevronsDownUp, Smile, Upload, Info, Server, Monitor, ListCollapse, ListTree } from 'lucide-svelte'
   import { connections, isLocalActive, activeConnectionLabel } from '../lib/connections.svelte'
   import ThemeToggle from './ThemeToggle.svelte'
   import BruvIcon from './BruvIcon.svelte'
@@ -56,6 +56,46 @@
   let expandedBrands = $state<Set<string>>(new Set())
   let streamsByBrand = $state<Record<string, Stream[]>>({})
   let expandedStreams = $state<Set<string>>(new Set())
+  const ACCORDION_MODE_KEY = 'bruv:accordionMode'
+  type AccordionMode = 'single' | 'multi'
+  function readAccordionMode(): AccordionMode {
+    const v = localStorage.getItem(ACCORDION_MODE_KEY)
+    return v === 'multi' ? 'multi' : 'single'
+  }
+  let accordionMode = $state<AccordionMode>(readAccordionMode())
+
+  function applySingleExpandCollapses() {
+    if (nav.brandSlug) {
+      expandedBrands = new Set([nav.brandSlug])
+      if (nav.streamSlug) {
+        expandedStreams = new Set([`${nav.brandSlug}/${nav.streamSlug}`])
+      } else {
+        expandedStreams = new Set()
+      }
+    } else {
+      if (expandedBrands.size > 1) {
+        const first = Array.from(expandedBrands)[0]
+        expandedBrands = new Set([first])
+        const prefix = `${first}/`
+        const nextStreams = new Set<string>()
+        for (const s of expandedStreams) {
+          if (s.startsWith(prefix)) {
+            nextStreams.add(s)
+            break
+          }
+        }
+        expandedStreams = nextStreams
+      }
+    }
+  }
+
+  function toggleAccordionMode() {
+    accordionMode = accordionMode === 'single' ? 'multi' : 'single'
+    localStorage.setItem(ACCORDION_MODE_KEY, accordionMode)
+    if (accordionMode === 'single') {
+      applySingleExpandCollapses()
+    }
+  }
   let projectsByStream = $state<Record<string, Project[]>>({})
   let inboxCount = $state(0)
   let repoDescription = $state('')
@@ -155,12 +195,20 @@
         return
       }
       // Always expand the path to the saved project so it's visible in the tree
-      expandedBrands.add(last.brandSlug)
-      expandedBrands = new Set(expandedBrands)
+      if (accordionMode === 'single') {
+        expandedBrands = new Set([last.brandSlug])
+      } else {
+        expandedBrands.add(last.brandSlug)
+        expandedBrands = new Set(expandedBrands)
+      }
       streamsByBrand[last.brandSlug] = await ListStreams(last.brandSlug) || []
       const streamKey = `${last.brandSlug}/${last.streamSlug}`
-      expandedStreams.add(streamKey)
-      expandedStreams = new Set(expandedStreams)
+      if (accordionMode === 'single') {
+        expandedStreams = new Set([streamKey])
+      } else {
+        expandedStreams.add(streamKey)
+        expandedStreams = new Set(expandedStreams)
+      }
       projectsByStream[streamKey] = await ListProjects(last.brandSlug, last.streamSlug) || []
       // Select the project and load board
       await selectProject(last.brandSlug, last.streamSlug, last.projectSlug)
@@ -263,8 +311,12 @@
       expandedBrands.delete(slug)
       expandedBrands = new Set(expandedBrands)
     } else {
-      expandedBrands.add(slug)
-      expandedBrands = new Set(expandedBrands)
+      if (accordionMode === 'single') {
+        expandedBrands = new Set([slug])
+      } else {
+        expandedBrands.add(slug)
+        expandedBrands = new Set(expandedBrands)
+      }
       if (!streamsByBrand[slug]) {
         try {
           streamsByBrand[slug] = await ListStreams(slug) || []
@@ -279,8 +331,20 @@
       expandedStreams.delete(key)
       expandedStreams = new Set(expandedStreams)
     } else {
-      expandedStreams.add(key)
-      expandedStreams = new Set(expandedStreams)
+      if (accordionMode === 'single') {
+        const prefix = `${brandSlug}/`
+        const nextStreams = new Set<string>()
+        for (const k of expandedStreams) {
+          if (!k.startsWith(prefix)) {
+            nextStreams.add(k)
+          }
+        }
+        nextStreams.add(key)
+        expandedStreams = nextStreams
+      } else {
+        expandedStreams.add(key)
+        expandedStreams = new Set(expandedStreams)
+      }
       if (!projectsByStream[key]) {
         try {
           projectsByStream[key] = await ListProjects(brandSlug, streamSlug) || []
@@ -297,12 +361,19 @@
     nav.projectSlug = projectSlug
     localStorage.setItem(lastNavKey(), JSON.stringify({ brandSlug, streamSlug, projectSlug }))
     // Expand the tree so the project is visible
-    expandedBrands.add(brandSlug)
-    expandedBrands = new Set(expandedBrands)
+    if (accordionMode === 'single') {
+      expandedBrands = new Set([brandSlug])
+      expandedStreams = new Set([`${brandSlug}/${streamSlug}`])
+    } else {
+      expandedBrands.add(brandSlug)
+      expandedBrands = new Set(expandedBrands)
+    }
     if (!streamsByBrand[brandSlug]) streamsByBrand[brandSlug] = await ListStreams(brandSlug) || []
     const streamKey = `${brandSlug}/${streamSlug}`
-    expandedStreams.add(streamKey)
-    expandedStreams = new Set(expandedStreams)
+    if (accordionMode !== 'single') {
+      expandedStreams.add(streamKey)
+      expandedStreams = new Set(expandedStreams)
+    }
     if (!projectsByStream[streamKey]) projectsByStream[streamKey] = await ListProjects(brandSlug, streamSlug) || []
     // Resolve display names from cached sidebar data
     nav.brandName = brands.find(b => b.slug === brandSlug)?.name || brandSlug
@@ -357,8 +428,12 @@
       const name = await findUniqueName(t('default.brand_name'), brands.map(b => b.name))
       const created = await CreateBrand(name)
       await loadBrands()
-      expandedBrands.add(created.slug)
-      expandedBrands = new Set(expandedBrands)
+      if (accordionMode === 'single') {
+        expandedBrands = new Set([created.slug])
+      } else {
+        expandedBrands.add(created.slug)
+        expandedBrands = new Set(expandedBrands)
+      }
       streamsByBrand[created.slug] = []
       renaming = { type: 'brand', key: created.slug, name: created.name, original: created.name, description: '', originalDescription: '', isCreate: true, brandSlug: created.slug, streamSlug: '', projectSlug: '' }
       setTimeout(() => { const el = document.querySelector('.rename-input') as HTMLInputElement; el?.scrollIntoView({ block: 'nearest' }); el?.select() }, 0)
@@ -372,8 +447,21 @@
       const created = await CreateStream(brandSlug, name)
       streamsByBrand[brandSlug] = await ListStreams(brandSlug) || []
       const streamKey = `${brandSlug}/${created.slug}`
-      expandedStreams.add(streamKey)
-      expandedStreams = new Set(expandedStreams)
+      if (accordionMode === 'single') {
+        expandedBrands = new Set([brandSlug])
+        const prefix = `${brandSlug}/`
+        const nextStreams = new Set<string>()
+        for (const k of expandedStreams) {
+          if (!k.startsWith(prefix)) {
+            nextStreams.add(k)
+          }
+        }
+        nextStreams.add(streamKey)
+        expandedStreams = nextStreams
+      } else {
+        expandedStreams.add(streamKey)
+        expandedStreams = new Set(expandedStreams)
+      }
       projectsByStream[streamKey] = []
       renaming = { type: 'stream', key: streamKey, name: created.name, original: created.name, description: '', originalDescription: '', isCreate: true, brandSlug, streamSlug: created.slug, projectSlug: '' }
       setTimeout(() => { const el = document.querySelector('.rename-input') as HTMLInputElement; el?.scrollIntoView({ block: 'nearest' }); el?.select() }, 0)
@@ -403,8 +491,13 @@
     const streamKey = `${brandSlug}/${streamSlug}`
     projectsByStream[streamKey] = await ListProjects(brandSlug, streamSlug) || []
     // Expand the brand + stream so the new project is visible immediately.
-    if (!expandedBrands.has(brandSlug)) expandedBrands = new Set([...expandedBrands, brandSlug])
-    if (!expandedStreams.has(streamKey)) expandedStreams = new Set([...expandedStreams, streamKey])
+    if (accordionMode === 'single') {
+      expandedBrands = new Set([brandSlug])
+      expandedStreams = new Set([streamKey])
+    } else {
+      if (!expandedBrands.has(brandSlug)) expandedBrands = new Set([...expandedBrands, brandSlug])
+      if (!expandedStreams.has(streamKey)) expandedStreams = new Set([...expandedStreams, streamKey])
+    }
     trelloImportTarget = null
   }
 
@@ -859,6 +952,18 @@
       <div class="tree-ctrl-group">
         <button class="tree-ctrl-btn" onclick={expandAll} title={t('sidebar.expandAll')}><ChevronsUpDown size={12} /></button>
         <button class="tree-ctrl-btn" onclick={collapseAll} title={t('sidebar.collapseAll')}><ChevronsDownUp size={12} /></button>
+        <button
+          class="tree-ctrl-btn"
+          onclick={toggleAccordionMode}
+          aria-label={accordionMode === 'single' ? t('project.mode_single') : t('project.mode_multi')}
+          title={accordionMode === 'single' ? t('project.mode_single_hint') : t('project.mode_multi_hint')}
+        >
+          {#if accordionMode === 'single'}
+            <ListCollapse size={12} />
+          {:else}
+            <ListTree size={12} />
+          {/if}
+        </button>
       </div>
     </div>
 

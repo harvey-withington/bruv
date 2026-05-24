@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { Trash2, Plus } from 'lucide-svelte'
+  import { Trash2, Plus, GripVertical } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import type { SurveyQuestion, SurveyQuestionType } from '@shared/types'
+  import { computeReorder, wouldReorder, DROP_END } from '../lib/reorder'
 
   let {
     value = [],
@@ -91,16 +92,83 @@
   function ratingStars(max: number): number[] {
     return Array.from({ length: max }, (_, i) => i + 1)
   }
+
+  // --- Drag-to-reorder questions ---
+  let draggingId = $state<string | null>(null)
+  let dropBeforeId = $state<string | typeof DROP_END | null>(null)
+
+  function handleDragStart(e: DragEvent, id: string) {
+    draggingId = id
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move'
+      e.dataTransfer.setData('text/plain', id)
+    }
+  }
+
+  function handleDragOver(e: DragEvent, overId: string, idx: number) {
+    if (draggingId === null) return
+    e.preventDefault()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const midY = rect.top + rect.height / 2
+    let candidate: string | typeof DROP_END
+    if (e.clientY < midY) {
+      candidate = overId
+    } else {
+      const next = questions[idx + 1]
+      candidate = next ? next.id : DROP_END
+    }
+    dropBeforeId = wouldReorder(questions, draggingId, candidate, 'move') ? candidate : null
+  }
+
+  function handleDragEnd() {
+    draggingId = null
+    dropBeforeId = null
+  }
+
+  function handleDrop(e: DragEvent) {
+    e.preventDefault()
+    if (draggingId === null || dropBeforeId === null) {
+      handleDragEnd()
+      return
+    }
+    const reordered = computeReorder(questions, draggingId, dropBeforeId, { mode: 'move' })
+    handleDragEnd()
+    if (reordered !== questions) emit(reordered)
+  }
 </script>
 
-<div class="survey-block">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  class="survey-block"
+  ondrop={handleDrop}
+  ondragover={(e) => { if (draggingId !== null) e.preventDefault() }}
+>
   {#if questions.length === 0}
     <p class="survey-empty">{t('block.survey.empty')}</p>
   {/if}
 
-  {#each questions as q (q.id)}
-    <div class="survey-question action-reveal-parent">
+  {#each questions as q, qIdx (q.id)}
+    {#if draggingId !== null && dropBeforeId === q.id}
+      <div class="survey-drop-indicator"></div>
+    {/if}
+    <div
+      class="survey-question action-reveal-parent"
+      class:survey-question-dragging={draggingId === q.id}
+      ondragover={(e) => handleDragOver(e, q.id, qIdx)}
+    >
       <div class="survey-question-head">
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+        <span
+          class="survey-drag-handle"
+          draggable={true}
+          ondragstart={(e) => handleDragStart(e, q.id)}
+          ondragend={handleDragEnd}
+          role="button"
+          tabindex="-1"
+          aria-label={t('tooltip.drag_survey_question')}
+          title={t('tooltip.drag_survey_question')}
+        ><GripVertical size={12} /></span>
         <input
           class="survey-prompt"
           type="text"
@@ -187,6 +255,9 @@
       {/if}
     </div>
   {/each}
+  {#if draggingId !== null && dropBeforeId === DROP_END}
+    <div class="survey-drop-indicator"></div>
+  {/if}
 
   <button class="survey-add-question" onclick={addQuestion}>
     <Plus size={14} /> {t('block.survey.add_question')}
@@ -217,11 +288,41 @@
     flex-direction: column;
     gap: 0.4rem;
   }
+  .survey-question-dragging { opacity: 0.4; }
 
   .survey-question-head {
     display: flex;
     gap: 0.4rem;
     align-items: center;
+  }
+
+  /* Drag handle hidden until question-row hover; sits in its own
+     leading column so the prompt input retains its full width. */
+  .survey-drag-handle {
+    color: var(--text-faint);
+    cursor: grab;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 18px;
+    opacity: 0;
+    transition: opacity var(--duration-fast) var(--ease-out);
+  }
+  .survey-question:hover .survey-drag-handle,
+  .survey-drag-handle:focus-visible {
+    opacity: 1;
+  }
+  .survey-drag-handle:active {
+    cursor: grabbing;
+  }
+
+  .survey-drop-indicator {
+    height: 2px;
+    background: var(--accent);
+    border-radius: 1px;
+    margin: 2px 0;
   }
 
   .survey-prompt {

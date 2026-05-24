@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { X, Plus } from 'lucide-svelte'
+  import { X, Plus, GripVertical } from 'lucide-svelte'
   import { t } from '../../lib/i18n.svelte'
   import type { Block, ListItem } from '@shared/types'
   import { asList, withValue, newID } from './narrow'
+  import { dragSortable, type DragMoveDetail } from '../../lib/actions/dnd.svelte'
 
   let { block, onChange }: { block: Block; onChange: (next: Block) => void } = $props()
 
@@ -33,11 +34,42 @@
       el?.focus()
     })
   }
+
+  function handleReorder(detail: DragMoveDetail) {
+    const itemID = detail.cardID
+    const fromIdx = items.findIndex((it) => it.id === itemID)
+    if (fromIdx === -1) return
+    const toIdx = Math.max(0, Math.min(detail.toPosition, items.length - 1))
+    if (fromIdx === toIdx) return
+    const next = [...items]
+    const [moved] = next.splice(fromIdx, 1)
+    next.splice(toIdx, 0, moved)
+    commitItems(next)
+  }
 </script>
 
-<ul class="list">
+<ul
+  class="list"
+  data-drop-target="list-items"
+  use:dragSortable={{
+    onMove: handleReorder,
+    rowSelector: '.row[data-list-id]',
+    dropTargetSelector: '[data-drop-target="list-items"]',
+    rowIdAttribute: 'data-list-id',
+    handleSelector: '.drag-handle',
+    restoreDOM: false,
+  }}
+>
   {#each items as item (item.id)}
-    <li class="row">
+    <li class="row" data-list-id={item.id}>
+      <button
+        type="button"
+        class="drag-handle"
+        aria-label={t('block.list.reorder')}
+        title={t('block.list.reorder')}
+      >
+        <GripVertical size={16} />
+      </button>
       <span class="bullet" aria-hidden="true">•</span>
       <input
         class="text"
@@ -91,6 +123,30 @@
     gap: 0.4rem;
     padding: 0.2rem 0;
   }
+  .drag-handle {
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    padding: 0.4rem 0.15rem;
+    cursor: grab;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    min-height: 36px;
+    flex-shrink: 0;
+    touch-action: none;
+  }
+  .drag-handle:hover,
+  .drag-handle:focus-visible {
+    color: var(--text-muted);
+    background: var(--bg-elev-1);
+    outline: none;
+  }
+  .drag-handle:active {
+    cursor: grabbing;
+  }
   .bullet {
     color: var(--text-muted);
     width: 0.75rem;
@@ -138,7 +194,8 @@
   }
   .add-row {
     margin-top: 0.2rem;
-    margin-left: 1.15rem;
+    /* Sit under the bullet column (skip the drag-handle column). */
+    margin-left: 1.85rem;
   }
   .add {
     display: inline-flex;
@@ -158,5 +215,17 @@
     color: var(--text);
     border-color: var(--text-muted);
     outline: none;
+  }
+
+  .list :global(.dnd-source) {
+    opacity: 0.35;
+    transition: opacity 120ms ease;
+  }
+  :global(.list.dnd-target-active),
+  .list :global(.dnd-target-active) {
+    outline: 2px dashed var(--accent);
+    outline-offset: 2px;
+    border-radius: 8px;
+    transition: outline-color 120ms ease;
   }
 </style>

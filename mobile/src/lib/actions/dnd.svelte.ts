@@ -90,6 +90,15 @@ type Options = {
    *  before calling onMove. Defaults to true. Set to false if Svelte 5 reconciles
    *  better directly from the manually reordered DOM state. */
   restoreDOM?: boolean
+  /** Optional CSS selector for a "drag handle" inside each row. When
+   *  set, the press timer only arms if pointerdown landed on (or
+   *  inside) an element matching this selector within the row. Use
+   *  this when rows contain text inputs / editable content where a
+   *  long-press is also the native gesture for text selection — the
+   *  handle gives the user a dedicated grab area so editing taps and
+   *  drag picks-up don't fight. Without a handle, any press on the
+   *  row arms the drag after LONG_PRESS_MS. */
+  handleSelector?: string
 }
 
 const LONG_PRESS_MS = 250
@@ -434,8 +443,20 @@ export function dragSortable(node: HTMLElement, options: Options) {
     // the deepest action that owns this row.
     if (!node.contains(row)) return
     // Stop propagation so outer actions in a nested layout don't
-    // also see this pointerdown and start their own press timer.
+    // also see this pointerdown and start their own press timer. We
+    // call this unconditionally (even when a handle gate blocks the
+    // press) so a long-press on, say, a checklist input inside a
+    // block doesn't fall through to the outer block list and arm
+    // a block drag instead — the inner action owns the row.
     ev.stopPropagation()
+    // Handle gate: when handleSelector is set, only arm the press
+    // timer if the pointer landed on (or inside) the dedicated
+    // handle. The row still claims the event above; we just decline
+    // to drag it from anywhere else.
+    if (opts.handleSelector) {
+      const handle = (ev.target as HTMLElement).closest(opts.handleSelector) as HTMLElement | null
+      if (!handle || !row.contains(handle)) return
+    }
     pointerID = ev.pointerId
     startX = ev.clientX
     startY = ev.clientY

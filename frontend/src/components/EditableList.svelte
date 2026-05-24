@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { Trash2 } from 'lucide-svelte'
+  import { Trash2, GripVertical } from 'lucide-svelte'
   import EditableText from './EditableText.svelte'
   import { t } from '../lib/i18n.svelte'
+  import { computeReorder, wouldReorder, DROP_END } from '../lib/reorder'
 
   type ListItem = { id: string; text: string }
 
@@ -50,11 +51,81 @@
     if (e.key === 'Enter') addItem()
     else if (e.key === 'Escape') { e.stopPropagation(); (e.target as HTMLElement)?.blur() }
   }
+
+  // --- Drag-to-reorder (HTML5 native, mirrors EditableChecklist) ---
+  let draggingId = $state<string | null>(null)
+  let dropBeforeId = $state<string | typeof DROP_END | null>(null)
+
+  function handleDragStart(e: DragEvent, id: string) {
+    draggingId = id
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move'
+      e.dataTransfer.setData('text/plain', id)
+    }
+  }
+
+  function handleDragOver(e: DragEvent, overId: string, idx: number) {
+    if (draggingId === null) return
+    e.preventDefault()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const midY = rect.top + rect.height / 2
+    let candidate: string | typeof DROP_END
+    if (e.clientY < midY) {
+      candidate = overId
+    } else {
+      const next = items[idx + 1]
+      candidate = next ? next.id : DROP_END
+    }
+    dropBeforeId = wouldReorder(items, draggingId, candidate, 'move') ? candidate : null
+  }
+
+  function handleDragEnd() {
+    draggingId = null
+    dropBeforeId = null
+  }
+
+  function handleDrop(e: DragEvent) {
+    e.preventDefault()
+    if (draggingId === null || dropBeforeId === null) {
+      handleDragEnd()
+      return
+    }
+    const reordered = computeReorder(items, draggingId, dropBeforeId, { mode: 'move' })
+    handleDragEnd()
+    if (reordered !== items) emit(reordered)
+  }
 </script>
 
-<div class="li-items">
-  {#each items as item (item.id)}
-    <div class="li-item action-reveal-parent" data-item-id={item.id}>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  class="li-items"
+  role="list"
+  ondrop={handleDrop}
+  ondragover={(e) => { if (draggingId !== null) e.preventDefault() }}
+>
+  {#each items as item, idx (item.id)}
+    {#if draggingId !== null && dropBeforeId === item.id}
+      <div class="li-drop-indicator"></div>
+    {/if}
+    <div
+      class="li-item action-reveal-parent"
+      class:li-item-dragging={draggingId === item.id}
+      data-item-id={item.id}
+      role="listitem"
+      ondragover={(e) => handleDragOver(e, item.id, idx)}
+    >
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+      <span
+        class="li-drag-handle"
+        draggable={true}
+        ondragstart={(e) => handleDragStart(e, item.id)}
+        ondragend={handleDragEnd}
+        role="button"
+        tabindex="-1"
+        aria-label={t('tooltip.drag_list_item')}
+        title={t('tooltip.drag_list_item')}
+      ><GripVertical size={12} /></span>
       <span class="li-bullet">&#8226;</span>
       <EditableText
         value={item.text}
@@ -66,6 +137,9 @@
       <button class="action-reveal action-reveal--danger li-remove" onclick={() => removeItem(item.id)} title={t('tooltip.remove_checklist_item')}><Trash2 size={12} /></button>
     </div>
   {/each}
+  {#if draggingId !== null && dropBeforeId === DROP_END}
+    <div class="li-drop-indicator"></div>
+  {/if}
 </div>
 
 <div class="li-add">
@@ -91,6 +165,36 @@
     gap: 0.35rem;
     padding: 2px 0;
     border-radius: 4px;
+  }
+  .li-item-dragging { opacity: 0.4; }
+
+  /* Drag handle hidden until row hover so the column stays clean
+     when the user is just reading. */
+  .li-drag-handle {
+    color: var(--text-faint);
+    cursor: grab;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 12px;
+    height: 16px;
+    opacity: 0;
+    transition: opacity var(--duration-fast) var(--ease-out);
+  }
+  .li-item:hover .li-drag-handle,
+  .li-drag-handle:focus-visible {
+    opacity: 1;
+  }
+  .li-drag-handle:active {
+    cursor: grabbing;
+  }
+
+  .li-drop-indicator {
+    height: 2px;
+    background: var(--accent);
+    border-radius: 1px;
+    margin: 1px 0;
   }
 
   .li-bullet {

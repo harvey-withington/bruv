@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { Square, CheckSquare, X, Plus } from 'lucide-svelte'
+  import { Square, CheckSquare, X, Plus, GripVertical } from 'lucide-svelte'
   import { t } from '../../lib/i18n.svelte'
   import type { Block, ChecklistItem } from '@shared/types'
   import { asChecklist, withValue, newID } from './narrow'
+  import { dragSortable, type DragMoveDetail } from '../../lib/actions/dnd.svelte'
 
   let { block, onChange }: { block: Block; onChange: (next: Block) => void } = $props()
 
@@ -43,11 +44,46 @@
       el?.focus()
     })
   }
+
+  // Reorder via shared dragSortable action. The action mutates the DOM
+  // during drag for visual feedback and fires onMove with the new
+  // position once the user releases. We treat it as a single-list
+  // reorder — cross-container moves don't apply to checklist items.
+  function handleReorder(detail: DragMoveDetail) {
+    const itemID = detail.cardID
+    const fromIdx = items.findIndex((it) => it.id === itemID)
+    if (fromIdx === -1) return
+    const toIdx = Math.max(0, Math.min(detail.toPosition, items.length - 1))
+    if (fromIdx === toIdx) return
+    const next = [...items]
+    const [moved] = next.splice(fromIdx, 1)
+    next.splice(toIdx, 0, moved)
+    commitItems(next)
+  }
 </script>
 
-<ul class="list">
+<ul
+  class="list"
+  data-drop-target="checklist-items"
+  use:dragSortable={{
+    onMove: handleReorder,
+    rowSelector: '.row[data-checklist-id]',
+    dropTargetSelector: '[data-drop-target="checklist-items"]',
+    rowIdAttribute: 'data-checklist-id',
+    handleSelector: '.drag-handle',
+    restoreDOM: false,
+  }}
+>
   {#each items as item (item.id)}
-    <li class="row" class:done={item.done}>
+    <li class="row" class:done={item.done} data-checklist-id={item.id}>
+      <button
+        type="button"
+        class="drag-handle"
+        aria-label={t('block.checklist.reorder')}
+        title={t('block.checklist.reorder')}
+      >
+        <GripVertical size={16} />
+      </button>
       <button
         type="button"
         class="check"
@@ -117,6 +153,35 @@
     text-decoration: line-through;
     color: var(--text-muted);
   }
+  /* Dedicated grab area — keeps text-selection long-press on the
+     <input> intact by giving the drag action its own surface to
+     listen on (see dndhandle gate in dnd.svelte.ts). */
+  .drag-handle {
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    padding: 0.4rem 0.15rem;
+    cursor: grab;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    min-height: 36px;
+    flex-shrink: 0;
+    /* Block the browser's own pan gesture on this surface so the
+       drag action can claim the press without scrolling underneath. */
+    touch-action: none;
+  }
+  .drag-handle:hover,
+  .drag-handle:focus-visible {
+    color: var(--text-muted);
+    background: var(--bg-elev-1);
+    outline: none;
+  }
+  .drag-handle:active {
+    cursor: grabbing;
+  }
   .check {
     background: transparent;
     border: none;
@@ -181,6 +246,9 @@
   }
   .add-row {
     margin-top: 0.2rem;
+    /* Align the add button with the items above (skipping the drag-
+       handle column so the dashed "Add item" sits under the checkbox). */
+    margin-left: 1.85rem;
   }
   .add {
     display: inline-flex;
@@ -200,5 +268,18 @@
     color: var(--text);
     border-color: var(--text-muted);
     outline: none;
+  }
+
+  /* Drag visual states (mirrors the BlockEditor pattern in CardPage). */
+  .list :global(.dnd-source) {
+    opacity: 0.35;
+    transition: opacity 120ms ease;
+  }
+  :global(.list.dnd-target-active),
+  .list :global(.dnd-target-active) {
+    outline: 2px dashed var(--accent);
+    outline-offset: 2px;
+    border-radius: 8px;
+    transition: outline-color 120ms ease;
   }
 </style>

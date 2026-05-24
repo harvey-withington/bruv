@@ -188,6 +188,14 @@ func (r *Repository) DeleteCard(id string) error {
 }
 
 // DuplicateCard creates a copy of an existing card with a new ID.
+//
+// Attachments need a deep copy: each file lives at
+// <repo>/attachments/<cardID>/<attachmentID>, so reusing the source's
+// attachment IDs against the new card's ID would resolve to a path
+// that doesn't exist. We copy the bytes to the new card's attachment
+// directory under fresh IDs and rewrite the metadata to match. If any
+// step fails we remove the partially-populated directory so the next
+// retry starts clean.
 func (r *Repository) DuplicateCard(srcCardID string) (*model.Card, error) {
 	src, err := r.GetCard(srcCardID)
 	if err != nil {
@@ -198,11 +206,53 @@ func (r *Repository) DuplicateCard(srcCardID string) (*model.Card, error) {
 	newCard.ID = uuid.New().String()
 	newCard.CreatedAt = now
 	newCard.UpdatedAt = now
+
+	if len(src.FileAttachments) > 0 {
+		copies, err := r.duplicateAttachmentFiles(src.ID, newCard.ID, src.FileAttachments)
+		if err != nil {
+			_ = os.RemoveAll(filepath.Join(r.Root, "attachments", newCard.ID))
+			return nil, fmt.Errorf("duplicate attachments: %w", err)
+		}
+		newCard.FileAttachments = copies
+	}
+
 	if err := writeJSON(r.cardFilePath(newCard.ID), &newCard); err != nil {
+		_ = os.RemoveAll(filepath.Join(r.Root, "attachments", newCard.ID))
 		return nil, fmt.Errorf("write duplicated card: %w", err)
 	}
 	return &newCard, nil
 }
+
+// duplicateAttachmentFiles copies each attachment file from the source
+// card's directory into the destination card's, generating fresh
+// attachment IDs so the two cards' on-disk files stay independent.
+// Returns a new metadata slice (same order, new IDs). Orphan metadata
+// on the source (entries whose underlying file is missing) is dropped
+// silently rather than failing the whole duplicate — the copy ends
+// up matching the source's actual on-disk state.
+func (r *Repository) duplicateAttachmentFiles(srcCardID, dstCardID string, atts []model.FileAttachment) ([]model.FileAttachment, error) {
+	dstDir := filepath.Join(r.Root, "attachments", dstCardID)
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create attachments dir: %w", err)
+	}
+	out := make([]model.FileAttachment, 0, len(atts))
+	for _, att := range atts {
+		srcPath := r.AttachmentPath(srcCardID, att.ID)
+		newID := fmt.Sprintf("att-%s", uuid.New().String())
+		dstPath := filepath.Join(dstDir, newID)
+		if err := copyFile(srcPath, dstPath); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("copy attachment %q: %w", att.ID, err)
+		}
+		next := att
+		next.ID = newID
+		out = append(out, next)
+	}
+	return out, nil
+}
+
 
 // UpdateCardBlocks replaces a card's blocks. Blocks are the source
 // of truth for their own values now — no denormalised mirror.

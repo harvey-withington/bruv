@@ -184,15 +184,12 @@
       bind:value={draft}
       onkeydown={handleComposerKeydown}
       placeholder={t('comments.add_placeholder')}
-      rows="2"
+      rows="1"
       disabled={posting}
     ></textarea>
-    <div class="comments-composer-footer">
-      <span class="comments-hint">{t('comments.add_hint')}</span>
-      <button class="comments-post" onclick={post} disabled={posting || !draft.trim()}>
-        {t('comments.post')}
-      </button>
-    </div>
+    <button class="comments-post" onclick={post} disabled={posting || !draft.trim()} title={t('comments.add_hint')}>
+      {t('comments.post')}
+    </button>
   </div>
 </section>
 
@@ -318,12 +315,14 @@
 
   .comments-composer {
     display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 0.35rem;
   }
 
   .comment-input {
-    width: 100%;
+    flex: 1;
+    min-width: 0;
     padding: 0.45rem 0.55rem;
     border: 1px solid var(--border);
     border-radius: 4px;
@@ -331,23 +330,15 @@
     color: var(--text-primary);
     font-size: 0.85rem;
     font-family: inherit;
-    resize: vertical;
+    resize: none;
     outline: none;
   }
   .comment-input:focus { border-color: var(--accent); }
   .comment-input:disabled { opacity: 0.6; }
 
-  .comments-composer-footer {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .comments-hint {
-    font-size: 0.7rem;
-    color: var(--text-faint);
-  }
   .comments-post {
-    padding: 0.3rem 0.8rem;
+    flex-shrink: 0;
+    padding: 0 1rem;
     border-radius: 4px;
     background: var(--accent);
     color: #fff;
@@ -355,6 +346,9 @@
     font-size: 0.8rem;
     font-family: inherit;
     cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   .comments-post:disabled {
     opacity: 0.5;

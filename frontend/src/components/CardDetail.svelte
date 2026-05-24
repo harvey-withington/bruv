@@ -1830,6 +1830,9 @@
     position: relative;
     z-index: 1;
   }
+  .card-meta-tabs-pinned:has(:global(.preview-overlay)) {
+    z-index: 99999;
+  }
   .card-meta-tabs-pinned.collapsed {
     padding-bottom: 0.5rem;
   }

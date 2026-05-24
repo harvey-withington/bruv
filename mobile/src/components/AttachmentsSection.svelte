@@ -107,12 +107,11 @@
       {#each attachments as att (att.id)}
         {@const Icon = iconForMime(att.mime)}
         <li class="attachment-item">
-          <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-          <div class="attachment-info" onclick={() => previewAttachment(att)}>
+          <button type="button" class="attachment-info" onclick={() => previewAttachment(att)}>
             <Icon size={16} class="file-icon" />
             <span class="name">{att.name}</span>
             <span class="size">{formatSize(att.size)}</span>
-          </div>
+          </button>
           <div class="actions-row">
             <button type="button" class="ghost-btn" onclick={() => previewAttachment(att)} aria-label="Preview">
               <Eye size={14} />
@@ -184,6 +183,14 @@
     flex: 1;
     min-width: 0;
     cursor: pointer;
+    /* Reset button defaults — this used to be a <div>; the change to
+       <button> is purely for the click affordance + a11y. */
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    text-align: left;
   }
   :global(.file-icon) {
     color: var(--text-muted);

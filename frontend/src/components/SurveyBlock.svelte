@@ -168,7 +168,7 @@
           tabindex="-1"
           aria-label={t('tooltip.drag_survey_question')}
           title={t('tooltip.drag_survey_question')}
-        ><GripVertical size={12} /></span>
+        ><GripVertical size={14} /></span>
         <input
           class="survey-prompt"
           type="text"
@@ -305,7 +305,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 14px;
+    width: 16px;
     height: 18px;
     opacity: 0;
     transition: opacity var(--duration-fast) var(--ease-out);

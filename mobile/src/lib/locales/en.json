@@ -194,6 +194,7 @@
   "block.checklist.placeholder": "New item",
   "block.checklist.delete": "Delete item",
   "block.checklist.reorder": "Hold and drag to reorder",
+  "block.checklist.uncheck_all": "Uncheck all",
   "block.list.add": "Add item",
   "block.list.placeholder": "New item",
   "block.list.delete": "Delete item",

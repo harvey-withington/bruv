@@ -186,6 +186,11 @@
 
   async function clearBlockValue(block: Block) {
     if (!card) return
+    // Confirm before wiping the value — a one-click X next to a long
+    // text block or a populated checklist is easy to hit by accident
+    // and there's no undo path.
+    const name = block.label || block.key || block.type
+    if (!await showConfirm(t('card.clear_block_confirm').replace('{name}', name))) return
     block.value = getEmptyValue(block.type)
     if (block.type === 'alarm') block.meta = { ...block.meta, alarm_time: undefined, alarm_fired: false }
     await tracked(UpdateCardBlocks(cardId, card.blocks))
@@ -555,7 +560,12 @@
       for (const b of card.blocks) {
         if (b.type === 'text' || b.type === 'url') blockDrafts[b.id] = String(b.value ?? '')
       }
-      restoreCollapsedFromMeta()
+      // Only seed collapsed-state from meta on the initial open. Silent
+      // reloads fire after EVERY save (including toggling a checklist
+      // item) and would otherwise wipe the user's session-level collapse
+      // choices — meta.collapsed isn't actually written anywhere today,
+      // so re-reading it on a silent refresh just resets the set.
+      if (!silent) restoreCollapsedFromMeta()
       if (autoEditTitle) editingTitle = true
       // Check if card has an agent configured
       try { const af = await GetAgentConfig(cardId); hasAgent = af?.config?.enabled ?? false } catch { hasAgent = false }

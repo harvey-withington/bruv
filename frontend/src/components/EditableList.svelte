@@ -125,7 +125,7 @@
         tabindex="-1"
         aria-label={t('tooltip.drag_list_item')}
         title={t('tooltip.drag_list_item')}
-      ><GripVertical size={12} /></span>
+      ><GripVertical size={14} /></span>
       <span class="li-bullet">&#8226;</span>
       <EditableText
         value={item.text}
@@ -177,7 +177,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 12px;
+    width: 16px;
     height: 16px;
     opacity: 0;
     transition: opacity var(--duration-fast) var(--ease-out);

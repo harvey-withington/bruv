@@ -28,6 +28,16 @@
     emit(items.map(item => item.id === id ? { ...item, done: !item.done } : item))
   }
 
+  function uncheckAll() {
+    emit(items.map(item => item.done ? { ...item, done: false } : item))
+  }
+
+  // Surface the "uncheck all" affordance only when there's something to
+  // uncheck. Reading the bar already tells the user the count visually;
+  // the button gives them a one-click reset without confirm (it's
+  // non-destructive — text and order are preserved, only `done` flips).
+  const hasChecked = $derived(items.some(it => it.done))
+
   function removeItem(id: string) {
     emit(items.filter(item => item.id !== id))
   }
@@ -116,11 +126,18 @@
 </script>
 
 {#if items.length > 0}
-  <div class="cl-bar">
-    <div
-      class="cl-bar-fill"
-      style="width: {(items.filter(c => c.done).length / items.length) * 100}%"
-    ></div>
+  <div class="cl-bar-row">
+    {#if hasChecked}
+      <button class="cl-uncheck-all" onclick={uncheckAll} title={t('tooltip.uncheck_all')} aria-label={t('tooltip.uncheck_all')}>
+        <Square size={16} />
+      </button>
+    {/if}
+    <div class="cl-bar">
+      <div
+        class="cl-bar-fill"
+        style="width: {(items.filter(c => c.done).length / items.length) * 100}%"
+      ></div>
+    </div>
   </div>
 {/if}
 
@@ -153,7 +170,7 @@
         tabindex="-1"
         aria-label={t('tooltip.drag_checklist_item')}
         title={t('tooltip.drag_checklist_item')}
-      ><GripVertical size={12} /></span>
+      ><GripVertical size={14} /></span>
       <button class="cl-checkbox" onclick={() => toggleItem(item.id)} title={t('tooltip.toggle_checklist')}>
         {#if item.done}<CheckSquare size={16} />{:else}<Square size={16} />{/if}
       </button>
@@ -187,11 +204,20 @@
 </div>
 
 <style>
+  .cl-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    /* Indent so the icon lines up with the checkbox column below
+       (skipping the row's leading drag-handle slot). */
+    padding-left: calc(12px + 0.35rem);
+    margin-bottom: 0.4rem;
+  }
   .cl-bar {
+    flex: 1;
     height: 4px;
     background: var(--bg-elevated);
     border-radius: 2px;
-    margin-bottom: 0.4rem;
     overflow: hidden;
   }
   .cl-bar-fill {
@@ -199,6 +225,29 @@
     background: var(--success);
     border-radius: 2px;
     transition: width var(--duration-moderate);
+  }
+  /* Sized to match the row checkbox so the icon lines up in the
+     same column visually (.cl-bar-row's padding-left places the
+     icon's left edge where the row checkbox's left edge is). */
+  .cl-uncheck-all {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0;
+    border-radius: 3px;
+    width: 16px;
+    height: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .cl-uncheck-all:hover,
+  .cl-uncheck-all:focus-visible {
+    color: var(--text);
+    background: var(--bg-elevated);
+    outline: none;
   }
 
   .cl-items {
@@ -228,7 +277,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 12px;
+    width: 16px;
     height: 16px;
     opacity: 0;
     transition: opacity var(--duration-fast) var(--ease-out);

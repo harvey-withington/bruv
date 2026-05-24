@@ -21,6 +21,15 @@
     commitItems(items.map((it) => (it.id === id ? { ...it, done: !it.done } : it)))
   }
 
+  function uncheckAll() {
+    commitItems(items.map((it) => (it.done ? { ...it, done: false } : it)))
+  }
+
+  // Only surface "uncheck all" when there's something to uncheck —
+  // the action is non-destructive (text + order preserved) so no
+  // confirm is needed.
+  const hasChecked = $derived(items.some((it) => it.done))
+
   function deleteItem(id: string) {
     commitItems(items.filter((it) => it.id !== id))
     delete drafts[id]
@@ -127,6 +136,17 @@
     </li>
   {/each}
   <li class="row add-row">
+    {#if hasChecked}
+      <button
+        type="button"
+        class="uncheck-all"
+        onclick={uncheckAll}
+        aria-label={t('block.checklist.uncheck_all')}
+        title={t('block.checklist.uncheck_all')}
+      >
+        <Square size={18} />
+      </button>
+    {/if}
     <button type="button" class="add" onclick={addItem}>
       <Plus size={14} />
       <span>{t('block.checklist.add')}</span>
@@ -246,9 +266,11 @@
   }
   .add-row {
     margin-top: 0.2rem;
-    /* Align the add button with the items above (skipping the drag-
-       handle column so the dashed "Add item" sits under the checkbox). */
+    /* Indent past the drag-handle column so the uncheck-all icon
+       (when present) and the "Add item" button both sit in the
+       checkbox column above. */
     margin-left: 1.85rem;
+    gap: 0.4rem;
   }
   .add {
     display: inline-flex;
@@ -267,6 +289,28 @@
   .add:focus-visible {
     color: var(--text);
     border-color: var(--text-muted);
+    outline: none;
+  }
+  /* Sized + positioned to mirror the per-row .check button so the
+     icon sits in the same column as the checkboxes above. */
+  .uncheck-all {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 0.4rem;
+    cursor: pointer;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 36px;
+    min-height: 36px;
+    flex-shrink: 0;
+  }
+  .uncheck-all:hover,
+  .uncheck-all:focus-visible {
+    color: var(--text);
+    background: var(--bg-elev-1);
     outline: none;
   }
 

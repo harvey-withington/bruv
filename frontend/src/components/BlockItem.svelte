@@ -489,7 +489,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 20px;
+    width: 16px;
     align-self: stretch;
     color: transparent;
     cursor: grab;
@@ -588,7 +588,7 @@
   }
 
   .block-body {
-    padding-left: 22px; /* indent content past the drag-handle column */
+    padding-left: 8px; /* indent content past the drag-handle column */
   }
 
   .text-scroll-wrap {

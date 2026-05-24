@@ -19,6 +19,9 @@ func init() {
 		// the constant above isn't — non-nil here is a programming bug.
 		panic("transport/http: register .webmanifest MIME failed: " + err.Error())
 	}
+	if err := mime.AddExtensionType(".svg", "image/svg+xml"); err != nil {
+		panic("transport/http: register .svg MIME failed: " + err.Error())
+	}
 }
 
 // staticHandler serves an embedded Svelte bundle with SPA fallback.

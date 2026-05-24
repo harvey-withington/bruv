@@ -3,7 +3,7 @@
   import { repoRPC } from '../lib/auth'
   import { navigate, projectURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
-  import { Trash2, MapPin, Plus, X, RefreshCw, Search } from 'lucide-svelte'
+  import { Trash2, MapPin, Plus, X, RefreshCw, Search, Paperclip, MessageSquare } from 'lucide-svelte'
   import EditableText from '../components/EditableText.svelte'
   import EditableDescription from '../components/EditableDescription.svelte'
   import TagsEditor from '../components/TagsEditor.svelte'
@@ -12,6 +12,7 @@
   import PinPicker from '../components/PinPicker.svelte'
   import CardTypePicker from '../components/CardTypePicker.svelte'
   import CommentsSection from '../components/CommentsSection.svelte'
+  import AttachmentsSection from '../components/AttachmentsSection.svelte'
   import SearchSheet from '../components/SearchSheet.svelte'
   import { getCardTypeColor, getCardTypeTextColor, getCardTypeLabel } from '@shared/cardTypes'
   import { repoMeta, loadProjectTags, projectKey as makeProjectKey } from '../lib/repoMeta.svelte'
@@ -37,6 +38,8 @@
   let loading = $state(true)
   let errorMsg = $state<string | null>(null)
   let saveError = $state<string | null>(null)
+  let activeMetaTab = $state<'attachments' | 'comments'>('attachments')
+  let commentCount = $state(0)
 
   // Block save state. `lastSavedBlocks` is the last snapshot the
   // server confirmed; on a save failure we revert to it. The single
@@ -504,7 +507,45 @@
       </section>
     {/if}
 
-    <CommentsSection cardId={card.id} />
+    <!-- Tab bar: Attachments / Comments -->
+    <div class="meta-tabs">
+      <button
+        type="button"
+        class="meta-tab-btn"
+        class:active={activeMetaTab === 'attachments'}
+        onclick={() => activeMetaTab = 'attachments'}
+      >
+        <Paperclip size={14} />
+        <span>{t('attachment.title')}</span>
+        {#if card.file_attachments?.length}
+          <span class="count-badge">{card.file_attachments.length}</span>
+        {/if}
+      </button>
+      <button
+        type="button"
+        class="meta-tab-btn"
+        class:active={activeMetaTab === 'comments'}
+        onclick={() => activeMetaTab = 'comments'}
+      >
+        <MessageSquare size={14} />
+        <span>{t('comments.title')}</span>
+        {#if commentCount > 0}
+          <span class="count-badge">{commentCount}</span>
+        {/if}
+      </button>
+    </div>
+
+    <div class="meta-tab-content">
+      {#if activeMetaTab === 'attachments'}
+        <AttachmentsSection
+          cardId={card.id}
+          attachments={card.file_attachments ?? []}
+          onCardUpdated={(updated) => card = updated}
+        />
+      {:else}
+        <CommentsSection cardId={card.id} bind:count={commentCount} />
+      {/if}
+    </div>
 
     <footer class="actions">
       <button type="button" class="danger-link" onclick={() => (confirmingDelete = true)}>
@@ -931,5 +972,62 @@
     border-radius: 8px;
     color: #fca5a5;
     text-align: center;
+  }
+
+  .meta-tabs {
+    display: flex;
+    gap: 0.25rem;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    padding: 0.25rem 0.5rem;
+    margin: 1.5rem 0 1rem;
+  }
+  .meta-tab-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.5rem 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    position: relative;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .meta-tab-btn::after {
+    content: '';
+    position: absolute;
+    bottom: -0.25rem;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: transparent;
+    transition: background 0.15s;
+  }
+  .meta-tab-btn.active {
+    color: var(--accent);
+  }
+  .meta-tab-btn.active::after {
+    background: var(--accent);
+  }
+  .count-badge {
+    font-size: 0.7rem;
+    font-weight: 500;
+    background: var(--bg-elev-2, var(--border));
+    color: var(--text-muted);
+    padding: 0.05rem 0.35rem;
+    border-radius: 999px;
+  }
+  .meta-tab-btn.active .count-badge {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    color: var(--accent);
+  }
+  .meta-tab-content {
+    min-height: 120px;
   }
 </style>

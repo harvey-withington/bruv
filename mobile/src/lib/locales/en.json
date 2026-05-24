@@ -334,6 +334,15 @@
   "comments.err_save": "Couldn't save the comment.",
   "comments.err_delete": "Couldn't delete the comment.",
 
+  "attachment.title": "Attachments",
+  "attachment.empty": "No attachments yet.",
+  "attachment.remove": "Remove",
+  "attachment.download": "Download",
+  "attachment.remove_confirm": "Remove attachment \"{name}\"?",
+  "attachment.upload_failed": "Failed to upload attachment.",
+  "attachment.remove_failed": "Failed to remove attachment.",
+  "attachment.download_failed": "Failed to download attachment.",
+
   "device_name.android": "Android phone",
   "device_name.ios": "iOS device",
   "device_name.generic": "Mobile device",

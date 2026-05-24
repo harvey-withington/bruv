@@ -12,9 +12,12 @@
   // here; SSE-driven external updates aren't wired (no comment-specific
   // event topic) — the user can re-open the card to refresh.
 
-  let { cardId }: { cardId: string } = $props()
+  let { cardId, count = $bindable(0) }: { cardId: string; count?: number } = $props()
 
   let comments = $state<CardComment[]>([])
+  $effect(() => {
+    count = comments.length
+  })
   let loading = $state(true)
   let errorMsg = $state<string | null>(null)
 
@@ -205,8 +208,6 @@
 
 <style>
   .comments {
-    border-top: 1px solid var(--border);
-    padding-top: 1.25rem;
     margin-bottom: 1.5rem;
   }
   .section-title {

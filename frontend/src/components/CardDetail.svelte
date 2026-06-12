@@ -1,15 +1,13 @@
 <script lang="ts">
-  import { GetCard, UpdateCardTitle, UpdateCardType, RefreshTypeBlocks, UpdateCardDescription, UpdateCardBlocks, UpdateCardDueDate,
+  import { GetCard, UpdateCardTitle, UpdateCardType, RefreshTypeBlocks, UpdateCardDescription, UpdateCardDueDate,
     DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, GetProjectLabels, GetCategoryAcceptedTypes, GetAgentConfig, GetProjectMembers } from '@shared/api'
   import { onEvent } from '../lib/events'
   import { projectTags, nav, cardTypes } from '../lib/store.svelte'
-  import { X, Trash2, BotMessageSquare, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, ClipboardList, History, Timer } from 'lucide-svelte'
-  import { renderMarkdown } from '@shared/markdown'
+  import { X, Trash2, BotMessageSquare, ClipboardList, History, Timer } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import MentionPicker from './MentionPicker.svelte'
   import PinPicker from './PinPicker.svelte'
   import PinPanel from './PinPanel.svelte'
-  import BlockItem from './BlockItem.svelte'
   import CardHeader from './CardHeader.svelte'
   import DescriptionSection from './DescriptionSection.svelte'
   import ChatSection from './ChatSection.svelte'
@@ -18,15 +16,14 @@
   import CardShareMenu from './CardShareMenu.svelte'
   import CardMetaPanel from './CardMetaPanel.svelte'
   import CardTagsField from './CardTagsField.svelte'
-  import { showOptionsEditor } from '../lib/optionsEditor.svelte'
+  import CardBlocks from './CardBlocks.svelte'
   import SaveIndicator from './SaveIndicator.svelte'
   import { draggable } from '../lib/draggable'
-  import { computeReorder, wouldReorder, DROP_END as REORDER_END } from '../lib/reorder'
   import { fade } from 'svelte/transition'
-  import { focusOnMount, focusTrap } from '../lib/actions'
+  import { focusTrap } from '../lib/actions'
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
-  import type { Card, Block, BlockMeta, CardPin, ProjectMember } from '@shared/types'
+  import type { Card, CardPin, ProjectMember } from '@shared/types'
 
 
   let { cardId, currentCategoryId, currentCategoryName, categoryAcceptedTypes, onClose, onUpdated, onPin, autoEditTitle, initialTab }: {
@@ -138,173 +135,6 @@
   let editingDescription = $state(false)
   let descTextareaEl = $state<HTMLTextAreaElement | null>(null)
 
-  // Block label editing
-  let editingBlockLabelId = $state<string | null>(null)
-  let blockLabelDraft = $state('')
-  // Options editor dialog for select/radio/checkbox_group blocks
-  async function openOptionsEditor(block: Block) {
-    const blockType = block.type as 'select' | 'radio' | 'checkbox_group'
-    const result = await showOptionsEditor(
-      block.label || block.key || block.type,
-      blockType,
-      block.meta?.options || [],
-      block.meta || {},
-    )
-    if (result && card) {
-      block.meta = { ...block.meta, ...result.meta, options: result.options }
-      await tracked(UpdateCardBlocks(cardId, card.blocks))
-      onUpdated?.()
-    }
-  }
-
-  function getEmptyValue(type: string): Block['value'] {
-    switch (type) {
-      case 'checklist': case 'list': case 'media': return []
-      case 'checkbox_group': return []
-      case 'number': case 'rating': case 'progress': return 0
-      case 'checkbox': return false
-      case 'divider': return null
-      default: return ''
-    }
-  }
-
-  function isBlockEmpty(block: Block): boolean {
-    const v = block.value
-    if (v === null || v === undefined) return true
-    if (v === '' || v === 0 || v === false) return true
-    if (Array.isArray(v) && v.length === 0) return true
-    return false
-  }
-
-  async function clearBlockValue(block: Block) {
-    if (!card) return
-    // Confirm before wiping the value — a one-click X next to a long
-    // text block or a populated checklist is easy to hit by accident
-    // and there's no undo path.
-    const name = block.label || block.key || block.type
-    if (!await showConfirm(t('card.clear_block_confirm').replace('{name}', name))) return
-    block.value = getEmptyValue(block.type)
-    if (block.type === 'alarm') block.meta = { ...block.meta, alarm_time: undefined, alarm_fired: false }
-    await tracked(UpdateCardBlocks(cardId, card.blocks))
-    onUpdated?.()
-  }
-
-  // Block editing state: keyed by block ID (stable across reorders)
-  let editingBlockId = $state<string | null>(null)
-  let blockDrafts = $state<Record<string, string>>({})
-  let blockTextareaEls = $state<Record<string, HTMLTextAreaElement | null>>({})
-  let checklistInputEls = $state<Record<string, HTMLInputElement | null>>({})
-  let newChecklistTexts = $state<Record<string, string>>({})
-
-  // Block drag-and-drop state, keyed by stable block.id rather than
-  // array index. Indices shift on reorder/delete (see CLAUDE.md); IDs
-  // don't. dropBeforeBlockId either holds the id of the block the
-  // drop indicator appears ABOVE, the sentinel DROP_END for drop-
-  // after-last, or null when no drop target is active.
-  const DROP_END = REORDER_END
-  let draggingBlockId = $state<string | null>(null)
-  let dropBeforeBlockId = $state<string | null>(null)
-  let blockCopyMode = $state(false)
-  // CSS-only visual collapse during drag (avoids DOM restructure that kills drag state)
-  let dragVisualCollapse = $state(false)
-
-  function handleBlockDragStart(e: DragEvent, block: Block) {
-    draggingBlockId = block.id
-    blockCopyMode = e.ctrlKey
-    if (e.dataTransfer) {
-      e.dataTransfer.effectAllowed = 'copyMove'
-      e.dataTransfer.setData('text/plain', block.id)
-      // Compact drag ghost: snapshot just the block's header row instead
-      // of the full expanded block. The native snapshot is taken before
-      // the deferred visual collapse below, so without this an expanded
-      // block drags as a huge ghost that obscures the drop targets.
-      const headerEl = (e.target as HTMLElement)
-        ?.closest?.('.block-wrapper')
-        ?.querySelector('.block-label-row')
-      if (headerEl instanceof HTMLElement) {
-        e.dataTransfer.setDragImage(headerEl, 12, 12)
-      }
-    }
-    // Use CSS-only collapse — no DOM changes, preserves drag state
-    requestAnimationFrame(() => { dragVisualCollapse = true })
-  }
-
-  function handleBlockDragEnd() {
-    draggingBlockId = null
-    dropBeforeBlockId = null
-    blockCopyMode = false
-    dragVisualCollapse = false
-    if (autoScrollRaf) {
-      cancelAnimationFrame(autoScrollRaf)
-      autoScrollRaf = null
-    }
-  }
-
-  function handleBlockDragOver(e: DragEvent, block: Block, idx: number) {
-    if (draggingBlockId === null) return
-    e.preventDefault()
-    e.stopPropagation()
-    blockCopyMode = e.ctrlKey
-    if (e.dataTransfer) e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'
-
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-    const midY = rect.top + rect.height / 2
-    const blocks = card?.blocks || []
-    let candidate: string | typeof DROP_END
-    if (e.clientY < midY) {
-      candidate = block.id
-    } else {
-      // Below midpoint = insert AFTER this block = before the next
-      // block, or at the end of the list if this is the last block.
-      const nextBlock = blocks[idx + 1]
-      candidate = nextBlock ? nextBlock.id : DROP_END
-    }
-
-    // Only paint the drop indicator when the drop would actually
-    // change the order — otherwise the user sees a line that does
-    // nothing on release, which reads as a bug. (Covers "drop on
-    // self" and "drop into the slot immediately after self".)
-    const mode: 'move' | 'copy' = e.ctrlKey ? 'copy' : 'move'
-    dropBeforeBlockId = wouldReorder(blocks, draggingBlockId, candidate, mode) ? candidate : null
-
-    // Auto-scroll when near edges
-    startAutoScroll(e)
-  }
-
-  async function handleBlockDrop(e: DragEvent) {
-    e.preventDefault()
-    if (draggingBlockId === null || dropBeforeBlockId === null || !card) {
-      handleBlockDragEnd()
-      return
-    }
-
-    const copy = e.ctrlKey
-    const fromId = draggingBlockId
-    const toTarget = dropBeforeBlockId
-
-    draggingBlockId = null
-    dropBeforeBlockId = null
-    blockCopyMode = false
-    dragVisualCollapse = false
-    if (autoScrollRaf) { cancelAnimationFrame(autoScrollRaf); autoScrollRaf = null }
-
-    const blocks = computeReorder(card.blocks, fromId, toTarget, {
-      mode: copy ? 'copy' : 'move',
-      newId: () => `blk-${crypto.randomUUID().slice(0, 8)}`,
-    })
-    // computeReorder returns the same reference on a no-op; skip the save.
-    if (blocks === card.blocks) return
-
-    try {
-      card = await tracked(UpdateCardBlocks(cardId, blocks)) as Card
-      blockDrafts = {}
-      for (const b of card.blocks) {
-        if (b.type === 'text') blockDrafts[b.id] = String(b.value ?? '')
-      }
-    } catch (e) { showToast(t('error.save_failed'), 'error'); return }
-    onUpdated?.()
-  }
-
   function handleWindowClick(e: MouseEvent) {
     const target = e.target as Node
     if (showTypePicker) {
@@ -312,181 +142,15 @@
     }
   }
 
-  function labelToKey(label: string): string {
-    return label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
-  }
+  // Custom-blocks region — block editing, DnD, collapse state and the
+  // text/checklist mention picker all live in CardBlocks. The ref gives
+  // access to its exported add/restore/commit helpers.
+  let cardBlocksRef = $state<CardBlocks | null>(null)
 
-  // --- Block collapse/expand + accordion mode ---
-  //
-  // Session-only collapsed state (Set<block.id>); accordion mode is
-  // persisted across sessions in localStorage. Shared key with mobile
-  // so the preference can converge through user prefs in future.
-  // Dividers are always shown — BlockItem ignores their collapsed
-  // flag — so we filter them out of bulk collapse / single-mode logic.
-  const BLOCK_ACCORDION_MODE_KEY = 'bruv:blockAccordionMode'
-  type AccordionMode = 'single' | 'multi'
-  function readBlockAccordionMode(): AccordionMode {
-    const v = localStorage.getItem(BLOCK_ACCORDION_MODE_KEY)
-    return v === 'multi' ? 'multi' : 'single'
-  }
-  let collapsedBlocks = $state<Set<string>>(new Set())
-  let blockAccordionMode = $state<AccordionMode>(readBlockAccordionMode())
-  // Expanded text blocks (override max-height scroll)
-  let expandedTextBlocks = $state<Set<string>>(new Set())
-
-  function isCollapsibleBlock(b: Block): boolean {
-    return b.key !== 'description' && b.type !== 'divider'
-  }
-
-  function toggleBlockCollapse(blockId: string) {
-    const next = new Set(collapsedBlocks)
-    if (next.has(blockId)) {
-      // Expanding. In single mode, collapse every other collapsible
-      // block first so only this one stays open.
-      if (blockAccordionMode === 'single' && card) {
-        for (const b of card.blocks) {
-          if (b.id !== blockId && isCollapsibleBlock(b)) next.add(b.id)
-        }
-      }
-      next.delete(blockId)
-    } else {
-      next.add(blockId)
-    }
-    collapsedBlocks = next
-  }
-
-  function collapseAllBlocks() {
-    if (!card) return
-    collapsedBlocks = new Set(card.blocks.filter(b => b.key !== 'description').map(b => b.id))
-  }
-
-  function expandAllBlocks() {
-    collapsedBlocks = new Set()
-  }
-
-  // Switching INTO single mode: keep the topmost currently-open block
-  // open, collapse the rest. Switching to multi is a no-op.
-  function applySingleModeCollapse() {
-    if (!card) return
-    const collapsible = card.blocks.filter(isCollapsibleBlock)
-    const open = collapsible.filter(b => !collapsedBlocks.has(b.id))
-    if (open.length <= 1) return
-    const keepOpen = open[0].id
-    const next = new Set(collapsedBlocks)
-    for (const b of collapsible) {
-      if (b.id !== keepOpen) next.add(b.id)
-    }
-    collapsedBlocks = next
-  }
-
-  function toggleAccordionMode() {
-    blockAccordionMode = blockAccordionMode === 'single' ? 'multi' : 'single'
-    try { localStorage.setItem(BLOCK_ACCORDION_MODE_KEY, blockAccordionMode) } catch { /* private mode, etc. */ }
-    if (blockAccordionMode === 'single') applySingleModeCollapse()
-  }
-
-  function toggleTextExpand(blockId: string) {
-    const next = new Set(expandedTextBlocks)
-    if (next.has(blockId)) next.delete(blockId)
-    else next.add(blockId)
-    expandedTextBlocks = next
-  }
-
-  // Restore collapsed state from block meta on load
-  function restoreCollapsedFromMeta() {
-    if (!card) return
-    const set = new Set<string>()
-    for (const b of card.blocks) {
-      if (b.meta?.collapsed) set.add(b.id)
-    }
-    collapsedBlocks = set
-  }
-
-  // --- Text block overflow detection ---
-  let textBlockOverflows = $state<Set<string>>(new Set())
-  let textBlockEls = $state<Record<string, HTMLDivElement | null>>({})
-
-  function checkTextOverflow(blockId: string) {
-    const el = textBlockEls[blockId]
-    if (!el) return
-    const next = new Set(textBlockOverflows)
-    if (el.scrollHeight > el.clientHeight + 2) {
-      next.add(blockId)
-    } else {
-      next.delete(blockId)
-    }
-    textBlockOverflows = next
-  }
-
-  // Re-check overflow when card loads or blocks change
-  $effect(() => {
-    if (!card) return
-    const blocks = card.blocks
-    // Small delay to let DOM render
-    setTimeout(() => {
-      for (const b of blocks) {
-        if (b.type === 'text' && b.value) checkTextOverflow(b.id)
-      }
-    }, 50)
-  })
-
-  // --- Auto-scroll during drag ---
-  let blocksListEl = $state<HTMLDivElement | null>(null)
-  let autoScrollRaf = $state<number | null>(null)
-
-  function startAutoScroll(e: DragEvent) {
-    if (!blocksListEl) return
-    const scrollContainer = blocksListEl.closest('.modal-body') as HTMLElement | null
-    if (!scrollContainer) return
-
-    const rect = scrollContainer.getBoundingClientRect()
-    const edgeZone = 50
-    const speed = 8
-
-    if (e.clientY < rect.top + edgeZone) {
-      scrollContainer.scrollTop -= speed
-    } else if (e.clientY > rect.bottom - edgeZone) {
-      scrollContainer.scrollTop += speed
-    }
-  }
-
-  async function addBlock(blockType: Block['type'], label: string) {
-    if (!card) return
-    const id = `blk-${crypto.randomUUID().slice(0, 8)}`
-    let value: Block['value'] = ''
-    let meta: BlockMeta | undefined = undefined
-    if (blockType === 'checklist') value = []
-    else if (blockType === 'list') value = []
-    else if (blockType === 'media') value = []
-    else if (blockType === 'divider') value = null
-    else if (blockType === 'select') { value = ''; meta = { options: ['Option 1', 'Option 2', 'Option 3'] } }
-    else if (blockType === 'number') value = 0
-    else if (blockType === 'date') value = ''
-    else if (blockType === 'rating') { value = 0; meta = { max: 5 } }
-    else if (blockType === 'checkbox') value = false
-    else if (blockType === 'radio') { value = ''; meta = { options: ['Option 1', 'Option 2', 'Option 3'] } }
-    else if (blockType === 'checkbox_group') { value = []; meta = { options: ['Option 1', 'Option 2', 'Option 3'] } }
-    else if (blockType === 'image') value = null
-    else if (blockType === 'progress') value = 0
-    else if (blockType === 'alarm') { value = null; meta = { alarm_channels: 'in-app,system' } }
-    else if (blockType === 'survey') value = []
-
-    const newBlock: Block = { id, type: blockType, label, key: labelToKey(label), value, meta }
-    const blocks = [...card.blocks, newBlock]
-    try {
-      card = await tracked(UpdateCardBlocks(cardId, blocks)) as Card
-      if (blockType === 'text') {
-        blockDrafts[id] = ''
-        editingBlockId = id
-      }
-    } catch (e) { showToast(t('error.save_failed'), 'error'); return }
-    onUpdated?.()
-  }
-
-  // @ mention picker state
+  // @ mention picker state (description only — block/checklist mentions
+  // are handled by CardBlocks' own picker)
   let mentionVisible = $state(false)
   let mentionAnchor = $state<{ top: number; left: number } | null>(null)
-  let mentionTarget = $state<{ type: 'desc' } | { type: 'text'; blockId: string } | { type: 'checklist'; blockId: string } | null>(null)
   let mentionTriggerPos = $state<number>(0)
 
   $effect(() => {
@@ -504,7 +168,7 @@
     const watchedCardId = cardId
     const unsubscribe = onEvent<{ cardID?: string }>('card:updated', (data) => {
       if (!data || data.cardID !== watchedCardId) return
-      if (editingTitle || editingDescription || editingBlockId !== null || editingBlockLabelId !== null) return
+      if (editingTitle || editingDescription || cardBlocksRef?.hasActiveEdit()) return
       // Silent refresh — don't wipe the visible card with the loading
       // placeholder. Without this, the dialog flashes whenever the agent
       // writes an update to the card mid-run.
@@ -523,17 +187,16 @@
       pinBreadcrumbs = await GetCardPinBreadcrumbs(cardId) || []
       titleDraft = card.title
       descriptionDraft = card.description || ''
-      blockDrafts = {}
-      newChecklistTexts = {}
-      for (const b of card.blocks) {
-        if (b.type === 'text' || b.type === 'url') blockDrafts[b.id] = String(b.value ?? '')
-      }
+      // CardBlocks re-seeds its drafts on every reload. On non-silent
+      // loads the ref is null (the loading placeholder tears the
+      // component down) and CardBlocks seeds itself on remount instead.
+      cardBlocksRef?.resetDrafts()
       // Only seed collapsed-state from meta on the initial open. Silent
       // reloads fire after EVERY save (including toggling a checklist
       // item) and would otherwise wipe the user's session-level collapse
       // choices — meta.collapsed isn't actually written anywhere today,
       // so re-reading it on a silent refresh just resets the set.
-      if (!silent) restoreCollapsedFromMeta()
+      if (!silent) cardBlocksRef?.restoreCollapsedFromMeta()
       if (autoEditTitle) editingTitle = true
       // Check if card has an agent configured
       try { const af = await GetAgentConfig(cardId); hasAgent = af?.config?.enabled ?? false } catch { hasAgent = false }
@@ -638,196 +301,36 @@
 
   function handleDescInput(e: Event) {
     const el = e.target as HTMLTextAreaElement
-    checkForMention(el, { type: 'desc' })
-  }
-
-  async function deleteBlock(blockId: string) {
-    if (!card) return
-    const block = card.blocks.find((b: Block) => b.id === blockId)
-    if (!block) return
-    if (!await showConfirm(t('card.confirm_delete_block').replace('{name}', block.label || block.type))) return
-    const blocks = card.blocks.filter((b: Block) => b.id !== blockId)
-    try {
-      const updated = await tracked(UpdateCardBlocks(cardId, blocks)) as Card
-      card = updated
-      blockDrafts = {}
-      for (const b of updated.blocks) {
-        if (b.type === 'text') blockDrafts[b.id] = String(b.value ?? '')
-      }
-    } catch (e) { showToast(t('error.delete_failed'), 'error'); return }
-    onUpdated?.()
-  }
-
-  async function renameBlockLabel(blockId: string) {
-    if (editingBlockLabelId !== blockId) return
-    const label = blockLabelDraft.trim()
-    editingBlockLabelId = null
-    if (!label || !card) return
-    const block = card.blocks.find((b: Block) => b.id === blockId)
-    if (!block || label === block.label) return
-    const blocks = card.blocks.map((b: Block) => b.id === blockId ? { ...b, label, key: labelToKey(label) } : b)
-    try {
-      card = await tracked(UpdateCardBlocks(cardId, blocks)) as Card
-    } catch (e) { showToast(t('error.save_failed'), 'error'); return }
-    onUpdated?.()
-  }
-
-  async function saveUrlBlock(blockId: string) {
-    if (editingBlockId !== blockId || !card) return
-    const raw = (blockDrafts[blockId] ?? '').trim()
-    const block = card.blocks.find((b: Block) => b.id === blockId)
-    // Normalise: add https:// if the user typed a bare host. Empty is fine — stores as empty.
-    const draft = raw && !/^https?:\/\//i.test(raw) && !raw.startsWith('/') ? `https://${raw}` : raw
-    if (draft === String(block?.value ?? '')) {
-      editingBlockId = null
-      return
-    }
-    const updatedBlocks = card.blocks.map((b: Block) =>
-      b.id === blockId && b.type === 'url' ? { ...b, value: draft } : b
-    )
-    try {
-      card = await tracked(UpdateCardBlocks(cardId, updatedBlocks)) as Card
-      blockDrafts[blockId] = draft
-      editingBlockId = null
-    } catch (e) { showToast(t('error.save_failed'), 'error'); return }
-    onUpdated?.()
-  }
-
-  async function saveTextBlock(blockId: string) {
-    if (editingBlockId !== blockId || !card) return
-    const draft = blockDrafts[blockId]
-    const block = card.blocks.find((b: Block) => b.id === blockId)
-    if (draft === undefined || draft === String(block?.value ?? '')) {
-      editingBlockId = null
-      return
-    }
-    const updatedBlocks = card.blocks.map((b: Block) =>
-      b.id === blockId && b.type === 'text' ? { ...b, value: draft } : b
-    )
-    try {
-      card = await tracked(UpdateCardBlocks(cardId, updatedBlocks)) as Card
-      editingBlockId = null
-    } catch (e) { showToast(t('error.save_failed'), 'error'); return }
-    onUpdated?.()
-  }
-
-  async function handleTextBlockKeydown(e: KeyboardEvent, blockId: string) {
-    if (mentionVisible) return
-    if (e.key === 'Escape') {
-      e.stopPropagation()
-      editingBlockId = null
-      const block = card?.blocks.find((b: Block) => b.id === blockId)
-      blockDrafts[blockId] = String(block?.value ?? '')
-    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault()
-      e.stopPropagation()  // prevent handleBackdropKeydown from also calling saveTextBlock
-      await saveTextBlock(blockId)
-      onClose()
-    }
-  }
-
-  function handleTextBlockInput(e: Event, blockId: string) {
-    const el = e.target as HTMLTextAreaElement
-    checkForMention(el, { type: 'text', blockId })
-  }
-
-  function checkForMention(el: HTMLTextAreaElement | HTMLInputElement, target: { type: 'desc' } | { type: 'text'; blockId: string } | { type: 'checklist'; blockId: string }) {
     const pos = el.selectionStart ?? 0
     const text = el.value
     if (pos > 0 && text[pos - 1] === '@') {
       if (pos === 1 || /\s/.test(text[pos - 2])) {
         mentionTriggerPos = pos - 1
-        mentionTarget = target
         const rect = el.getBoundingClientRect()
         mentionAnchor = { top: rect.bottom + 4, left: rect.left }
         mentionVisible = true
-        return
       }
     }
   }
 
   function handleMentionSelect(markdown: string) {
-    if (!mentionTarget) return
-    if (mentionTarget.type === 'desc') {
-      const before = descriptionDraft.slice(0, mentionTriggerPos)
-      const after = descriptionDraft.slice(descTextareaEl?.selectionStart ?? mentionTriggerPos + 1)
-      descriptionDraft = before + markdown + after
-      mentionVisible = false
-      mentionTarget = null
-      const newPos = before.length + markdown.length
-      setTimeout(() => { descTextareaEl?.focus(); descTextareaEl?.setSelectionRange(newPos, newPos) }, 0)
-    } else if (mentionTarget.type === 'text') {
-      const blockId = mentionTarget.blockId
-      const el = blockTextareaEls[blockId]
-      const draft = blockDrafts[blockId] || ''
-      const before = draft.slice(0, mentionTriggerPos)
-      const after = draft.slice(el?.selectionStart ?? mentionTriggerPos + 1)
-      blockDrafts[blockId] = before + markdown + after
-      mentionVisible = false
-      mentionTarget = null
-      const newPos = before.length + markdown.length
-      setTimeout(() => { el?.focus(); el?.setSelectionRange(newPos, newPos) }, 0)
-    } else if (mentionTarget.type === 'checklist') {
-      const blockId = mentionTarget.blockId
-      const el = checklistInputEls[blockId]
-      const text = newChecklistTexts[blockId] || ''
-      const before = text.slice(0, mentionTriggerPos)
-      const after = text.slice(el?.selectionStart ?? mentionTriggerPos + 1)
-      newChecklistTexts[blockId] = before + markdown + after
-      mentionVisible = false
-      mentionTarget = null
-      const newPos = before.length + markdown.length
-      setTimeout(() => { el?.focus(); el?.setSelectionRange(newPos, newPos) }, 0)
-    }
+    const before = descriptionDraft.slice(0, mentionTriggerPos)
+    const after = descriptionDraft.slice(descTextareaEl?.selectionStart ?? mentionTriggerPos + 1)
+    descriptionDraft = before + markdown + after
+    mentionVisible = false
+    const newPos = before.length + markdown.length
+    setTimeout(() => { descTextareaEl?.focus(); descTextareaEl?.setSelectionRange(newPos, newPos) }, 0)
   }
 
   function handleMentionClose() {
-    const target = mentionTarget
     mentionVisible = false
-    mentionTarget = null
-    // Refocus the source field so the user can continue editing
-    if (target?.type === 'desc') {
-      setTimeout(() => descTextareaEl?.focus(), 0)
-    } else if (target?.type === 'text') {
-      setTimeout(() => blockTextareaEls[target.blockId]?.focus(), 0)
-    } else if (target?.type === 'checklist') {
-      setTimeout(() => checklistInputEls[target.blockId]?.focus(), 0)
-    }
-  }
-
-  // --- Keyboard navigation ---
-  function handleBlockKeydown(e: KeyboardEvent, blockIdx: number) {
-    if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      const blocks = card?.blocks.filter(b => b.key !== 'description') || []
-      if (e.shiftKey) {
-        if (blockIdx > 0) {
-          e.preventDefault()
-          const prevBlock = blocks[blockIdx - 1]
-          focusBlock(prevBlock.id)
-        }
-      } else {
-        if (blockIdx < blocks.length - 1) {
-          e.preventDefault()
-          const nextBlock = blocks[blockIdx + 1]
-          focusBlock(nextBlock.id)
-        }
-      }
-    }
-  }
-
-  function focusBlock(blockId: string) {
-    setTimeout(() => {
-      const el = document.querySelector(`[data-block-id="${blockId}"]`) as HTMLElement
-      if (el) {
-        const focusable = el.querySelector('textarea, input, [tabindex="0"]') as HTMLElement
-        if (focusable) focusable.focus()
-        else el.focus()
-      }
-    }, 0)
+    // Refocus the description so the user can continue editing
+    setTimeout(() => descTextareaEl?.focus(), 0)
   }
 
   // Applies a card snapshot returned by a child component's mutation
-  // (attachments panel, tags field) and notifies the parent board.
+  // (attachments panel, tags field, blocks region) and notifies the
+  // parent board.
   function applyCardUpdate(updatedCard: Card) {
     card = updatedCard
     onUpdated?.()
@@ -957,13 +460,12 @@
       e.preventDefault()
       if (editingTitle) await saveTitle()
       if (editingDescription) await saveDescription()
-      if (editingBlockId !== null) await saveTextBlock(editingBlockId)
-      if (editingBlockLabelId !== null) await renameBlockLabel(editingBlockLabelId)
+      await cardBlocksRef?.commitActiveEdit()
       onClose()
       return
     }
     if (e.key === 'Escape') {
-      if (editingTitle || editingDescription || editingBlockId !== null || editingBlockLabelId !== null) return
+      if (editingTitle || editingDescription || cardBlocksRef?.hasActiveEdit()) return
       onClose({ escaped: true })
     }
   }
@@ -1082,93 +584,22 @@
           onBlur={handleDescBlur}
         />
 
-        <!-- Block toolbar: divider line with expand/collapse + single/multi mode when multiple blocks -->
-        <div class="block-toolbar-divider">
-          {#if (card.blocks || []).filter(b => b.key !== 'description' && b.type !== 'divider').length > 1}
-            <div class="block-toolbar-group">
-              <button class="block-toolbar-btn" onclick={expandAllBlocks} title={t('block.expand_all')}>
-                <ChevronsUpDown size={12} />
-              </button>
-              <button class="block-toolbar-btn" onclick={collapseAllBlocks} title={t('block.collapse_all')}>
-                <ChevronsDownUp size={12} />
-              </button>
-              <button
-                class="block-toolbar-btn"
-                onclick={toggleAccordionMode}
-                aria-label={blockAccordionMode === 'single' ? t('block.mode_single') : t('block.mode_multi')}
-                title={blockAccordionMode === 'single' ? t('block.mode_single_hint') : t('block.mode_multi_hint')}
-              >
-                {#if blockAccordionMode === 'single'}
-                  <ListCollapse size={12} />
-                {:else}
-                  <ListTree size={12} />
-                {/if}
-              </button>
-            </div>
-          {/if}
-        </div>
-
-        <!-- Blocks (excluding description block) -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="blocks-list" class:drag-visual-collapse={dragVisualCollapse} role="list" ondrop={handleBlockDrop} ondragover={(e) => { if (draggingBlockId !== null) e.preventDefault() }} bind:this={blocksListEl}>
-          {#each (card.blocks || []) as block, blockIdx (block.id)}
-            {#if block.key !== 'description'}
-              <!-- Drop indicator before this block -->
-              {#if draggingBlockId !== null && dropBeforeBlockId === block.id}
-                <div class="block-drop-indicator" class:copy-mode={blockCopyMode}></div>
-              {/if}
-
-              <BlockItem
-                {block}
-                {blockIdx}
-                {card}
-                {cardId}
-                {currentCategoryId}
-                bind:editingBlockId
-                bind:editingBlockLabelId
-                bind:blockLabelDraft
-                bind:blockDrafts
-                {collapsedBlocks}
-                {expandedTextBlocks}
-                {draggingBlockId}
-                {mentionVisible}
-                {textBlockOverflows}
-                bind:blockTextareaEls
-                bind:textBlockEls
-                {tracked}
-                {onUpdated}
-                onDragStart={handleBlockDragStart}
-                onDragEnd={handleBlockDragEnd}
-                onDragOver={handleBlockDragOver}
-                onKeydown={handleBlockKeydown}
-                onToggleCollapse={toggleBlockCollapse}
-                onRenameLabel={renameBlockLabel}
-                onOpenOptionsEditor={openOptionsEditor}
-                onClearValue={clearBlockValue}
-                onDelete={deleteBlock}
-                onTextKeydown={handleTextBlockKeydown}
-                onTextInput={handleTextBlockInput}
-                onSaveText={saveTextBlock}
-                onSaveUrl={saveUrlBlock}
-                onToggleTextExpand={toggleTextExpand}
-                {isBlockEmpty}
-              />
-            {/if}
-          {/each}
-
-          <!-- Drop indicator after last block -->
-          {#if draggingBlockId !== null && dropBeforeBlockId === DROP_END}
-            <div class="block-drop-indicator" class:copy-mode={blockCopyMode}></div>
-          {/if}
-        </div>
-
-
-
+        <!-- Custom blocks region: toolbar + DnD list + block mention picker -->
+        <CardBlocks
+          bind:this={cardBlocksRef}
+          {card}
+          {cardId}
+          {currentCategoryId}
+          track={tracked}
+          onCardUpdated={applyCardUpdate}
+          {onUpdated}
+          onClose={() => onClose()}
+        />
       </div>
 
       <!-- Card-level attachments & comments tabbed panel (pinned between scrollable body and footer) -->
       {#if activeTab === 'details'}
-        <CardMetaPanel {cardId} {card} onAttachmentsUpdated={applyCardUpdate} onAddBlock={addBlock} />
+        <CardMetaPanel {cardId} {card} onAttachmentsUpdated={applyCardUpdate} onAddBlock={(type, label) => cardBlocksRef?.addBlock(type, label)} />
       {/if}
 
       <div class="modal-footer">
@@ -1568,62 +999,4 @@
     cursor: pointer;
   }
   .btn-delete:hover { color: var(--danger-light); background: rgba(248, 113, 113, 0.1); }
-
-  .block-toolbar-divider {
-    position: relative;
-    height: 0;
-    border-top: 1px solid var(--border-muted);
-    margin: 0.75rem 0;
-  }
-  .block-toolbar-group {
-    position: absolute;
-    right: 0.5rem;
-    top: 50%;
-    transform: translateY(-50%);
-    display: flex;
-    align-items: center;
-    gap: 0.15rem;
-    background: var(--bg-surface);
-    border: 1px solid var(--border-muted);
-    border-radius: 4px;
-    padding: 0 0.1rem;
-  }
-  .block-toolbar-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.1rem;
-    border: none;
-    width: 18px;
-    height: 18px;
-    background: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    transition: color 0.12s, background 0.12s;
-  }
-  .block-toolbar-btn:hover {
-    color: var(--text-strong);
-    background: var(--bg-elevated);
-  }
-
-
-
-  .blocks-list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--block-gap, 0.75rem);
-  }
-
-  .block-drop-indicator {
-    height: 3px;
-    background: var(--accent);
-    border-radius: 2px;
-    margin: 2px 22px 2px 22px;
-    transition: background var(--duration-fast);
-  }
-  .block-drop-indicator.copy-mode {
-    background: var(--success, #22c55e);
-  }
-
-  /* Tag picker dropdown */
 </style>

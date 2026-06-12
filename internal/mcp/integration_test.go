@@ -102,12 +102,14 @@ func TestIntegrationFilesystemServer(t *testing.T) {
 
 	// Generous timeout: on CI cold-start, npx has to install the
 	// MCP filesystem package before it can even respond to the
-	// initialize handshake. That install takes 30–60s on the slow
-	// Windows runners observed in GitHub Actions; previous 60s
-	// budget was tight enough that a single slow install consumed
-	// the whole ctx before Initialize could return. 120s is the
-	// same ceiling TestIntegrationServerProcessFilesystem uses.
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	// initialize handshake. CI pre-warms the npx cache (see the
+	// "Pre-warm npx cache" step in ci.yml) so this normally costs
+	// only process spawn — but a cold install has been observed to
+	// exceed 120s on slow Windows runners (2026-06-12 run: reply
+	// landed at ~122s, just after the old deadline deregistered the
+	// request). 180s is headroom for a prewarm miss, matching
+	// TestIntegrationServerProcessFilesystem.
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
 
 	if err := client.Initialize(ctx); err != nil {

@@ -35,13 +35,15 @@ func TestIntegrationServerProcessFilesystem(t *testing.T) {
 		Args:        []string{"-y", "@modelcontextprotocol/server-filesystem", tmpDir},
 		Enabled:     true,
 		// Cold CI runners need to npm-install the server package
-		// before it can handshake — 90s covers that with headroom.
+		// before it can handshake. CI pre-warms the npx cache (see
+		// ci.yml), but a prewarm miss has been observed to exceed
+		// 120s on slow Windows runners — size for that worst case.
 		// The outer context below is sized to match.
-		InitTimeout: 90 * time.Second,
+		InitTimeout: 150 * time.Second,
 	}
 
 	sp := NewServerProcess(spec, "test-repo-id", nil)
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
 
 	if err := sp.Start(ctx); err != nil {

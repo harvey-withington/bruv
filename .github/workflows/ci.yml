@@ -129,6 +129,21 @@ jobs:
       - name: go build
         run: go build ./...
 
+      # The internal/mcp integration tests spawn the real MCP filesystem
+      # server via `npx -y @modelcontextprotocol/server-filesystem`. On a
+      # cold runner that means npx downloads the package mid-test, which
+      # has been observed to take >120s on slow Windows runners — blowing
+      # the tests' initialize deadline (the server's reply arrives after
+      # the client has already deregistered the request: "mcp response
+      # for unknown request"). Pre-warm the npx cache here so the test
+      # only pays process-spawn cost. Stdin is /dev/null, so the stdio
+      # server exits on EOF immediately after install; `|| true` because
+      # a prewarm failure should surface as the real test failing, not
+      # as an opaque setup error.
+      - name: Pre-warm npx cache for MCP integration tests
+        shell: bash
+        run: npx -y @modelcontextprotocol/server-filesystem . < /dev/null > /dev/null 2>&1 || true
+
       - name: go test
         run: go test ./... -count=1
 

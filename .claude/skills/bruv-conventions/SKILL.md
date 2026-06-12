@@ -39,7 +39,17 @@ cd frontend; npm run check; npx vitest run   # desktop: types + tests
 cd ../mobile; npm run check                  # CI runs this with --fail-on-warnings: ANY warning breaks the build
 ```
 
-If Go code was touched: `go test ./...` and `go vet ./...`.
+If Go code was touched: `go test ./... -count=1` and `go vet ./...`.
+
+**svelte-check alone is NOT what CI runs.** Before any push that touched shared/, adapters, the Go App/ShellAPI surface, or vite configs, mirror the full CI sequence — these have all caught real breaks that check+tests missed:
+
+```powershell
+wails generate module                        # CI regenerates bindings from the Go struct; stale local wailsjs can mask mismatches
+cd frontend; npm run build                   # production bundles are a separate gate from svelte-check
+cd ../mobile; npm run build
+```
+
+Known CI quirk: the internal/mcp integration tests spawn the real MCP filesystem server via npx; ci.yml pre-warms the npx cache before `go test`. If they flake on a runner, suspect cold-cache install time, not the code.
 
 Grep guards (should return nothing, or only justified hits):
 

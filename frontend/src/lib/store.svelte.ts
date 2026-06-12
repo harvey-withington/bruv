@@ -8,6 +8,21 @@ import type { Card, CardTypeInfo, ChecklistItem } from '@shared/types'
 // from old repos, so board tiles read it through this extension type.
 export type LegacyCard = Card & { checklist?: ChecklistItem[] }
 
+// Checklist progress for the board tile's "✓ done/total" badge. Counts
+// items across every checklist block (a card can have several), plus
+// the legacy top-level array for pre-blocks repos.
+export function checklistProgress(card: LegacyCard): { total: number; done: number } {
+  let total = card.checklist?.length || 0
+  let done = card.checklist?.filter((c) => c.done).length || 0
+  for (const b of card.blocks ?? []) {
+    if (b.type !== 'checklist' || !Array.isArray(b.value)) continue
+    const items = b.value as ChecklistItem[]
+    total += items.length
+    done += items.filter((c) => c.done).length
+  }
+  return { total, done }
+}
+
 // Navigation state
 export const nav = $state({
   repoOpen: false,
@@ -191,14 +206,15 @@ export async function loadBoard(brandSlug: string, streamSlug: string, projectSl
       const cards = await Promise.all(cardIds.map(async (id: string) => {
         try {
           const card: LegacyCard = await GetCard(id)
+          const checklist = checklistProgress(card)
           return {
             id: card.id,
             type: card.type,
             title: card.title,
             tags: card.tags || [],
             due_date: card.due_date,
-            checklist_total: card.checklist?.length || 0,
-            checklist_done: card.checklist?.filter((c) => c.done).length || 0,
+            checklist_total: checklist.total,
+            checklist_done: checklist.done,
           }
         } catch { return null }
       }))
@@ -298,7 +314,7 @@ async function refreshBoardCard(cardID: string): Promise<void> {
   }
   if (foundCategoryIdx < 0) return
 
-  let card: any
+  let card: LegacyCard
   try {
     card = await GetCard(cardID)
   } catch {
@@ -312,14 +328,15 @@ async function refreshBoardCard(cardID: string): Promise<void> {
     if (idx >= 0) {
       foundCategoryIdx = i
       foundCardIdx = idx
+      const checklist = checklistProgress(card)
       const updated = {
         id: card.id,
         type: card.type,
         title: card.title,
         tags: card.tags || [],
         due_date: card.due_date,
-        checklist_total: card.checklist?.length || 0,
-        checklist_done: card.checklist?.filter((c: any) => c.done).length || 0,
+        checklist_total: checklist.total,
+        checklist_done: checklist.done,
       }
       // Replace the cards array (not just one slot) so reactive
       // consumers see the change. Svelte 5 $state tracks deep but

@@ -4,11 +4,8 @@
   import { onEvent } from '../lib/events'
   import { projectTags, nav, getTagColor, getTagIcon, cardTypes } from '../lib/store.svelte'
   import DynamicIcon from './DynamicIcon.svelte'
-  import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, BotMessageSquare, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell, ClipboardList, MessageSquare, Paperclip, History, Timer, Share2, Copy, Download, FileJson } from 'lucide-svelte'
+  import { X, Trash2, BotMessageSquare, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, ClipboardList, MessageSquare, Paperclip, History, Timer } from 'lucide-svelte'
   import { renderMarkdown } from '@shared/markdown'
-  import { cardToMarkdown } from '@shared/cardMarkdown'
-  import { downloadBlob, sanitizeFilenameStem } from '@shared/download'
-  import { buildCardExportPayload, cardMarkdownLabels } from '../lib/cardExport'
   import { t } from '../lib/i18n.svelte'
   import MentionPicker from './MentionPicker.svelte'
   import PinPicker from './PinPicker.svelte'
@@ -20,6 +17,8 @@
   import AgentTab from './AgentTab.svelte'
   import AgentRunsTab from './AgentRunsTab.svelte'
   import CardAttachments from './CardAttachments.svelte'
+  import CardShareMenu from './CardShareMenu.svelte'
+  import BlockPicker from './BlockPicker.svelte'
   import { showOptionsEditor } from '../lib/optionsEditor.svelte'
   import CardComments from './CardComments.svelte'
   import SaveIndicator from './SaveIndicator.svelte'
@@ -316,54 +315,15 @@
     onUpdated?.()
   }
 
-  // Add-block picker state
-  let showBlockPicker = $state(false)
-  let addBlockBtnEl = $state<HTMLButtonElement | null>(null)
-
-  // Share-as-markdown menu state
-  let showShareMenu = $state(false)
-  let shareBtnEl = $state<HTMLButtonElement | null>(null)
-
   function handleWindowClick(e: MouseEvent) {
     const target = e.target as Node
-    if (showBlockPicker) {
-      if (!addBlockBtnEl?.contains(target) && !(target as HTMLElement).closest?.('.add-block-picker')) showBlockPicker = false
-    }
-    if (showShareMenu) {
-      if (!shareBtnEl?.contains(target) && !(target as HTMLElement).closest?.('.share-menu')) showShareMenu = false
-    }
     if (showTypePicker) {
       if (!typePickerEl?.contains(target) && !(target as HTMLElement).closest?.('.type-picker-dropdown')) showTypePicker = false
     }
   }
 
-  const BLOCK_OPTIONS = [
-    { type: 'text',      label: t('block.text'),      icon: 'Type' },
-    { type: 'checklist', label: t('block.checklist'), icon: 'ListChecks' },
-    { type: 'list',      label: t('block.list'),      icon: 'List' },
-    { type: 'media',     label: t('block.media'),     icon: 'Film' },
-    { type: 'url',       label: t('block.url'),       icon: 'Link' },
-    { type: 'divider',   label: t('block.divider'),   icon: 'Minus' },
-    { type: 'select',    label: t('block.select'),    icon: 'ChevronDown' },
-    { type: 'number',    label: t('block.number'),    icon: 'Hash' },
-    { type: 'date',      label: t('block.date'),      icon: 'Calendar' },
-    { type: 'rating',    label: t('block.rating'),    icon: 'Star' },
-    { type: 'checkbox',       label: t('block.checkbox'),       icon: 'ToggleLeft' },
-    { type: 'radio',          label: t('block.radio'),          icon: 'CircleDot' },
-    { type: 'checkbox_group', label: t('block.checkbox_group'), icon: 'ListChecks' },
-    { type: 'image',          label: t('block.image'),          icon: 'ImageIcon' },
-    { type: 'progress',       label: t('block.progress'),       icon: 'ChartColumn' },
-    { type: 'alarm',          label: t('block.alarm'),          icon: 'Bell' },
-    { type: 'survey',         label: t('block.survey'),         icon: 'ClipboardList' },
-  ] as const
-
   function labelToKey(label: string): string {
     return label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const BLOCK_ICON_MAP: Record<string, any> = {
-    Type, ListChecks, List, Film, Link, Minus, ChevronDown, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell, ClipboardList,
   }
 
   // --- Block collapse/expand + accordion mode ---
@@ -500,10 +460,8 @@
     }
   }
 
-  async function addBlock(blockType: string) {
-    showBlockPicker = false
+  async function addBlock(blockType: Block['type'], label: string) {
     if (!card) return
-    const label = BLOCK_OPTIONS.find(o => o.type === blockType)?.label || blockType
     const id = `blk-${crypto.randomUUID().slice(0, 8)}`
     let value: Block['value'] = ''
     let meta: BlockMeta | undefined = undefined
@@ -523,7 +481,7 @@
     else if (blockType === 'alarm') { value = null; meta = { alarm_channels: 'in-app,system' } }
     else if (blockType === 'survey') value = []
 
-    const newBlock: Block = { id, type: blockType as Block['type'], label, key: labelToKey(label), value, meta }
+    const newBlock: Block = { id, type: blockType, label, key: labelToKey(label), value, meta }
     const blocks = [...card.blocks, newBlock]
     try {
       card = await tracked(UpdateCardBlocks(cardId, blocks)) as Card
@@ -1148,49 +1106,6 @@
     } catch (e) { showToast(t('error.delete_failed'), 'error') }
   }
 
-  // Build the markdown snapshot, loading comments lazily — comments
-  // aren't kept in `card`, so we fetch on demand rather than eagerly.
-  async function buildCardMarkdown(): Promise<string | null> {
-    if (!card) return null
-    let comments: Awaited<ReturnType<typeof ListCardComments>> = []
-    try { comments = await ListCardComments(cardId) }
-    catch { /* comments are optional in the export — fall through with empty */ }
-    return cardToMarkdown(card, { comments, untitledLabel: t('card.untitled'), labels: cardMarkdownLabels() })
-  }
-
-  async function copyCardAsMarkdown() {
-    showShareMenu = false
-    const md = await buildCardMarkdown()
-    if (md === null) return
-    try {
-      await navigator.clipboard.writeText(md)
-      showToast(t('card.copy_markdown_done'), 'success')
-    } catch {
-      showToast(t('card.copy_markdown_error'), 'error')
-    }
-  }
-
-  async function exportCardAsMarkdown() {
-    showShareMenu = false
-    const md = await buildCardMarkdown()
-    if (md === null) return
-    downloadBlob(md, `${sanitizeFilenameStem(card?.title)}.md`, 'text/markdown;charset=utf-8')
-    showToast(t('card.export_markdown_done'), 'success')
-  }
-
-  async function exportCardAsJson() {
-    showShareMenu = false
-    if (!card) return
-    try {
-      const payload = await buildCardExportPayload(card)
-      const json = JSON.stringify(payload, null, 2)
-      downloadBlob(json, `${sanitizeFilenameStem(card.title)}.bruv-card.json`, 'application/json;charset=utf-8')
-      showToast(t('card.export_json_done'), 'success')
-    } catch {
-      showToast(t('card.export_json_error'), 'error')
-    }
-  }
-
   function handleBackdropClick(e: MouseEvent) {
     if ((e.target as HTMLElement).classList.contains('modal-backdrop')) {
       onClose()
@@ -1474,23 +1389,7 @@
               </button>
             </div>
 
-            <div class="add-block-toolbar">
-              <button class="add-block-btn" bind:this={addBlockBtnEl} onclick={() => showBlockPicker = !showBlockPicker} title={t('tooltip.add_block')}>
-                <Plus size={12} />
-                <span>{t('tooltip.add_block')}</span>
-              </button>
-              {#if showBlockPicker && addBlockBtnEl}
-                <div class="add-block-picker" use:floatingDropdown={{ trigger: addBlockBtnEl }}>
-                  {#each BLOCK_OPTIONS as opt}
-                    {@const Icon = BLOCK_ICON_MAP[opt.icon]}
-                    <button class="block-picker-item" onclick={() => { addBlock(opt.type); showBlockPicker = false }} title={opt.label}>
-                      <Icon size={14} />
-                      <span>{opt.label}</span>
-                    </button>
-                  {/each}
-                </div>
-              {/if}
-            </div>
+            <BlockPicker onAdd={addBlock} />
           </div>
 
           {#if !metaPanelCollapsed}
@@ -1515,30 +1414,7 @@
       <div class="modal-footer">
         <span class="modal-footer-left">
           <button class="btn-delete" onclick={handleDelete} title={t('tooltip.delete_card')}><Trash2 size={14} /> {t('card.delete')}</button>
-          <button
-            class="btn-share"
-            bind:this={shareBtnEl}
-            onclick={() => showShareMenu = !showShareMenu}
-            title={t('tooltip.share_card')}
-          >
-            <Share2 size={14} /> {t('card.share')}
-          </button>
-          {#if showShareMenu && shareBtnEl}
-            <div class="share-menu" use:floatingDropdown={{ trigger: shareBtnEl }}>
-              <button class="share-menu-item" onclick={copyCardAsMarkdown}>
-                <Copy size={14} />
-                <span>{t('card.copy_markdown')}</span>
-              </button>
-              <button class="share-menu-item" onclick={exportCardAsMarkdown}>
-                <Download size={14} />
-                <span>{t('card.export_markdown')}</span>
-              </button>
-              <button class="share-menu-item" onclick={exportCardAsJson}>
-                <FileJson size={14} />
-                <span>{t('card.export_json')}</span>
-              </button>
-            </div>
-          {/if}
+          <CardShareMenu {card} />
         </span>
         <span class="modal-footer-right">
           <SaveIndicator {saving} />
@@ -2092,33 +1968,6 @@
     min-height: 0;
   }
 
-  .add-block-toolbar {
-    position: relative;
-    display: flex;
-    align-items: center;
-    top: -1.45rem;
-  }
-  .add-block-btn {
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-    background: #22c55e;
-    border: 1px solid #22c55e;
-    border-radius: 4px;
-    padding: 0.15rem 0.55rem 0.15rem 0.35rem;
-    color: #fff;
-    font-size: 0.75rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background var(--duration-normal), transform var(--duration-fast);
-    z-index: 1;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
-  }
-  .add-block-btn:hover {
-    background: #16a34a;
-    border-color: #16a34a;
-  }
-
   .modal-footer {
     display: flex;
     align-items: center;
@@ -2139,47 +1988,6 @@
     align-items: center;
     gap: 0.75rem;
   }
-
-  .btn-share {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.3rem 0.7rem;
-    border: none;
-    border-radius: 4px;
-    background: transparent;
-    color: var(--text-muted);
-    font-size: 0.8rem;
-    cursor: pointer;
-  }
-  .btn-share:hover { color: var(--text-primary); background: var(--bg-elevated); }
-
-  :global(.share-menu) {
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    box-shadow: 0 4px 16px var(--shadow-lg);
-    padding: 0.35rem;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 220px;
-  }
-  :global(.share-menu .share-menu-item) {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.4rem 0.6rem;
-    border: none;
-    border-radius: 5px;
-    background: transparent;
-    color: var(--text-body);
-    font-size: 0.8rem;
-    cursor: pointer;
-    text-align: left;
-    white-space: nowrap;
-  }
-  :global(.share-menu .share-menu-item:hover) { background: var(--bg-elevated); color: var(--text-primary); }
 
   .meta {
     font-size: 0.75rem;
@@ -2235,33 +2043,6 @@
   }
 
 
-
-  :global(.add-block-picker) {
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    box-shadow: 0 4px 16px var(--shadow-lg);
-    padding: 0.35rem;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 2px;
-    min-width: 220px;
-  }
-
-  :global(.add-block-picker .block-picker-item) {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.4rem 0.6rem;
-    border: none;
-    border-radius: 5px;
-    background: transparent;
-    color: var(--text-body);
-    font-size: 0.8rem;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  :global(.add-block-picker .block-picker-item:hover) { background: var(--bg-elevated); color: var(--text-primary); }
 
   .blocks-list {
     display: flex;

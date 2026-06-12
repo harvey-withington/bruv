@@ -9,6 +9,7 @@ import type {
   EventCallback,
   IndexStats,
   Preferences,
+  UIPreferences,
   Project,
   Stream,
   UserCardType,
@@ -26,21 +27,23 @@ const mockCard = (id = 'card-1'): Card => ({ id, title: '', description: '', typ
 const emptyChat = (): ChatHistory => ({ card_id: '', messages: [] })
 const emptyIndexStats = (): IndexStats => ({ CardsIndexed: 0, CardsRemoved: 0, CardsSkipped: 0, PinsIndexed: 0, Duration: 0 })
 const mockPreferences = (): Preferences => ({
+  default_category_name: 'Ideas',
+  trello_api_key: '',
+  trello_api_token: '',
+  due_date_notify: true,
+  due_date_thresholds: ['24h', '1h', '0'],
+  due_date_channels: 'in-app,system',
+})
+const mockUIPreferences = (): UIPreferences => ({
   reopen_last_repo: true,
   theme: 'dark',
   locale: 'en',
   confirm_before_delete: true,
   sidebar_width: 260,
   type_badge_display: 'color',
-  default_category_name: 'Ideas',
   inbox_recent_cards_limit: 21,
   inbox_activity_limit: 25,
   sidebar_collapse_default: false,
-  trello_api_key: '',
-  trello_api_token: '',
-  due_date_notify: true,
-  due_date_thresholds: ['24h', '1h', '0'],
-  due_date_channels: 'in-app,system',
   llm_nudge_shown: false,
 })
 
@@ -114,7 +117,6 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     OpenConfigFolder: async () => {},
     OpenLogsFolder: async () => {},
     OpenBugReportURL: async () => {},
-    MarkLLMNudgeShown: async () => {},
     CheckForUpdates: async () => ({ status: 'up_to_date' as const, current_version: '0.1.0-test' }),
     ExportCardTypesToFile: async () => {},
     ImportCardTypesFromFile: async () => ({ types_added: 0, types_overwritten: 0, types_skipped: 0, templates_added: 0, templates_overwritten: 0, templates_skipped: 0 }),
@@ -294,6 +296,8 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
 
     GetPreferences: async () => mockPreferences(),
     SetPreferences: async () => {},
+    GetUIPreferences: async () => mockUIPreferences(),
+    SetUIPreferences: async () => {},
 
     ListActivityLog: async () => [],
     ListRecentlyUpdatedCards: async () => [],

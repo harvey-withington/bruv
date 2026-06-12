@@ -67,7 +67,6 @@ func (r *Runtime) SetPreferences(p json.RawMessage) error   { return r.Settings.
 func (r *Runtime) GetAuthInfo() config.AuthInfo                { return r.Settings.GetAuthInfo() }
 func (r *Runtime) GetProfile() (config.UserProfile, error)     { return r.Settings.GetProfile() }
 func (r *Runtime) SetProfile(p config.UserProfile) error       { return r.Settings.SetProfile(p) }
-func (r *Runtime) MarkLLMNudgeShown() error                    { return r.Settings.MarkLLMNudgeShown() }
 
 // --- Notifications ---
 

@@ -163,7 +163,7 @@ BRUV repos are designed to be self-contained and portable. The format is stable 
 ├── llm_config.json                # mode + system context
 ├── notifications.json
 ├── notify_config.json             # SMTP/webhook destinations
-├── preferences.json               # MIXED: see audit table below
+├── preferences.json               # server zone: default category name, due-date notify config, importer creds
 ├── profile.json                   # display name, role, bio (per-user, not per-device)
 ├── pricing.json                   # cached LLM model pricing
 ├── card_types.json                # global default seeded into new repos
@@ -173,6 +173,7 @@ BRUV repos are designed to be self-contained and portable. The format is stable 
     ├── device-id.txt              # stable per-device UUID (activity-log shard key)
     ├── device-token.txt           # this device's bearer token for the local server
     ├── recent.json                # recently-opened repo paths
+    ├── ui_preferences.json        # per-device UI prefs: theme, locale, layout, first-run flags
     └── window.json                # window bounds
 ```
 
@@ -199,7 +200,8 @@ Status of existing files:
 |---|---|---|
 | `chats/`, `llm_accounts.json`, `llm_config.json`, `notify_config.json`, `notifications.json`, `pricing.json`, `card_types.json` (global default), `profile.json`, `crashes/`, `logs/`, `runs/` | ✅ server | Shared identity + content; correct. |
 | `clientdata/connections.json`, `device-id.txt`, `device-token.txt`, `recent.json`, `window.json` | ✅ client | Per-device by definition; correct. |
-| `preferences.json` | ⚠️ mixed | Currently server-side. Several fields are genuinely per-device (theme, locale, sidebar width, LLM-nudge-shown, reopen-last-repo) while others are server-side (default category name, due-date notification config). **Deferred refactor:** split into `preferences.json` (server) + `clientdata/ui_preferences.json` (client). Tracked separately. |
+| `preferences.json` | ✅ server | Split completed 2026-06-13: holds only server-zone fields (default category name, due-date notification config, Trello importer credentials). Reached over RPC (`GetPreferences`/`SetPreferences`). |
+| `clientdata/ui_preferences.json` | ✅ client | Per-device UI prefs (theme, locale, sidebar width/collapse, type-badge display, inbox limits, reopen-last-repo, LLM-nudge-shown). Served by the local shell (`ShellAPI.Get/SetUIPreferences`) in every desktop mode — never over RPC; browser mode falls back to localStorage. One-shot read-time migration lifts legacy fields from `preferences.json` on first load. |
 
 When adding a new persistence surface, ask: *"If Alice shares this repo with Bob, should Bob see this?"* If yes, it goes in the repo. If no, it goes in the config folder, then ask the device-vs-server question to pick the zone.
 

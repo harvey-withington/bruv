@@ -2,7 +2,7 @@
   import { X, Eye, EyeOff, Search, Bell } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
-  import { GetPreferences, SetPreferences, GetLLMConfig, SetLLMConfig, GetNotifyConfig, SetNotifyConfig, GetLLMAccounts, SaveLLMAccounts, TestSystemNotification, GetDueDateSettings, SaveDueDateSettings } from '@shared/api'
+  import { GetPreferences, SetPreferences, GetUIPreferences, SetUIPreferences, GetLLMConfig, SetLLMConfig, GetNotifyConfig, SetNotifyConfig, GetLLMAccounts, SaveLLMAccounts, TestSystemNotification, GetDueDateSettings, SaveDueDateSettings } from '@shared/api'
   import LLMAccountsManager from './LLMAccountsManager.svelte'
   import type { LLMAccount } from '@shared/types'
   import { theme, setTheme } from '../lib/theme.svelte'
@@ -82,8 +82,12 @@
 
   async function loadAll() {
     try {
-      const [p, c, nc, accts, dd] = await Promise.all([
+      // Server-zone prefs (default category name, due-date config) come
+      // over RPC; per-device prefs (theme, locale, layout) come from the
+      // local shell / localStorage. One form, two stores.
+      const [p, ui, c, nc, accts, dd] = await Promise.all([
         GetPreferences(),
+        GetUIPreferences(),
         GetLLMConfig(),
         GetNotifyConfig(),
         GetLLMAccounts(),
@@ -91,16 +95,18 @@
       ])
       llmAccounts = accts || []
       if (p) {
-        prefs.reopen_last_repo = p.reopen_last_repo ?? false
-        prefs.theme = p.theme || 'dark'
-        prefs.locale = p.locale || 'en'
-        prefs.confirm_before_delete = p.confirm_before_delete ?? true
-        prefs.sidebar_width = nav.sidebarWidth
-        prefs.type_badge_display = (p.type_badge_display || 'color') as 'text' | 'color' | 'hidden'
         prefs.default_category_name = p.default_category_name || 'Ideas'
-        prefs.inbox_recent_cards_limit = p.inbox_recent_cards_limit || 21
-        prefs.inbox_activity_limit = p.inbox_activity_limit || 25
-        prefs.sidebar_collapse_default = p.sidebar_collapse_default ?? false
+      }
+      if (ui) {
+        prefs.reopen_last_repo = ui.reopen_last_repo ?? false
+        prefs.theme = ui.theme || 'dark'
+        prefs.locale = ui.locale || 'en'
+        prefs.confirm_before_delete = ui.confirm_before_delete ?? true
+        prefs.sidebar_width = nav.sidebarWidth
+        prefs.type_badge_display = (ui.type_badge_display || 'color') as 'text' | 'color' | 'hidden'
+        prefs.inbox_recent_cards_limit = ui.inbox_recent_cards_limit || 21
+        prefs.inbox_activity_limit = ui.inbox_activity_limit || 25
+        prefs.sidebar_collapse_default = ui.sidebar_collapse_default ?? false
       }
       if (c) {
         llm.context = c.context || ''
@@ -146,8 +152,10 @@
       // disk. setTheme itself is not called here — the dropdown's
       // onchange already applies it live.
       prefs.theme = theme.mode
+      const { default_category_name, ...uiPrefs } = prefs
       await Promise.all([
-        SetPreferences(prefs),
+        SetPreferences({ default_category_name }),
+        SetUIPreferences(uiPrefs),
         SetLLMConfig(llm),
         SetNotifyConfig(notifCfg),
         SaveLLMAccounts(llmAccounts),

@@ -1,6 +1,8 @@
-// Package settings is the SettingsService — preferences, profile,
-// auth info, LLM nudge flag. Stateless; delegates to internal/config
-// which owns persistence.
+// Package settings is the SettingsService — server-zone preferences,
+// profile, auth info. Stateless; delegates to internal/config which
+// owns persistence. Per-device UI preferences (theme, locale, layout,
+// LLM nudge flag) are NOT here — they're served by the local shell
+// (ShellAPI → config.UIPreferences), never over RPC.
 //
 // Due-date settings are NOT here: they cross into scheduler lifecycle
 // (see App.SaveDueDateSettings) and stay on App until the scheduler
@@ -43,15 +45,4 @@ func (s *Service) SetProfile(p config.UserProfile) error {
 // lands in phase 5 (bootstrap + per-device tokens).
 func (s *Service) GetAuthInfo() config.AuthInfo {
 	return config.GetLocalAuthInfo()
-}
-
-// MarkLLMNudgeShown records that the LLM-configuration nudge has been
-// shown so it doesn't re-appear.
-func (s *Service) MarkLLMNudgeShown() error {
-	p, err := config.LoadPreferences()
-	if err != nil {
-		return err
-	}
-	p.LLMNudgeShown = true
-	return config.SavePreferences(p)
 }

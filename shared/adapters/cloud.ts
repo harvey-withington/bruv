@@ -16,6 +16,7 @@ import type {
   BackendCapabilities,
   BackendEvent,
   EventCallback,
+  UIPreferences,
   WailsWindow,
 } from '../types'
 import { KNOWN_TOPICS } from './topics'
@@ -362,7 +363,63 @@ const nonRPCMembers = new Set<string>([
   'getCapabilities',
   'subscribe',
   'unsubscribe',
+  'GetUIPreferences',
+  'SetUIPreferences',
 ])
+
+// --- Per-device UI preferences ---------------------------------------
+//
+// Theme, locale, layout, first-run flags. These must NOT travel over
+// RPC — in remote mode that would share one theme across every device.
+// Desktop (any mode): served by the local Wails shell, persisted at
+// <clientdata>/ui_preferences.json. Browser (no shell): localStorage
+// with the same shape and partial-merge semantics.
+const UI_PREFS_LS_KEY = 'bruv:ui_preferences'
+
+function defaultUIPreferences(): UIPreferences {
+  // Mirrors config.DefaultUIPreferences() in Go.
+  return {
+    reopen_last_repo: true,
+    theme: 'dark',
+    locale: 'en',
+    confirm_before_delete: true,
+    sidebar_width: 260,
+    type_badge_display: 'color',
+    inbox_recent_cards_limit: 21,
+    inbox_activity_limit: 25,
+    sidebar_collapse_default: false,
+    llm_nudge_shown: false,
+  }
+}
+
+function uiPrefsShellBinding(name: 'GetUIPreferences' | 'SetUIPreferences') {
+  const binding = (window as WailsWindow).go?.main?.ShellAPI?.[name]
+  return typeof binding === 'function' ? binding : null
+}
+
+async function getUIPreferences(): Promise<UIPreferences> {
+  const binding = uiPrefsShellBinding('GetUIPreferences')
+  if (binding) return await binding() as UIPreferences
+  try {
+    const raw = localStorage.getItem(UI_PREFS_LS_KEY)
+    if (!raw) return defaultUIPreferences()
+    return { ...defaultUIPreferences(), ...JSON.parse(raw) as Partial<UIPreferences> }
+  } catch {
+    return defaultUIPreferences()
+  }
+}
+
+async function setUIPreferences(p: Partial<UIPreferences>): Promise<void> {
+  const binding = uiPrefsShellBinding('SetUIPreferences')
+  if (binding) {
+    // The shell takes the partial as a raw JSON string and merges it
+    // on the Go side (config.UpdateUIPreferencesPartial).
+    await binding(JSON.stringify(p))
+    return
+  }
+  const merged = { ...(await getUIPreferences()), ...p }
+  try { localStorage.setItem(UI_PREFS_LS_KEY, JSON.stringify(merged)) } catch { /* private mode / storage full */ }
+}
 
 // GetCardProjectContext is a hot path (called per-link during markdown
 // rendering). Cache briefly to avoid a burst of identical RPC calls
@@ -405,6 +462,9 @@ function buildAdapter(): BackendAdapter {
     GetCardProjectContext: getCardProjectContextCached,
     // URL-completing wrapper — see signAttachmentURLFull for why.
     SignAttachmentURL: signAttachmentURLFull,
+    // Per-device prefs — local shell or localStorage, never RPC.
+    GetUIPreferences: getUIPreferences,
+    SetUIPreferences: setUIPreferences,
   }
 
   // Pre-build the shell-method wrappers so every call returns the

@@ -26,7 +26,7 @@
   import { probeBackend } from './lib/repos.svelte'
   import { resolveTransportInfo } from '@shared/adapters/cloud'
 
-  import { GetPreferences, GetCurrentRepo, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, IsLLMConfigured, MarkLLMNudgeShown } from '@shared/api'
+  import { GetUIPreferences, SetUIPreferences, GetCurrentRepo, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, IsLLMConfigured } from '@shared/api'
 
   // Restore persisted preferences
   loadTheme()
@@ -66,18 +66,15 @@
       return
     }
 
-    // Per-machine prefs come from /server/rpc — works regardless of
-    // whether a repo is selected, on every connection.
-    let prefs: Awaited<ReturnType<typeof GetPreferences>> | undefined
+    // Per-DEVICE prefs come from the local shell (or localStorage in
+    // browser mode) — never over RPC, so each machine keeps its own
+    // theme/layout even against a remote backend. A failure here is
+    // local-disk trouble, not connectivity — don't route to recovery.
+    let uiPrefs: Awaited<ReturnType<typeof GetUIPreferences>> | undefined
     try {
-      prefs = await GetPreferences()
-      if (prefs?.type_badge_display) prefsStore.typeBadgeDisplay = prefs.type_badge_display
-    } catch {
-      // GetPreferences failed despite a successful health probe —
-      // auth / RPC layer issue. Recovery screen.
-      bootPhase = 'unreachable'
-      return
-    }
+      uiPrefs = await GetUIPreferences()
+      if (uiPrefs?.type_badge_display) prefsStore.typeBadgeDisplay = uiPrefs.type_badge_display
+    } catch { /* defaults apply */ }
 
     // No repoID on the active connection → show picker. Any per-
     // repo RPC at this point would route to /repos/<empty>/rpc which
@@ -92,7 +89,7 @@
     // preference even when a repoID happens to be on disk. The
     // recents pointer is preserved so a future toggle restores the
     // pick without forcing the user to re-select.
-    if (!prefs?.reopen_last_repo) {
+    if (!uiPrefs?.reopen_last_repo) {
       bootPhase = 'ready'
       maybeShowLLMNudge()
       return
@@ -160,11 +157,11 @@
   // so a crash before the user interacts doesn't re-nudge next launch.
   async function maybeShowLLMNudge() {
     try {
-      const p = await GetPreferences() as { llm_nudge_shown?: boolean } | null
-      if (p?.llm_nudge_shown) return
+      const p = await GetUIPreferences()
+      if (p.llm_nudge_shown) return
       const configured = await IsLLMConfigured()
       if (configured) return
-      await MarkLLMNudgeShown()
+      await SetUIPreferences({ llm_nudge_shown: true })
       settingsInitialTab = 'ai'
       showSettings = true
     } catch { /* non-critical */ }

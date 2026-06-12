@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { nav, board, loadBoard, checklistProgress, type LegacyCard } from '../lib/store.svelte'
-  import { CreateBrand, RenameBrand, UpdateBrandDescription, UpdateBrandIcon, CreateStream, RenameStream, UpdateStreamDescription, UpdateStreamIcon, CreateProject, RenameProject, UpdateProjectDescription, UpdateProjectIcon, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, GetCard, ListOrphanedCardIDs, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject, GetPreferences, GetRepoDescription, UpdateRepoDescription } from '@shared/api'
+  import { CreateBrand, RenameBrand, UpdateBrandDescription, UpdateBrandIcon, CreateStream, RenameStream, UpdateStreamDescription, UpdateStreamIcon, CreateProject, RenameProject, UpdateProjectDescription, UpdateProjectIcon, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, GetCard, ListOrphanedCardIDs, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject, GetUIPreferences, GetRepoDescription, UpdateRepoDescription } from '@shared/api'
   import { ChevronLeft, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox, Timer, ChevronsUpDown, ChevronsDownUp, Smile, Upload, Info, Server, Monitor, ListCollapse, ListTree } from 'lucide-svelte'
   import { connections, isLocalActive, activeConnectionLabel } from '../lib/connections.svelte'
   import ThemeToggle from './ThemeToggle.svelte'
@@ -177,7 +177,7 @@
     // Check if user prefers a collapsed tree on load
     let collapseOnLoad = false
     try {
-      const p = await GetPreferences()
+      const p = await GetUIPreferences()
       collapseOnLoad = p?.sidebar_collapse_default ?? false
     } catch { /* use default */ }
     // Restore last nav state if available, otherwise default to Inbox

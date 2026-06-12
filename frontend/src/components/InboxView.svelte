@@ -5,7 +5,7 @@
   import InboxRecentCards from './InboxRecentCards.svelte'
   import InboxActivity from './InboxActivity.svelte'
   import { board, search, inboxSearchFilters } from '../lib/store.svelte'
-  import { ListActivityLog, ListRecentlyUpdatedCards, GetPreferences, DeleteCard } from '@shared/api'
+  import { ListActivityLog, ListRecentlyUpdatedCards, GetUIPreferences, DeleteCard } from '@shared/api'
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
   import { t } from '../lib/i18n.svelte'
@@ -69,7 +69,7 @@
     let recentLimit = 21
     let activityLimit = 25
     try {
-      const p = await GetPreferences()
+      const p = await GetUIPreferences()
       recentLimit = p.inbox_recent_cards_limit || 21
       activityLimit = p.inbox_activity_limit || 25
     } catch { /* use defaults */ }

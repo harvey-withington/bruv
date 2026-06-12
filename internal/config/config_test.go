@@ -7,34 +7,27 @@ import (
 	"testing"
 )
 
-// --- Preferences ---
+// --- Preferences (server zone) ---
 
 func TestDefaultPreferences(t *testing.T) {
 	p := DefaultPreferences()
-	if p.Theme != "dark" {
-		t.Errorf("Theme = %q, want %q", p.Theme, "dark")
+	if p.DefaultCategoryName != "Ideas" {
+		t.Errorf("DefaultCategoryName = %q, want %q", p.DefaultCategoryName, "Ideas")
 	}
-	if p.Locale != "en" {
-		t.Errorf("Locale = %q, want %q", p.Locale, "en")
+	if !p.DueDateNotify {
+		t.Error("DueDateNotify should default to true")
 	}
-	if !p.ConfirmBeforeDelete {
-		t.Error("ConfirmBeforeDelete should default to true")
-	}
-	if p.SidebarWidth != 260 {
-		t.Errorf("SidebarWidth = %d, want 260", p.SidebarWidth)
-	}
-	if !p.ReopenLastRepo {
-		t.Error("ReopenLastRepo should default to true")
+	if len(p.DueDateThresholds) == 0 {
+		t.Error("DueDateThresholds should have defaults")
 	}
 }
 
 func TestPreferencesSaveLoad(t *testing.T) {
 	p := Preferences{
-		ReopenLastRepo:      true,
-		Theme:               "light",
-		Locale:              "en",
-		ConfirmBeforeDelete: false,
-		SidebarWidth:        300,
+		DefaultCategoryName: "Backlog",
+		DueDateNotify:       false,
+		DueDateThresholds:   []string{"1h"},
+		DueDateChannels:     "in-app",
 	}
 
 	if err := SavePreferences(p); err != nil {
@@ -46,17 +39,14 @@ func TestPreferencesSaveLoad(t *testing.T) {
 		t.Fatalf("LoadPreferences: %v", err)
 	}
 
-	if loaded.ReopenLastRepo != true {
-		t.Error("ReopenLastRepo not persisted")
+	if loaded.DefaultCategoryName != "Backlog" {
+		t.Errorf("DefaultCategoryName = %q, want %q", loaded.DefaultCategoryName, "Backlog")
 	}
-	if loaded.Theme != "light" {
-		t.Errorf("Theme = %q, want %q", loaded.Theme, "light")
+	if loaded.DueDateNotify {
+		t.Error("DueDateNotify should be false")
 	}
-	if loaded.ConfirmBeforeDelete != false {
-		t.Error("ConfirmBeforeDelete should be false")
-	}
-	if loaded.SidebarWidth != 300 {
-		t.Errorf("SidebarWidth = %d, want 300", loaded.SidebarWidth)
+	if loaded.DueDateChannels != "in-app" {
+		t.Errorf("DueDateChannels = %q, want %q", loaded.DueDateChannels, "in-app")
 	}
 
 	// Restore defaults so test doesn't pollute config
@@ -86,8 +76,8 @@ func TestLoadPreferencesMissingFileReturnsDefaults(t *testing.T) {
 		t.Fatalf("LoadPreferences: %v", err)
 	}
 	def := DefaultPreferences()
-	if p.Theme != def.Theme || p.SidebarWidth != def.SidebarWidth {
-		t.Errorf("missing file should return defaults, got Theme=%q SidebarWidth=%d", p.Theme, p.SidebarWidth)
+	if p.DefaultCategoryName != def.DefaultCategoryName || p.DueDateNotify != def.DueDateNotify {
+		t.Errorf("missing file should return defaults, got DefaultCategoryName=%q DueDateNotify=%v", p.DefaultCategoryName, p.DueDateNotify)
 	}
 }
 
@@ -117,8 +107,106 @@ func TestLoadPreferencesCorruptedFileReturnsDefaults(t *testing.T) {
 		t.Fatal("expected error on corrupted JSON")
 	}
 	def := DefaultPreferences()
-	if p.Theme != def.Theme {
-		t.Errorf("corrupted file should return defaults, got Theme=%q", p.Theme)
+	if p.DefaultCategoryName != def.DefaultCategoryName {
+		t.Errorf("corrupted file should return defaults, got DefaultCategoryName=%q", p.DefaultCategoryName)
+	}
+}
+
+// --- UIPreferences (client zone) ---
+
+func TestDefaultUIPreferences(t *testing.T) {
+	p := DefaultUIPreferences()
+	if p.Theme != "dark" {
+		t.Errorf("Theme = %q, want %q", p.Theme, "dark")
+	}
+	if p.Locale != "en" {
+		t.Errorf("Locale = %q, want %q", p.Locale, "en")
+	}
+	if !p.ConfirmBeforeDelete {
+		t.Error("ConfirmBeforeDelete should default to true")
+	}
+	if p.SidebarWidth != 260 {
+		t.Errorf("SidebarWidth = %d, want 260", p.SidebarWidth)
+	}
+	if !p.ReopenLastRepo {
+		t.Error("ReopenLastRepo should default to true")
+	}
+}
+
+func TestUIPreferencesSaveLoadPartial(t *testing.T) {
+	if err := SaveUIPreferences(DefaultUIPreferences()); err != nil {
+		t.Fatalf("SaveUIPreferences: %v", err)
+	}
+
+	if err := UpdateUIPreferencesPartial([]byte(`{"theme":"light","sidebar_width":320}`)); err != nil {
+		t.Fatalf("UpdateUIPreferencesPartial: %v", err)
+	}
+
+	loaded, err := LoadUIPreferences()
+	if err != nil {
+		t.Fatalf("LoadUIPreferences: %v", err)
+	}
+	if loaded.Theme != "light" {
+		t.Errorf("Theme = %q, want %q", loaded.Theme, "light")
+	}
+	if loaded.SidebarWidth != 320 {
+		t.Errorf("SidebarWidth = %d, want 320", loaded.SidebarWidth)
+	}
+	// Untouched fields keep their values across a partial update.
+	if !loaded.ConfirmBeforeDelete {
+		t.Error("ConfirmBeforeDelete should survive a partial update")
+	}
+
+	_ = SaveUIPreferences(DefaultUIPreferences())
+}
+
+// TestUIPreferencesMigratesFromLegacyPrefs exercises the one-shot
+// read-time migration: when ui_preferences.json is absent, the client
+// fields are lifted from the pre-split preferences.json.
+func TestUIPreferencesMigratesFromLegacyPrefs(t *testing.T) {
+	uiPath, err := uiPrefsPath()
+	if err != nil {
+		t.Skip("cannot resolve clientdata dir")
+	}
+	legacyPath, err := prefsPath()
+	if err != nil {
+		t.Skip("cannot resolve config dir")
+	}
+
+	// Park both real files.
+	for _, p := range []string{uiPath, legacyPath} {
+		if _, err := os.Stat(p); err == nil {
+			os.Rename(p, p+".test-backup")
+			defer func(p string) { os.Rename(p+".test-backup", p) }(p)
+		}
+	}
+	defer os.Remove(uiPath)
+	defer os.Remove(legacyPath)
+
+	// Legacy file with pre-split client fields present.
+	legacy := []byte(`{"theme":"light","locale":"es","sidebar_width":333,"llm_nudge_shown":true,"default_category_name":"Ideas"}`)
+	if err := os.WriteFile(legacyPath, legacy, 0o644); err != nil {
+		t.Fatalf("write legacy prefs: %v", err)
+	}
+
+	p, err := LoadUIPreferences()
+	if err != nil {
+		t.Fatalf("LoadUIPreferences: %v", err)
+	}
+	if p.Theme != "light" || p.Locale != "es" || p.SidebarWidth != 333 || !p.LLMNudgeShown {
+		t.Errorf("migration didn't lift legacy fields: %+v", p)
+	}
+
+	// The migration persists, so a second load must not re-read legacy.
+	if err := os.Remove(legacyPath); err != nil {
+		t.Fatalf("remove legacy: %v", err)
+	}
+	p2, err := LoadUIPreferences()
+	if err != nil {
+		t.Fatalf("second LoadUIPreferences: %v", err)
+	}
+	if p2.Theme != "light" {
+		t.Errorf("migrated prefs not persisted: Theme = %q", p2.Theme)
 	}
 }
 

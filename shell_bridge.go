@@ -1,5 +1,7 @@
 package main
 
+import "bruv/internal/config"
+
 // ShellAPI is the narrow Wails-bound surface exposed to the frontend.
 // It holds ONLY the methods that must execute inside the Wails shell:
 // native dialogs, shell-open helpers, force-quit, the bootstrap call
@@ -54,6 +56,24 @@ func (s *ShellAPI) OpenBugReportURL() error  { return s.app.OpenBugReportURL() }
 // that beforeClose reads to decide between "hide to tray" and
 // "actually quit". Shell-lifecycle concern.
 func (s *ShellAPI) ForceQuit() { s.app.ForceQuit() }
+
+// --- Per-device UI preferences ---
+//
+// Theme, locale, layout, and first-run flags are per-DEVICE, so they
+// must be served by the local shell rather than the backend RPC —
+// otherwise remote mode shares one theme across every machine. The
+// cloud adapter routes Get/SetUIPreferences here in all desktop modes;
+// browser mode (no shell) falls back to localStorage on the JS side.
+
+func (s *ShellAPI) GetUIPreferences() (config.UIPreferences, error) {
+	return config.LoadUIPreferences()
+}
+
+// SetUIPreferences merges a partial JSON object (raw string, matching
+// the SetPreferences partial-merge semantics) into the stored prefs.
+func (s *ShellAPI) SetUIPreferences(raw string) error {
+	return config.UpdateUIPreferencesPartial([]byte(raw))
+}
 
 // --- Connections (per-device local state) ---
 //

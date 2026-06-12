@@ -41,7 +41,6 @@ export const GetBuildInfo = () => getBackend().GetBuildInfo()
 export const OpenConfigFolder = () => getBackend().OpenConfigFolder()
 export const OpenLogsFolder = () => getBackend().OpenLogsFolder()
 export const OpenBugReportURL = () => getBackend().OpenBugReportURL()
-export const MarkLLMNudgeShown = () => getBackend().MarkLLMNudgeShown()
 export const CheckForUpdates = () => getBackend().CheckForUpdates()
 export const ExportCardTypesToFile = (...args: Parameters<ReturnType<typeof getBackend>['ExportCardTypesToFile']>) => getBackend().ExportCardTypesToFile(...args)
 export const ImportCardTypesFromFile = (...args: Parameters<ReturnType<typeof getBackend>['ImportCardTypesFromFile']>) => getBackend().ImportCardTypesFromFile(...args)
@@ -267,6 +266,8 @@ export const SaveDueDateSettings = (...args: Parameters<ReturnType<typeof getBac
 // User preferences
 export const GetPreferences = () => getBackend().GetPreferences()
 export const SetPreferences = (...args: Parameters<ReturnType<typeof getBackend>['SetPreferences']>) => getBackend().SetPreferences(...args)
+export const GetUIPreferences = () => getBackend().GetUIPreferences()
+export const SetUIPreferences = (...args: Parameters<ReturnType<typeof getBackend>['SetUIPreferences']>) => getBackend().SetUIPreferences(...args)
 
 // Activity & recently updated
 export const ListActivityLog = (...args: Parameters<ReturnType<typeof getBackend>['ListActivityLog']>) => getBackend().ListActivityLog(...args)

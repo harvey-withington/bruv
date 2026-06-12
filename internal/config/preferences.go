@@ -9,18 +9,15 @@ import (
 
 var prefsMu sync.Mutex
 
-// Preferences holds user-level application settings.
+// Preferences holds server-zone application settings: values that
+// describe the data or the backend's behaviour and therefore SHOULD be
+// shared by every device talking to this backend. Per-device
+// presentation settings (theme, locale, layout, first-run flags) live
+// in UIPreferences (ui_preferences.go) under <clientdata>/ instead.
+//
+// See the server/client zone audit table in CONTRIBUTING.md.
 type Preferences struct {
-	ReopenLastRepo      bool   `json:"reopen_last_repo"`
-	Theme               string `json:"theme"`  // "dark", "light", "system"
-	Locale              string `json:"locale"` // e.g. "en", "es"
-	ConfirmBeforeDelete bool   `json:"confirm_before_delete"`
-	SidebarWidth          int    `json:"sidebar_width"`
-	TypeBadgeDisplay      string `json:"type_badge_display"`       // "text", "color", "hidden"
-	DefaultCategoryName   string `json:"default_category_name"`    // auto-created when a project is made
-	InboxRecentCardsLimit int    `json:"inbox_recent_cards_limit"` // max cards shown in Recently Updated panel
-	InboxActivityLimit     int  `json:"inbox_activity_limit"`     // max entries shown in Activity feed
-	SidebarCollapseDefault bool `json:"sidebar_collapse_default"` // if true, tree starts fully collapsed on load
+	DefaultCategoryName string `json:"default_category_name"` // auto-created when a project is made
 
 	TrelloAPIKey   string `json:"trello_api_key"`
 	TrelloAPIToken string `json:"trello_api_token"`
@@ -29,27 +26,15 @@ type Preferences struct {
 	DueDateNotify     bool     `json:"due_date_notify"`
 	DueDateThresholds []string `json:"due_date_thresholds"` // ["24h", "1h", "0", "overdue"]
 	DueDateChannels   string   `json:"due_date_channels"`   // "in-app,system"
-
-	// First-run guidance: set to true after the LLM-configuration nudge has
-	// been shown once. Lives inside the config dir so wiping the dir resets it.
-	LLMNudgeShown bool `json:"llm_nudge_shown"`
 }
 
 // DefaultPreferences returns sensible defaults.
 func DefaultPreferences() Preferences {
 	return Preferences{
-		ReopenLastRepo:        true,
-		Theme:                 "dark",
-		Locale:                "en",
-		ConfirmBeforeDelete:   true,
-		SidebarWidth:          260,
-		TypeBadgeDisplay:      "color",
-		DefaultCategoryName:   "Ideas",
-		InboxRecentCardsLimit: 21,
-		InboxActivityLimit:    25,
-		DueDateNotify:         true,
-		DueDateThresholds:     []string{"24h", "1h", "0"},
-		DueDateChannels:       "in-app,system",
+		DefaultCategoryName: "Ideas",
+		DueDateNotify:       true,
+		DueDateThresholds:   []string{"24h", "1h", "0"},
+		DueDateChannels:     "in-app,system",
 	}
 }
 

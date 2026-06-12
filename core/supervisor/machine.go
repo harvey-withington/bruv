@@ -67,17 +67,6 @@ func (m *MachineService) GetProfile() (config.UserProfile, error)     { return c
 func (m *MachineService) SetProfile(p config.UserProfile) error       { return config.SaveProfile(p) }
 func (m *MachineService) GetAuthInfo() config.AuthInfo                { return config.GetLocalAuthInfo() }
 
-// MarkLLMNudgeShown persists a flag so the first-run LLM-configuration
-// nudge only fires once per install. Doesn't depend on a Runtime.
-func (m *MachineService) MarkLLMNudgeShown() error {
-	p, err := config.LoadPreferences()
-	if err != nil {
-		return err
-	}
-	p.LLMNudgeShown = true
-	return config.SavePreferences(p)
-}
-
 // --- LLM accounts / config / pricing ---
 
 func (m *MachineService) GetLLMConfig() (config.LLMConfig, error)       { return config.LoadLLMConfig() }

@@ -210,24 +210,34 @@ export type IndexStats = {
   Duration: number          // Go time.Duration — nanoseconds
 }
 
-// --- User preferences (mirror internal/config/preferences.go) ---
+// --- User preferences (mirror internal/config/preferences.go +
+// ui_preferences.go) ---
 
+// Server-zone preferences: shared by every device talking to this
+// backend (config.Preferences, <configDir>/preferences.json).
 export type Preferences = {
+  default_category_name: string
+  trello_api_key: string
+  trello_api_token: string
+  due_date_notify: boolean
+  due_date_thresholds: string[]
+  due_date_channels: string
+}
+
+// Per-device UI preferences (config.UIPreferences,
+// <clientdata>/ui_preferences.json). Served by the local Wails shell
+// in all desktop modes — never over RPC — so each device keeps its
+// own theme/locale/layout. Browser mode falls back to localStorage.
+export type UIPreferences = {
   reopen_last_repo: boolean
   theme: string             // "dark", "light", "system"
   locale: string            // e.g. "en", "es"
   confirm_before_delete: boolean
   sidebar_width: number
   type_badge_display: 'text' | 'color' | 'hidden'
-  default_category_name: string
   inbox_recent_cards_limit: number
   inbox_activity_limit: number
   sidebar_collapse_default: boolean
-  trello_api_key: string
-  trello_api_token: string
-  due_date_notify: boolean
-  due_date_thresholds: string[]
-  due_date_channels: string
   llm_nudge_shown: boolean
 }
 
@@ -732,7 +742,6 @@ export interface BackendAdapter {
   OpenConfigFolder(): Promise<void>
   OpenLogsFolder(): Promise<void>
   OpenBugReportURL(): Promise<void>
-  MarkLLMNudgeShown(): Promise<void>
   CheckForUpdates(): Promise<UpdateCheckResult>
   ExportCardTypesToFile(filePath: string): Promise<void>
   ImportCardTypesFromFile(filePath: string, mode: CardTypesImportMode): Promise<CardTypesImportResult>
@@ -977,11 +986,17 @@ export interface BackendAdapter {
   RegisterPushSubscription(deviceID: string, endpoint: string, p256dh: string, auth: string): Promise<void>
   UnregisterPushSubscription(deviceID: string): Promise<void>
 
-  // User preferences. SetPreferences accepts a partial object — the
-  // backend merges the given keys into the stored preferences
+  // Server-zone preferences. SetPreferences accepts a partial object —
+  // the backend merges the given keys into the stored preferences
   // (config.UpdatePreferencesPartial).
   GetPreferences(): Promise<Preferences>
   SetPreferences(p: Partial<Preferences>): Promise<void>
+
+  // Per-device UI preferences — routed to the local Wails shell (all
+  // desktop modes) or localStorage (browser); never over RPC. Same
+  // partial-merge semantics as SetPreferences.
+  GetUIPreferences(): Promise<UIPreferences>
+  SetUIPreferences(p: Partial<UIPreferences>): Promise<void>
 
   // Activity & recently updated
   ListActivityLog(limit: number): Promise<ActivityEntry[]>

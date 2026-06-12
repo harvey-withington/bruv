@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte'
-  import { ChevronRight, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Search, Plus, MoreVertical, Pencil, Trash2 } from 'lucide-svelte'
+  import { ChevronRight, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Search, Plus, MoreVertical, Pencil, Trash2, Upload } from 'lucide-svelte'
   import { repoRPC } from '../lib/auth'
   import { navigate, cardURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
@@ -18,6 +18,7 @@
     uniqueName,
   } from '../lib/browse.svelte'
   import type { Category, CardSummary } from '../lib/model'
+  import { importCardFromJson, ImportError } from '../lib/cardExport'
   import DynamicIcon from '../components/DynamicIcon.svelte'
   import CardRow from '../components/CardRow.svelte'
   import SearchSheet from '../components/SearchSheet.svelte'
@@ -316,6 +317,44 @@
     }
   }
 
+  // --- Import card from BRUV JSON file ----------------------------
+  //
+  // The hidden file input lives at the page level; we remember which
+  // category triggered the picker so the import targets the right one.
+
+  let importInputEl = $state<HTMLInputElement | null>(null)
+  let importTargetCatId = $state<string | null>(null)
+
+  function triggerImportCard(cat: CategoryWithCards) {
+    closeMenu()
+    importTargetCatId = cat.id
+    importInputEl?.click()
+  }
+
+  async function handleImportFileSelected(e: Event) {
+    const input = e.currentTarget as HTMLInputElement
+    const file = input.files?.[0]
+    const targetId = importTargetCatId
+    input.value = ''
+    importTargetCatId = null
+    if (!file || !targetId) return
+    try {
+      const text = await file.text()
+      const result = await importCardFromJson(text, targetId)
+      mutationError = null
+      if (result.failedAttachments.length || result.failedComments.length) {
+        mutationError = t('card.import_partial')
+      }
+      navigate(cardURL(result.cardId))
+    } catch (err) {
+      if (err instanceof ImportError) {
+        mutationError = t(`card.import_err_${err.code}`)
+      } else {
+        mutationError = `${t('card.import_err_generic')} ${err instanceof Error ? err.message : ''}`.trim()
+      }
+    }
+  }
+
   // Live updates: refetch the project's categories+cards when any
   // card or category event fires. Coarse, but the fetch is cheap
   // and avoids tracking which event affects which view. Coalesced
@@ -554,6 +593,9 @@
               <button type="button" role="menuitem" class="row-menu-item" onclick={() => startRename(cat.slug, cat.name)}>
                 <Pencil size={14} /> {t('project.action_rename')}
               </button>
+              <button type="button" role="menuitem" class="row-menu-item" onclick={() => triggerImportCard(cat)}>
+                <Upload size={14} /> {t('project.action_import_card')}
+              </button>
               <button
                 type="button"
                 role="menuitem"
@@ -589,6 +631,14 @@
     </div>
   {/if}
 </main>
+
+<input
+  type="file"
+  accept=".json,application/json"
+  bind:this={importInputEl}
+  onchange={handleImportFileSelected}
+  hidden
+/>
 
 {#if pendingDelete}
   <ConfirmDialog

@@ -3,7 +3,10 @@
   import { repoRPC } from '../lib/auth'
   import { navigate, projectURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
-  import { Trash2, MapPin, Plus, X, RefreshCw, Search, Paperclip, MessageSquare, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree } from 'lucide-svelte'
+  import { Trash2, MapPin, Plus, X, RefreshCw, Search, Paperclip, MessageSquare, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Copy, FileJson } from 'lucide-svelte'
+  import { cardToMarkdown } from '@shared/cardMarkdown'
+  import type { CardComment } from '@shared/types'
+  import { buildCardExportPayload, downloadBlob, sanitizeFilenameStem } from '../lib/cardExport'
   import EditableText from '../components/EditableText.svelte'
   import EditableDescription from '../components/EditableDescription.svelte'
   import TagsEditor from '../components/TagsEditor.svelte'
@@ -370,7 +373,41 @@
   $effect(() => () => {
     if (blockSaveTimer) clearTimeout(blockSaveTimer)
     if (savedFlashTimer) clearTimeout(savedFlashTimer)
+    if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer)
   })
+
+  // Copy-as-markdown feedback — transient "Copied!" label replaces the
+  // button text for 2s on success. Errors surface via saveError so they
+  // share the existing rail (no separate toast system on mobile yet).
+  let copyFeedback = $state<'idle' | 'success'>('idle')
+  let copyFeedbackTimer: ReturnType<typeof setTimeout> | null = null
+
+  async function copyCardAsMarkdown() {
+    if (!card) return
+    let comments: CardComment[] = []
+    try { comments = (await repoRPC<CardComment[]>('ListCardComments', [card.id])) ?? [] }
+    catch { /* optional — degrade to no comments */ }
+    const md = cardToMarkdown(card, { comments, untitledLabel: t('card.untitled') })
+    try {
+      await navigator.clipboard.writeText(md)
+      copyFeedback = 'success'
+      if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer)
+      copyFeedbackTimer = setTimeout(() => { copyFeedback = 'idle' }, 2000)
+    } catch {
+      saveError = t('card.copy_markdown_error')
+    }
+  }
+
+  async function exportCardAsJson() {
+    if (!card) return
+    try {
+      const payload = await buildCardExportPayload(card)
+      const json = JSON.stringify(payload, null, 2)
+      downloadBlob(json, `${sanitizeFilenameStem(card.title)}.bruv-card.json`, 'application/json;charset=utf-8')
+    } catch {
+      saveError = t('card.export_json_error')
+    }
+  }
 
   // Live updates: when the backend emits card:updated for THIS card,
   // refetch so external edits (desktop, agent, share-sheet) reflect
@@ -706,6 +743,14 @@
     </div>
 
     <footer class="actions">
+      <button type="button" class="action-link" onclick={copyCardAsMarkdown}>
+        <Copy size={14} />
+        {copyFeedback === 'success' ? t('card.copy_markdown_done') : t('card.copy_markdown')}
+      </button>
+      <button type="button" class="action-link" onclick={exportCardAsJson}>
+        <FileJson size={14} />
+        {t('card.export_json')}
+      </button>
       <button type="button" class="danger-link" onclick={() => (confirmingDelete = true)}>
         <Trash2 size={14} />
         {t('card.delete')}
@@ -1131,6 +1176,27 @@
     align-items: center;
     gap: 0.5rem;
     margin-top: 1.5rem;
+    flex-wrap: wrap;
+  }
+
+  .action-link {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+    padding: 0.55rem 0.75rem;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .action-link:hover,
+  .action-link:focus-visible {
+    color: var(--text-primary);
+    background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
+    outline: none;
   }
 
   .danger-link {

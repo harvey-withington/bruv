@@ -2,7 +2,7 @@
   import CardItem from './CardItem.svelte'
   import DynamicIcon from './DynamicIcon.svelte'
   import IconPicker from './IconPicker.svelte'
-  import { Trash2, Layers, Smile } from 'lucide-svelte'
+  import { Trash2, Layers, Smile, Upload } from 'lucide-svelte'
   import { dnd, prefs, columnSettings, cardTypes } from '../lib/store.svelte'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
@@ -34,13 +34,14 @@
     cards: CardData[]
   }
 
-  let { category, brandSlug, streamSlug, projectSlug, onCardClick, onAddCard, onCardDrop, onDeleteCategory, onStartRename, renaming, renamingName, onRenamingNameChange, onCommitRename, onCancelRename, isReadonly, onCategoryUpdated, onAcceptedTypesChanged }: {
+  let { category, brandSlug, streamSlug, projectSlug, onCardClick, onAddCard, onImportCard, onCardDrop, onDeleteCategory, onStartRename, renaming, renamingName, onRenamingNameChange, onCommitRename, onCancelRename, isReadonly, onCategoryUpdated, onAcceptedTypesChanged }: {
     category: CategoryData
     brandSlug?: string
     streamSlug?: string
     projectSlug?: string
     onCardClick?: (cardId: string, categoryId: string) => void
     onAddCard?: (categoryId: string) => void
+    onImportCard?: (categoryId: string, file: File) => void
     onCardDrop?: (cardId: string, fromCategoryId: string, toCategoryId: string, toIndex: number, copy?: boolean) => void
     onDeleteCategory?: (categoryId: string, categorySlug: string, categoryName: string, cardCount: number) => void
     onStartRename?: (categorySlug: string, categoryName: string) => void
@@ -53,6 +54,20 @@
     onCategoryUpdated?: () => void
     onAcceptedTypesChanged?: (categoryId: string, acceptedTypes: string[] | undefined) => void
   } = $props()
+
+  let importInputEl = $state<HTMLInputElement | null>(null)
+
+  function handleImportClick() {
+    importInputEl?.click()
+  }
+
+  function handleImportFileSelected(e: Event) {
+    const input = e.currentTarget as HTMLInputElement
+    const file = input.files?.[0]
+    // Reset so picking the same file twice still fires `change`.
+    input.value = ''
+    if (file) onImportCard?.(category.id, file)
+  }
 
   let renameInputEl = $state<HTMLInputElement | null>(null)
   let showSettings = $derived(columnSettings.openCategoryId === category.id)
@@ -428,6 +443,16 @@
       <button class="add-card-btn" onclick={() => onAddCard?.(category.id)} title={t('tooltip.add_card')}>
         {t('column.add_card_long')}
       </button>
+      <button class="import-card-btn" onclick={handleImportClick} title={t('tooltip.import_card')} aria-label={t('tooltip.import_card')}>
+        <Upload size={14} />
+      </button>
+      <input
+        type="file"
+        accept=".json,application/json"
+        bind:this={importInputEl}
+        onchange={handleImportFileSelected}
+        hidden
+      />
     </div>
   {/if}
 </div>
@@ -715,10 +740,13 @@
 
   .column-footer {
     padding: 0.5rem;
+    display: flex;
+    align-items: stretch;
+    gap: 0.25rem;
   }
 
   .add-card-btn {
-    width: 100%;
+    flex: 1;
     padding: 0.4rem 0.5rem;
     background: none;
     border: none;
@@ -728,6 +756,24 @@
     cursor: pointer;
     text-align: left;
     transition: background var(--duration-fast), color var(--duration-fast);
+  }
+
+  .import-card-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0.5rem;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background var(--duration-fast), color var(--duration-fast);
+  }
+
+  .import-card-btn:hover {
+    background: var(--bg-elevated);
+    color: var(--text-body);
   }
 
   .add-card-btn:hover {

@@ -10,6 +10,8 @@
   import { CreateCard, PinCard, CreateCategory, RenameCategory, GetCard, MoveCardInCategory, MoveCardToCategory, ReorderCategories, DeleteCategory, DeleteCard, MoveCategoryCards, DuplicateCard, CopyCategory } from '@shared/api'
   import { t } from '../lib/i18n.svelte'
   import { focusTrap } from '../lib/actions'
+  import { showToast } from '../lib/toast.svelte'
+  import { importCardFromJson, ImportError } from '../lib/cardExport'
 
   let renamingCategorySlug = $state<string | null>(null)
   let renamingCategoryName = $state('')
@@ -62,6 +64,30 @@
       autoEditTitle = true
     } catch (e) {
       console.error('Failed to add card:', e)
+    }
+  }
+
+  async function handleImportCard(categoryId: string, file: File) {
+    try {
+      const text = await file.text()
+      const result = await importCardFromJson(text, categoryId)
+      await refreshBoard()
+
+      const cat = board.categories.find(c => c.id === categoryId)
+      selectedCardId = result.cardId
+      selectedCategoryId = categoryId
+      selectedCategoryName = cat?.name || null
+
+      if (result.failedAttachments.length || result.failedComments.length) {
+        showToast(t('card.import_partial'), 'warning')
+      } else {
+        showToast(t('card.import_done'), 'success')
+      }
+    } catch (e) {
+      const key = e instanceof ImportError
+        ? `card.import_err_${e.code}`
+        : 'card.import_err_generic'
+      showToast(t(key), 'error')
     }
   }
 
@@ -437,6 +463,7 @@
             projectSlug={nav.projectSlug || undefined}
             onCardClick={handleCardClick}
             onAddCard={handleAddCard}
+            onImportCard={handleImportCard}
             onCardDrop={handleCardDrop}
             onDeleteCategory={handleDeleteCategoryRequest}
             onStartRename={startRenameCategory}

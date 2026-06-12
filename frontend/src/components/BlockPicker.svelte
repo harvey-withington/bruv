@@ -71,19 +71,19 @@
     display: flex;
     align-items: center;
     gap: 0.3rem;
-    background: #22c55e;
-    border: 1px solid #22c55e;
+    background: var(--success);
+    border: 1px solid var(--success);
     border-radius: 4px;
     padding: 0.15rem 0.55rem 0.15rem 0.35rem;
-    color: #fff;
+    color: var(--on-color);
     font-size: 0.75rem;
     font-weight: 500;
     cursor: pointer;
     transition: background var(--duration-normal), transform var(--duration-fast);
   }
   .add-block-btn:hover {
-    background: #16a34a;
-    border-color: #16a34a;
+    background: var(--success-hover);
+    border-color: var(--success-hover);
   }
 
   /* :global because floatingDropdown re-parents the dropdown out of

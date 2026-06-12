@@ -92,12 +92,12 @@
   .alarm-row { display: flex; align-items: center; gap: 8px; }
   .alarm-status { font-size: 0.9em; }
   .alarm-status.set { color: var(--accent); }
-  .alarm-status.fired { color: var(--danger, #ef4444); }
+  .alarm-status.fired { color: var(--danger); }
   .alarm-status.muted { color: var(--text-muted); font-style: italic; }
   .alarm-clear-btn, .alarm-reset-btn {
     background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px;
   }
-  .alarm-clear-btn:hover { color: var(--danger, #ef4444); }
+  .alarm-clear-btn:hover { color: var(--danger); }
   .alarm-reset-btn:hover { color: var(--accent); }
   .alarm-input-row { display: flex; gap: 8px; }
   .alarm-datetime {

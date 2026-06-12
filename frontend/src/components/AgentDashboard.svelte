@@ -71,10 +71,10 @@
 
   function statusColor(s: string): string {
     switch (s) {
-      case 'idle': return 'var(--color-success, #22c55e)'
-      case 'running': return 'var(--color-info, #3b82f6)'
-      case 'failed': return 'var(--color-error, #ef4444)'
-      default: return 'var(--color-muted, #94a3b8)'
+      case 'idle': return 'var(--success)'
+      case 'running': return 'var(--info)'
+      case 'failed': return 'var(--danger)'
+      default: return 'var(--text-muted)'
     }
   }
 
@@ -241,7 +241,7 @@
   .dashboard-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.4);
+    background: var(--bg-overlay);
     z-index: 900;
     display: flex;
     align-items: center;
@@ -256,7 +256,7 @@
     max-height: 80vh;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 8px 32px var(--shadow);
   }
 
   .dashboard-header {
@@ -292,14 +292,14 @@
     color: var(--text-muted);
   }
   .stat-running {
-    background: color-mix(in srgb, var(--color-info, #3b82f6) 15%, var(--bg-elevated));
-    color: var(--color-info, #3b82f6);
-    border-color: var(--color-info, #3b82f6);
+    background: color-mix(in srgb, var(--info) 15%, var(--bg-elevated));
+    color: var(--info);
+    border-color: var(--info);
   }
   .stat-failed {
-    background: color-mix(in srgb, var(--color-error, #ef4444) 15%, var(--bg-elevated));
-    color: var(--color-error, #ef4444);
-    border-color: var(--color-error, #ef4444);
+    background: color-mix(in srgb, var(--danger) 15%, var(--bg-elevated));
+    color: var(--danger);
+    border-color: var(--danger);
   }
   .header-actions {
     display: flex;
@@ -475,14 +475,14 @@
   }
   .action-run {
     background: var(--accent);
-    color: white;
+    color: var(--on-color);
   }
   .action-cancel {
-    background: linear-gradient(135deg, #6366f1, #06b6d4, #a855f7, #6366f1);
+    background: var(--agent-running-gradient);
     background-size: 300% 300%;
     animation: agent-neon 2s ease infinite;
-    color: white;
-    box-shadow: 0 0 6px rgba(99, 102, 241, 0.5), 0 0 12px rgba(168, 85, 247, 0.3);
+    color: var(--on-color);
+    box-shadow: var(--agent-running-glow);
   }
   .action-btn:hover {
     filter: brightness(1.15);
@@ -490,10 +490,10 @@
 
   /* Neon glow on running row status dot */
   .table-row.running .status-dot {
-    background: linear-gradient(135deg, #6366f1, #06b6d4, #a855f7, #6366f1) !important;
+    background: var(--agent-running-gradient) !important;
     background-size: 300% 300%;
     animation: agent-neon 2s ease infinite;
-    box-shadow: 0 0 4px rgba(99, 102, 241, 0.6), 0 0 8px rgba(168, 85, 247, 0.3);
+    box-shadow: var(--agent-running-glow-sm);
   }
   @keyframes agent-neon {
     0% { background-position: 0% 50%; }
@@ -504,7 +504,7 @@
   .row-error {
     padding: 0.15rem 1rem 0.4rem 1rem;
     font-size: 0.68rem;
-    color: var(--color-error, #ef4444);
+    color: var(--danger);
     border-bottom: 1px solid var(--border-muted);
     padding-left: calc(1rem + 100px + 0.5rem);
   }

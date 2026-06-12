@@ -48,9 +48,9 @@
 
   function statusColor(s: string): string {
     switch (s) {
-      case 'success': return 'var(--color-success, #22c55e)'
-      case 'failure': return 'var(--color-error, #ef4444)'
-      default: return 'var(--color-muted, #94a3b8)'
+      case 'success': return 'var(--success)'
+      case 'failure': return 'var(--danger)'
+      default: return 'var(--text-muted)'
     }
   }
 
@@ -195,15 +195,15 @@
     padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-muted);
   }
   .runs-summary { font-size: 0.8rem; color: var(--text-muted); }
-  .stat-ok { color: #22c55e; font-weight: 500; }
-  .stat-fail { color: #ef4444; font-weight: 500; }
+  .stat-ok { color: var(--success); font-weight: 500; }
+  .stat-fail { color: var(--danger); font-weight: 500; }
   .clear-btn {
     display: flex; align-items: center; gap: 0.3rem;
     padding: 0.2rem 0.5rem; border-radius: 4px;
     border: 1px solid var(--border-muted); background: none;
     color: var(--text-muted); font-size: 0.7rem; cursor: pointer;
   }
-  .clear-btn:hover { color: var(--danger, #ef4444); border-color: var(--danger, #ef4444); }
+  .clear-btn:hover { color: var(--danger); border-color: var(--danger); }
   .runs-empty {
     padding: 2rem; text-align: center;
     color: var(--text-muted); font-size: 0.85rem; font-style: italic;
@@ -244,6 +244,6 @@
     letter-spacing: 0.04em; color: var(--text-faint);
   }
   .detail-value { font-size: 0.8rem; color: var(--text-body); margin: 0; line-height: 1.4; }
-  .detail-error .detail-value { color: var(--danger, #ef4444); }
+  .detail-error .detail-value { color: var(--danger); }
   .tools-list { font-family: monospace; font-size: 0.75rem; }
 </style>

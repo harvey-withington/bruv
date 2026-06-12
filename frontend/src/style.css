@@ -43,9 +43,37 @@ input[type="checkbox"] {
 
     /* Semantic */
     --success: #22c55e;
+    --success-hover: #16a34a;
     --warning: #f59e0b;
     --danger: #ef4444;
     --danger-light: #f87171;
+    --info: #3b82f6;
+
+    /* Feedback surfaces (toasts, inline status): bg/border/text triplet
+       per severity. Mirrors the mobile token set in mobile/src/app.css. */
+    --success-bg: #14532d;
+    --success-border: #16a34a;
+    --success-text: #bbf7d0;
+    --danger-bg: #450a0a;
+    --danger-border: #dc2626;
+    --danger-text: #fecaca;
+    --warning-bg: #451a03;
+    --warning-border: #d97706;
+    --warning-text: #fed7aa;
+
+    /* Text/controls rendered on arbitrary user-colored chips (type
+       badges). Deliberately theme-independent — the chip background is
+       the user's pick, not the theme's. */
+    --on-color: #ffffff;
+    --on-color-muted: rgba(255,255,255,0.75);
+    --on-color-faint: rgba(255,255,255,0.5);
+    --on-color-hover-bg: rgba(255,255,255,0.2);
+
+    /* Running-agent shimmer (AgentDashboard / agent badges). Decorative
+       brand gradient — theme-independent. */
+    --agent-running-gradient: linear-gradient(135deg, #6366f1, #06b6d4, #a855f7, #6366f1);
+    --agent-running-glow: 0 0 6px rgba(99,102,241,0.5), 0 0 12px rgba(168,85,247,0.3);
+    --agent-running-glow-sm: 0 0 4px rgba(99,102,241,0.6), 0 0 8px rgba(168,85,247,0.3);
 
     /* Icon picker accent — evocative of classic emoji yellow */
     --icon-picker-accent: #f5b800;
@@ -100,9 +128,23 @@ input[type="checkbox"] {
 
     /* Semantic — keep same */
     --success: #22c55e;
+    --success-hover: #16a34a;
     --warning: #f59e0b;
     --danger: #ef4444;
     --danger-light: #f87171;
+    --info: #3b82f6;
+
+    /* Feedback surfaces — light variants. on-color and agent tokens
+       inherit from :root (theme-independent by design). */
+    --success-bg: #dcfce7;
+    --success-border: #16a34a;
+    --success-text: #14532d;
+    --danger-bg: #fee2e2;
+    --danger-border: #dc2626;
+    --danger-text: #7f1d1d;
+    --warning-bg: #fef3c7;
+    --warning-border: #d97706;
+    --warning-text: #78350f;
 
     /* Shadow */
     --shadow: rgba(0,0,0,0.1);

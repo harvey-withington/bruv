@@ -131,7 +131,7 @@
     letter-spacing: 0.05em;
     padding: 0.2rem 0.55rem;
     border-radius: 3px;
-    color: #fff;
+    color: var(--on-color);
     flex-shrink: 0;
   }
 
@@ -153,21 +153,21 @@
     margin: -0.1rem 0;
     border: none;
     background: transparent;
-    color: rgba(255, 255, 255, 0.75);
+    color: var(--on-color-muted);
     cursor: pointer;
     border-radius: 2px;
     transition: color var(--duration-normal), background var(--duration-normal);
     flex-shrink: 0;
   }
   .refresh-type-btn:hover {
-    color: #fff;
-    background: rgba(255, 255, 255, 0.2);
+    color: var(--on-color);
+    background: var(--on-color-hover-bg);
   }
 
   /* type-chevron is inside the lucide svg element; needs :global to
      reach from component-scoped css. */
   :global(.type-chevron) {
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--on-color-faint);
     margin-left: -0.1rem;
     flex-shrink: 0;
   }
@@ -202,7 +202,7 @@
     letter-spacing: 0.05em;
     padding: 0.15rem 0.5rem;
     border-radius: 3px;
-    color: #fff;
+    color: var(--on-color);
     white-space: nowrap;
   }
 

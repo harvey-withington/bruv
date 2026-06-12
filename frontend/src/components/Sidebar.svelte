@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { nav, board, loadBoard } from '../lib/store.svelte'
+  import { nav, board, loadBoard, type LegacyCard } from '../lib/store.svelte'
   import { CreateBrand, RenameBrand, UpdateBrandDescription, UpdateBrandIcon, CreateStream, RenameStream, UpdateStreamDescription, UpdateStreamIcon, CreateProject, RenameProject, UpdateProjectDescription, UpdateProjectIcon, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, GetCard, ListOrphanedCardIDs, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject, GetPreferences, GetRepoDescription, UpdateRepoDescription } from '@shared/api'
   import { ChevronLeft, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox, Timer, ChevronsUpDown, ChevronsDownUp, Smile, Upload, Info, Server, Monitor, ListCollapse, ListTree } from 'lucide-svelte'
   import { connections, isLocalActive, activeConnectionLabel } from '../lib/connections.svelte'
@@ -244,7 +244,7 @@
       const ids = await ListOrphanedCardIDs() || []
       const cards = await Promise.all(ids.map(async (id: string) => {
         try {
-          const card = await GetCard(id)
+          const card: LegacyCard = await GetCard(id)
           return {
             id: card.id,
             type: card.type,
@@ -252,7 +252,7 @@
             tags: card.tags || [],
             due_date: card.due_date,
             checklist_total: card.checklist?.length || 0,
-            checklist_done: card.checklist?.filter((c: any) => c.done).length || 0,
+            checklist_done: card.checklist?.filter((c) => c.done).length || 0,
           }
         } catch { return null }
       }))

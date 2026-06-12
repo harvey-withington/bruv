@@ -1,4 +1,48 @@
-import type { BackendAdapter, EventCallback, CardTypeInfo, CardTemplate, UserCardType, ProjectMember } from '@shared/types'
+import type {
+  BackendAdapter,
+  Brand,
+  Card,
+  CardTemplate,
+  CardTypeInfo,
+  Category,
+  ChatHistory,
+  EventCallback,
+  IndexStats,
+  Preferences,
+  Project,
+  Stream,
+  UserCardType,
+} from '@shared/types'
+
+// --- Stub factories ---
+// Full model objects so the mocks satisfy the strictly-typed
+// BackendAdapter. Override per-test where the values matter.
+
+const mockBrand = (): Brand => ({ id: 'brand-1', name: 'Test Brand', slug: 'test-brand', position: 0, created_at: '', updated_at: '' })
+const mockStream = (): Stream => ({ id: 'stream-1', brand_id: 'brand-1', name: 'Test Stream', slug: 'test-stream', position: 0, created_at: '', updated_at: '' })
+const mockProject = (): Project => ({ id: 'project-1', stream_id: 'stream-1', brand_id: 'brand-1', name: 'Test Project', slug: 'test-project', position: 0, created_at: '', updated_at: '' })
+const mockCategory = (slug = 'test-category', name = 'Test Category'): Category => ({ id: 'category-1', project_id: 'project-1', name, slug, position: 0, created_at: '', updated_at: '' })
+const mockCard = (id = 'card-1'): Card => ({ id, title: '', description: '', type: '', tags: [], due_date: null, created_at: '', blocks: [], file_attachments: [] })
+const emptyChat = (): ChatHistory => ({ card_id: '', messages: [] })
+const emptyIndexStats = (): IndexStats => ({ CardsIndexed: 0, CardsRemoved: 0, CardsSkipped: 0, PinsIndexed: 0, Duration: 0 })
+const mockPreferences = (): Preferences => ({
+  reopen_last_repo: true,
+  theme: 'dark',
+  locale: 'en',
+  confirm_before_delete: true,
+  sidebar_width: 260,
+  type_badge_display: 'color',
+  default_category_name: 'Ideas',
+  inbox_recent_cards_limit: 21,
+  inbox_activity_limit: 25,
+  sidebar_collapse_default: false,
+  trello_api_key: '',
+  trello_api_token: '',
+  due_date_notify: true,
+  due_date_thresholds: ['24h', '1h', '0'],
+  due_date_channels: 'in-app,system',
+  llm_nudge_shown: false,
+})
 
 /**
  * In-memory mock adapter for testing.
@@ -87,53 +131,53 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     GetRepoDescription: async () => '',
     UpdateRepoDescription: async () => {},
 
-    CreateBrand: async () => ({ slug: 'test-brand', name: 'Test Brand' }),
-    GetBrand: async () => ({ slug: 'test-brand', name: 'Test Brand' }),
+    CreateBrand: async () => mockBrand(),
+    GetBrand: async () => mockBrand(),
     ListBrands: async () => [],
-    RenameBrand: async () => ({ slug: 'test-brand', name: 'Test Brand' }),
-    UpdateBrandDescription: async () => ({ slug: 'test-brand', name: 'Test Brand' }),
-    UpdateBrandIcon: async () => ({ slug: 'test-brand', name: 'Test Brand' }),
+    RenameBrand: async () => mockBrand(),
+    UpdateBrandDescription: async () => mockBrand(),
+    UpdateBrandIcon: async () => mockBrand(),
     DeleteBrand: async () => {},
 
-    CreateStream: async () => ({ slug: 'test-stream', name: 'Test Stream' }),
+    CreateStream: async () => mockStream(),
     ListStreams: async () => [],
-    RenameStream: async () => ({ slug: 'test-stream', name: 'Test Stream' }),
-    UpdateStreamDescription: async () => ({ slug: 'test-stream', name: 'Test Stream' }),
-    UpdateStreamIcon: async () => ({ slug: 'test-stream', name: 'Test Stream' }),
+    RenameStream: async () => mockStream(),
+    UpdateStreamDescription: async () => mockStream(),
+    UpdateStreamIcon: async () => mockStream(),
     DeleteStream: async () => {},
 
-    CreateProject: async () => ({ slug: 'test-project', name: 'Test Project' }),
+    CreateProject: async () => mockProject(),
     ListProjects: async () => [],
-    RenameProject: async () => ({ slug: 'test-project', name: 'Test Project' }),
-    UpdateProjectDescription: async () => ({ slug: 'test-project', name: 'Test Project' }),
-    UpdateProjectIcon: async () => ({ slug: 'test-project', name: 'Test Project' }),
+    RenameProject: async () => mockProject(),
+    UpdateProjectDescription: async () => mockProject(),
+    UpdateProjectIcon: async () => mockProject(),
     DeleteProject: async () => {},
     GetProjectMembers: async () => [],
 
-    CreateCategory: async () => ({ slug: 'test-category', name: 'Test Category' }),
+    CreateCategory: async () => mockCategory(),
     ListCategories: async () => [],
-    RenameCategory: async () => ({ slug: 'test-category', name: 'Test Category' }),
+    RenameCategory: async () => mockCategory(),
     DeleteCategory: async () => {},
     MoveCategoryCards: async () => {},
-    CopyCategory: async () => ({ slug: 'copy-category', name: 'Copy Category' }),
-    UpdateCategoryAcceptedTypes: async () => ({ slug: 'test-category', name: 'Test Category' }),
-    UpdateCategoryDescription: async () => ({ slug: 'test-category', name: 'Test Category' }),
-    UpdateCategoryIcon: async () => ({ slug: 'test-category', name: 'Test Category' }),
+    CopyCategory: async () => mockCategory('copy-category', 'Copy Category'),
+    UpdateCategoryAcceptedTypes: async () => mockCategory(),
+    UpdateCategoryDescription: async () => mockCategory(),
+    UpdateCategoryIcon: async () => mockCategory(),
 
-    CreateCard: async () => ({ id: 'card-1', title: '', type: '', tags: [], due_date: null, created_at: '', fields: {}, blocks: [] }),
-    GetCard: async () => ({ id: 'card-1', title: '', type: '', tags: [], due_date: null, created_at: '', fields: {}, blocks: [] }),
+    CreateCard: async () => mockCard(),
+    GetCard: async () => mockCard(),
     ListCards: async () => [],
     DeleteCard: async () => {},
-    DuplicateCard: async () => ({ id: 'card-2', title: '', type: '', tags: [], due_date: null, created_at: '', fields: {}, blocks: [] }),
+    DuplicateCard: async () => mockCard('card-2'),
 
-    UpdateCardTitle: async () => ({}),
-    UpdateCardType: async () => ({}),
-    RefreshTypeBlocks: async () => ({}),
-    UpdateCardDescription: async () => ({}),
-    UpdateCardBlocks: async () => ({}),
-    UpdateCardTags: async () => ({}),
-    UpdateCardLabels: async () => ({}),
-    UpdateCardDueDate: async () => ({}),
+    UpdateCardTitle: async () => mockCard(),
+    UpdateCardType: async () => mockCard(),
+    RefreshTypeBlocks: async () => mockCard(),
+    UpdateCardDescription: async () => mockCard(),
+    UpdateCardBlocks: async () => mockCard(),
+    UpdateCardTags: async () => mockCard(),
+    UpdateCardLabels: async () => mockCard(),
+    UpdateCardDueDate: async () => mockCard(),
 
     PinCard: async () => {},
     UnpinCard: async () => {},
@@ -152,9 +196,9 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
 
     MoveProject: async () => {},
     MoveStream: async () => {},
-    CopyBrand: async () => ({}),
-    CopyStream: async () => ({}),
-    CopyProject: async () => ({}),
+    CopyBrand: async () => mockBrand(),
+    CopyStream: async () => mockStream(),
+    CopyProject: async () => mockProject(),
 
     GetTagColors: async () => ({}),
     SetTagColor: async () => ({}),
@@ -183,8 +227,8 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     SearchCards: async () => [],
     SearchOrphanedCards: async () => [],
     GetCardProjectContext: async () => '',
-    RebuildIndex: async () => ({}),
-    RefreshIndex: async () => ({}),
+    RebuildIndex: async () => emptyIndexStats(),
+    RefreshIndex: async () => emptyIndexStats(),
     ListCardIDsInCategory: async () => [],
     ListOrphanedCardIDs: async () => [],
     ListCardIDsByTag: async () => [],
@@ -212,10 +256,10 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     GetAgentAnalytics: async () => ({ total_agents: 0, enabled_agents: 0, total_runs: 0, success_runs: 0, failed_runs: 0, total_tokens: 0, total_cost: 0, cost_today: 0, cost_7d: 0, cost_by_model: {} }),
     ForceQuit: async () => {},
 
-    LoadChatHistory: async () => ({ card_id: '', messages: [] }),
-    SendChatMessage: async () => ({ card_id: '', messages: [] }),
-    LoadProjectChatHistory: async () => ({ card_id: '', messages: [] }),
-    SendProjectChatMessage: async () => ({ card_id: '', messages: [] }),
+    LoadChatHistory: async () => emptyChat(),
+    SendChatMessage: async () => emptyChat(),
+    LoadProjectChatHistory: async () => emptyChat(),
+    SendProjectChatMessage: async () => emptyChat(),
     ClearProjectChatHistory: async () => {},
     ClearCardChatHistory: async () => {},
     GetLLMAccounts: async () => [],
@@ -228,15 +272,15 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     AcceptPinSuggestion: async () => {},
     RejectPinSuggestion: async () => {},
 
-    AcceptPendingEdit: async () => ({}),
-    RejectPendingEdit: async () => ({}),
-    AcceptAllPendingEdits: async () => ({}),
-    RejectAllPendingEdits: async () => ({}),
-    ApplyPendingEdits: async () => ({}),
-    ApplyProjectPendingEdits: async () => ({}),
+    AcceptPendingEdit: async () => emptyChat(),
+    RejectPendingEdit: async () => emptyChat(),
+    AcceptAllPendingEdits: async () => emptyChat(),
+    RejectAllPendingEdits: async () => emptyChat(),
+    ApplyPendingEdits: async () => emptyChat(),
+    ApplyProjectPendingEdits: async () => emptyChat(),
 
-    AddCardAttachment: async () => ({} as any),
-    RemoveCardAttachment: async () => ({} as any),
+    AddCardAttachment: async () => mockCard(),
+    RemoveCardAttachment: async () => mockCard(),
 
     GetTokenPricing: async () => ({}),
     SaveTokenPricing: async () => {},
@@ -248,7 +292,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     RegisterPushSubscription: async () => {},
     UnregisterPushSubscription: async () => {},
 
-    GetPreferences: async () => ({}),
+    GetPreferences: async () => mockPreferences(),
     SetPreferences: async () => {},
 
     ListActivityLog: async () => [],
@@ -262,11 +306,11 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     UpdateCardComment: async () => ({ id: 'mock', author: 'Test', created_at: '', updated_at: '', text: '' }),
     DeleteCardComment: async () => {},
 
-    ImportTrelloBoard: async (brandSlug: string, streamSlug: string, filePath: string, archiveMode: any, apiKey?: string, apiToken?: string) => ({
+    ImportTrelloBoard: async () => ({
       project_slug: 'mock', project_name: 'Mock', categories: 0, cards: 0,
       labels: 0, comments: 0, archived: 0, skipped_closed: 0,
     }),
-    ImportTrelloBoardFromJSON: async (brandSlug: string, streamSlug: string, jsonContent: string, archiveMode: any, apiKey?: string, apiToken?: string) => ({
+    ImportTrelloBoardFromJSON: async () => ({
       project_slug: 'mock', project_name: 'Mock', categories: 0, cards: 0,
       labels: 0, comments: 0, archived: 0, skipped_closed: 0,
     }),

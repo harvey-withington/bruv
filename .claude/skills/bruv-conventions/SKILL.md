@@ -18,7 +18,8 @@ CLAUDE.md holds the rules; this skill is the *procedure* — what to actually ch
 
 1. **Both surfaces?** Default is parity between `frontend/` and `mobile/`. Intentional asymmetries exist — mobile is the capture/triage/review/chat surface; structure authoring, agent authoring, and LLM/MCP config are desktop-only by design (see `plan/mobile-feature-gap-2026-05-03.md` for the bucket list). If you implement one side only, confirm it's a deliberate asymmetry and say so.
 2. **Localization.** Every user-facing string — labels, placeholders, tooltips, `aria-label`s, errors, confirmations — goes through `t()` from `lib/i18n.svelte`. Add keys to **both** `frontend/src/lib/locales/en.json` and `mobile/src/lib/locales/en.json` when the feature spans surfaces. Params use `{name}` interpolation. Strings inside shared modules must be injected by callers (see `cardToMarkdown`'s `labels` option / `cardMarkdownLabels()` for the pattern) — shared code never imports a surface's i18n.
-3. **Error surfacing.** `catch { console.error }` is banned when the user is affected. Desktop: `showToast(t('...'), 'error')` from `lib/toast.svelte`. Mobile: no toast system yet — use the page's `saveError`/`mutationError` rail, and beware that navigation unmounts the rail (set the message on the surviving page).
+3. **Error surfacing.** `catch { console.error }` is banned when the user is affected. Both surfaces: `showToast(t('...'), 'error')` from `lib/toast.svelte` (shared store in `@shared/toast.svelte`; each surface has its own Toast component). Toasts survive navigation. Mobile pages also have inline `saveError`/`mutationError` rails — prefer those for persistent field-level errors, toasts for transient op feedback.
+   Success feedback rule: **one-shot actions toast** (copy, export, import, delete); **ambient autosave state stays inline** (desktop `SaveIndicator`, mobile saved-chip — UI-CONVENTIONS.md §9). Never toast per-keystroke/debounced save events.
 4. **Confirmations.** Never native `confirm()`/`alert()`. Desktop: `await showConfirm(...)` from `lib/confirm.svelte`. Mobile: prop-based `ConfirmDialog` component.
 5. **Shared logic placement.** Logic needed by both surfaces goes in `shared/`, transport-agnostic, with the backend surface injected as a small interface — desktop binds `@shared/api` wrappers, mobile binds `repoRPC`. Reference implementation: `shared/cardTransfer.ts` with the two ~50-line `cardExport.ts` adapters.
 6. **Reusable behaviours.** Check `frontend/src/lib/actions.ts` (focusTrap, focusOnMount, floatingDropdown…) and `mobile/src/lib/actions/` before writing new DOM logic. Extract on second use.
@@ -53,9 +54,9 @@ rg -n "as any|: any\b|Promise<any>" frontend/src mobile/src shared
 
 Fix root causes, not symptoms — no `svelte-ignore`, no `--no-verify`.
 
-## Commit message style
+## Commits
 
-Compact one-liner, lowercase, items separated by " / " (slashes, not commas):
+**Never run `git commit` or `git push` — Harvey always commits and pushes manually.** Finish by suggesting a commit message: compact one-liner, lowercase, items separated by " / " (slashes, not commas):
 
 ```
 card share/export as markdown + json / import from json / fix pin-rejection orphan

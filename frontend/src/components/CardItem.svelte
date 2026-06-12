@@ -39,7 +39,7 @@
     dnd.overCardIndex = null
   }
 
-  async function handleAgentAction(e: MouseEvent) {
+  async function handleAgentAction(e: MouseEvent | KeyboardEvent) {
     e.stopPropagation()
     e.preventDefault()
     if (!agentEnabled) {
@@ -89,7 +89,7 @@
         ? t('agent.status_disabled')
         : isRunning ? t('agent.cancel') : t('agent.run_now')}
       onclick={handleAgentAction}
-      onkeydown={(e) => { if (e.key === 'Enter') handleAgentAction(e as any) }}
+      onkeydown={(e) => { if (e.key === 'Enter') handleAgentAction(e) }}
     >
       {#if agentEnabled && isRunning}
         <Square size={10} />

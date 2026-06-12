@@ -225,6 +225,16 @@
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = 'copyMove'
       e.dataTransfer.setData('text/plain', block.id)
+      // Compact drag ghost: snapshot just the block's header row instead
+      // of the full expanded block. The native snapshot is taken before
+      // the deferred visual collapse below, so without this an expanded
+      // block drags as a huge ghost that obscures the drop targets.
+      const headerEl = (e.target as HTMLElement)
+        ?.closest?.('.block-wrapper')
+        ?.querySelector('.block-label-row')
+      if (headerEl instanceof HTMLElement) {
+        e.dataTransfer.setDragImage(headerEl, 12, 12)
+      }
     }
     // Use CSS-only collapse — no DOM changes, preserves drag state
     requestAnimationFrame(() => { dragVisualCollapse = true })

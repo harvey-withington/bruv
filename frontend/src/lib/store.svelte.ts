@@ -1,7 +1,12 @@
 // Reactive app state using Svelte 5 module-level $state
 import { ListCategories, GetCard, ListCardIDsInCategory, GetProjectLabels, ListCardTypes, GetTagColors, ListAgentCardStates } from '@shared/api'
 import { onEvent } from './events'
-import type { CardTypeInfo } from '@shared/types'
+import type { Card, CardTypeInfo, ChecklistItem } from '@shared/types'
+
+// Legacy pre-blocks cards carried a top-level `checklist` array. The
+// field is gone from the current model but may still appear in JSON
+// from old repos, so board tiles read it through this extension type.
+export type LegacyCard = Card & { checklist?: ChecklistItem[] }
 
 // Navigation state
 export const nav = $state({
@@ -177,7 +182,7 @@ export async function loadBoard(brandSlug: string, streamSlug: string, projectSl
     try { projectTags.list = await GetProjectLabels(brandSlug, streamSlug, projectSlug) || [] } catch { projectTags.list = [] }
 
     const cats = await ListCategories(brandSlug, streamSlug, projectSlug) || []
-    const populated = await Promise.all(cats.map(async (cat: any) => {
+    const populated = await Promise.all(cats.map(async (cat) => {
       let cardIds: string[] = []
       try {
         cardIds = await ListCardIDsInCategory(cat.id) || []
@@ -185,7 +190,7 @@ export async function loadBoard(brandSlug: string, streamSlug: string, projectSl
 
       const cards = await Promise.all(cardIds.map(async (id: string) => {
         try {
-          const card = await GetCard(id)
+          const card: LegacyCard = await GetCard(id)
           return {
             id: card.id,
             type: card.type,
@@ -193,7 +198,7 @@ export async function loadBoard(brandSlug: string, streamSlug: string, projectSl
             tags: card.tags || [],
             due_date: card.due_date,
             checklist_total: card.checklist?.length || 0,
-            checklist_done: card.checklist?.filter((c: any) => c.done).length || 0,
+            checklist_done: card.checklist?.filter((c) => c.done).length || 0,
           }
         } catch { return null }
       }))

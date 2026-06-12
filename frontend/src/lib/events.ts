@@ -21,10 +21,9 @@ import type { BackendEvent, EventCallback } from '@shared/types'
 export function onEvent<T = unknown>(topic: string, handler: (data: T) => void): () => void {
   const adapter = getBackend()
   const filter: EventCallback = (ev: BackendEvent) => {
-    // BackendEvent is a tagged union by `type`; every topic the
-    // backend publishes maps to a `type` field on the event. The
-    // payload fields live alongside `type`.
-    if ((ev as any).type === topic) {
+    // BackendEvent carries the topic in `type`; the topic-specific
+    // payload fields live alongside it. Callers narrow to T.
+    if (ev.type === topic) {
       handler(ev as unknown as T)
     }
   }

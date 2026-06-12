@@ -2,6 +2,7 @@
   import { tick } from 'svelte'
   import { Send, MapPin, Check, X, Wrench, ChevronUp, ChevronDown, MessageCircle, PencilLine, ListChecks, Trash2 } from 'lucide-svelte'
   import { LoadChatHistory, SendChatMessage, IsLLMConfigured, AcceptPinSuggestion, RejectPinSuggestion, GetLLMConfig, SetLLMConfig, ApplyPendingEdits, ClearCardChatHistory } from '@shared/api'
+  import type { ChatHistory, ChatMessage, ToolAction } from '@shared/types'
   import { showConfirm } from '../lib/confirm.svelte'
   import { renderMarkdown } from '@shared/markdown'
   import { t } from '../lib/i18n.svelte'
@@ -36,25 +37,6 @@
     }
   }
 
-  interface PendingEdit {
-    id: string
-    tool: string
-    input: Record<string, unknown>
-    label: string
-    detail: string
-    status: 'pending' | 'accepted' | 'rejected'
-  }
-
-  interface ChatMessage {
-    id: string
-    role: string
-    content: string
-    timestamp: string
-    tool_actions?: { tool: string; input: unknown; result: string }[]
-    pin_suggestion?: { category_id: string; breadcrumb: string; reason?: string; status: string }
-    pending_edits?: PendingEdit[]
-  }
-
   let {
     cardId,
     visible = $bindable(false),
@@ -74,17 +56,17 @@
     splitterDragging?: boolean
     onCardChanged?: () => void
     projectMode?: boolean
-    loadFn?: () => Promise<{ messages: ChatMessage[] }>
+    loadFn?: () => Promise<ChatHistory>
     /** sendFn is called when the user submits a message. In projectMode it
      *  receives the current contextLevel selection so the parent's closure
      *  can forward it to SendProjectChatMessage. */
-    sendFn?: (text: string, contextLevel?: string) => Promise<{ messages: ChatMessage[] }>
+    sendFn?: (text: string, contextLevel?: string) => Promise<ChatHistory>
     reloadKey?: string
     clearFn?: () => Promise<void>
     /** applyFn applies a subset of pending edits in projectMode. Mirrors the
      *  card chat's ApplyPendingEdits flow but routes through the project
      *  apply endpoint so the right tool executor runs. */
-    applyFn?: (msgID: string, acceptIDs: string[]) => Promise<{ messages: ChatMessage[] }>
+    applyFn?: (msgID: string, acceptIDs: string[]) => Promise<ChatHistory>
   } = $props()
 
   // --- Project chat: context level (persisted globally in localStorage) ---
@@ -417,7 +399,7 @@
     }
   }
 
-  function toolActionLabel(action: { tool: string; input: unknown; result: string }): string {
+  function toolActionLabel(action: ToolAction): string {
     const inp = (action.input ?? {}) as Record<string, unknown>
     switch (action.tool) {
       case 'set_title': return `Title: ${inp.title || '?'}`
@@ -442,8 +424,8 @@
   }
 
   /** Extract card ID from a create_card tool result string */
-  function extractCardId(result: string): string | null {
-    const match = result.match(/\(ID: ([^)]+)\)/)
+  function extractCardId(result: string | undefined): string | null {
+    const match = result?.match(/\(ID: ([^)]+)\)/)
     return match ? match[1] : null
   }
 

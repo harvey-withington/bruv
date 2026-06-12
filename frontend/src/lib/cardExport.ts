@@ -20,7 +20,7 @@ import {
 } from '@shared/cardTransfer'
 import type { BruvCardExport } from '@shared/cardJson'
 import type { CardMarkdownLabels } from '@shared/cardMarkdown'
-import type { Card, CardComment } from '@shared/types'
+import type { Card } from '@shared/types'
 import { t } from './i18n.svelte'
 
 // Desktop binding of @shared/cardTransfer: injects the Wails/API
@@ -28,7 +28,7 @@ import { t } from './i18n.svelte'
 // lives in the shared module.
 
 const api: CardTransferApi = {
-  createCard: async (cardType, title) => await CreateCard(cardType, title) as Card,
+  createCard: (cardType, title) => CreateCard(cardType, title),
   deleteCard: async (cardId) => { await DeleteCard(cardId) },
   pinCard: async (cardId, categoryId) => { await PinCard(cardId, categoryId) },
   updateCardType: (cardId, cardType) => UpdateCardType(cardId, cardType),
@@ -38,7 +38,7 @@ const api: CardTransferApi = {
   updateCardDueDate: (cardId, dueDate) => UpdateCardDueDate(cardId, dueDate),
   addCardAttachment: (cardId, name, base64Data) => AddCardAttachment(cardId, name, base64Data),
   addCardComment: (cardId, author, text) => AddCardComment(cardId, author, text),
-  listCardComments: async (cardId) => await ListCardComments(cardId) as CardComment[],
+  listCardComments: (cardId) => ListCardComments(cardId),
   signAttachmentURL: (cardId, attachmentId) => SignAttachmentURL(cardId, attachmentId),
 }
 

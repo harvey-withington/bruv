@@ -8,6 +8,7 @@
   import { downloadBlob, sanitizeFilenameStem } from '@shared/download'
   import type { CardComment } from '@shared/types'
   import { buildCardExportPayload, cardMarkdownLabels } from '../lib/cardExport'
+  import { showToast } from '../lib/toast.svelte'
   import EditableText from '../components/EditableText.svelte'
   import EditableDescription from '../components/EditableDescription.svelte'
   import TagsEditor from '../components/TagsEditor.svelte'
@@ -374,14 +375,7 @@
   $effect(() => () => {
     if (blockSaveTimer) clearTimeout(blockSaveTimer)
     if (savedFlashTimer) clearTimeout(savedFlashTimer)
-    if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer)
   })
-
-  // Copy-as-markdown feedback — transient "Copied!" label replaces the
-  // button text for 2s on success. Errors surface via saveError so they
-  // share the existing rail (no separate toast system on mobile yet).
-  let copyFeedback = $state<'idle' | 'success'>('idle')
-  let copyFeedbackTimer: ReturnType<typeof setTimeout> | null = null
 
   async function copyCardAsMarkdown() {
     if (!card) return
@@ -391,11 +385,9 @@
     const md = cardToMarkdown(card, { comments, untitledLabel: t('card.untitled'), labels: cardMarkdownLabels() })
     try {
       await navigator.clipboard.writeText(md)
-      copyFeedback = 'success'
-      if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer)
-      copyFeedbackTimer = setTimeout(() => { copyFeedback = 'idle' }, 2000)
+      showToast(t('card.copy_markdown_done'), 'success')
     } catch {
-      saveError = t('card.copy_markdown_error')
+      showToast(t('card.copy_markdown_error'), 'error')
     }
   }
 
@@ -405,8 +397,9 @@
       const payload = await buildCardExportPayload(card)
       const json = JSON.stringify(payload, null, 2)
       downloadBlob(json, `${sanitizeFilenameStem(card.title)}.bruv-card.json`, 'application/json;charset=utf-8')
+      showToast(t('card.export_json_done'), 'success')
     } catch {
-      saveError = t('card.export_json_error')
+      showToast(t('card.export_json_error'), 'error')
     }
   }
 
@@ -746,7 +739,7 @@
     <footer class="actions">
       <button type="button" class="action-link" onclick={copyCardAsMarkdown}>
         <Copy size={14} />
-        {copyFeedback === 'success' ? t('card.copy_markdown_done') : t('card.copy_markdown')}
+        {t('card.copy_markdown')}
       </button>
       <button type="button" class="action-link" onclick={exportCardAsJson}>
         <FileJson size={14} />

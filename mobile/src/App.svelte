@@ -14,6 +14,7 @@
   import ActivityPage from './routes/ActivityPage.svelte'
   import CaptureFAB from './components/CaptureFAB.svelte'
   import ChatFAB from './components/ChatFAB.svelte'
+  import Toast from './components/Toast.svelte'
 
   // Two-stage auth gate, runs reactively on every route change:
   //
@@ -112,6 +113,8 @@
 {#if chatScope}
   <ChatFAB scope={chatScope} solo={!showCaptureFAB} />
 {/if}
+
+<Toast />
 
 <style>
   .not-found {

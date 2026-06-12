@@ -476,7 +476,10 @@
   /* CSS-only visual collapse during drag — hides block bodies without
      removing DOM nodes. The outer .blocks-list lives in CardDetail, so
      we prefix with :global() to cross the component boundary. */
-  :global(.blocks-list.drag-visual-collapse) .block-wrapper:not(.block-dragging) .block-body {
+  /* The dragged block collapses too — a compact source row (paired with
+     the header-only drag image set in CardDetail's handleBlockDragStart)
+     makes drop positions much easier to read. */
+  :global(.blocks-list.drag-visual-collapse) .block-wrapper .block-body {
     max-height: 0;
     overflow: hidden;
     opacity: 0;

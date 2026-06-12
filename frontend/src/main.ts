@@ -3,6 +3,7 @@ import { mount } from 'svelte'
 import { initBackend } from '@shared/adapters'
 import { NeedsEnrolmentError } from '@shared/adapters/cloud'
 import { GetCardProjectContext } from '@shared/api'
+import type { WailsWindow } from '@shared/types'
 import App from './App.svelte'
 import EnrolmentScreen from './components/EnrolmentScreen.svelte'
 
@@ -34,7 +35,7 @@ document.addEventListener('click', (e) => {
     e.preventDefault()
     e.stopPropagation()
     try {
-      const { BrowserOpenURL } = (window as any).runtime || {}
+      const { BrowserOpenURL } = (window as WailsWindow).runtime ?? {}
       if (BrowserOpenURL) {
         BrowserOpenURL(href)
       } else if (anchor.target === '_blank') {

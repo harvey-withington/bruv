@@ -8,6 +8,7 @@
   import {
     browse,
     setAccordionMode,
+    applySingleModeToCategories,
     toggleCategoryExpansion,
     expandAllCategories,
     collapseAllCategories,
@@ -19,6 +20,7 @@
   } from '../lib/browse.svelte'
   import type { Category, CardSummary } from '../lib/model'
   import { importCardFromJson, ImportError } from '../lib/cardExport'
+  import { showToast } from '../lib/toast.svelte'
   import DynamicIcon from '../components/DynamicIcon.svelte'
   import CardRow from '../components/CardRow.svelte'
   import SearchSheet from '../components/SearchSheet.svelte'
@@ -165,7 +167,13 @@
     collapseAllCategories(projectID, categories.map((c) => c.id))
   }
   function toggleMode() {
-    setAccordionMode(browse.accordionMode === 'single' ? 'multi' : 'single')
+    const next = browse.accordionMode === 'single' ? 'multi' : 'single'
+    setAccordionMode(next)
+    // Entering single mode collapses to one open category right away —
+    // desktop parity with the sidebar/block accordions.
+    if (next === 'single' && projectID) {
+      applySingleModeToCategories(projectID, categories.map((c) => c.id))
+    }
   }
 
   function handleHoverExpand(target: HTMLElement) {
@@ -341,20 +349,17 @@
     try {
       const text = await file.text()
       const result = await importCardFromJson(text, targetId)
+      // Toasts survive navigation, so we can open the imported card
+      // immediately and still show the partial-restore warning.
       if (result.failedAttachments.length || result.failedComments.length) {
-        // Stay on the project page so the warning is actually seen —
-        // navigating would unmount the error rail before it renders.
-        // The imported card appears in its category via live updates.
-        mutationError = t('card.import_partial')
-      } else {
-        mutationError = null
-        navigate(cardURL(result.cardId))
+        showToast(t('card.import_partial'), 'warning')
       }
+      navigate(cardURL(result.cardId))
     } catch (err) {
       if (err instanceof ImportError) {
-        mutationError = t(`card.import_err_${err.code}`)
+        showToast(t(`card.import_err_${err.code}`), 'error')
       } else {
-        mutationError = `${t('card.import_err_generic')} ${err instanceof Error ? err.message : ''}`.trim()
+        showToast(`${t('card.import_err_generic')} ${err instanceof Error ? err.message : ''}`.trim(), 'error')
       }
     }
   }

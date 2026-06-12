@@ -1,3 +1,76 @@
+// --- Hierarchy models (mirror internal/model/model.go) ---
+
+export type Brand = {
+  id: string
+  name: string
+  slug: string
+  description?: string
+  icon?: string
+  logo?: string
+  website?: string
+  system_prompt?: string
+  position: number
+  created_at: string
+  updated_at: string
+}
+
+export type Stream = {
+  id: string
+  brand_id: string
+  name: string
+  slug: string
+  description?: string
+  icon?: string
+  position: number
+  created_at: string
+  updated_at: string
+}
+
+export type Project = {
+  id: string
+  stream_id: string
+  brand_id: string
+  name: string
+  slug: string
+  description?: string
+  icon?: string
+  position: number
+  created_at: string
+  updated_at: string
+}
+
+export type Category = {
+  id: string
+  project_id: string
+  name: string
+  slug: string
+  description?: string
+  icon?: string
+  position: number
+  accepted_types?: string[]   // nil/empty = all card types accepted
+  created_at: string
+  updated_at: string
+}
+
+// Label is a project-scoped label that can be assigned to cards.
+// (Presented as "tags" in some user-facing surfaces.)
+export type Label = {
+  id: string
+  name: string
+  color: string
+  icon?: string
+}
+
+// Pin is a card's raw membership in a Project/Category (model.Pin).
+// For the enriched breadcrumb shape see CardPin below.
+export type Pin = {
+  card_id: string
+  project_id: string
+  category_id: string
+  position: number
+  pinned_at: string        // ISO 8601
+}
+
 // --- Card domain types ---
 
 export type ChecklistItem = {
@@ -69,6 +142,95 @@ export type CardComment = {
   text: string
 }
 
+// --- Chat (mirror internal/model/model.go ChatMessage et al.) ---
+
+// ToolAction records a tool call the AI made and what happened.
+export type ToolAction = {
+  tool: string
+  input: unknown            // arguments the AI passed — shape is tool-specific
+  result?: string
+}
+
+// PinSuggestion is a pending suggestion to pin the card to a category.
+export type PinSuggestion = {
+  category_id: string
+  category_name: string
+  breadcrumb: string
+  reason: string
+  confidence?: 'high' | 'medium' | 'low' | string
+  status: 'pending' | 'accepted' | 'rejected' | string
+}
+
+// PendingEdit is a staged LLM-proposed change awaiting user approval
+// in Suggest mode.
+export type PendingEdit = {
+  id: string
+  tool: string
+  input: Record<string, unknown>
+  label: string
+  detail: string
+  status: 'pending' | 'accepted' | 'rejected'
+}
+
+export type ChatMessage = {
+  id: string
+  role: 'user' | 'assistant' | 'system' | string
+  content: string
+  timestamp: string         // ISO 8601
+  tool_actions?: ToolAction[]
+  pin_suggestion?: PinSuggestion
+  pending_edits?: PendingEdit[]
+}
+
+// ChatHistory mirrors Go's model.ChatFile — the unit returned by the
+// chat load/send/pending-edit RPCs.
+export type ChatHistory = {
+  card_id: string
+  messages: ChatMessage[] | null   // Go nil slice encodes as null
+}
+
+// --- Search / index (mirror internal/index) ---
+
+// SearchResult has no JSON tags on the Go side, so fields arrive in
+// PascalCase (Go field names).
+export type SearchResult = {
+  CardID: string
+  Title: string
+  Type: string
+  Rank: number
+  ProjectContext: string
+}
+
+// IndexStats mirrors Go's index.RebuildStats (no JSON tags either).
+export type IndexStats = {
+  CardsIndexed: number
+  CardsRemoved: number
+  CardsSkipped: number
+  PinsIndexed: number
+  Duration: number          // Go time.Duration — nanoseconds
+}
+
+// --- User preferences (mirror internal/config/preferences.go) ---
+
+export type Preferences = {
+  reopen_last_repo: boolean
+  theme: string             // "dark", "light", "system"
+  locale: string            // e.g. "en", "es"
+  confirm_before_delete: boolean
+  sidebar_width: number
+  type_badge_display: 'text' | 'color' | 'hidden'
+  default_category_name: string
+  inbox_recent_cards_limit: number
+  inbox_activity_limit: number
+  sidebar_collapse_default: boolean
+  trello_api_key: string
+  trello_api_token: string
+  due_date_notify: boolean
+  due_date_thresholds: string[]
+  due_date_channels: string
+  llm_nudge_shown: boolean
+}
+
 // --- Import / Export ---
 
 export type TrelloArchiveMode = 'skip' | 'archive' | 'inline'
@@ -110,11 +272,18 @@ export type Card = {
   tags: string[]
   due_date: string | null
   created_at: string
+  updated_at?: string
+  context_level?: string    // "isolated" | "project" | "brand" | "global"
+  labels?: string[]         // label IDs from the project's tags.json
   blocks: Block[]
   file_attachments: Attachment[]
   members?: string[]
 }
 
+// CardPin mirrors Go's card.CategoryPath — a category's full
+// hierarchy position with display names and breadcrumb. Returned by
+// GetCardPinBreadcrumbs and ListAllCategories (the latter is exposed
+// under the CategoryPath alias below for call-site readability).
 export type CardPin = {
   brandSlug: string
   streamSlug: string
@@ -124,11 +293,18 @@ export type CardPin = {
   streamName: string
   projectName: string
   categoryName: string
+  brandDescription?: string
+  streamDescription?: string
+  projectDescription?: string
+  categoryDescription?: string
   projectId: string
   categoryId: string
   breadcrumb: string
+  acceptedTypes?: string[]
   pinnedProjectId?: string
 }
+
+export type CategoryPath = CardPin
 
 // --- Identity: who the user is (editable, visible to collaborators & LLMs) ---
 // Per-device identity (used by the activity log to shard writes) lives
@@ -378,10 +554,16 @@ export type BackendCapabilities = {
 }
 
 // --- Real-time events ---
-export type BackendEvent =
-  | { type: 'card:updated'; cardId: string }
-  | { type: 'category:updated'; categoryId: string }
-  | { type: 'board:changed' }
+//
+// `type` is the topic name (see shared/adapters/topics.ts for the
+// full list the backend publishes). Topic-specific payload fields are
+// spread alongside `type`; their shapes are defined by the Go
+// publishers and vary per topic, so handlers narrow them as needed
+// (a per-topic discriminated union is a follow-up).
+export type BackendEvent = {
+  type: string
+  [field: string]: unknown
+}
 
 export type EventCallback = (event: BackendEvent) => void
 
@@ -493,6 +675,22 @@ export type ConnectionStore = {
   connections: Connection[]
 }
 
+// --- Wails desktop shell globals ---
+//
+// When the app runs inside the Wails desktop shell, Wails injects
+// `window.go` (generated Go bindings) and `window.runtime` (runtime
+// helpers). Shell methods are looked up dynamically by name, so the
+// binding surface is modelled as an index of optional functions.
+// Cast `window` to WailsWindow instead of `any` at access sites.
+export interface WailsShellAPI {
+  [method: string]: ((...args: unknown[]) => Promise<unknown>) | undefined
+}
+
+export interface WailsWindow extends Window {
+  go?: { main?: { ShellAPI?: WailsShellAPI } }
+  runtime?: { BrowserOpenURL?: (url: string) => void }
+}
+
 export interface BackendAdapter {
   // Capabilities
   getCapabilities(): BackendCapabilities
@@ -568,67 +766,67 @@ export interface BackendAdapter {
   GetCurrentRepo(): Promise<{ id: string; name: string; path: string; description: string } | null>
 
   // Brand CRUD
-  CreateBrand(name: string): Promise<any>
-  GetBrand(slug: string): Promise<any>
-  ListBrands(): Promise<any[]>
-  RenameBrand(slug: string, newName: string): Promise<any>
-  UpdateBrandDescription(slug: string, description: string): Promise<any>
-  UpdateBrandIcon(slug: string, icon: string): Promise<any>
+  CreateBrand(name: string): Promise<Brand>
+  GetBrand(slug: string): Promise<Brand>
+  ListBrands(): Promise<Brand[]>
+  RenameBrand(slug: string, newName: string): Promise<Brand>
+  UpdateBrandDescription(slug: string, description: string): Promise<Brand>
+  UpdateBrandIcon(slug: string, icon: string): Promise<Brand>
   DeleteBrand(slug: string): Promise<void>
 
   // Stream CRUD
-  CreateStream(brandSlug: string, name: string): Promise<any>
-  ListStreams(brandSlug: string): Promise<any[]>
-  RenameStream(brandSlug: string, streamSlug: string, newName: string): Promise<any>
-  UpdateStreamDescription(brandSlug: string, streamSlug: string, description: string): Promise<any>
-  UpdateStreamIcon(brandSlug: string, streamSlug: string, icon: string): Promise<any>
+  CreateStream(brandSlug: string, name: string): Promise<Stream>
+  ListStreams(brandSlug: string): Promise<Stream[]>
+  RenameStream(brandSlug: string, streamSlug: string, newName: string): Promise<Stream>
+  UpdateStreamDescription(brandSlug: string, streamSlug: string, description: string): Promise<Stream>
+  UpdateStreamIcon(brandSlug: string, streamSlug: string, icon: string): Promise<Stream>
   DeleteStream(brandSlug: string, streamSlug: string): Promise<void>
 
   // Project CRUD
-  CreateProject(brandSlug: string, streamSlug: string, name: string): Promise<any>
-  ListProjects(brandSlug: string, streamSlug: string): Promise<any[]>
-  RenameProject(brandSlug: string, streamSlug: string, projectSlug: string, newName: string): Promise<any>
-  UpdateProjectDescription(brandSlug: string, streamSlug: string, projectSlug: string, description: string): Promise<any>
-  UpdateProjectIcon(brandSlug: string, streamSlug: string, projectSlug: string, icon: string): Promise<any>
+  CreateProject(brandSlug: string, streamSlug: string, name: string): Promise<Project>
+  ListProjects(brandSlug: string, streamSlug: string): Promise<Project[]>
+  RenameProject(brandSlug: string, streamSlug: string, projectSlug: string, newName: string): Promise<Project>
+  UpdateProjectDescription(brandSlug: string, streamSlug: string, projectSlug: string, description: string): Promise<Project>
+  UpdateProjectIcon(brandSlug: string, streamSlug: string, projectSlug: string, icon: string): Promise<Project>
   DeleteProject(brandSlug: string, streamSlug: string, projectSlug: string): Promise<void>
   GetProjectMembers(brandSlug: string, streamSlug: string, projectSlug: string): Promise<ProjectMember[]>
 
   // Category CRUD
-  CreateCategory(brandSlug: string, streamSlug: string, projectSlug: string, name: string, position: number): Promise<any>
-  ListCategories(brandSlug: string, streamSlug: string, projectSlug: string): Promise<any[]>
-  RenameCategory(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string, newName: string): Promise<any>
+  CreateCategory(brandSlug: string, streamSlug: string, projectSlug: string, name: string, position: number): Promise<Category>
+  ListCategories(brandSlug: string, streamSlug: string, projectSlug: string): Promise<Category[]>
+  RenameCategory(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string, newName: string): Promise<Category>
   DeleteCategory(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string): Promise<void>
   MoveCategoryCards(brandSlug: string, streamSlug: string, projectSlug: string, fromCategoryID: string, toCategoryID: string): Promise<void>
-  CopyCategory(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string): Promise<any>
-  UpdateCategoryAcceptedTypes(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string, acceptedTypes: string[]): Promise<any>
-  UpdateCategoryDescription(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string, description: string): Promise<any>
-  UpdateCategoryIcon(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string, icon: string): Promise<any>
+  CopyCategory(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string): Promise<Category>
+  UpdateCategoryAcceptedTypes(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string, acceptedTypes: string[]): Promise<Category>
+  UpdateCategoryDescription(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string, description: string): Promise<Category>
+  UpdateCategoryIcon(brandSlug: string, streamSlug: string, projectSlug: string, categorySlug: string, icon: string): Promise<Category>
 
   // Card CRUD
-  CreateCard(cardType: string, title: string): Promise<any>
-  GetCard(id: string): Promise<any>
-  ListCards(): Promise<any[]>
+  CreateCard(cardType: string, title: string): Promise<Card>
+  GetCard(id: string): Promise<Card>
+  ListCards(): Promise<Card[]>
   DeleteCard(id: string): Promise<void>
-  DuplicateCard(cardID: string, categoryID: string): Promise<any>
+  DuplicateCard(cardID: string, categoryID: string): Promise<Card>
 
   // Card updates
-  UpdateCardTitle(id: string, title: string): Promise<any>
-  UpdateCardType(id: string, cardType: string): Promise<any>
-  RefreshTypeBlocks(cardID: string): Promise<any>
-  UpdateCardDescription(id: string, description: string): Promise<any>
-  UpdateCardBlocks(id: string, blocks: any[]): Promise<any>
-  UpdateCardTags(id: string, tags: string[]): Promise<any>
-  UpdateCardLabels(id: string, labelIDs: string[]): Promise<any>
-  UpdateCardDueDate(id: string, dueDate: string): Promise<any>
+  UpdateCardTitle(id: string, title: string): Promise<Card>
+  UpdateCardType(id: string, cardType: string): Promise<Card>
+  RefreshTypeBlocks(cardID: string): Promise<Card>
+  UpdateCardDescription(id: string, description: string): Promise<Card>
+  UpdateCardBlocks(id: string, blocks: Block[]): Promise<Card>
+  UpdateCardTags(id: string, tags: string[]): Promise<Card>
+  UpdateCardLabels(id: string, labelIDs: string[]): Promise<Card>
+  UpdateCardDueDate(id: string, dueDate: string): Promise<Card>
 
   // Pins
   PinCard(cardID: string, categoryID: string): Promise<void>
   UnpinCard(cardID: string, categoryID: string): Promise<void>
-  GetCardPins(cardID: string): Promise<any[]>
+  GetCardPins(cardID: string): Promise<Pin[]>
   GetCardLocation(cardID: string): Promise<{ brandSlug: string; streamSlug: string; projectSlug: string }>
   GetProjectLocation(projectID: string): Promise<{ brandSlug: string; streamSlug: string; projectSlug: string }>
-  ListAllCategories(): Promise<any[]>
-  GetCardPinBreadcrumbs(cardID: string): Promise<any[]>
+  ListAllCategories(): Promise<CategoryPath[]>
+  GetCardPinBreadcrumbs(cardID: string): Promise<CardPin[]>
 
   // Move & reorder
   MoveCardInCategory(cardID: string, categoryID: string, newPosition: number): Promise<void>
@@ -641,9 +839,9 @@ export interface BackendAdapter {
   // Move & copy (cross-hierarchy)
   MoveProject(fromBrand: string, fromStream: string, projectSlug: string, toBrand: string, toStream: string): Promise<void>
   MoveStream(fromBrand: string, streamSlug: string, toBrand: string): Promise<void>
-  CopyBrand(brandSlug: string): Promise<any>
-  CopyStream(fromBrand: string, streamSlug: string, toBrand: string): Promise<any>
-  CopyProject(fromBrand: string, fromStream: string, projectSlug: string, toBrand: string, toStream: string, position: number): Promise<any>
+  CopyBrand(brandSlug: string): Promise<Brand>
+  CopyStream(fromBrand: string, streamSlug: string, toBrand: string): Promise<Stream>
+  CopyProject(fromBrand: string, fromStream: string, projectSlug: string, toBrand: string, toStream: string, position: number): Promise<Project>
 
   // Tag colors
   GetTagColors(): Promise<Record<string, string>>
@@ -651,15 +849,15 @@ export interface BackendAdapter {
   AssignTagColor(tag: string): Promise<Record<string, string>>
 
   // Labels (per-project)
-  GetProjectLabels(brandSlug: string, streamSlug: string, projectSlug: string): Promise<any[]>
-  AddProjectLabel(brandSlug: string, streamSlug: string, projectSlug: string, name: string, color: string): Promise<any[]>
-  RemoveProjectLabel(brandSlug: string, streamSlug: string, projectSlug: string, labelID: string): Promise<any[]>
-  UpdateProjectLabel(brandSlug: string, streamSlug: string, projectSlug: string, labelID: string, name: string, color: string): Promise<any[]>
-  SetProjectLabelIcon(brandSlug: string, streamSlug: string, projectSlug: string, labelID: string, icon: string): Promise<any[]>
+  GetProjectLabels(brandSlug: string, streamSlug: string, projectSlug: string): Promise<Label[]>
+  AddProjectLabel(brandSlug: string, streamSlug: string, projectSlug: string, name: string, color: string): Promise<Label[]>
+  RemoveProjectLabel(brandSlug: string, streamSlug: string, projectSlug: string, labelID: string): Promise<Label[]>
+  UpdateProjectLabel(brandSlug: string, streamSlug: string, projectSlug: string, labelID: string, name: string, color: string): Promise<Label[]>
+  SetProjectLabelIcon(brandSlug: string, streamSlug: string, projectSlug: string, labelID: string, icon: string): Promise<Label[]>
 
   // Schema
   ListCardTypes(): Promise<CardTypeInfo[]>
-  ValidateCardFields(cardType: string, fields: Record<string, any>): Promise<string[]>
+  ValidateCardFields(cardType: string, fields: Record<string, unknown>): Promise<string[]>
 
   // User card types
   CreateUserCardType(label: string, color: string, description: string, aiHint: string, templateId: string): Promise<UserCardType>
@@ -675,11 +873,11 @@ export interface BackendAdapter {
   DeleteCardTemplate(id: string): Promise<void>
 
   // Index / search
-  SearchCards(query: string, limit: number): Promise<any[]>
-  SearchOrphanedCards(query: string, limit: number): Promise<any[]>
+  SearchCards(query: string, limit: number): Promise<SearchResult[]>
+  SearchOrphanedCards(query: string, limit: number): Promise<SearchResult[]>
   GetCardProjectContext(cardID: string): Promise<string>
-  RebuildIndex(): Promise<any>
-  RefreshIndex(): Promise<any>
+  RebuildIndex(): Promise<IndexStats>
+  RefreshIndex(): Promise<IndexStats>
   ListCardIDsInCategory(categoryID: string): Promise<string[]>
   ListOrphanedCardIDs(): Promise<string[]>
   ListCardIDsByTag(tag: string): Promise<string[]>
@@ -720,12 +918,12 @@ export interface BackendAdapter {
   ForceQuit(): Promise<void>
 
   // Chat
-  LoadChatHistory(cardID: string): Promise<any>
-  SendChatMessage(cardID: string, userMessage: string): Promise<any>
+  LoadChatHistory(cardID: string): Promise<ChatHistory>
+  SendChatMessage(cardID: string, userMessage: string): Promise<ChatHistory>
 
   // Project chat
-  LoadProjectChatHistory(brandSlug: string, streamSlug: string, projectSlug: string): Promise<any>
-  SendProjectChatMessage(brandSlug: string, streamSlug: string, projectSlug: string, userMessage: string, contextLevel: string): Promise<any>
+  LoadProjectChatHistory(brandSlug: string, streamSlug: string, projectSlug: string): Promise<ChatHistory>
+  SendProjectChatMessage(brandSlug: string, streamSlug: string, projectSlug: string, userMessage: string, contextLevel: string): Promise<ChatHistory>
   ClearProjectChatHistory(brandSlug: string, streamSlug: string, projectSlug: string): Promise<void>
   ClearCardChatHistory(cardID: string): Promise<void>
 
@@ -744,12 +942,12 @@ export interface BackendAdapter {
   RejectPinSuggestion(cardID: string, messageID: string): Promise<void>
 
   // Pending edits (Suggest mode)
-  AcceptPendingEdit(cardID: string, msgID: string, editID: string): Promise<any>
-  RejectPendingEdit(cardID: string, msgID: string, editID: string): Promise<any>
-  AcceptAllPendingEdits(cardID: string, msgID: string): Promise<any>
-  RejectAllPendingEdits(cardID: string, msgID: string): Promise<any>
-  ApplyPendingEdits(cardID: string, msgID: string, acceptIDs: string[]): Promise<any>
-  ApplyProjectPendingEdits(brandSlug: string, streamSlug: string, projectSlug: string, msgID: string, acceptIDs: string[]): Promise<any>
+  AcceptPendingEdit(cardID: string, msgID: string, editID: string): Promise<ChatHistory>
+  RejectPendingEdit(cardID: string, msgID: string, editID: string): Promise<ChatHistory>
+  AcceptAllPendingEdits(cardID: string, msgID: string): Promise<ChatHistory>
+  RejectAllPendingEdits(cardID: string, msgID: string): Promise<ChatHistory>
+  ApplyPendingEdits(cardID: string, msgID: string, acceptIDs: string[]): Promise<ChatHistory>
+  ApplyProjectPendingEdits(brandSlug: string, streamSlug: string, projectSlug: string, msgID: string, acceptIDs: string[]): Promise<ChatHistory>
 
   // Attachments
   AddCardAttachment(cardID: string, name: string, data: string): Promise<Card>
@@ -779,9 +977,11 @@ export interface BackendAdapter {
   RegisterPushSubscription(deviceID: string, endpoint: string, p256dh: string, auth: string): Promise<void>
   UnregisterPushSubscription(deviceID: string): Promise<void>
 
-  // User preferences
-  GetPreferences(): Promise<any>
-  SetPreferences(p: any): Promise<void>
+  // User preferences. SetPreferences accepts a partial object — the
+  // backend merges the given keys into the stored preferences
+  // (config.UpdatePreferencesPartial).
+  GetPreferences(): Promise<Preferences>
+  SetPreferences(p: Partial<Preferences>): Promise<void>
 
   // Activity & recently updated
   ListActivityLog(limit: number): Promise<ActivityEntry[]>

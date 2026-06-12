@@ -106,6 +106,40 @@ export function setAccordionMode(mode: AccordionMode): void {
   }
 }
 
+// Switching INTO single mode enforces it immediately instead of waiting
+// for the next tap — desktop parity (Sidebar.applySingleExpandCollapses
+// and CardDetail's applySingleModeCollapse do the same). The page calls
+// the helper for the surface it's showing, passing display order so
+// "first open" matches what the user sees at the top.
+
+/** Collapse the tree to its first open brand (display order) and that
+ *  brand's first open stream. */
+export function applySingleModeToTree(orderedBrandSlugs: string[]): void {
+  const keepBrand = orderedBrandSlugs.find((slug) => _expandedBrands[slug])
+  for (const slug of Object.keys(_expandedBrands)) {
+    _expandedBrands[slug] = slug === keepBrand
+  }
+  let keepStreamKey: string | null = null
+  if (keepBrand) {
+    const streams = _streamsByBrand[keepBrand]?.items ?? []
+    const keepStream = streams.find((s) => _expandedStreams[`${keepBrand}/${s.slug}`])
+    if (keepStream) keepStreamKey = `${keepBrand}/${keepStream.slug}`
+  }
+  for (const key of Object.keys(_expandedStreams)) {
+    _expandedStreams[key] = key === keepStreamKey
+  }
+}
+
+/** Collapse a project's accordion to its first open category (display
+ *  order). */
+export function applySingleModeToCategories(projectID: string, orderedCategoryIDs: string[]): void {
+  const map = browse.categoryExpansionFor(projectID)
+  const keep = orderedCategoryIDs.find((id) => map[id] === true)
+  const next: Record<string, boolean> = {}
+  for (const id of orderedCategoryIDs) next[id] = id === keep
+  _expandedCategories[projectID] = next
+}
+
 /** Toggle a single category's expansion, respecting the current mode.
  *  In single-expand mode this collapses every other category in the
  *  same project; in multi-expand it just flips this one. */

@@ -1,7 +1,7 @@
 import { Marked, type RendererObject } from 'marked'
 
 const linkRenderer: RendererObject = {
-  link(this: any, { href, title, tokens }: any) {
+  link({ href, title, tokens }) {
     const text = this.parser.parseInline(tokens)
 
     // Internal BRUV links: bruv:card:<uuid> or bruv:project:<brand>/<stream>/<project>

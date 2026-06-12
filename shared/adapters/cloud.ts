@@ -16,6 +16,7 @@ import type {
   BackendCapabilities,
   BackendEvent,
   EventCallback,
+  WailsWindow,
 } from '../types'
 import { KNOWN_TOPICS } from './topics'
 
@@ -60,7 +61,7 @@ async function resolveTransport(): Promise<TransportInfo> {
   // desktop) or a remote tailnet host (Mode B2, when the desktop
   // was started with BRUV_REMOTE_URL + BRUV_REMOTE_TOKEN env vars).
   // Same code path either way; the scheme hint tells us which.
-  const shell = (window as any).go?.main?.ShellAPI
+  const shell = (window as WailsWindow).go?.main?.ShellAPI
   if (shell?.GetHTTPTransportInfo) {
     const info = (await shell.GetHTTPTransportInfo()) as TransportInfo
     if (info.addr && info.token) return info
@@ -191,10 +192,10 @@ class RPCClient {
     }
     const payload = (await res.json()) as { result?: unknown; error?: RPCError }
     if (payload.error) {
-      const err = new Error(payload.error.message)
-      ;(err as any).rpcCode = payload.error.code
-      ;(err as any).rpcData = payload.error.data
-      throw err
+      throw Object.assign(new Error(payload.error.message), {
+        rpcCode: payload.error.code,
+        rpcData: payload.error.data,
+      })
     }
     return payload.result
   }
@@ -287,13 +288,18 @@ class EventStream {
   }
 
   private dispatch(topic: string, raw: string): void {
-    let payload: any
+    // Payloads are JSON objects published by the Go side; anything
+    // that isn't an object (or fails to parse) carries no fields.
+    let fields: Record<string, unknown> = {}
     try {
-      payload = JSON.parse(raw)
+      const parsed: unknown = JSON.parse(raw)
+      if (parsed && typeof parsed === 'object') {
+        fields = parsed as Record<string, unknown>
+      }
     } catch {
-      payload = raw
+      // Not JSON — dispatch the bare topic event.
     }
-    const ev: BackendEvent = { type: topic, ...payload } as any
+    const ev: BackendEvent = { type: topic, ...fields }
     for (const cb of this.listeners) {
       try {
         cb(ev)
@@ -338,7 +344,7 @@ const SHELL_METHODS = new Set<string>([
 
 function buildShellMethod(name: string): (...args: unknown[]) => Promise<unknown> {
   return async (...args: unknown[]) => {
-    const binding = (window as any).go?.main?.ShellAPI?.[name]
+    const binding = (window as WailsWindow).go?.main?.ShellAPI?.[name]
     if (typeof binding !== 'function') {
       throw new Error(
         `${name} is only available inside the Wails desktop shell (not supported in this mode).`,
@@ -410,10 +416,10 @@ function buildAdapter(): BackendAdapter {
   }
 
   const handler: ProxyHandler<typeof base> = {
-    get(target: any, prop: string | symbol) {
-      if (typeof prop === 'symbol') return target[prop as any]
+    get(target: typeof base, prop: string | symbol) {
+      if (typeof prop === 'symbol') return Reflect.get(target, prop)
       if (nonRPCMembers.has(prop) || prop === 'GetCardProjectContext' || prop === 'SignAttachmentURL') {
-        return target[prop]
+        return Reflect.get(target, prop)
       }
       if (shellMethods[prop]) return shellMethods[prop]
       // Promise-protocol probes must return undefined. JS's async
@@ -445,7 +451,7 @@ export async function initCloudAdapter(): Promise<BackendAdapter> {
   // remote, so native PickFolder etc. still work (they go through
   // the local Wails shell), but hasLocalFilesystem needs to be true
   // here regardless of remote/loopback — the shell IS local.
-  wailsShellAvailable = typeof (window as any).go?.main?.ShellAPI?.PickFolder === 'function'
+  wailsShellAvailable = typeof (window as WailsWindow).go?.main?.ShellAPI?.PickFolder === 'function'
   const base = httpBase(info)
   const prefix = repoPathPrefix(info)
   rpcClient = new RPCClient(base, info.token, prefix)

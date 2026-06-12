@@ -36,7 +36,7 @@
     for (const file of files) {
       try {
         const data = await fileToBase64(file)
-        const updated = await AddCardAttachment(cardId, file.name, data) as Card
+        const updated = await AddCardAttachment(cardId, file.name, data)
         onCardUpdated(updated)
       } catch {
         showToast(t('attachment.upload_failed'), 'error')

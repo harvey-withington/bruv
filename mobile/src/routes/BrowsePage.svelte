@@ -7,6 +7,7 @@
     loadStreams,
     loadProjects,
     setAccordionMode,
+    applySingleModeToTree,
     toggleBrandExpansion,
     toggleStreamExpansion,
     expandAllBrandsTree,
@@ -374,7 +375,12 @@
   }
 
   function toggleAccordionMode() {
-    setAccordionMode(browse.accordionMode === 'single' ? 'multi' : 'single')
+    const next = browse.accordionMode === 'single' ? 'multi' : 'single'
+    setAccordionMode(next)
+    // Entering single mode collapses to one open path right away —
+    // matches desktop's sidebar instead of leaving the multi-expand
+    // state on screen until the next tap.
+    if (next === 'single') applySingleModeToTree(browse.brands.items.map((b) => b.slug))
   }
 
   // --- DnD handlers ---

@@ -136,7 +136,7 @@
       }
     } catch (err) {
       console.error(err)
-      previewError = 'Failed to load preview content.'
+      previewError = t('attachment.preview_failed')
     } finally {
       previewLoading = false
     }
@@ -167,7 +167,7 @@
     class="attachments-body"
     class:drag-over={draggingOver}
     role="region"
-    aria-label="Attachments drop zone"
+    aria-label={t('attachment.drop_zone')}
     ondrop={handleDrop}
     ondragover={handleDragOver}
     ondragleave={handleDragLeave}
@@ -179,9 +179,9 @@
           <div class="attachment-item action-reveal-parent">
             <Icon size={14} />
             <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-            <span class="attachment-name clickable-preview" onclick={() => previewAtt(att)} title="Preview {att.name}">{att.name}</span>
+            <span class="attachment-name clickable-preview" onclick={() => previewAtt(att)} title={t('attachment.preview_named').replace('{name}', att.name)}>{att.name}</span>
             <span class="attachment-size">{formatSize(att.size)}</span>
-            <button class="action-reveal attachment-action" onclick={() => previewAtt(att)} title="Preview"><Eye size={11} /></button>
+            <button class="action-reveal attachment-action" onclick={() => previewAtt(att)} title={t('attachment.preview')}><Eye size={11} /></button>
             <button class="action-reveal attachment-action" onclick={() => downloadAttachment(att)} title={t('attachment.download')}><Download size={11} /></button>
             <button class="action-reveal action-reveal--danger attachment-remove" onclick={() => removeAttachment(att)} title={t('attachment.remove')}><Trash2 size={11} /></button>
           </div>
@@ -206,7 +206,7 @@
 
 {#if previewAttachment}
   <div class="preview-overlay">
-    <button type="button" class="preview-backdrop-btn" onclick={closePreview} aria-label="Close preview"></button>
+    <button type="button" class="preview-backdrop-btn" onclick={closePreview} aria-label={t('attachment.preview_close')}></button>
     <div class="preview-modal" style="position: relative; z-index: 1;">
       <header class="preview-header">
         <span class="preview-title" title={previewAttachment.name}>{previewAttachment.name}</span>
@@ -218,7 +218,7 @@
         {#if previewLoading}
           <div class="preview-loader">
             <span class="spinner"></span>
-            <span>Loading preview...</span>
+            <span>{t('attachment.preview_loading')}</span>
           </div>
         {:else if previewError}
           <div class="preview-error-box">
@@ -243,10 +243,10 @@
             <pre class="preview-text-box"><code>{previewTextContent}</code></pre>
           {:else}
             <div class="preview-fallback">
-              <p>No preview available for this file type.</p>
+              <p>{t('attachment.no_preview')}</p>
               <button class="btn" onclick={() => downloadAttachment(previewAttachment!)}>
                 <Download size={14} />
-                Download to View
+                {t('attachment.download_to_view')}
               </button>
             </div>
           {/if}

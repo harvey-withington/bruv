@@ -341,11 +341,15 @@
     try {
       const text = await file.text()
       const result = await importCardFromJson(text, targetId)
-      mutationError = null
       if (result.failedAttachments.length || result.failedComments.length) {
+        // Stay on the project page so the warning is actually seen —
+        // navigating would unmount the error rail before it renders.
+        // The imported card appears in its category via live updates.
         mutationError = t('card.import_partial')
+      } else {
+        mutationError = null
+        navigate(cardURL(result.cardId))
       }
-      navigate(cardURL(result.cardId))
     } catch (err) {
       if (err instanceof ImportError) {
         mutationError = t(`card.import_err_${err.code}`)

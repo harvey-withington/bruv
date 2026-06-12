@@ -113,10 +113,10 @@
             <span class="size">{formatSize(att.size)}</span>
           </button>
           <div class="actions-row">
-            <button type="button" class="ghost-btn" onclick={() => previewAttachment(att)} aria-label="Preview">
+            <button type="button" class="ghost-btn" onclick={() => previewAttachment(att)} aria-label={t('attachment.preview')}>
               <Eye size={14} />
             </button>
-            <button type="button" class="ghost-btn danger" onclick={() => (confirmingDelete = att)} aria-label="Delete">
+            <button type="button" class="ghost-btn danger" onclick={() => (confirmingDelete = att)} aria-label={t('attachment.delete')}>
               <Trash2 size={14} />
             </button>
           </div>

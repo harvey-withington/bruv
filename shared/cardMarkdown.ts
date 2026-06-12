@@ -19,13 +19,37 @@ import type {
 // Keep this module dependency-free so both desktop and mobile can use it
 // without pulling in DOM or backend-only modules.
 
+/**
+ * Localizable strings appearing in the exported document. English
+ * defaults apply per-field, so callers can pass any subset.
+ */
+export type CardMarkdownLabels = {
+  attachments?: string
+  comments?: string
+  unknownAuthor?: string
+  noAnswer?: string
+  alarm?: string
+  alarmFired?: string
+}
+
+const DEFAULT_LABELS: Required<CardMarkdownLabels> = {
+  attachments: 'Attachments',
+  comments: 'Comments',
+  unknownAuthor: 'Unknown',
+  noAnswer: 'No answer',
+  alarm: 'Alarm',
+  alarmFired: 'fired',
+}
+
 export type CardMarkdownOptions = {
   comments?: CardComment[]
   /** Override "Untitled card" fallback when card.title is empty. */
   untitledLabel?: string
+  labels?: CardMarkdownLabels
 }
 
 export function cardToMarkdown(card: Card, opts: CardMarkdownOptions = {}): string {
+  const labels: Required<CardMarkdownLabels> = { ...DEFAULT_LABELS, ...opts.labels }
   const out: string[] = []
 
   const frontmatter = buildFrontmatter(card)
@@ -45,7 +69,7 @@ export function cardToMarkdown(card: Card, opts: CardMarkdownOptions = {}): stri
   }
 
   for (const block of card.blocks ?? []) {
-    const rendered = renderBlock(block)
+    const rendered = renderBlock(block, labels)
     if (rendered === null) continue
     out.push(rendered)
     out.push('')
@@ -53,7 +77,7 @@ export function cardToMarkdown(card: Card, opts: CardMarkdownOptions = {}): stri
 
   const attachments = card.file_attachments ?? []
   if (attachments.length > 0) {
-    out.push('## Attachments')
+    out.push(`## ${labels.attachments}`)
     out.push('')
     for (const a of attachments) {
       out.push(`- ${a.name}`)
@@ -63,11 +87,11 @@ export function cardToMarkdown(card: Card, opts: CardMarkdownOptions = {}): stri
 
   const comments = opts.comments ?? []
   if (comments.length > 0) {
-    out.push('## Comments')
+    out.push(`## ${labels.comments}`)
     out.push('')
     for (const c of comments) {
       const when = isoToDate(c.updated_at || c.created_at)
-      out.push(`### ${c.author || 'Unknown'} — ${when}`)
+      out.push(`### ${c.author || labels.unknownAuthor} — ${when}`)
       out.push('')
       out.push(c.text.trim())
       out.push('')
@@ -110,19 +134,19 @@ function yamlFlowList(items: string[]): string {
 // Blocks
 // ---------------------------------------------------------------------
 
-function renderBlock(block: Block): string | null {
+function renderBlock(block: Block, labels: Required<CardMarkdownLabels>): string | null {
   if (block.type === 'divider') return '---'
 
-  if (isEmpty(block.value) && block.type !== 'alarm') return null
+  if (isEmpty(block.value, block.type) && block.type !== 'alarm') return null
 
   const heading = block.label?.trim() || prettifyKey(block.key) || block.type
-  const body = renderBlockBody(block)
+  const body = renderBlockBody(block, labels)
   if (body === null || body === '') return null
 
   return `## ${heading}\n\n${body}`
 }
 
-function renderBlockBody(block: Block): string | null {
+function renderBlockBody(block: Block, labels: Required<CardMarkdownLabels>): string | null {
   switch (block.type) {
     case 'text':
       return String(block.value ?? '').trim()
@@ -193,15 +217,15 @@ function renderBlockBody(block: Block): string | null {
     case 'alarm': {
       const at = block.meta?.alarm_time
       if (!at) return null
-      const fired = block.meta?.alarm_fired ? ' (fired)' : ''
-      return `Alarm: ${at}${fired}`
+      const fired = block.meta?.alarm_fired ? ` (${labels.alarmFired})` : ''
+      return `${labels.alarm}: ${at}${fired}`
     }
 
     case 'survey': {
       const questions = (block.value as SurveyQuestion[]) ?? []
       return questions
         .filter(q => q.prompt?.trim())
-        .map(renderSurveyQuestion)
+        .map(q => renderSurveyQuestion(q, labels.noAnswer))
         .join('\n\n')
     }
 
@@ -210,12 +234,12 @@ function renderBlockBody(block: Block): string | null {
   }
 }
 
-function renderSurveyQuestion(q: SurveyQuestion): string {
+function renderSurveyQuestion(q: SurveyQuestion, noAnswer: string): string {
   const prompt = `**${q.prompt.trim()}**`
   const answer = q.answer
-  if (answer === undefined || answer === null || answer === '') return `${prompt}\n\n_No answer_`
+  if (answer === undefined || answer === null || answer === '') return `${prompt}\n\n_${noAnswer}_`
   if (Array.isArray(answer)) {
-    if (answer.length === 0) return `${prompt}\n\n_No answer_`
+    if (answer.length === 0) return `${prompt}\n\n_${noAnswer}_`
     return `${prompt}\n\n${answer.map(a => `- ${a}`).join('\n')}`
   }
   return `${prompt}\n\n${answer}`
@@ -225,9 +249,14 @@ function renderSurveyQuestion(q: SurveyQuestion): string {
 // Helpers
 // ---------------------------------------------------------------------
 
-function isEmpty(v: Block['value']): boolean {
-  if (v === null || v === undefined) return true
-  if (v === '' || v === 0 || v === false) return true
+// Block types where 0/false is real data, not an unset field: a number
+// or progress at 0 and an unchecked checkbox all carry meaning. Rating
+// 0 stays excluded — it reads as "unrated", not "rated zero".
+const ZERO_MEANINGFUL_TYPES = new Set<string>(['number', 'progress', 'checkbox'])
+
+function isEmpty(v: Block['value'], type: Block['type']): boolean {
+  if (v === null || v === undefined || v === '') return true
+  if ((v === 0 || v === false) && !ZERO_MEANINGFUL_TYPES.has(type)) return true
   if (Array.isArray(v) && v.length === 0) return true
   return false
 }

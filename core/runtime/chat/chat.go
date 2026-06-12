@@ -215,9 +215,17 @@ func (rt *Runtime) SendProject(brandSlug, streamSlug, projectSlug, userMessage, 
 		return nil, err
 	}
 
-	// Load LLM config + provider
+	// Load LLM config + provider. A load error means an LLM IS
+	// configured but broken — surface it so the user isn't left
+	// staring at a chat that silently never answers. A nil provider
+	// with no error means "not configured": keep the silent no-op,
+	// the IsLLMConfigured first-run nudge owns that state.
 	cfg, provider, err := rt.deps.LLM().LoadProvider()
-	if err != nil || provider == nil {
+	if err != nil {
+		slog.Error("project chat: llm provider load failed", "err", err)
+		return cf, fmt.Errorf("llm provider unavailable: %w", err)
+	}
+	if provider == nil {
 		return cf, nil
 	}
 
@@ -307,9 +315,15 @@ func (rt *Runtime) SendCard(cardID, userMessage string) (*model.ChatFile, error)
 		return nil, err
 	}
 
-	// Load LLM config + provider
+	// Load LLM config + provider — same contract as the project-chat
+	// path above: error = configured-but-broken (surface it), nil
+	// provider = not configured (silent no-op, nudge UX owns it).
 	cfg, provider, err := rt.deps.LLM().LoadProvider()
-	if err != nil || provider == nil {
+	if err != nil {
+		slog.Error("card chat: llm provider load failed", "err", err)
+		return cf, fmt.Errorf("llm provider unavailable: %w", err)
+	}
+	if provider == nil {
 		return cf, nil
 	}
 

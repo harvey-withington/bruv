@@ -2,6 +2,7 @@
   import { X, Plus } from 'lucide-svelte'
   import { fade } from 'svelte/transition'
   import { t } from '../lib/i18n.svelte'
+  import { showToast } from '../lib/toast.svelte'
   import { GetProfile, SetProfile } from '@shared/api'
   import { draggable } from '../lib/draggable'
 
@@ -40,7 +41,10 @@
     try {
       await SetProfile(profile)
       onClose()
-    } catch (e) { console.error('SaveProfile:', e) }
+    } catch (e) {
+      console.error('SaveProfile:', e)
+      showToast(t('error.save_failed'), 'error')
+    }
   }
 
   function addExpertise() {

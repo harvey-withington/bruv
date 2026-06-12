@@ -432,8 +432,8 @@ func ImportTrello(r *repo.Repository, brandSlug, streamSlug string, parsed *Pars
 			return nil, fmt.Errorf("create card %q: %w", title, err)
 		}
 
-		// Download attachments first so we have the local IDs
-		localAttachments := make(map[string]string)
+		// Download upload-type attachments into the repo's attachments
+		// store; link-type attachments become URL/image blocks below.
 		var fileAttachments []model.FileAttachment
 		for _, att := range tc.Attachments {
 			if att.URL == "" {
@@ -449,10 +449,9 @@ func ImportTrello(r *repo.Repository, brandSlug, streamSlug string, parsed *Pars
 				continue
 			}
 			fileAttachments = append(fileAttachments, *fa)
-			localAttachments[att.URL] = fa.ID
 		}
 
-		blocks := buildCardBlocks(tc, parsed.Checklists, localAttachments)
+		blocks := buildCardBlocks(tc, parsed.Checklists)
 
 		// Due date
 		var dueDate *time.Time
@@ -536,7 +535,7 @@ func findListActive(lists []TrelloList, id string) (TrelloList, bool) {
 // The Trello card's description is NOT included here — it lands on
 // card.Description (the intrinsic field) via the caller, not as a
 // block. The block list is for structured content only.
-func buildCardBlocks(tc TrelloCard, checklists map[string]TrelloChecklist, localAttachments map[string]string) []model.Block {
+func buildCardBlocks(tc TrelloCard, checklists map[string]TrelloChecklist) []model.Block {
 	blocks := make([]model.Block, 0, 3)
 
 	// Checklists → one checklist block each

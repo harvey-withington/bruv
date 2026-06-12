@@ -139,6 +139,7 @@
       await UpdateCategoryAcceptedTypes(brandSlug, streamSlug, projectSlug, category.slug, newTypes)
     } catch (e) {
       console.error('UpdateCategoryAcceptedTypes:', e)
+      showToast(t('error.save_failed'), 'error')
     }
   }
 
@@ -157,6 +158,7 @@
       await UpdateCategoryAcceptedTypes(brandSlug, streamSlug, projectSlug, category.slug, current)
     } catch (e) {
       console.error('UpdateCategoryAcceptedTypes:', e)
+      showToast(t('error.save_failed'), 'error')
     }
   }
 
@@ -278,7 +280,12 @@
     if (trimmed === (category.description || '')) return
     category.description = trimmed
     if (brandSlug && streamSlug && projectSlug) {
-      try { await UpdateCategoryDescription(brandSlug, streamSlug, projectSlug, category.slug, trimmed) } catch (e) { console.error('UpdateCategoryDescription:', e) }
+      try {
+        await UpdateCategoryDescription(brandSlug, streamSlug, projectSlug, category.slug, trimmed)
+      } catch (e) {
+        console.error('UpdateCategoryDescription:', e)
+        showToast(t('error.save_failed'), 'error')
+      }
     }
   }
 

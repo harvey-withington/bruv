@@ -226,7 +226,10 @@
               document.dispatchEvent(new CustomEvent('bruv:select-project', { detail: { ...loc, resolve } }))
             })
           }
-        } catch (e) { console.error('Failed to navigate to project', e) }
+        } catch (e) {
+          console.error('Failed to navigate to project', e)
+          showToast(t('error.navigate_failed'), 'error')
+        }
       }
     }
     document.addEventListener('bruv:navigate', handleBruvNav)

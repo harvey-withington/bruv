@@ -359,6 +359,7 @@
       }
     } catch (e) {
       console.error('Failed to send message:', e)
+      showToast(t('error.chat_send_failed'), 'error')
     }
     sending = false
   }

@@ -84,11 +84,13 @@ func (s *Service) LoadProvider() (config.LLMConfig, llm.Provider, error) {
 //  4. Legacy single-provider fields in llm_config.json
 //
 // Returns (cfg, nil, nil) when nothing is configured — callers check
-// the provider for nil.
+// the provider for nil. A non-nil error means something IS configured
+// but couldn't be loaded (unreadable config, bad provider credentials
+// shape) — callers should surface that, not treat it as unconfigured.
 func (s *Service) LoadProviderForAccount(accountID, modelOverride string) (config.LLMConfig, llm.Provider, error) {
 	cfg, err := config.LoadLLMConfig()
 	if err != nil {
-		return cfg, nil, nil
+		return cfg, nil, fmt.Errorf("load llm config: %w", err)
 	}
 
 	accounts, _ := config.LoadLLMAccounts()
@@ -107,7 +109,7 @@ func (s *Service) LoadProviderForAccount(accountID, modelOverride string) (confi
 	if acct != nil {
 		provider, err := llm.NewProvider(acct.Provider, acct.APIKey, acct.BaseURL)
 		if err != nil {
-			return cfg, nil, nil
+			return cfg, nil, fmt.Errorf("create %s provider: %w", acct.Provider, err)
 		}
 		model := modelOverride
 		if model == "" {
@@ -127,7 +129,7 @@ func (s *Service) LoadProviderForAccount(accountID, modelOverride string) (confi
 	}
 	provider, err := llm.NewProvider(cfg.Provider, cfg.APIKey, cfg.BaseURL)
 	if err != nil {
-		return cfg, nil, nil
+		return cfg, nil, fmt.Errorf("create %s provider (legacy config): %w", cfg.Provider, err)
 	}
 	return cfg, provider, nil
 }

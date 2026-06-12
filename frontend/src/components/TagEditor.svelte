@@ -5,6 +5,7 @@
   import { AddProjectLabel, RemoveProjectLabel, UpdateProjectLabel, SetProjectLabelIcon, ListCardIDsByTag, GetCard, UpdateCardTags } from '@shared/api'
   import { X, Plus, Trash2, Palette, Smile } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
+  import { showToast } from '../lib/toast.svelte'
   import { focusTrap, inlineEdit } from '../lib/actions'
   import IconPicker from './IconPicker.svelte'
   import DynamicIcon from './DynamicIcon.svelte'
@@ -60,7 +61,10 @@
       projectTags.list = await AddProjectLabel(nav.brandSlug, nav.streamSlug, nav.projectSlug, name, '') || []
       tagUsage[name.toLowerCase()] = 0
       query = ''
-    } catch (e) { console.error('Add tag:', e) }
+    } catch (e) {
+      console.error('Add tag:', e)
+      showToast(t('error.create_failed'), 'error')
+    }
   }
 
   async function requestRemoveTag(tagId: string) {
@@ -94,7 +98,10 @@
       if (nav.brandSlug && nav.streamSlug && nav.projectSlug) {
         await loadBoard(nav.brandSlug, nav.streamSlug, nav.projectSlug, { silent: true })
       }
-    } catch (e) { console.error('Remove tag:', e) }
+    } catch (e) {
+      console.error('Remove tag:', e)
+      showToast(t('error.delete_failed'), 'error')
+    }
   }
 
   async function startEdit(tag: { id: string; name: string }) {
@@ -114,7 +121,10 @@
       projectTags.list = await UpdateProjectLabel(nav.brandSlug, nav.streamSlug, nav.projectSlug, editingId, name, tag?.color || '') || []
       editingId = null
       editingName = ''
-    } catch (e) { console.error('Edit tag:', e) }
+    } catch (e) {
+      console.error('Edit tag:', e)
+      showToast(t('error.save_failed'), 'error')
+    }
   }
 
   async function changeColor(tagId: string, color: string) {
@@ -124,7 +134,10 @@
     try {
       projectTags.list = await UpdateProjectLabel(nav.brandSlug, nav.streamSlug, nav.projectSlug, tagId, tag.name, color) || []
       colorPickerTagId = null
-    } catch (e) { console.error('Change color:', e) }
+    } catch (e) {
+      console.error('Change color:', e)
+      showToast(t('error.save_failed'), 'error')
+    }
   }
 
   async function changeIcon(tagId: string, icon: string) {
@@ -136,7 +149,10 @@
       if (nav.brandSlug && nav.streamSlug && nav.projectSlug) {
         await loadBoard(nav.brandSlug, nav.streamSlug, nav.projectSlug, { silent: true })
       }
-    } catch (e) { console.error('Change icon:', e) }
+    } catch (e) {
+      console.error('Change icon:', e)
+      showToast(t('error.save_failed'), 'error')
+    }
   }
 
   function handleKeydown(e: KeyboardEvent) {

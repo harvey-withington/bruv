@@ -158,7 +158,10 @@
       localStorage.setItem('bruv-sidebar-width', String(prefs.sidebar_width))
       prefsStore.typeBadgeDisplay = prefs.type_badge_display
       onClose()
-    } catch (e) { console.error('Settings save error:', e) }
+    } catch (e) {
+      console.error('Settings save error:', e)
+      showToast(t('error.save_failed'), 'error')
+    }
   }
 
   async function testSystemNotif() {

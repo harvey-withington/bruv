@@ -64,6 +64,7 @@
       autoEditTitle = true
     } catch (e) {
       console.error('Failed to add card:', e)
+      showToast(t('error.create_failed'), 'error')
     }
   }
 
@@ -148,6 +149,7 @@
       autoEditTitle = true
     } catch (e) {
       console.error('Failed to create idea:', e)
+      showToast(t('error.create_failed'), 'error')
     }
   }
 
@@ -207,6 +209,7 @@
       }
     } catch (e) {
       console.error('Card drop failed:', e)
+      showToast(t('error.move_failed'), 'error')
       await refreshBoard()
     }
   }
@@ -264,6 +267,7 @@
           }
         } catch (e) {
           console.error('Column copy failed:', e)
+          showToast(t('error.copy_failed'), 'error')
         }
       }
       return
@@ -283,6 +287,7 @@
         await ReorderCategories(nav.brandSlug, nav.streamSlug, nav.projectSlug, orderedSlugs)
       } catch (e) {
         console.error('Column reorder failed:', e)
+        showToast(t('error.move_failed'), 'error')
         await refreshBoard()
       }
     }
@@ -295,7 +300,10 @@
       try {
         await DeleteCategory(nav.brandSlug, nav.streamSlug, nav.projectSlug, categorySlug)
         await refreshBoard()
-      } catch (e) { console.error('Delete category failed:', e) }
+      } catch (e) {
+        console.error('Delete category failed:', e)
+        showToast(t('error.delete_failed'), 'error')
+      }
       return
     }
     deletingCategory = { id: categoryId, slug: categorySlug, name: categoryName, cardCount }
@@ -337,6 +345,7 @@
       await refreshBoard()
     } catch (e) {
       console.error('Delete category failed:', e)
+      showToast(t('error.delete_failed'), 'error')
     }
   }
 
@@ -363,6 +372,7 @@
       renamingCategoryOriginal = created.name
     } catch (e) {
       console.error('Failed to add category:', e)
+      showToast(t('error.create_failed'), 'error')
     }
   }
 
@@ -374,7 +384,10 @@
     try {
       await RenameCategory(nav.brandSlug, nav.streamSlug, nav.projectSlug, slug, name)
       await refreshBoard()
-    } catch (e) { console.error('RenameCategory:', e) }
+    } catch (e) {
+      console.error('RenameCategory:', e)
+      showToast(t('error.rename_failed'), 'error')
+    }
   }
 
   function startRenameCategory(slug: string, name: string) {
@@ -393,7 +406,10 @@
       try {
         await DeleteCategory(nav.brandSlug, nav.streamSlug, nav.projectSlug, slug)
         await refreshBoard()
-      } catch (e) { console.error('DeleteCategory:', e) }
+      } catch (e) {
+        console.error('DeleteCategory:', e)
+        showToast(t('error.delete_failed'), 'error')
+      }
     }
     renameCatIsNew = false
   }

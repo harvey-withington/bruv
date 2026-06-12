@@ -164,7 +164,7 @@
             checked={allChecked()}
             indeterminate={someChecked() && !allChecked()}
             onchange={toggleAll}
-            aria-label="Select all"
+            aria-label={t('chat.select_all')}
           />
         {:else}
           <ListChecks size={12} />

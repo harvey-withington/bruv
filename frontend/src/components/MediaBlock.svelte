@@ -88,8 +88,8 @@
             placeholder={t('block.media_caption_placeholder')}
           />
           <div class="media-actions">
-            <a href={item.url} target="_blank" rel="noopener" class="media-action-btn" title="Open"><ExternalLink size={12} /></a>
-            <button class="media-action-btn action-reveal action-reveal--danger" onclick={() => removeMedia(item.id)} title="Remove"><Trash2 size={12} /></button>
+            <a href={item.url} target="_blank" rel="noopener" class="media-action-btn" title={t('block.media_open')}><ExternalLink size={12} /></a>
+            <button class="media-action-btn action-reveal action-reveal--danger" onclick={() => removeMedia(item.id)} title={t('block.media_remove')}><Trash2 size={12} /></button>
           </div>
         </div>
       </div>

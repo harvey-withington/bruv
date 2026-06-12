@@ -7,7 +7,8 @@
   import { X, Trash2, Plus, Type, ListChecks, List, Film, Link, Minus, BotMessageSquare, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell, ClipboardList, MessageSquare, Paperclip, History, Timer, Share2, Copy, Download, FileJson } from 'lucide-svelte'
   import { renderMarkdown } from '@shared/markdown'
   import { cardToMarkdown } from '@shared/cardMarkdown'
-  import { buildCardExportPayload } from '../lib/cardExport'
+  import { downloadBlob, sanitizeFilenameStem } from '@shared/download'
+  import { buildCardExportPayload, cardMarkdownLabels } from '../lib/cardExport'
   import { t } from '../lib/i18n.svelte'
   import MentionPicker from './MentionPicker.svelte'
   import PinPicker from './PinPicker.svelte'
@@ -1144,32 +1145,7 @@
     let comments: Awaited<ReturnType<typeof ListCardComments>> = []
     try { comments = await ListCardComments(cardId) }
     catch { /* comments are optional in the export — fall through with empty */ }
-    return cardToMarkdown(card, { comments, untitledLabel: t('card.untitled') })
-  }
-
-  function sanitizeFilenameStem(): string {
-    const base = (card?.title?.trim() || 'card')
-      .replace(/[\\/:*?"<>|]/g, '-')   // strip filesystem-unsafe chars
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 80)
-    return base || 'card'
-  }
-
-  function downloadBlob(content: string, filename: string, mime: string) {
-    // Blob + anchor download — works in both browser and Wails shell
-    // without needing a backend file-write RPC. The native save dialog
-    // (where supported) is driven by the `download` attribute.
-    const blob = new Blob([content], { type: mime })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    // Revoke after a tick so the browser has time to start the download.
-    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    return cardToMarkdown(card, { comments, untitledLabel: t('card.untitled'), labels: cardMarkdownLabels() })
   }
 
   async function copyCardAsMarkdown() {
@@ -1188,7 +1164,7 @@
     showShareMenu = false
     const md = await buildCardMarkdown()
     if (md === null) return
-    downloadBlob(md, `${sanitizeFilenameStem()}.md`, 'text/markdown;charset=utf-8')
+    downloadBlob(md, `${sanitizeFilenameStem(card?.title)}.md`, 'text/markdown;charset=utf-8')
     showToast(t('card.export_markdown_done'), 'success')
   }
 
@@ -1198,7 +1174,7 @@
     try {
       const payload = await buildCardExportPayload(card)
       const json = JSON.stringify(payload, null, 2)
-      downloadBlob(json, `${sanitizeFilenameStem()}.bruv-card.json`, 'application/json;charset=utf-8')
+      downloadBlob(json, `${sanitizeFilenameStem(card.title)}.bruv-card.json`, 'application/json;charset=utf-8')
       showToast(t('card.export_json_done'), 'success')
     } catch {
       showToast(t('card.export_json_error'), 'error')
@@ -1314,7 +1290,7 @@
           </div>
           {#if assignedMembers.length > 0}
             <div class="field-cell">
-              <span class="field-label">Assignees</span>
+              <span class="field-label">{t('card.assignees')}</span>
               <div class="assignees-list">
                 {#each assignedMembers as name}
                   <span class="assignee-chip" title={name}>

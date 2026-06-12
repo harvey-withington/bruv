@@ -163,6 +163,49 @@ describe('cardToMarkdown — blocks', () => {
     }))
     expect(md).toContain('## Team Notes')
   })
+
+  it('renders zero-valued number and progress blocks (0 is data, not empty)', () => {
+    const md = cardToMarkdown(baseCard({
+      blocks: [
+        block({ type: 'number', label: 'Count', value: 0 }),
+        block({ type: 'progress', label: 'Done', value: 0, meta: { suffix: '%' } }),
+      ],
+    }))
+    expect(md).toContain('## Count\n\n0')
+    expect(md).toContain('## Done\n\n0 %')
+  })
+
+  it('renders unchecked checkbox blocks', () => {
+    const md = cardToMarkdown(baseCard({
+      blocks: [block({ type: 'checkbox', label: 'Signed off', value: false })],
+    }))
+    expect(md).toContain('## Signed off')
+    expect(md).toContain('- [ ]')
+  })
+
+  it('still skips rating 0 (unrated)', () => {
+    const md = cardToMarkdown(baseCard({
+      blocks: [block({ type: 'rating', label: 'Score', value: 0, meta: { max: 5 } })],
+    }))
+    expect(md).not.toContain('## Score')
+  })
+})
+
+describe('cardToMarkdown — localized labels', () => {
+  it('uses provided section labels over the English defaults', () => {
+    const md = cardToMarkdown(baseCard({
+      file_attachments: [
+        { id: '1', name: 'spec.pdf', path: 'p', mime: 'application/pdf', size: 100, added_at: '' },
+      ],
+    }), {
+      comments: [{ id: '1', author: '', created_at: '2026-05-23T10:00:00Z', updated_at: '', text: 'hi' }],
+      labels: { attachments: 'Anhänge', comments: 'Kommentare', unknownAuthor: 'Unbekannt' },
+    })
+    expect(md).toContain('## Anhänge')
+    expect(md).toContain('## Kommentare')
+    expect(md).toContain('### Unbekannt —')
+    expect(md).not.toContain('## Attachments')
+  })
 })
 
 describe('cardToMarkdown — attachments and comments', () => {

@@ -99,7 +99,12 @@ export function parseCardImport(text: string): CardImportResult {
 
   if (!isObject(parsed)) return { ok: false, error: 'not_json' }
   if (parsed.format !== CARD_JSON_FORMAT) return { ok: false, error: 'wrong_format' }
-  if (typeof parsed.version !== 'number' || parsed.version > CARD_JSON_VERSION) {
+  if (
+    typeof parsed.version !== 'number'
+    || !Number.isInteger(parsed.version)   // rejects NaN and fractional versions
+    || parsed.version < 1
+    || parsed.version > CARD_JSON_VERSION
+  ) {
     return { ok: false, error: 'unsupported_version' }
   }
   if (!isObject(parsed.card)) return { ok: false, error: 'missing_card' }
@@ -117,7 +122,9 @@ export function parseCardImport(text: string): CardImportResult {
       type: typeof card.type === 'string' ? card.type : '',
       tags: Array.isArray(card.tags) ? card.tags.filter(t => typeof t === 'string') : [],
       due_date: typeof card.due_date === 'string' ? card.due_date : null,
-      blocks: Array.isArray(card.blocks) ? card.blocks as Card['blocks'] : [],
+      blocks: Array.isArray(card.blocks)
+        ? card.blocks.filter(isBlockLike) as Card['blocks']
+        : [],
       members: Array.isArray(card.members) ? card.members.filter(m => typeof m === 'string') : undefined,
     },
     attachments: Array.isArray(parsed.attachments)
@@ -132,6 +139,12 @@ export function parseCardImport(text: string): CardImportResult {
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+// Cheap shape gate, not full schema validation — keeps a corrupt or
+// hand-edited file from injecting arbitrary JSON as a block.
+function isBlockLike(v: unknown): boolean {
+  return isObject(v) && typeof v.type === 'string'
 }
 
 function isEmbeddedAttachment(v: unknown): v is EmbeddedAttachment {

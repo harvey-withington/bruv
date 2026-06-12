@@ -5,8 +5,9 @@
   import { t } from '../lib/i18n.svelte'
   import { Trash2, MapPin, Plus, X, RefreshCw, Search, Paperclip, MessageSquare, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Copy, FileJson } from 'lucide-svelte'
   import { cardToMarkdown } from '@shared/cardMarkdown'
+  import { downloadBlob, sanitizeFilenameStem } from '@shared/download'
   import type { CardComment } from '@shared/types'
-  import { buildCardExportPayload, downloadBlob, sanitizeFilenameStem } from '../lib/cardExport'
+  import { buildCardExportPayload, cardMarkdownLabels } from '../lib/cardExport'
   import EditableText from '../components/EditableText.svelte'
   import EditableDescription from '../components/EditableDescription.svelte'
   import TagsEditor from '../components/TagsEditor.svelte'
@@ -387,7 +388,7 @@
     let comments: CardComment[] = []
     try { comments = (await repoRPC<CardComment[]>('ListCardComments', [card.id])) ?? [] }
     catch { /* optional — degrade to no comments */ }
-    const md = cardToMarkdown(card, { comments, untitledLabel: t('card.untitled') })
+    const md = cardToMarkdown(card, { comments, untitledLabel: t('card.untitled'), labels: cardMarkdownLabels() })
     try {
       await navigator.clipboard.writeText(md)
       copyFeedback = 'success'

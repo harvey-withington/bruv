@@ -263,11 +263,17 @@ func (rt *Runtime) executeAgent(ctx context.Context, cardID string) error {
 		return nil
 	}
 
-	// 2. Set status to running
+	// 2. Set status to running. If the save fails, skip this tick
+	// entirely: running anyway would leave the on-disk status stale, and
+	// a crash mid-run would re-queue the agent on restart (the in-process
+	// `running` map only guards within this process's lifetime).
 	now := time.Now().UTC()
 	af.Config.Status = model.AgentStatusRunning
 	af.Config.RunStartedAt = &now
-	_ = rt.deps.Repo().SaveAgentConfig(cardID, af.Config)
+	if err := rt.deps.Repo().SaveAgentConfig(cardID, af.Config); err != nil {
+		slog.Error("agent run skipped: persist running status failed", "cardID", cardID, "err", err)
+		return fmt.Errorf("save agent config (mark running): %w", err)
+	}
 	if rt.deps.Index() != nil {
 		rt.logIdxErr("UpdateAgentIndex", rt.deps.Index().UpdateAgentIndex(cardID, true, string(model.AgentStatusRunning), ""))
 	}
@@ -423,6 +429,12 @@ func (rt *Runtime) executeAgent(ctx context.Context, cardID string) error {
 	cfg, provider, err := rt.deps.LLM().LoadProviderForAccount(af.Config.LLMAccountID, af.Config.LLMModel)
 	if err != nil || provider == nil {
 		run.Status = "failure"
+		// Distinguish "nothing configured" from "configured but failed
+		// to load" — the run history is where the user debugs this.
+		if err != nil {
+			run.Error = "LLM provider load failed: " + err.Error()
+			return fmt.Errorf("llm provider load failed: %w", err)
+		}
 		run.Error = "LLM not configured"
 		return fmt.Errorf("LLM not configured")
 	}
@@ -480,7 +492,7 @@ func (rt *Runtime) executeAgent(ctx context.Context, cardID string) error {
 		TokenBudget:     budget,
 		TotalTokensUsed: &tokensUsed,
 		ExecuteTool: func(tc llm.ToolCall) (string, *model.ToolAction, *model.PinSuggestion) {
-			result, action := rt.executeAgentToolCall(cardID, card, tc)
+			result, action := rt.executeAgentToolCall(runCtx, cardID, card, tc)
 			if action != nil {
 				allToolActions = append(allToolActions, *action)
 			}
@@ -578,7 +590,7 @@ func (rt *Runtime) mcpToolDefs(allowedTools []string) []llm.ToolDef {
 	return out
 }
 
-func (rt *Runtime) executeAgentToolCall(cardID string, card *model.Card, tc llm.ToolCall) (string, *model.ToolAction) {
+func (rt *Runtime) executeAgentToolCall(ctx context.Context, cardID string, card *model.Card, tc llm.ToolCall) (string, *model.ToolAction) {
 	action := &model.ToolAction{
 		Tool:  tc.Name,
 		Input: tc.Arguments,
@@ -591,7 +603,7 @@ func (rt *Runtime) executeAgentToolCall(cardID string, card *model.Card, tc llm.
 	// name, even if a future BRUV release adds a built-in tool
 	// with a name that happens to include the separator.
 	if rt.deps.MCPRegistry() != nil && rt.deps.MCPRegistry().OwnsTool(tc.Name) {
-		return rt.executeMCPToolCall(tc, action)
+		return rt.executeMCPToolCall(ctx, tc, action)
 	}
 
 	switch tc.Name {
@@ -831,9 +843,12 @@ func (rt *Runtime) executeAgentToolCall(cardID string, card *model.Card, tc llm.
 	}
 }
 
-func (rt *Runtime) executeMCPToolCall(tc llm.ToolCall, action *model.ToolAction) (string, *model.ToolAction) {
+func (rt *Runtime) executeMCPToolCall(ctx context.Context, tc llm.ToolCall, action *model.ToolAction) (string, *model.ToolAction) {
 	serverName, toolName := mcp.SplitNamespacedTool(tc.Name)
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// Derive from the agent's run context so cancelling the agent also
+	// cancels any in-flight MCP call, instead of letting it run to the
+	// full 60s on a detached background context.
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
 	result, err := rt.deps.MCPRegistry().CallTool(ctx, tc.Name, tc.Arguments)

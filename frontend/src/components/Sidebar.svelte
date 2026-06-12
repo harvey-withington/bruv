@@ -437,7 +437,10 @@
       streamsByBrand[created.slug] = []
       renaming = { type: 'brand', key: created.slug, name: created.name, original: created.name, description: '', originalDescription: '', isCreate: true, brandSlug: created.slug, streamSlug: '', projectSlug: '' }
       setTimeout(() => { const el = document.querySelector('.rename-input') as HTMLInputElement; el?.scrollIntoView({ block: 'nearest' }); el?.select() }, 0)
-    } catch (e) { console.error('CreateBrand:', e) }
+    } catch (e) {
+      console.error('CreateBrand:', e)
+      showToast(t('error.create_failed'), 'error')
+    }
   }
 
   async function handleCreateStream(brandSlug: string) {
@@ -465,7 +468,10 @@
       projectsByStream[streamKey] = []
       renaming = { type: 'stream', key: streamKey, name: created.name, original: created.name, description: '', originalDescription: '', isCreate: true, brandSlug, streamSlug: created.slug, projectSlug: '' }
       setTimeout(() => { const el = document.querySelector('.rename-input') as HTMLInputElement; el?.scrollIntoView({ block: 'nearest' }); el?.select() }, 0)
-    } catch (e) { console.error('CreateStream:', e) }
+    } catch (e) {
+      console.error('CreateStream:', e)
+      showToast(t('error.create_failed'), 'error')
+    }
   }
 
   async function handleCreateProject(brandSlug: string, streamSlug: string) {
@@ -477,7 +483,10 @@
       projectsByStream[streamKey] = await ListProjects(brandSlug, streamSlug) || []
       renaming = { type: 'project', key: `${brandSlug}/${streamSlug}/${created.slug}`, name: created.name, original: created.name, description: '', originalDescription: '', isCreate: true, brandSlug, streamSlug, projectSlug: created.slug }
       setTimeout(() => { const el = document.querySelector('.rename-input') as HTMLInputElement; el?.scrollIntoView({ block: 'nearest' }); el?.select() }, 0)
-    } catch (e) { console.error('CreateProject:', e) }
+    } catch (e) {
+      console.error('CreateProject:', e)
+      showToast(t('error.create_failed'), 'error')
+    }
   }
 
   // --- Trello import dialog ---
@@ -573,7 +582,10 @@
         const key = `${brandSlug}/${streamSlug}`
         projectsByStream[key] = await ListProjects(brandSlug, streamSlug) || []
       }
-    } catch (e) { console.error('Rename:', e) }
+    } catch (e) {
+      console.error('Rename:', e)
+      showToast(t('error.rename_failed'), 'error')
+    }
   }
 
   async function cancelRename() {
@@ -594,7 +606,10 @@
           const key = `${brandSlug}/${streamSlug}`
           projectsByStream[key] = await ListProjects(brandSlug, streamSlug) || []
         }
-      } catch (e) { console.error('CancelRename:', e) }
+      } catch (e) {
+        console.error('CancelRename:', e)
+        showToast(t('error.delete_failed'), 'error')
+      }
     }
   }
 
@@ -609,7 +624,12 @@
     const trimmed = repoDescDraft.trim()
     if (trimmed === repoDescription) return
     repoDescription = trimmed
-    try { await UpdateRepoDescription(trimmed) } catch (e) { console.error('UpdateRepoDescription:', e) }
+    try {
+      await UpdateRepoDescription(trimmed)
+    } catch (e) {
+      console.error('UpdateRepoDescription:', e)
+      showToast(t('error.save_failed'), 'error')
+    }
   }
 
   function cancelRepoDesc() {
@@ -842,7 +862,10 @@
           projectsByStream[toKey] = await ListProjects(toBrand, toStream) || []
         }
       }
-    } catch (err) { console.error('Drag/drop:', err) }
+    } catch (err) {
+      console.error('Drag/drop:', err)
+      showToast(t('error.move_failed'), 'error')
+    }
   }
 
   function isDropIndicator(type: string, parentKey: string, index: number): boolean {

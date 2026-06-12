@@ -1,10 +1,9 @@
 <script lang="ts">
-  import { GetCard, UpdateCardTitle, UpdateCardType, RefreshTypeBlocks, UpdateCardDescription, UpdateCardBlocks, UpdateCardTags, UpdateCardDueDate,
-    DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, AddProjectLabel, GetProjectLabels, GetCategoryAcceptedTypes, GetAgentConfig, GetProjectMembers, ListCardComments } from '@shared/api'
+  import { GetCard, UpdateCardTitle, UpdateCardType, RefreshTypeBlocks, UpdateCardDescription, UpdateCardBlocks, UpdateCardDueDate,
+    DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, GetProjectLabels, GetCategoryAcceptedTypes, GetAgentConfig, GetProjectMembers } from '@shared/api'
   import { onEvent } from '../lib/events'
-  import { projectTags, nav, getTagColor, getTagIcon, cardTypes } from '../lib/store.svelte'
-  import DynamicIcon from './DynamicIcon.svelte'
-  import { X, Trash2, BotMessageSquare, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, ClipboardList, MessageSquare, Paperclip, History, Timer } from 'lucide-svelte'
+  import { projectTags, nav, cardTypes } from '../lib/store.svelte'
+  import { X, Trash2, BotMessageSquare, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, ClipboardList, History, Timer } from 'lucide-svelte'
   import { renderMarkdown } from '@shared/markdown'
   import { t } from '../lib/i18n.svelte'
   import MentionPicker from './MentionPicker.svelte'
@@ -16,19 +15,18 @@
   import ChatSection from './ChatSection.svelte'
   import AgentTab from './AgentTab.svelte'
   import AgentRunsTab from './AgentRunsTab.svelte'
-  import CardAttachments from './CardAttachments.svelte'
   import CardShareMenu from './CardShareMenu.svelte'
-  import BlockPicker from './BlockPicker.svelte'
+  import CardMetaPanel from './CardMetaPanel.svelte'
+  import CardTagsField from './CardTagsField.svelte'
   import { showOptionsEditor } from '../lib/optionsEditor.svelte'
-  import CardComments from './CardComments.svelte'
   import SaveIndicator from './SaveIndicator.svelte'
   import { draggable } from '../lib/draggable'
   import { computeReorder, wouldReorder, DROP_END as REORDER_END } from '../lib/reorder'
   import { fade } from 'svelte/transition'
-  import { focusOnMount, focusTrap, floatingDropdown } from '../lib/actions'
+  import { focusOnMount, focusTrap } from '../lib/actions'
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
-  import type { Card, Block, BlockMeta, CardPin } from '@shared/types'
+  import type { Card, Block, BlockMeta, CardPin, ProjectMember } from '@shared/types'
 
 
   let { cardId, currentCategoryId, currentCategoryName, categoryAcceptedTypes, onClose, onUpdated, onPin, autoEditTitle, initialTab }: {
@@ -47,7 +45,7 @@
   let loading = $state(true)
   let notFound = $state(false)
   let pinBreadcrumbs = $state<CardPin[]>([])
-  let projectMembers = $state<any[]>([])
+  let projectMembers = $state<ProjectMember[]>([])
   let assignedMembers = $derived(
     (card?.members || []).map(mId => {
       const pm = projectMembers.find(m => m.id === mId)
@@ -94,14 +92,8 @@
   }
   // svelte-ignore state_referenced_locally
   let activeTab = $state<'details' | 'agent' | 'runs'>(initialTab ?? readStoredTab() ?? 'details')
-  const META_PANEL_COLLAPSED_KEY = 'bruv:metaPanelCollapsed'
-  let metaPanelCollapsed = $state(localStorage.getItem(META_PANEL_COLLAPSED_KEY) === 'true')
   $effect(() => { localStorage.setItem(CHAT_VISIBLE_KEY, String(showChat)) })
   $effect(() => { localStorage.setItem(ACTIVE_TAB_KEY, activeTab) })
-  $effect(() => { localStorage.setItem(META_PANEL_COLLAPSED_KEY, String(metaPanelCollapsed)) })
-
-  let activeMetaTab = $state<'attachments' | 'comments'>('attachments')
-  let commentCount = $state(0)
 
   // Splitter: redistributes space between main and chat when chat is open.
   // Default is 880px so Details/Agent/Runs tabs all render at the same
@@ -136,8 +128,6 @@
   )
   let editingTitle = $state(false)
   let titleDraft = $state('')
-  let newTag = $state('')
-
   // Type picker
   let showTypePicker = $state(false)
   let typePickerEl = $state<HTMLDivElement | null>(null)
@@ -547,13 +537,6 @@
       if (autoEditTitle) editingTitle = true
       // Check if card has an agent configured
       try { const af = await GetAgentConfig(cardId); hasAgent = af?.config?.enabled ?? false } catch { hasAgent = false }
-      // Load comment count
-      try {
-        const comments = await ListCardComments(cardId) || []
-        commentCount = comments.length
-      } catch (e) {
-        console.error('load comments count', e)
-      }
       // Refresh project tags so new tags (e.g. added by AI) get their colors
       if (nav.brandSlug && nav.streamSlug && nav.projectSlug) {
         try { projectTags.list = await GetProjectLabels(nav.brandSlug, nav.streamSlug, nav.projectSlug) || [] } catch {}
@@ -843,154 +826,11 @@
     }, 0)
   }
 
-  // --- Attachment handler ---
-  function handleAttachmentUpdate(updatedCard: Card) {
+  // Applies a card snapshot returned by a child component's mutation
+  // (attachments panel, tags field) and notifies the parent board.
+  function applyCardUpdate(updatedCard: Card) {
     card = updatedCard
     onUpdated?.()
-  }
-
-  // Tag helpers
-
-  /** Ensure a tag exists in a project's tag definitions */
-  async function ensureTagInProject(tagName: string, brandSlug: string, streamSlug: string, projectSlug: string) {
-    try {
-      const existing = await GetProjectLabels(brandSlug, streamSlug, projectSlug) || []
-      if (!existing.some((t: { name: string }) => t.name.toLowerCase() === tagName.toLowerCase())) {
-        await AddProjectLabel(brandSlug, streamSlug, projectSlug, tagName, '')
-      }
-    } catch { /* best-effort */ }
-  }
-
-  /** Sync a tag to the current project and all projects this card is pinned to */
-  async function syncTagToProjects(tagName: string) {
-    // Current project
-    if (nav.brandSlug && nav.streamSlug && nav.projectSlug) {
-      await ensureTagInProject(tagName, nav.brandSlug, nav.streamSlug, nav.projectSlug)
-    }
-    // All pinned projects
-    for (const pin of pinBreadcrumbs) {
-      if (pin.brandSlug === nav.brandSlug && pin.streamSlug === nav.streamSlug && pin.projectSlug === nav.projectSlug) continue
-      await ensureTagInProject(tagName, pin.brandSlug, pin.streamSlug, pin.projectSlug)
-    }
-    // Refresh current project tags
-    if (nav.brandSlug && nav.streamSlug && nav.projectSlug) {
-      try { projectTags.list = await GetProjectLabels(nav.brandSlug, nav.streamSlug, nav.projectSlug) || [] } catch {}
-    }
-  }
-
-  async function addTag() {
-    await addTagBatch(newTag)
-  }
-
-  async function addTagBatch(rawInput: string) {
-    const segments = rawInput.split(',').map(s => s.trim()).filter(Boolean)
-    if (segments.length === 0) { newTag = ''; return }
-    const existingLower = new Set((card?.tags || []).map((t: string) => t.toLowerCase()))
-    const incoming = segments.filter(s => !existingLower.has(s.toLowerCase()))
-    if (incoming.length === 0) { newTag = ''; return }
-    const tags = [...(card?.tags || []), ...incoming]
-    try {
-      card = await tracked(UpdateCardTags(cardId, tags)) as Card
-      newTag = ''
-      for (const tag of incoming) await syncTagToProjects(tag)
-    } catch (e) { showToast(t('error.tag_failed'), 'error'); return }
-    onUpdated?.()
-  }
-
-  let suppressPickerUntil = 0
-
-  async function removeTag(tag: string) {
-    suppressPickerUntil = Date.now() + 200
-    const tags = (card?.tags || []).filter((t: string) => t !== tag)
-    try {
-      card = await tracked(UpdateCardTags(cardId, tags)) as Card
-    } catch (e) { showToast(t('error.tag_failed'), 'error'); return }
-    onUpdated?.()
-  }
-
-  // Combined tag input + picker
-  let showTagPicker = $state(false)
-  let tagInputEl = $state<HTMLInputElement | null>(null)
-  let highlightIdx = $state(-1)
-
-  let filteredProjectTags = $derived(
-    projectTags.list.filter(t =>
-      !isProjectTagAssigned(t.name) &&
-      (!newTag.trim() || t.name.toLowerCase().includes(newTag.trim().toLowerCase()))
-    )
-  )
-
-  // Reset highlight when filter text changes
-  $effect(() => { newTag; highlightIdx = -1 })
-
-  function isProjectTagAssigned(tagName: string): boolean {
-    return (card?.tags || []).some((t: string) => t.toLowerCase() === tagName.toLowerCase())
-  }
-
-  async function toggleProjectTag(tagName: string) {
-    const current = card?.tags || []
-    const isAssigned = current.some((t: string) => t.toLowerCase() === tagName.toLowerCase())
-    const tags = isAssigned
-      ? current.filter((t: string) => t.toLowerCase() !== tagName.toLowerCase())
-      : [...current, tagName]
-    try {
-      card = await tracked(UpdateCardTags(cardId, tags)) as Card
-      if (!isAssigned) await syncTagToProjects(tagName)
-    } catch (e) { showToast(t('error.tag_failed'), 'error'); return }
-    onUpdated?.()
-  }
-
-  async function handleTagKeydown(e: KeyboardEvent) {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      if (filteredProjectTags.length > 0) {
-        highlightIdx = Math.min(highlightIdx + 1, filteredProjectTags.length - 1)
-      }
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      highlightIdx = Math.max(highlightIdx - 1, -1)
-    } else if (e.key === 'Tab' && showTagPicker && filteredProjectTags.length > 0) {
-      e.preventDefault()
-      if (e.shiftKey) {
-        highlightIdx = Math.max(highlightIdx - 1, 0)
-      } else {
-        highlightIdx = Math.min(highlightIdx + 1, filteredProjectTags.length - 1)
-      }
-    } else if (e.key === ',') {
-      // Comma immediately commits whatever is typed before it as a tag
-      const before = newTag.split(',')[0]?.trim()
-      if (before) {
-        e.preventDefault()
-        await addTagBatch(before)
-      }
-    } else if (e.key === 'Enter') {
-      e.preventDefault()
-      if (highlightIdx >= 0 && highlightIdx < filteredProjectTags.length) {
-        toggleProjectTag(filteredProjectTags[highlightIdx].name)
-        newTag = ''
-        highlightIdx = -1
-      } else {
-        addTag()
-      }
-    } else if (e.key === 'Escape') {
-      e.stopPropagation()
-      showTagPicker = false
-      highlightIdx = -1
-    }
-  }
-
-  function handleTagInputFocus() {
-    if (Date.now() < suppressPickerUntil) return
-    showTagPicker = true
-    highlightIdx = -1
-  }
-
-  function handleTagInputBlur(e: FocusEvent) {
-    // Keep picker open if focus moves to picker items
-    const related = e.relatedTarget as HTMLElement | null
-    if (related?.closest('.tag-picker-dropdown')) return
-    // Small delay so click events on picker items fire first
-    setTimeout(() => { showTagPicker = false; highlightIdx = -1 }, 150)
   }
 
   async function handleDueDateChange(e: Event) {
@@ -1228,28 +1068,7 @@
           {/if}
           <div class="field-cell tags-cell">
             <span class="field-label">{t('card.tags')}</span>
-            <div class="tags-list">
-              {#each (card.tags || []) as tag}
-                {@const icon = getTagIcon(tag)}
-                <span class="tag-chip" style:background={getTagColor(tag)}>
-                  {#if icon}
-                    <span class="tag-chip-icon"><DynamicIcon name={icon} size={11} /></span>
-                  {/if}
-                  <span class="tag-label">{tag}</span>
-                  <button class="tag-remove" onclick={() => removeTag(tag)} title={t('tooltip.remove_tag')}><X size={12} /></button>
-                </span>
-              {/each}
-              <input
-                type="text"
-                bind:this={tagInputEl}
-                bind:value={newTag}
-                onkeydown={handleTagKeydown}
-                onfocus={handleTagInputFocus}
-                onblur={handleTagInputBlur}
-                placeholder={t('card.tags_placeholder')}
-                class="tag-input tag-input-inline"
-              />
-            </div>
+            <CardTagsField {card} {cardId} {pinBreadcrumbs} track={tracked} onCardUpdated={applyCardUpdate} />
           </div>
         </div>
 
@@ -1349,66 +1168,7 @@
 
       <!-- Card-level attachments & comments tabbed panel (pinned between scrollable body and footer) -->
       {#if activeTab === 'details'}
-        <div class="card-meta-tabs-pinned" class:collapsed={metaPanelCollapsed}>
-          <div class="meta-tabs-header">
-            <div class="meta-tabs-buttons">
-              <button
-                class="meta-collapse-btn"
-                onclick={() => metaPanelCollapsed = !metaPanelCollapsed}
-                title={metaPanelCollapsed ? t('tooltip.expand_block') : t('tooltip.collapse_block')}
-              >
-                {#if metaPanelCollapsed}
-                  <ChevronRight size={14} />
-                {:else}
-                  <ChevronDown size={14} />
-                {/if}
-              </button>
-
-              <button
-                class="meta-tab-btn"
-                class:active={activeMetaTab === 'attachments'}
-                onclick={() => { activeMetaTab = 'attachments'; metaPanelCollapsed = false }}
-              >
-                <Paperclip size={13} />
-                <span>{t('attachment.title')}</span>
-                {#if card.file_attachments?.length > 0}
-                  <span class="meta-count">{card.file_attachments.length}</span>
-                {/if}
-              </button>
-
-              <button
-                class="meta-tab-btn"
-                class:active={activeMetaTab === 'comments'}
-                onclick={() => { activeMetaTab = 'comments'; metaPanelCollapsed = false }}
-              >
-                <MessageSquare size={13} />
-                <span>{t('comments.title')}</span>
-                {#if commentCount > 0}
-                  <span class="meta-count">{commentCount}</span>
-                {/if}
-              </button>
-            </div>
-
-            <BlockPicker onAdd={addBlock} />
-          </div>
-
-          {#if !metaPanelCollapsed}
-            <div class="meta-tab-content">
-              {#if activeMetaTab === 'attachments'}
-                <CardAttachments
-                  {cardId}
-                  attachments={card.file_attachments || []}
-                  onCardUpdated={handleAttachmentUpdate}
-                />
-              {:else if activeMetaTab === 'comments'}
-                <CardComments
-                  {cardId}
-                  bind:count={commentCount}
-                />
-              {/if}
-            </div>
-          {/if}
-        </div>
+        <CardMetaPanel {cardId} {card} onAttachmentsUpdated={applyCardUpdate} onAddBlock={addBlock} />
       {/if}
 
       <div class="modal-footer">
@@ -1457,32 +1217,6 @@
   onClose={() => { showPinPicker = false; pinPickerSourcePin = null }}
 />
 
-{#if showTagPicker && tagInputEl && filteredProjectTags.length > 0}
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="tag-picker-dropdown" role="listbox" use:floatingDropdown={{ trigger: tagInputEl }}>
-    {#each filteredProjectTags as ptag, i (ptag.id)}
-      <button
-        class="tag-picker-item"
-        class:highlighted={i === highlightIdx}
-        tabindex="-1"
-        onclick={() => { toggleProjectTag(ptag.name); newTag = ''; tagInputEl?.focus() }}
-      >
-        <span class="tag-picker-chip" style:background={ptag.color || 'var(--border)'}>{ptag.name}</span>
-      </button>
-    {/each}
-    {#if newTag.trim() && !projectTags.list.some(t => t.name.toLowerCase() === newTag.trim().toLowerCase())}
-      <div class="tag-picker-create">
-        Press Enter to create "{newTag.trim()}"
-      </div>
-    {/if}
-  </div>
-{:else if showTagPicker && tagInputEl && newTag.trim() && !projectTags.list.some(t => t.name.toLowerCase() === newTag.trim().toLowerCase())}
-  <div class="tag-picker-dropdown" use:floatingDropdown={{ trigger: tagInputEl }}>
-    <div class="tag-picker-create">
-      Press Enter to create "{newTag.trim()}"
-    </div>
-  </div>
-{/if}
 
 <style>
   .modal-backdrop {
@@ -1798,176 +1532,6 @@
     letter-spacing: 0.05em;
   }
 
-  .tags-list {
-    display: flex;
-    gap: 0.3rem;
-    flex-wrap: wrap;
-    align-items: center;
-  }
-
-  .tag-chip {
-    font-size: 0.75rem;
-    padding: 0.15rem 0.5rem;
-    border-radius: 4px;
-    color: #fff;
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-  }
-
-  .tag-chip-icon {
-    display: inline-flex;
-    align-items: center;
-    flex-shrink: 0;
-  }
-
-  .tag-label {
-    white-space: nowrap;
-  }
-
-  .tag-remove {
-    background: none;
-    border: none;
-    color: rgba(255, 255, 255, 0.6);
-    cursor: pointer;
-    font-size: 0.7rem;
-    padding: 0;
-    line-height: 1;
-    display: flex;
-    align-items: center;
-  }
-  .tag-remove:hover { color: var(--danger-light); }
-
-  .tag-input {
-    padding: 0.25rem 0.4rem;
-    border-radius: 4px;
-    border: 1px solid var(--border);
-    background: var(--bg-elevated);
-    color: var(--text-primary);
-    font-size: 0.75rem;
-    outline: none;
-  }
-  .tag-input:focus { border-color: var(--accent); }
-  .tag-input-inline {
-    width: 100px;
-    flex-shrink: 1;
-  }
-
-  .card-meta-tabs-pinned {
-    flex-shrink: 0;
-    padding: 0.5rem 1.25rem 0.75rem 1.25rem;
-    border-top: 1px solid var(--border-muted);
-    background: var(--bg-surface);
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    box-shadow: 0 -4px 12px var(--shadow);
-    position: relative;
-    z-index: 1;
-  }
-  .card-meta-tabs-pinned:has(:global(.preview-overlay)) {
-    z-index: 99999;
-  }
-  .card-meta-tabs-pinned.collapsed {
-    padding-bottom: 0.5rem;
-  }
-
-  .meta-tabs-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    border-bottom: 1px solid var(--border-muted);
-    position: relative;
-  }
-
-  .meta-collapse-btn {
-    background: none;
-    border: none;
-    cursor: pointer;
-    color: var(--text-muted);
-    padding: 0.25rem;
-    line-height: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    border-radius: 4px;
-    margin-right: 0.15rem;
-    transition: background var(--duration-fast), color var(--duration-fast);
-  }
-  .meta-collapse-btn:hover {
-    color: var(--text-primary);
-    background: var(--bg-elevated);
-  }
-
-  .meta-tabs-buttons {
-    display: flex;
-    gap: 0.25rem;
-  }
-
-  .meta-tab-btn {
-    background: none;
-    border: none;
-    cursor: pointer;
-    color: var(--text-muted);
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    padding: 0.5rem 0.6rem;
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-    position: relative;
-    transition: color var(--duration-fast);
-  }
-
-  .meta-tab-btn::after {
-    content: '';
-    position: absolute;
-    bottom: -1px;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: transparent;
-    transition: background var(--duration-fast);
-  }
-
-  .meta-tab-btn:hover {
-    color: var(--text-primary);
-  }
-
-  .meta-tab-btn.active {
-    color: var(--accent);
-  }
-
-  .meta-tab-btn.active::after {
-    background: var(--accent);
-  }
-
-  .meta-count {
-    font-size: 0.65rem;
-    font-weight: 600;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 0 0.3rem;
-    color: var(--text-muted);
-    margin-left: 0.15rem;
-  }
-
-  .meta-tab-btn.active .meta-count {
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-
-  .meta-tab-content {
-    height: 12rem;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-  }
-
   .modal-footer {
     display: flex;
     align-items: center;
@@ -2062,52 +1626,4 @@
   }
 
   /* Tag picker dropdown */
-  :global(.tag-picker-dropdown) {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.3rem;
-    box-shadow: 0 8px 32px var(--shadow-lg);
-    min-width: 180px;
-    max-height: 220px;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
-  }
-
-  :global(.tag-picker-item) {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    cursor: pointer;
-    padding: 0.25rem 0.35rem;
-    border-radius: 4px;
-    font-size: 0.8rem;
-    background: none;
-    border: none;
-    color: var(--text-primary);
-    width: 100%;
-    text-align: left;
-  }
-  :global(.tag-picker-item:hover),
-  :global(.tag-picker-item.highlighted) {
-    background: var(--bg-surface);
-  }
-
-  :global(.tag-picker-chip) {
-    font-size: 0.7rem;
-    font-weight: 600;
-    padding: 0.1rem 0.4rem;
-    border-radius: 3px;
-    color: #fff;
-    line-height: 1.4;
-  }
-
-  :global(.tag-picker-create) {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    padding: 0.3rem 0.35rem;
-    font-style: italic;
-  }
 </style>

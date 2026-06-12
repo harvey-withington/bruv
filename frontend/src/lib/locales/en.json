@@ -129,6 +129,7 @@
   "card.assignees": "Assignees",
   "card.tags": "Tags",
   "card.tags_placeholder": "Add a tag…",
+  "card.tag_create_hint": "Press Enter to create \"{name}\"",
   "card.checklist": "Checklist",
   "card.checklist_placeholder": "Add an item…",
   "card.checklist_add": "Add",

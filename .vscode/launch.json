@@ -13,13 +13,6 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Debug: Client with internal server",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "wails dev",
-      "cwd": "${workspaceFolder}"
-    },
-    {
       "name": "Run: Server (delve)",
       "type": "go",
       "request": "launch",
@@ -46,6 +39,13 @@
       "request": "launch",
       "command": "npm run dev",
       "cwd": "${workspaceFolder}/mobile"
+    },
+    {
+      "name": "Debug: Client with internal server",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "wails dev",
+      "cwd": "${workspaceFolder}"
     }
   ],
   "compounds": [

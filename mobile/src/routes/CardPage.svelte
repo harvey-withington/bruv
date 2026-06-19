@@ -13,6 +13,7 @@
   import EditableDescription from '../components/EditableDescription.svelte'
   import TagsEditor from '../components/TagsEditor.svelte'
   import BlockEditor from '../components/blocks/BlockEditor.svelte'
+  import BlockTypePicker from '../components/BlockTypePicker.svelte'
   import ConfirmDialog from '../components/ConfirmDialog.svelte'
   import PinPicker from '../components/PinPicker.svelte'
   import CardTypePicker from '../components/CardTypePicker.svelte'
@@ -372,9 +373,36 @@
     }, 200)
   }
 
+  // Empty checklist/list rows are editing placeholders, not content. Drop
+  // any that remain when leaving the card (e.g. a row added then Back-ed
+  // out of before it blurred). Done on unmount specifically — stripping
+  // during live editing would let the post-save card:updated echo refetch
+  // and remove the row the user is mid-typing into.
+  function withoutEmptyItems(blocks: Block[]): { blocks: Block[]; changed: boolean } {
+    let changed = false
+    const out = blocks.map((b) => {
+      if ((b.type === 'checklist' || b.type === 'list') && Array.isArray(b.value)) {
+        const items = b.value as Array<{ text?: unknown }>
+        const filtered = items.filter(
+          (it) => typeof it?.text === 'string' && (it.text as string).trim() !== '',
+        )
+        if (filtered.length !== items.length) {
+          changed = true
+          return { ...b, value: filtered as unknown as Block['value'] }
+        }
+      }
+      return b
+    })
+    return { blocks: out, changed }
+  }
+
   $effect(() => () => {
     if (blockSaveTimer) clearTimeout(blockSaveTimer)
     if (savedFlashTimer) clearTimeout(savedFlashTimer)
+    if (card) {
+      const { blocks: cleaned, changed } = withoutEmptyItems(card.blocks)
+      if (changed) void repoRPC('UpdateCardBlocks', [card.id, cleaned])
+    }
   })
 
   async function copyCardAsMarkdown() {
@@ -401,6 +429,105 @@
     } catch {
       showToast(t('card.export_json_error'), 'error')
     }
+  }
+
+  // --- Add block ---
+  //
+  // Appends a fresh block of the chosen type and persists immediately.
+  // Default value/meta per type mirror the desktop's add-block picker so
+  // a block created on either surface looks identical. User-added blocks
+  // get an empty key (the model convention — keys are for schema fields).
+  let blockPickerOpen = $state(false)
+
+  async function addBlock(blockType: string) {
+    blockPickerOpen = false
+    if (!card) return
+    const id = `blk-${crypto.randomUUID().slice(0, 8)}`
+    let value: Block['value'] = ''
+    let meta: Block['meta']
+    switch (blockType) {
+      case 'checklist':
+      case 'list':
+      case 'media':
+      case 'survey':
+        value = []
+        break
+      case 'checkbox_group':
+        value = []
+        meta = { options: ['Option 1', 'Option 2', 'Option 3'] }
+        break
+      case 'select':
+      case 'radio':
+        value = ''
+        meta = { options: ['Option 1', 'Option 2', 'Option 3'] }
+        break
+      case 'number':
+      case 'progress':
+        value = 0
+        break
+      case 'rating':
+        value = 0
+        meta = { max: 5 }
+        break
+      case 'checkbox':
+        value = false
+        break
+      case 'divider':
+      case 'image':
+        value = null
+        break
+      case 'alarm':
+        value = null
+        meta = { alarm_channels: 'in-app,system' }
+        break
+      // text, url, date → '' (default)
+    }
+
+    const newBlock: Block = {
+      id,
+      type: blockType as Block['type'],
+      label: t('block.type.' + blockType),
+      key: '',
+      value,
+      meta,
+    }
+    card.blocks = [...card.blocks, newBlock]
+    saveError = null
+
+    // In single-expand mode, keep only the new block open.
+    if (blockAccordionMode === 'single') {
+      const next = new Set<string>()
+      for (const b of card.blocks) {
+        if (b.id !== id && isCollapsibleBlock(b)) next.add(b.id)
+      }
+      collapsedBlocks = next
+    }
+
+    // Persist now — flush any pending typing debounce first so we don't
+    // race it (mirrors deleteBlock).
+    if (blockSaveTimer) {
+      clearTimeout(blockSaveTimer)
+      blockSaveTimer = null
+    }
+    const snapshot = card.blocks
+    savingBlocks = true
+    try {
+      await repoRPC('UpdateCardBlocks', [card.id, snapshot])
+      lastSavedBlocks = snapshot
+      flashSaved()
+    } catch (err) {
+      if (card) card.blocks = lastSavedBlocks
+      saveError = err instanceof Error ? err.message : t('card.err_save')
+    } finally {
+      savingBlocks = false
+    }
+
+    // Scroll the new block into view so the user sees it land.
+    queueMicrotask(() => {
+      document
+        .querySelector(`[data-block-id="${id}"]`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
   }
 
   // Live updates: when the backend emits card:updated for THIS card,
@@ -696,6 +823,14 @@
       </section>
     {/if}
 
+    <!-- Add block — always available, including when the card has none. -->
+    <div class="add-block-row">
+      <button type="button" class="add-block-btn" onclick={() => (blockPickerOpen = true)}>
+        <Plus size={16} />
+        <span>{t('block.add')}</span>
+      </button>
+    </div>
+
     <!-- Tab bar: Attachments / Comments -->
     <div class="meta-tabs">
       <button
@@ -770,6 +905,10 @@
 
 {#if typePickerOpen && card}
   <CardTypePicker current={card.type} onPick={pickType} onClose={() => (typePickerOpen = false)} />
+{/if}
+
+{#if blockPickerOpen}
+  <BlockTypePicker onPick={addBlock} onClose={() => (blockPickerOpen = false)} />
 {/if}
 
 {#if confirmingRefresh}
@@ -1123,6 +1262,34 @@
     border-top: 1px solid var(--border);
     padding-top: 1.25rem;
     margin-bottom: 2rem;
+  }
+
+  .add-block-row {
+    display: flex;
+    margin-bottom: 2rem;
+  }
+  .add-block-btn {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    background: transparent;
+    border: 1px dashed var(--border);
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 0.9rem;
+    padding: 0.7rem 0.9rem;
+    border-radius: 8px;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .add-block-btn:hover,
+  .add-block-btn:focus-visible {
+    color: var(--text);
+    border-color: var(--accent);
+    background: var(--bg-elev-1);
+    outline: none;
   }
 
   /* When the accordion toolbar sits above the blocks list, the

@@ -1,38 +1,51 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { X, Check } from 'lucide-svelte'
-  import { repoMeta } from '../lib/repoMeta.svelte'
-  import { getCardTypeColor, getCardTypeTextColor } from '@shared/cardTypes'
+  import {
+    X, Type, ListChecks, List, Film, Link, Minus, ChevronDown, Hash,
+    Calendar, Star, ToggleLeft, CircleDot, Image as ImageIcon, ChartColumn,
+    Bell, ClipboardList,
+  } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
-  import DynamicIcon from './DynamicIcon.svelte'
 
-  // Slide-up sheet listing every available card type. Tap a type to
-  // pick it; the host commits via UpdateCardType. Used from CardPage's
-  // type badge.
+  // Slide-up sheet listing every block type. Tap one to add it to the
+  // card. Mirrors CardTypePicker's sheet scaffolding (backdrop, drag-to-
+  // dismiss header, history push/pop) so the two feel identical. Icons
+  // are imported directly (a fixed set) so they're type-checked.
 
-  let {
-    current,
-    onPick,
-    onClose,
-  }: {
-    current: string
-    onPick: (typeID: string) => void
-    onClose: () => void
-  } = $props()
+  let { onPick, onClose }: { onPick: (type: string) => void; onClose: () => void } = $props()
 
-  let sheetEl = $state<HTMLElement | null>(null)
+  const BLOCK_TYPES = [
+    { type: 'text', Icon: Type },
+    { type: 'checklist', Icon: ListChecks },
+    { type: 'list', Icon: List },
+    { type: 'media', Icon: Film },
+    { type: 'url', Icon: Link },
+    { type: 'divider', Icon: Minus },
+    { type: 'select', Icon: ChevronDown },
+    { type: 'number', Icon: Hash },
+    { type: 'date', Icon: Calendar },
+    { type: 'rating', Icon: Star },
+    { type: 'checkbox', Icon: ToggleLeft },
+    { type: 'radio', Icon: CircleDot },
+    { type: 'checkbox_group', Icon: ListChecks },
+    { type: 'image', Icon: ImageIcon },
+    { type: 'progress', Icon: ChartColumn },
+    { type: 'alarm', Icon: Bell },
+    { type: 'survey', Icon: ClipboardList },
+  ]
+
   let dragStartY = 0
   let dragCurrentY = 0
   let dragging = $state(false)
   let translateY = $state(0)
 
   onMount(() => {
-    history.pushState({ typePicker: true }, '')
+    history.pushState({ blockPicker: true }, '')
     const onPop = () => onClose()
     window.addEventListener('popstate', onPop)
     return () => {
       window.removeEventListener('popstate', onPop)
-      if (history.state?.typePicker) history.back()
+      if (history.state?.blockPicker) history.back()
     }
   })
 
@@ -69,9 +82,8 @@
 
 <div
   class="sheet"
-  bind:this={sheetEl}
   role="dialog"
-  aria-label={t('card.choose_type')}
+  aria-label={t('block.add_title')}
   style:transform={translateY > 0 ? `translateY(${translateY}px)` : undefined}
   style:transition={dragging ? 'none' : undefined}
 >
@@ -84,61 +96,23 @@
     onpointercancel={onHeaderPointerUp}
   >
     <span class="grabber" aria-hidden="true"></span>
-    <span class="title">{t('card.choose_type')}</span>
+    <span class="title">{t('block.add_title')}</span>
     <button type="button" class="icon-btn" onclick={onClose} aria-label={t('common.cancel')}>
       <X size={18} />
     </button>
   </div>
 
-  <ul class="types">
-    <li>
-      <button
-        type="button"
-        class="type-row none-row"
-        class:selected={!current}
-        onclick={() => onPick('')}
-      >
-        <span class="swatch none-swatch" aria-hidden="true">—</span>
-        <div class="type-text">
-          <span class="type-label">{t('card.type_none')}</span>
-          <span class="type-desc">{t('card.type_none_sub')}</span>
-        </div>
-        {#if !current}
-          <Check size={16} class="check-icon" />
-        {/if}
+  <div class="grid">
+    {#each BLOCK_TYPES as bt (bt.type)}
+      {@const Icon = bt.Icon}
+      <button type="button" class="tile" onclick={() => onPick(bt.type)}>
+        <span class="tile-icon" aria-hidden="true">
+          <Icon size={20} />
+        </span>
+        <span class="tile-label">{t('block.type.' + bt.type)}</span>
       </button>
-    </li>
-    {#each repoMeta.cardTypes as type (type.id)}
-      <li>
-        <button
-          type="button"
-          class="type-row"
-          class:selected={current === type.id}
-          onclick={() => onPick(type.id)}
-        >
-          <span
-            class="swatch"
-            style:background={getCardTypeColor(type.id, repoMeta.cardTypes)}
-            style:color={getCardTypeTextColor(type.id)}
-            aria-hidden="true"
-          >
-            {#if type.icon}
-              <DynamicIcon name={type.icon} size={16} />
-            {/if}
-          </span>
-          <div class="type-text">
-            <span class="type-label">{type.label}</span>
-            {#if type.description}
-              <span class="type-desc">{type.description}</span>
-            {/if}
-          </div>
-          {#if current === type.id}
-            <Check size={16} class="check-icon" />
-          {/if}
-        </button>
-      </li>
     {/each}
-  </ul>
+  </div>
 </div>
 
 <style>
@@ -206,82 +180,51 @@
     justify-content: center;
   }
 
-  .types {
-    list-style: none;
-    padding: 0.5rem;
-    margin: 0;
+  .grid {
+    padding: 0.6rem;
     overflow-y: auto;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
+  }
+  @media (max-width: 360px) {
+    .grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  .tile {
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
-  }
-  .type-row {
-    display: flex;
     align-items: center;
-    gap: 0.65rem;
-    width: 100%;
+    justify-content: center;
+    gap: 0.4rem;
     background: var(--bg-elev-1);
     border: 1px solid var(--border);
     border-radius: 10px;
-    padding: 0.6rem 0.85rem;
+    padding: 0.85rem 0.4rem;
     color: var(--text);
     font: inherit;
     cursor: pointer;
-    text-align: left;
+    text-align: center;
     touch-action: manipulation;
-    min-height: 56px;
+    min-height: 76px;
   }
-  .type-row:hover,
-  .type-row:focus-visible {
+  .tile:hover,
+  .tile:focus-visible {
     border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 8%, var(--bg-elev-1));
     outline: none;
   }
-  .type-row.selected {
-    border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 10%, var(--bg-elev-1));
-  }
-
-  .swatch {
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-  .none-swatch {
-    background: var(--bg);
-    border: 1px dashed var(--border);
-    color: var(--text-faint);
-    font-size: 1.2rem;
-    font-weight: 600;
-  }
-
-  .type-text {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-  }
-  .type-label {
-    font-size: 0.95rem;
-    font-weight: 500;
-  }
-  .type-desc {
-    font-size: 0.78rem;
+  .tile-icon {
     color: var(--text-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    -webkit-box-orient: vertical;
+    display: inline-flex;
   }
-  :global(.check-icon) {
+  .tile:hover .tile-icon,
+  .tile:focus-visible .tile-icon {
     color: var(--accent);
-    flex-shrink: 0;
+  }
+  .tile-label {
+    font-size: 0.8rem;
+    font-weight: 500;
+    line-height: 1.1;
   }
 
   @keyframes fade-in {

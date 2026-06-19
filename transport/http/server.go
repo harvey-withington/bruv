@@ -61,6 +61,13 @@ type Config struct {
 	// over). Both the desktop and the headless server set this in
 	// practice.
 	MachineTarget any
+	// MCPHandler optionally serves the Model Context Protocol endpoint at
+	// /repos/<id>/mcp, exposing each repo to external agentic chat apps
+	// (Claude Desktop, etc.). The handler resolves the repo from the URL
+	// itself, so the transport just forwards matching requests. Built by
+	// the caller (it depends on supervisor types this package can't
+	// import); leave nil to skip the route.
+	MCPHandler nethttp.Handler
 }
 
 // AttachmentConfig wires the signed-URL handler. Secret is the HMAC

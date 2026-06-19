@@ -29,6 +29,7 @@ import (
 
 	"bruv/core/supervisor"
 	"bruv/internal/config"
+	"bruv/internal/mcpserver"
 	"bruv/internal/push"
 	"bruv/internal/logging"
 	transporthttp "bruv/transport/http"
@@ -159,6 +160,7 @@ func Run(opts Options) error {
 		MobileAssets:  opts.MobileAssets,
 		Repos:         supervisor.NewHTTPAdapter(sup),
 		MachineTarget: machineSvc,
+		MCPHandler:    mcpserver.New(sup, opts.Version),
 	})
 	if err != nil {
 		return fmt.Errorf("http transport construct: %w", err)

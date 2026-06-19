@@ -105,6 +105,11 @@
   }
 
   function onHeaderPointerDown(e: PointerEvent) {
+    // Skip drag setup when the press lands on a button inside the header.
+    // Capturing the pointer here re-targets the resulting click to the
+    // header itself, so the mark-all-read / clear / close buttons would
+    // never fire (matches the ChatSheet header behaviour).
+    if ((e.target as HTMLElement | null)?.closest('button')) return
     dragStartY = e.clientY
     dragCurrentY = e.clientY
     dragging = true

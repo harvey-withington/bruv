@@ -15,6 +15,7 @@ import (
 	"bruv/core/supervisor"
 	"bruv/internal/config"
 	"bruv/internal/logging"
+	"bruv/internal/mcpserver"
 	"bruv/internal/update"
 	"bruv/mobile"
 	transporthttp "bruv/transport/http"
@@ -268,6 +269,7 @@ func (a *App) startHTTPTransport() {
 		MobileAssets:  mobile.Assets(),
 		Repos:         supervisor.NewHTTPAdapter(a.sup),
 		MachineTarget: supervisor.NewMachineService(),
+		MCPHandler:    mcpserver.New(a.sup, AppVersion),
 	})
 	if err != nil {
 		slog.Warn("http transport: construct failed", "err", err)

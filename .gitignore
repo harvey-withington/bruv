@@ -10,6 +10,10 @@ frontend/public/bruv-icon.png
 frontend/public/icon.ico
 private/
 
+# Old local plan dir from before plan/ became a submodule — kept locally
+# for reconciliation against the submodule; not tracked.
+plan-local-old/
+
 # IDE
 .vscode/*
 !.vscode/launch.json

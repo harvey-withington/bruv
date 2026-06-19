@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { flushSync } from 'svelte'
   import { Square, CheckSquare, X, Plus, GripVertical } from 'lucide-svelte'
   import { t } from '../../lib/i18n.svelte'
   import type { Block, ChecklistItem } from '@shared/types'
@@ -43,6 +44,13 @@
   }
 
   function addItem() {
+    // A blur on the focused row may have just committed its edit (via
+    // Enter, or by tapping "Add item"). That commit reaches us through
+    // onChange → the parent's card.blocks → our `block` prop, which does
+    // NOT propagate back synchronously. Flush it before reading `items`,
+    // otherwise we'd append to a stale array and clobber the just-typed
+    // text on the last row (it would save empty the first time).
+    flushSync()
     const id = newID()
     commitItems([...items, { id, text: '', done: false }])
     // Defer focus until the new <input> mounts.
@@ -115,13 +123,28 @@
         onblur={(e) => {
           const v = (e.currentTarget as HTMLInputElement).value
           delete drafts[item.id]
-          commitText(item.id, v)
+          if (v.trim() === '') {
+            // Don't leave an empty row behind — drop abandoned/blank items.
+            deleteItem(item.id)
+          } else {
+            commitText(item.id, v)
+          }
         }}
         onkeydown={(e) => {
           if (e.key === 'Enter') {
             e.preventDefault()
             ;(e.currentTarget as HTMLInputElement).blur()
             addItem()
+          } else if (e.key === 'Escape') {
+            // Cancel the edit — and never let Escape bubble up to close the
+            // card. Revert to the stored text, then blur: onblur removes a
+            // blank new row, or keeps an existing row's text unchanged.
+            e.preventDefault()
+            e.stopPropagation()
+            const input = e.currentTarget as HTMLInputElement
+            delete drafts[item.id]
+            input.value = item.text
+            input.blur()
           }
         }}
       />

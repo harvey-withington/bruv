@@ -917,30 +917,10 @@ func (d *Dispatcher) ExecuteProject(tc llm.ToolCall, scope ProjectChatScope) (st
 				d.deps.Card().UpdateTags(cardID, tags)
 			}
 		}
-		// Set description if specified
+		// Set description if specified. Description is an intrinsic card
+		// property, not a block — set it directly.
 		if desc, ok := tc.Arguments["description"].(string); ok && desc != "" {
-			c, _ := d.deps.Repo().GetCard(cardID)
-			if c != nil {
-				// Find first text block or create one
-				found := false
-				for i, b := range c.Blocks {
-					if b.Type == "text" {
-						c.Blocks[i].Value = desc
-						found = true
-						break
-					}
-				}
-				if !found {
-					c.Blocks = append(c.Blocks, model.Block{
-						ID:    fmt.Sprintf("blk-%s", uuid.New().String()[:8]),
-						Type:  "text",
-						Label: "Description",
-						Key:   "description",
-						Value: desc,
-					})
-				}
-				d.deps.Card().UpdateBlocks(cardID, c.Blocks)
-			}
+			d.deps.Card().UpdateDescription(cardID, desc)
 		}
 		result := fmt.Sprintf("Created card '%s' (ID: %s)", title, cardID)
 		if categoryID != "" {
@@ -1472,7 +1452,7 @@ func (d *Dispatcher) findCardCurrentCategory(scope ProjectChatScope, cardID stri
 //   - tags ([]string)              — REPLACE the card's tags
 //   - tags_to_add ([]string)       — APPEND to existing tags (deduped)
 //   - due_date (string)            — ISO 8601 date or datetime; "" clears
-//   - description (string)         — replaces the first text block, or creates one
+//   - description (string)         — sets the card's intrinsic description
 //   - blocks ([]map)               — REPLACE the card's blocks entirely
 //
 // Unknown keys are ignored.
@@ -1566,30 +1546,11 @@ func (d *Dispatcher) applyCardUpdate(cardID string, args map[string]any) ([]stri
 		}
 	}
 
-	// Description shorthand: replace the first text/markdown block, or create one.
+	// Description is an intrinsic card property — set it directly rather
+	// than smuggling it into a text block.
 	if desc, ok := args["description"].(string); ok {
-		c, err := d.deps.Repo().GetCard(cardID)
-		if err == nil {
-			found := false
-			for i, b := range c.Blocks {
-				if b.Type == "text" || b.Type == "markdown" {
-					c.Blocks[i].Value = desc
-					found = true
-					break
-				}
-			}
-			if !found {
-				c.Blocks = append(c.Blocks, model.Block{
-					ID:    fmt.Sprintf("blk-%s", uuid.New().String()[:8]),
-					Type:  "text",
-					Label: "Description",
-					Key:   "description",
-					Value: desc,
-				})
-			}
-			if _, err := d.deps.Card().UpdateBlocks(cardID, c.Blocks); err == nil {
-				changes = append(changes, "description")
-			}
+		if _, err := d.deps.Card().UpdateDescription(cardID, desc); err == nil {
+			changes = append(changes, "description")
 		}
 	}
 

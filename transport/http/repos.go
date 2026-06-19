@@ -153,6 +153,17 @@ func (s *Server) repoRouter() nethttp.Handler {
 		case "disable":
 			repoEnableHandler(s.cfg.Repos, false).ServeHTTP(w, r)
 			return
+		case "mcp":
+			// MCP server endpoint. The handler resolves the repo from the
+			// URL path itself (it owns a supervisor reference this package
+			// can't import), so we just forward. Mounted behind the same
+			// requireAuth wrapper as everything else under /repos/.
+			if s.cfg.MCPHandler == nil {
+				nethttp.NotFound(w, r)
+				return
+			}
+			s.cfg.MCPHandler.ServeHTTP(w, r)
+			return
 		}
 
 		dispatcher, target := s.dispatcherFor(repoID)

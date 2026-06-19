@@ -225,9 +225,6 @@
     onCardUpdated(updated)
   }
 
-  function labelToKey(label: string): string {
-    return label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
-  }
 
   // --- Block collapse/expand + accordion mode ---
   //
@@ -380,7 +377,12 @@
     else if (blockType === 'alarm') { value = null; meta = { alarm_channels: 'in-app,system' } }
     else if (blockType === 'survey') value = []
 
-    const newBlock: Block = { id, type: blockType, label, key: labelToKey(label), value, meta }
+    // User-added blocks have no schema key — `key` identifies a card-type
+    // field, and a freeform block isn't one. A derived key would collide
+    // (two "Text" blocks → both "text") and could be mistaken for a schema
+    // field on type-refresh. Leave it empty (model convention; matches
+    // mobile + the MCP server).
+    const newBlock: Block = { id, type: blockType, label, key: '', value, meta }
     const blocks = [...card.blocks, newBlock]
     let updated: Card
     try {
@@ -423,7 +425,11 @@
     if (!label) return
     const block = card.blocks.find((b: Block) => b.id === blockId)
     if (!block || label === block.label) return
-    const blocks = card.blocks.map((b: Block) => b.id === blockId ? { ...b, label, key: labelToKey(label) } : b)
+    // Rename the label only — never touch `key`. For a schema-field block
+    // the key is its identity in the card type; re-deriving it from the new
+    // label would sever that link (the field would be re-added as a
+    // duplicate on the next type-refresh). User blocks keep their empty key.
+    const blocks = card.blocks.map((b: Block) => b.id === blockId ? { ...b, label } : b)
     let updated: Card
     try {
       updated = await track(UpdateCardBlocks(cardId, blocks))

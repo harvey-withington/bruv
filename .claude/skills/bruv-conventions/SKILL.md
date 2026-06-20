@@ -14,6 +14,14 @@ CLAUDE.md holds the rules; this skill is the *procedure* — what to actually ch
 - **`shared/`** — TypeScript used by both surfaces (`@shared/` alias in both vite configs). API wrappers (`api.ts`), backend interface types (`types.ts`), and transport-agnostic logic.
 - **`plan/`** — gitignored project journal. `plan/TODO.md` is the single source of truth for open work; check it before proposing new work, update it when scope changes.
 
+## Design ethos (the why behind the rules)
+
+BRUV is a polished Kanban surface that **augments an AI-first capture ethos** — the app brings the structure (Brand → Stream → Project → Category → Card, Card Types, a shared icon vocabulary) so capture is just "drop it in the right shape." Distinct from Trello by being more private/repo-based, MCP-native, and deliberately **more opinionated**. Three north stars that should shape feature decisions:
+
+- **Opinionated defaults over customization knobs.** A strong, consistent default *is* the feature. Don't add theming/configurability just because you can — resist letting users redesign the app. ("Facebook is blue. Deal with it.")
+- **Icons are the primary way to distinguish elements** — reach for an icon before colour-blocking or imagery.
+- **Uniform card size is sacred.** No feature may make cards variable-height. Card Covers are intentionally omitted; if ever added they must be *subtle* and **must not change card dimensions**. Treat any proposal that grows/varies card height as wrong by default.
+
 ## Feature checklist
 
 1. **Both surfaces?** Default is parity between `frontend/` and `mobile/`. Intentional asymmetries exist — mobile is the capture/triage/review/chat surface; structure authoring, agent authoring, and LLM/MCP config are desktop-only by design (see `plan/mobile-feature-gap-2026-05-03.md` for the bucket list). If you implement one side only, confirm it's a deliberate asymmetry and say so.

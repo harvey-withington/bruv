@@ -164,6 +164,7 @@ export const UpdateUserCardType = (...args: Parameters<ReturnType<typeof getBack
 export const DeleteUserCardType = (...args: Parameters<ReturnType<typeof getBackend>['DeleteUserCardType']>) => getBackend().DeleteUserCardType(...args)
 export const UpdateUserCardTypeIcon = (...args: Parameters<ReturnType<typeof getBackend>['UpdateUserCardTypeIcon']>) => getBackend().UpdateUserCardTypeIcon(...args)
 export const UpdateBuiltinCardType = (...args: Parameters<ReturnType<typeof getBackend>['UpdateBuiltinCardType']>) => getBackend().UpdateBuiltinCardType(...args)
+export const CreateCardTypeFromCard = (...args: Parameters<ReturnType<typeof getBackend>['CreateCardTypeFromCard']>) => getBackend().CreateCardTypeFromCard(...args)
 
 // Card templates
 export const ListCardTemplates = () => getBackend().ListCardTemplates()

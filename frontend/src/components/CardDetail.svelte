@@ -1,8 +1,8 @@
 <script lang="ts">
   import { GetCard, UpdateCardTitle, UpdateCardType, RefreshTypeBlocks, UpdateCardDescription, UpdateCardDueDate,
-    DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, GetProjectLabels, GetCategoryAcceptedTypes, GetAgentConfig, GetProjectMembers } from '@shared/api'
+    DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, GetProjectLabels, GetCategoryAcceptedTypes, GetAgentConfig, GetProjectMembers, CreateCardTypeFromCard } from '@shared/api'
   import { onEvent } from '../lib/events'
-  import { projectTags, nav, cardTypes } from '../lib/store.svelte'
+  import { projectTags, nav, cardTypes, loadCardTypes } from '../lib/store.svelte'
   import { X, Trash2, BotMessageSquare, ClipboardList, History, Timer } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import MentionPicker from './MentionPicker.svelte'
@@ -17,6 +17,7 @@
   import CardMetaPanel from './CardMetaPanel.svelte'
   import CardTagsField from './CardTagsField.svelte'
   import CardBlocks from './CardBlocks.svelte'
+  import CreateTypeFromCardDialog from './CreateTypeFromCardDialog.svelte'
   import SaveIndicator from './SaveIndicator.svelte'
   import { draggable } from '../lib/draggable'
   import { fade } from 'svelte/transition'
@@ -236,6 +237,24 @@
     try {
       card = await tracked(RefreshTypeBlocks(cardId)) as Card
     } catch (e) { showToast(t('error.type_failed'), 'error'); return }
+    onUpdated?.()
+  }
+
+  // Create a reusable card type from this card's layout.
+  let showCreateTypeDialog = $state(false)
+
+  function openCreateTypeFromCard() {
+    showTypePicker = false
+    showCreateTypeDialog = true
+  }
+
+  // Throws on failure so the dialog surfaces the error and stays open; on
+  // success the card has been switched server-side, so reload types + card.
+  async function handleCreateTypeFromCard(name: string, icon: string, color: string, blockIDs: string[]) {
+    if (!card) return
+    await tracked(CreateCardTypeFromCard(cardId, name, icon, color, blockIDs))
+    await loadCardTypes()
+    card = await GetCard(cardId) as Card
     onUpdated?.()
   }
 
@@ -500,6 +519,7 @@
         onOpenTypePicker={openTypePicker}
         onSelectType={selectType}
         onRefreshType={refreshType}
+        onCreateTypeFromCard={openCreateTypeFromCard}
       />
 
       <PinPanel
@@ -647,6 +667,14 @@
   onSelect={handlePinSelect}
   onClose={() => { showPinPicker = false; pinPickerSourcePin = null }}
 />
+
+{#if showCreateTypeDialog && card}
+  <CreateTypeFromCardDialog
+    blocks={card.blocks}
+    onCreate={handleCreateTypeFromCard}
+    onClose={() => showCreateTypeDialog = false}
+  />
+{/if}
 
 
 <style>

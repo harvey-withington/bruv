@@ -124,6 +124,63 @@
         "reveal": "always",
         "panel": "dedicated"
       }
+    },
+    {
+      "label": "deploy: server to home",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/scripts/deploy-server.ps1",
+        "-RemoteHost",
+        "${input:bruvDeployHost}",
+        "-SshUser",
+        "beelink"
+      ],
+      "group": "build",
+      "problemMatcher": [],
+      "detail": "Build the unified server binary and upgrade the BRUV-Server service on the home box over SSH (stop -> swap -> start, .bak rollback). Needs OpenSSH on the server + an admin SSH user. Set $env:BRUV_DEPLOY_USER to override the SSH user (defaults to your username).",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "deploy: server to home (skip build)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/scripts/deploy-server.ps1",
+        "-RemoteHost",
+        "${input:bruvDeployHost}",
+        "-SshUser",
+        "beelink",
+        "-SkipBuild"
+      ],
+      "group": "build",
+      "problemMatcher": [],
+      "detail": "Redeploy the existing build/bin/bruv-1.0.exe to the home box without rebuilding.",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "bruvDeployHost",
+      "type": "promptString",
+      "description": "Home-server Tailscale hostname/IP",
+      "default": "ripped.tail2ebd58.ts.net"
     }
   ]
 }

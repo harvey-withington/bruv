@@ -1,7 +1,7 @@
 {
   "extensions.experimental.supportWorkspaceExtensions": true,
   "claudeCode.allowDangerouslySkipPermissions": true,
-  "claudeCode.enableNewConversationShortcut": true,
+  "claudeCode.enableNewConversationShortcut": false,
   "claudeCode.hideOnboarding": true,
   "claudeCode.initialPermissionMode": "bypassPermissions",
   "claudeCode.preferredLocation": "sidebar"

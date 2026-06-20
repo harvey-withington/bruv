@@ -43,6 +43,7 @@ describe('CardHeader', () => {
         onOpenTypePicker: () => {},
         onSelectType: () => {},
         onRefreshType: () => {},
+        onCreateTypeFromCard: () => {},
       },
     })
     expect(screen.getByText('Original Title')).toBeInTheDocument()
@@ -72,6 +73,7 @@ describe('CardHeader', () => {
         onOpenTypePicker: () => {},
         onSelectType: () => {},
         onRefreshType: () => {},
+        onCreateTypeFromCard: () => {},
       },
     })
 
@@ -101,6 +103,7 @@ describe('CardHeader', () => {
       onOpenTypePicker: () => {},
       onSelectType: () => {},
       onRefreshType: () => {},
+        onCreateTypeFromCard: () => {},
     })
     const input = container.querySelector('input.title-input') as HTMLInputElement
     expect(input).toBeTruthy()
@@ -124,6 +127,7 @@ describe('CardHeader', () => {
         onOpenTypePicker: () => {},
         onSelectType: () => {},
         onRefreshType: () => {},
+        onCreateTypeFromCard: () => {},
       },
     })
     const input = container.querySelector('input.title-input') as HTMLInputElement
@@ -148,6 +152,7 @@ describe('CardHeader', () => {
         onOpenTypePicker: () => {},
         onSelectType: () => {},
         onRefreshType: () => {},
+        onCreateTypeFromCard: () => {},
       },
     })
     const input = container.querySelector('input.title-input') as HTMLInputElement
@@ -175,6 +180,7 @@ describe('CardHeader', () => {
         onOpenTypePicker,
         onSelectType: () => {},
         onRefreshType: () => {},
+        onCreateTypeFromCard: () => {},
       },
     })
     const btn = container.querySelector('button.type-badge-btn') as HTMLButtonElement
@@ -203,6 +209,7 @@ describe('CardHeader', () => {
         onOpenTypePicker: () => {},
         onSelectType: () => {},
         onRefreshType: () => {},
+        onCreateTypeFromCard: () => {},
       },
     })
     const h2 = container.querySelector('.modal-title') as HTMLElement

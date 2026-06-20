@@ -15,7 +15,7 @@
    * Extracted from CardDetail to pull ~50 lines of template + ~100
    * lines of picker/badge/title CSS out of the god-component.
    */
-  import { ArrowLeftRight, ChevronDown } from 'lucide-svelte'
+  import { ArrowLeftRight, ChevronDown, Plus } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import { focusOnMount, floatingDropdown } from '../lib/actions'
   import { renderInline } from '@shared/markdown'
@@ -36,6 +36,7 @@
     onOpenTypePicker,
     onSelectType,
     onRefreshType,
+    onCreateTypeFromCard,
   }: {
     card: Card
     cardTypesList: CardTypeInfo[]
@@ -50,6 +51,7 @@
     onOpenTypePicker: () => void
     onSelectType: (typeId: string) => void
     onRefreshType: () => void
+    onCreateTypeFromCard: () => void
   } = $props()
 </script>
 
@@ -86,6 +88,11 @@
             <span class="type-option-badge" style="background: {ct.color}">{ct.label}</span>
           </button>
         {/each}
+        <div class="type-picker-sep"></div>
+        <button class="type-picker-option type-picker-action" onclick={onCreateTypeFromCard}>
+          <Plus size={12} />
+          <span class="type-action-label">{t('card.create_type_from_card')}</span>
+        </button>
       </div>
     {/if}
   </div>
@@ -193,6 +200,23 @@
   }
   .type-picker-option:hover, .type-picker-option.active {
     background: var(--bg-elevated);
+  }
+
+  .type-picker-sep {
+    height: 1px;
+    background: var(--border-muted);
+    margin: 0.25rem 0;
+  }
+  .type-picker-action {
+    gap: 0.4rem;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+  }
+  .type-picker-action:hover {
+    color: var(--text-primary);
+  }
+  .type-action-label {
+    white-space: nowrap;
   }
 
   .type-option-badge {

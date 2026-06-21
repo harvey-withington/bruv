@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte'
   import { Check, Trash2, MapPin, X, Search } from 'lucide-svelte'
   import { repoRPC } from '../lib/auth'
+  import { onReconnect } from '../lib/connectivity.svelte'
   import { navigate, cardURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
   import { repoMeta } from '../lib/repoMeta.svelte'
@@ -11,6 +12,7 @@
   import PinPicker from '../components/PinPicker.svelte'
   import ConfirmDialog from '../components/ConfirmDialog.svelte'
   import SearchSheet from '../components/SearchSheet.svelte'
+  import ErrorState from '../components/ErrorState.svelte'
   import type { CardSummary } from '../lib/model'
   import type { RecentCard } from '@shared/types'
 
@@ -84,6 +86,7 @@
 
   async function loadRecents() {
     recentsLoading = true
+    errorMsg = null
     try {
       recents = (await repoRPC<RecentCard[]>('ListRecentlyUpdatedCards', [50])) ?? []
       recentsLoaded = true
@@ -95,6 +98,7 @@
   }
 
   async function reload() {
+    errorMsg = null
     try {
       const ids = (await repoRPC<string[]>('ListOrphanedCardIDs')) ?? []
       const fetched = await Promise.all(
@@ -115,7 +119,13 @@
     }
   }
 
-  onMount(reload)
+  onMount(() => {
+    void reload()
+    return onReconnect(() => {
+      void reload()
+      if (recentsLoaded) void loadRecents()
+    })
+  })
 
   let liveReloadTimer: ReturnType<typeof setTimeout> | null = null
   const unsubscribeEvents = onEvent((ev) => {
@@ -218,7 +228,7 @@
     {#if loading}
       <p class="status">{t('common.loading')}</p>
     {:else if errorMsg && cards.length === 0}
-      <p class="error">{errorMsg}</p>
+      <ErrorState message={errorMsg} />
     {:else if cards.length === 0}
       <div class="empty">
         <h2>{t('inbox.empty_title')}</h2>
@@ -271,6 +281,8 @@
   {:else}
     {#if recentsLoading && recents.length === 0}
       <p class="status">{t('common.loading')}</p>
+    {:else if errorMsg && recents.length === 0}
+      <ErrorState message={errorMsg} />
     {:else if recents.length === 0}
       <div class="empty">
         <h2>{t('inbox.recent_empty_title')}</h2>

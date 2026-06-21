@@ -177,4 +177,18 @@ button {
   pointer-events: none !important;
 }
 
+/* While a drag is being pressed or performed, kill ALL text selection and
+   the long-press callout document-wide. The long-press that arms a drag
+   otherwise races the OS text-selection gesture, which cancels the pointer
+   (the drag dies) and pops the selection / "Tap to see search results"
+   toolbar. Toggled on at pointerdown and off at teardown by dnd.svelte.ts;
+   the universal selector + !important also overrides per-element opt-ins
+   like the text block's restored user-select:text. */
+body.dnd-no-select,
+body.dnd-no-select * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
+
 

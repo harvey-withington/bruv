@@ -2,6 +2,7 @@
   import { onMount, onDestroy, tick } from 'svelte'
   import { ChevronRight, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Search, Plus, MoreVertical, Pencil, Trash2, Upload } from 'lucide-svelte'
   import { repoRPC } from '../lib/auth'
+  import { onReconnect } from '../lib/connectivity.svelte'
   import { navigate, cardURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
   import { loadProjectTags, projectKey as makeProjectKey } from '../lib/repoMeta.svelte'
@@ -25,6 +26,7 @@
   import CardRow from '../components/CardRow.svelte'
   import SearchSheet from '../components/SearchSheet.svelte'
   import ConfirmDialog from '../components/ConfirmDialog.svelte'
+  import ErrorState from '../components/ErrorState.svelte'
   import { dragSortable, type DragMoveDetail } from '../lib/actions/dnd.svelte'
   import { onEvent } from '../lib/events.svelte'
 
@@ -48,13 +50,17 @@
   // svelte-ignore state_referenced_locally
   const pkey = $state(makeProjectKey(brand, stream, project))
 
-  onMount(async () => {
+  async function loadProject() {
     // Capture the route slugs into closure-stable locals before any
     // await — Svelte 5's $props are reactive and reading them mid-
     // async would otherwise warn (state_referenced_locally).
     const brandSlug = brand
     const streamSlug = stream
     const projectSlug = project
+    // Reset load state so a retry shows the spinner and clears a prior
+    // error (e.g. after reconnecting to Tailscale).
+    loading = true
+    errorMsg = null
     // Pre-warm this project's tag definitions so chip colours light
     // up as soon as cards render. Fire-and-forget; cards still render
     // (in grey) if this lags.
@@ -135,6 +141,17 @@
     } finally {
       loading = false
     }
+  }
+
+  onMount(() => {
+    void loadProject()
+    // On reconnect, refetch the whole project if the initial load failed;
+    // otherwise just refresh the board silently (no edit state to lose).
+    return onReconnect(() => {
+      mutationError = null
+      if (errorMsg) void loadProject()
+      else void reloadProject()
+    })
   })
 
   // Read the per-project expansion map reactively. project_id comes
@@ -493,7 +510,7 @@
   {#if loading}
     <p class="status">{t('common.loading')}</p>
   {:else if errorMsg}
-    <p class="error">{errorMsg}</p>
+    <ErrorState message={errorMsg} />
   {:else if categories.length === 0}
     <div class="empty">
       <h2>{t('project.empty_title')}</h2>

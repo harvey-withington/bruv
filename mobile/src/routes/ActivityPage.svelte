@@ -2,16 +2,19 @@
   import { onMount, onDestroy } from 'svelte'
   import { ChevronLeft, User, Bot } from 'lucide-svelte'
   import { repoRPC } from '../lib/auth'
+  import { onReconnect } from '../lib/connectivity.svelte'
   import { navigate, cardURL } from '../lib/router.svelte'
   import { onEvent } from '../lib/events.svelte'
   import { t } from '../lib/i18n.svelte'
   import type { ActivityEntry } from '@shared/types'
+  import ErrorState from '../components/ErrorState.svelte'
 
   let entries = $state<ActivityEntry[]>([])
   let loading = $state(true)
   let errorMsg = $state<string | null>(null)
 
   async function reload() {
+    errorMsg = null
     try {
       const list = (await repoRPC<ActivityEntry[]>('ListActivityLog', [200])) ?? []
       entries = list
@@ -22,7 +25,10 @@
     }
   }
 
-  onMount(reload)
+  onMount(() => {
+    void reload()
+    return onReconnect(() => void reload())
+  })
 
   // Live: any card / category mutation produces an activity entry.
   // Coalesce reloads so a flurry of events doesn't thrash.
@@ -89,7 +95,7 @@
   {#if loading && entries.length === 0}
     <p class="status">{t('common.loading')}</p>
   {:else if errorMsg && entries.length === 0}
-    <p class="error">{errorMsg}</p>
+    <ErrorState message={errorMsg} />
   {:else if entries.length === 0}
     <p class="status">{t('activity.empty')}</p>
   {:else}
@@ -259,14 +265,5 @@
     color: var(--text-muted);
     text-align: center;
     margin: 2rem 0;
-  }
-  .error {
-    margin: 2rem 0;
-    padding: 1rem;
-    background: rgba(239, 68, 68, 0.12);
-    border: 1px solid rgba(239, 68, 68, 0.4);
-    border-radius: 8px;
-    color: #fca5a5;
-    text-align: center;
   }
 </style>

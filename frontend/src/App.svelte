@@ -22,8 +22,10 @@
   import AboutDialog from './components/AboutDialog.svelte'
   import RepoSelector from './components/RepoSelector.svelte'
   import RemoteUnreachableScreen from './components/RemoteUnreachableScreen.svelte'
+  import ConnectionOverlay from './components/ConnectionOverlay.svelte'
   import { loadConnections } from './lib/connections.svelte'
   import { probeBackend } from './lib/repos.svelte'
+  import { installResilience } from './lib/connectivity.svelte'
   import { resolveTransportInfo } from '@shared/adapters/cloud'
 
   import { GetUIPreferences, SetUIPreferences, GetCurrentRepo, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, IsLLMConfigured } from '@shared/api'
@@ -31,6 +33,10 @@
   // Restore persisted preferences
   loadTheme()
   loadLocale()
+
+  // Install runtime connection-loss handling before any RPC. Only arms
+  // for remote connections — the local backend can't drop.
+  installResilience()
 
   // Restore sidebar width
   const savedWidth = localStorage.getItem('bruv-sidebar-width')
@@ -437,6 +443,7 @@
 <Toast />
 <ConfirmDialog />
 <OptionsEditorDialog />
+<ConnectionOverlay />
 
 <style>
   .app-shell {

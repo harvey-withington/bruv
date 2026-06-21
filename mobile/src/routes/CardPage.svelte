@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
-  import { repoRPC } from '../lib/auth'
+  import { repoRPC, NetworkError } from '../lib/auth'
+  import { onReconnect } from '../lib/connectivity.svelte'
   import { navigate, projectURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
   import { Trash2, MapPin, Plus, X, RefreshCw, Search, Paperclip, MessageSquare, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Copy, FileJson } from 'lucide-svelte'
@@ -15,6 +16,7 @@
   import BlockEditor from '../components/blocks/BlockEditor.svelte'
   import BlockTypePicker from '../components/BlockTypePicker.svelte'
   import ConfirmDialog from '../components/ConfirmDialog.svelte'
+  import ErrorState from '../components/ErrorState.svelte'
   import PinPicker from '../components/PinPicker.svelte'
   import CardTypePicker from '../components/CardTypePicker.svelte'
   import CommentsSection from '../components/CommentsSection.svelte'
@@ -45,6 +47,41 @@
   let loading = $state(true)
   let errorMsg = $state<string | null>(null)
   let saveError = $state<string | null>(null)
+  // Saves that failed because we were offline, keyed by field so repeated
+  // edits to the same thing collapse to a single retry. Flushed on
+  // reconnect (see the onMount handler) — the optimistic edit stays on
+  // screen meanwhile, so nothing is lost.
+  const pendingSaves = new Map<string, () => Promise<void>>()
+
+  /** Shared failure path for every save handler. A network failure keeps
+   *  the optimistic edit and queues a retry (the global overlay already
+   *  tells the user we're offline — no inline rail). A genuine server
+   *  error reverts and shows the inline error. */
+  function onSaveFailed(
+    err: unknown,
+    key: string,
+    retry: () => Promise<void>,
+    revert: () => void,
+  ): void {
+    if (err instanceof NetworkError) {
+      pendingSaves.set(key, retry)
+      return
+    }
+    revert()
+    saveError = err instanceof Error ? err.message : t('card.err_save')
+  }
+
+  async function flushPendingSaves(): Promise<void> {
+    // Reconnecting clears any inline error left by a failed save —
+    // including from one-shot actions (refresh/delete) that don't retry.
+    saveError = null
+    if (pendingSaves.size === 0) return
+    const retries = [...pendingSaves.values()]
+    pendingSaves.clear()
+    // Each retry routes its own failures back through onSaveFailed, so a
+    // still-bad connection simply re-queues rather than throwing here.
+    for (const retry of retries) await retry()
+  }
   let activeMetaTab = $state<'attachments' | 'comments'>('attachments')
   let commentCount = $state(0)
 
@@ -136,7 +173,11 @@
     if (blockAccordionMode === 'single') applySingleModeCollapse()
   }
 
-  onMount(async () => {
+  async function loadCard() {
+    // Reset so a retry shows the spinner and clears a prior error
+    // (e.g. after reconnecting to Tailscale).
+    loading = true
+    errorMsg = null
     try {
       card = await repoRPC<Card>('GetCard', [id])
       lastSavedBlocks = card?.blocks ?? []
@@ -168,6 +209,16 @@
     } finally {
       loading = false
     }
+  }
+
+  onMount(() => {
+    void loadCard()
+    // On reconnect: if the card never loaded, fetch it; otherwise keep the
+    // on-screen edit session and flush any saves that failed while offline.
+    return onReconnect(() => {
+      if (!card) void loadCard()
+      else void flushPendingSaves()
+    })
   })
 
   // --- Pin / unpin ---
@@ -188,7 +239,7 @@
       await repoRPC('PinCard', [card.id, sel.category.id])
       await refreshPins()
     } catch (err) {
-      saveError = err instanceof Error ? err.message : t('card.err_pin')
+      onSaveFailed(err, 'pin', () => pinTo(sel), () => {})
     }
   }
 
@@ -201,55 +252,46 @@
     try {
       await repoRPC('UnpinCard', [card.id, pin.categoryId])
     } catch (err) {
-      pins = previous
-      saveError = err instanceof Error ? err.message : t('card.err_unpin')
+      onSaveFailed(err, `unpin:${pin.categoryId}`, () => unpinAt(pin), () => { pins = previous })
     }
   }
 
   // --- Edit handlers ---
   //
-  // Each handler optimistically updates local state, calls the RPC,
-  // and reverts on failure with a visible error. Keeps the UI snappy
-  // while still surfacing real save problems.
-
-  async function saveTitle(next: string) {
+  // Every single-field edit goes through persistField: optimistic local
+  // update, RPC, and on failure the shared onSaveFailed path (keep + retry
+  // on a network drop, revert + inline error on a server rejection). Block
+  // edits (saveBlocksNow) and pin/unpin have their own entry points —
+  // different shapes that don't fit a single-field model.
+  async function persistField<K extends keyof Card>(
+    key: K,
+    value: Card[K],
+    method: string,
+    arg: unknown = value,
+  ): Promise<void> {
     if (!card) return
-    const previous = card.title
-    card.title = next
+    const previous = card[key]
+    card[key] = value
     saveError = null
     try {
-      await repoRPC('UpdateCardTitle', [card.id, next])
+      await repoRPC(method, [card.id, arg])
     } catch (err) {
-      card.title = previous
-      saveError = err instanceof Error ? err.message : t('card.err_save')
+      onSaveFailed(
+        err,
+        String(key),
+        () => persistField(key, value, method, arg),
+        () => {
+          if (card) card[key] = previous
+        },
+      )
     }
   }
 
-  async function saveTags(next: string[]) {
-    if (!card) return
-    const previous = card.tags
-    card.tags = next
-    saveError = null
-    try {
-      await repoRPC('UpdateCardTags', [card.id, next])
-    } catch (err) {
-      card.tags = previous
-      saveError = err instanceof Error ? err.message : t('card.err_save')
-    }
-  }
-
-  async function saveDueDate(next: string) {
-    if (!card) return
-    const previous = card.due_date
-    card.due_date = next || null
-    saveError = null
-    try {
-      await repoRPC('UpdateCardDueDate', [card.id, next])
-    } catch (err) {
-      card.due_date = previous
-      saveError = err instanceof Error ? err.message : t('card.err_save')
-    }
-  }
+  const saveTitle = (next: string) => persistField('title', next, 'UpdateCardTitle')
+  const saveTags = (next: string[]) => persistField('tags', next, 'UpdateCardTags')
+  // Stored as null when cleared; the RPC takes the raw input string.
+  const saveDueDate = (next: string) => persistField('due_date', next || null, 'UpdateCardDueDate', next)
+  const saveDescription = (next: string) => persistField('description', next, 'UpdateCardDescription')
 
   // Native date input wants `YYYY-MM-DD`; the model stores ISO 8601 or
   // similar. Convert both directions, leaving the original on parse fail.
@@ -261,19 +303,6 @@
     const m = (d.getMonth() + 1).toString().padStart(2, '0')
     const day = d.getDate().toString().padStart(2, '0')
     return `${y}-${m}-${day}`
-  }
-
-  async function saveDescription(next: string) {
-    if (!card) return
-    const previous = card.description
-    card.description = next
-    saveError = null
-    try {
-      await repoRPC('UpdateCardDescription', [card.id, next])
-    } catch (err) {
-      card.description = previous
-      saveError = err instanceof Error ? err.message : t('card.err_save')
-    }
   }
 
   function flashSaved() {
@@ -299,23 +328,7 @@
 
     card.blocks = blocksCopy
     saveError = null
-
-    if (blockSaveTimer) {
-      clearTimeout(blockSaveTimer)
-      blockSaveTimer = null
-    }
-    const snapshot = card.blocks
-    savingBlocks = true
-    try {
-      await repoRPC('UpdateCardBlocks', [card.id, snapshot])
-      lastSavedBlocks = snapshot
-      flashSaved()
-    } catch (err) {
-      if (card) card.blocks = lastSavedBlocks
-      saveError = err instanceof Error ? err.message : t('card.err_save')
-    } finally {
-      savingBlocks = false
-    }
+    await saveBlocksNow()
   }
 
   function updateBlock(blockID: string, next: Block) {
@@ -330,8 +343,21 @@
     if (!card) return
     card.blocks = card.blocks.filter((b) => b.id !== blockID)
     saveError = null
-    // Flush pending typing-style debounce so the delete commits
-    // immediately rather than waiting another 200ms.
+    await saveBlocksNow()
+  }
+
+  function scheduleSave() {
+    if (blockSaveTimer) clearTimeout(blockSaveTimer)
+    blockSaveTimer = setTimeout(() => void saveBlocksNow(), 200)
+  }
+
+  // Single persistence path for every block mutation (edit / move / delete
+  // / add). Flushes any pending debounce, persists the current snapshot,
+  // and on failure routes through onSaveFailed — so a network drop keeps
+  // the optimistic blocks and retries on reconnect rather than reverting
+  // and losing the edit.
+  async function saveBlocksNow() {
+    if (!card) return
     if (blockSaveTimer) {
       clearTimeout(blockSaveTimer)
       blockSaveTimer = null
@@ -343,34 +369,12 @@
       lastSavedBlocks = snapshot
       flashSaved()
     } catch (err) {
-      if (card) card.blocks = lastSavedBlocks
-      saveError = err instanceof Error ? err.message : t('card.err_save')
+      onSaveFailed(err, 'blocks', saveBlocksNow, () => {
+        if (card) card.blocks = lastSavedBlocks
+      })
     } finally {
       savingBlocks = false
     }
-  }
-
-  function scheduleSave() {
-    if (blockSaveTimer) clearTimeout(blockSaveTimer)
-    blockSaveTimer = setTimeout(async () => {
-      blockSaveTimer = null
-      if (!card) return
-      const snapshot = card.blocks
-      savingBlocks = true
-      try {
-        await repoRPC('UpdateCardBlocks', [card.id, snapshot])
-        lastSavedBlocks = snapshot
-        flashSaved()
-      } catch (err) {
-        // Revert to the last server-confirmed state. The user sees
-        // their last change disappear + an error rail; better than
-        // pretending it stuck.
-        if (card) card.blocks = lastSavedBlocks
-        saveError = err instanceof Error ? err.message : t('card.err_save')
-      } finally {
-        savingBlocks = false
-      }
-    }, 200)
   }
 
   // Empty checklist/list rows are editing placeholders, not content. Drop
@@ -503,24 +507,8 @@
       collapsedBlocks = next
     }
 
-    // Persist now — flush any pending typing debounce first so we don't
-    // race it (mirrors deleteBlock).
-    if (blockSaveTimer) {
-      clearTimeout(blockSaveTimer)
-      blockSaveTimer = null
-    }
-    const snapshot = card.blocks
-    savingBlocks = true
-    try {
-      await repoRPC('UpdateCardBlocks', [card.id, snapshot])
-      lastSavedBlocks = snapshot
-      flashSaved()
-    } catch (err) {
-      if (card) card.blocks = lastSavedBlocks
-      saveError = err instanceof Error ? err.message : t('card.err_save')
-    } finally {
-      savingBlocks = false
-    }
+    // Persist now (saveBlocksNow flushes any pending typing debounce).
+    await saveBlocksNow()
 
     // Scroll the new block into view so the user sees it land.
     queueMicrotask(() => {
@@ -572,18 +560,10 @@
   let refreshing = $state(false)
   let searchOpen = $state(false)
 
-  async function pickType(typeID: string) {
+  function pickType(typeID: string) {
     typePickerOpen = false
     if (!card || card.type === typeID) return
-    const previous = card.type
-    card.type = typeID
-    saveError = null
-    try {
-      await repoRPC('UpdateCardType', [card.id, typeID])
-    } catch (err) {
-      card.type = previous
-      saveError = err instanceof Error ? err.message : t('card.err_save')
-    }
+    void persistField('type', typeID, 'UpdateCardType')
   }
 
   async function performRefresh() {
@@ -598,7 +578,11 @@
         lastSavedBlocks = fresh.blocks ?? []
       }
     } catch (err) {
-      saveError = err instanceof Error ? err.message : t('card.err_save')
+      // Offline is communicated by the global overlay; don't auto-retry an
+      // AI refresh (it costs tokens) — the user can re-trigger it.
+      if (!(err instanceof NetworkError)) {
+        saveError = err instanceof Error ? err.message : t('card.err_save')
+      }
     } finally {
       refreshing = false
     }
@@ -622,7 +606,10 @@
         navigate('/')
       }
     } catch (err) {
-      saveError = err instanceof Error ? err.message : t('card.err_delete')
+      // Offline is shown by the global overlay; don't auto-retry a delete.
+      if (!(err instanceof NetworkError)) {
+        saveError = err instanceof Error ? err.message : t('card.err_delete')
+      }
       confirmingDelete = false
     }
   }
@@ -657,7 +644,7 @@
   {#if loading}
     <p class="status">{t('common.loading')}</p>
   {:else if errorMsg}
-    <p class="error">{errorMsg}</p>
+    <ErrorState message={errorMsg} />
   {:else if card}
     <section class="meta">
       <EditableText
@@ -807,6 +794,7 @@
           rowSelector: '.block',
           dropTargetSelector: '[data-drop-target="block-list"]',
           rowIdAttribute: 'data-block-id',
+          handleSelector: '.block-toolbar',
           restoreDOM: false,
         }}
       >
@@ -1385,16 +1373,6 @@
     color: var(--text-muted);
     text-align: center;
     margin: 2rem 0;
-  }
-
-  .error {
-    margin: 2rem 0;
-    padding: 1rem;
-    background: rgba(239, 68, 68, 0.12);
-    border: 1px solid rgba(239, 68, 68, 0.4);
-    border-radius: 8px;
-    color: #fca5a5;
-    text-align: center;
   }
 
   .meta-tabs {

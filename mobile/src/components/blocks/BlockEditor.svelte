@@ -244,6 +244,18 @@
     -webkit-touch-callout: none;
   }
 
+  /* The block suppresses selection so a long-press on its chrome arms a
+     drag rather than selecting text. Editable fields are the exception:
+     restore native selection + the long-press paste/select callout so
+     tapping into a textarea or input behaves normally. Drag is anchored
+     to the toolbar (handleSelector), so the body never starts a drag. */
+  .block :global(textarea),
+  .block :global(input) {
+    user-select: text;
+    -webkit-user-select: text;
+    -webkit-touch-callout: default;
+  }
+
   .block-toolbar {
     display: flex;
     align-items: center;

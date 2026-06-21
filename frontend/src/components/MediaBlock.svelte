@@ -47,7 +47,11 @@
   }
 
   function isVideo(item: MediaItem): boolean {
-    return item.mime === 'video' || (item.url?.match(/\.(mp4|webm|ogg|mov)(\?|$)/i) != null)
+    // Match both the short 'video' guessMime returns and real types like
+    // 'video/mp4' that imports / signed-URL attachments store. The URL
+    // regex is the fallback for items with no mime (signed URLs often
+    // carry no file extension, so mime is the only reliable signal).
+    return item.mime?.startsWith('video') === true || (item.url?.match(/\.(mp4|webm|ogg|mov)(\?|$)/i) != null)
   }
 
   function handleAddKeydown(e: KeyboardEvent) {

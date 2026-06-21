@@ -15,6 +15,7 @@
   import CaptureFAB from './components/CaptureFAB.svelte'
   import ChatFAB from './components/ChatFAB.svelte'
   import Toast from './components/Toast.svelte'
+  import ConnectionOverlay from './components/ConnectionOverlay.svelte'
 
   // Two-stage auth gate, runs reactively on every route change:
   //
@@ -115,6 +116,7 @@
 {/if}
 
 <Toast />
+<ConnectionOverlay />
 
 <style>
   .not-found {

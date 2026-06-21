@@ -7,6 +7,23 @@
 // whichever server the user enrolled with.
 
 import { t } from './i18n.svelte'
+import { reportOffline, checkReachable } from './connectivity.svelte'
+
+// A request still pending after this long triggers an early reachability
+// probe (without aborting it) so a dropped connection surfaces in seconds
+// rather than waiting out the browser's native socket timeout.
+const SLOW_REQUEST_MS = 5000
+
+/** Thrown by apiFetch when a request never reaches the server (offline,
+ *  DNS, tunnel down). Lets callers tell a connectivity failure apart from
+ *  a server-side rejection so they can keep optimistic edits and retry on
+ *  reconnect rather than reverting. */
+export class NetworkError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'NetworkError'
+  }
+}
 
 const STORAGE_SERVER_URL = 'bruv:server_url'
 const STORAGE_DEVICE_TOKEN = 'bruv:device_token'
@@ -149,7 +166,27 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
     headers.set('Content-Type', 'application/json')
   }
 
-  return fetch(`${enrolment.serverURL}${path}`, { ...init, headers })
+  // Watchdog: if the request is still pending after SLOW_REQUEST_MS, probe
+  // reachability early (doesn't abort this request) so a dropped tunnel
+  // surfaces the overlay in seconds instead of waiting out the socket
+  // timeout. A slow-but-alive request just probes-and-continues.
+  const watchdog = setTimeout(() => void checkReachable(), SLOW_REQUEST_MS)
+  try {
+    return await fetch(`${enrolment.serverURL}${path}`, { ...init, headers })
+  } catch (err) {
+    // fetch() rejects with a TypeError when the request never reaches
+    // the server — offline, DNS failure, or (the common one here) the
+    // Tailscale tunnel is down. Raise the global connectivity overlay and
+    // surface a friendly, localized message instead of the browser's raw
+    // "Failed to fetch" / "Load failed".
+    if (err instanceof TypeError) {
+      reportOffline()
+      throw new NetworkError(t('error.network'))
+    }
+    throw err
+  } finally {
+    clearTimeout(watchdog)
+  }
 }
 
 // JSON-RPC envelope. The Go dispatcher reflects on a target struct
@@ -171,7 +208,10 @@ async function rpcCall<T>(endpoint: string, method: string, params: unknown[]): 
     body: JSON.stringify({ jsonrpc: '2.0', method, params, id }),
   })
   if (!res.ok) {
-    throw new Error(`${method}: HTTP ${res.status} ${res.statusText}`)
+    // Technical detail to the console; localized, status-stamped message
+    // to the user (never the raw English statusText).
+    console.error(`${method}: HTTP ${res.status} ${res.statusText}`)
+    throw new Error(t('error.server', { status: res.status }))
   }
   const payload = (await res.json()) as RPCResponse<T>
   if (payload.error) {

@@ -152,6 +152,40 @@ export async function resolveTransportInfo(): Promise<TransportInfo> {
   return cachedTransportInfo
 }
 
+// --- Network resilience hook (remote connection loss) ----------------
+//
+// The shared adapter has no UI and no connection model, so the frontend
+// injects a small strategy. When installed, a network-level fetch failure
+// on a remote connection parks the RPC until connectivity returns, then
+// replays it — so callers' awaits stay pending (optimistic UI intact)
+// across the outage instead of throwing. Local (in-process) backends opt
+// out via shouldHandleOffline() so a genuine local failure still throws.
+export interface NetworkResilience {
+  /** True if a network failure right now is a recoverable connection
+   *  loss (a remote connection is active). False → throw as-is. */
+  shouldHandleOffline(): boolean
+  /** Announce that a request just failed at the network layer (show the
+   *  overlay, start reconnect probing). Idempotent. */
+  onNetworkFailure(): void
+  /** Resolves when connectivity is restored (or confirmed never lost). */
+  whenReconnected(): Promise<void>
+  /** Optional: a request has been pending unusually long. Lets the
+   *  strategy probe NOW (without aborting the request) so a dropped
+   *  connection surfaces in seconds instead of waiting out the browser's
+   *  ~30s+ socket timeout. A slow-but-alive request is unaffected. */
+  onSlowRequest?(): void
+}
+
+// A remote RPC still pending after this long triggers an early
+// reachability probe. Comfortably above normal CRUD latency, so a
+// healthy-but-slow request just probes-and-continues.
+const SLOW_REQUEST_MS = 5000
+
+let resilience: NetworkResilience | null = null
+export function setNetworkResilience(r: NetworkResilience | null): void {
+  resilience = r
+}
+
 // --- JSON-RPC 2.0 client ---
 
 type RPCError = { code: number; message: string; data?: unknown }
@@ -183,22 +217,44 @@ class RPCClient {
     }
     const id = this.nextID++
     const body = JSON.stringify({ jsonrpc: '2.0', method, params, id })
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: this.headers,
-      body,
-    })
-    if (!res.ok) {
-      throw new Error(`rpc ${method}: HTTP ${res.status} ${res.statusText}`)
+    // Park-and-replay loop: a network-level failure on a remote
+    // connection waits for reconnection and resends the same request, so
+    // the caller's await stays pending across the outage instead of
+    // throwing. HTTP/RPC errors (the server answered) are NOT retried.
+    for (;;) {
+      let res: Response
+      // Watchdog: if this fetch is still pending after SLOW_REQUEST_MS,
+      // nudge the strategy to probe — surfaces a dropped connection fast
+      // instead of waiting out the native socket timeout. Doesn't abort.
+      const watchdog = setTimeout(() => resilience?.onSlowRequest?.(), SLOW_REQUEST_MS)
+      try {
+        res = await fetch(endpoint, {
+          method: 'POST',
+          headers: this.headers,
+          body,
+        })
+      } catch (err) {
+        clearTimeout(watchdog)
+        if (err instanceof TypeError && resilience?.shouldHandleOffline()) {
+          resilience.onNetworkFailure()
+          await resilience.whenReconnected()
+          continue
+        }
+        throw err
+      }
+      clearTimeout(watchdog)
+      if (!res.ok) {
+        throw new Error(`rpc ${method}: HTTP ${res.status} ${res.statusText}`)
+      }
+      const payload = (await res.json()) as { result?: unknown; error?: RPCError }
+      if (payload.error) {
+        throw Object.assign(new Error(payload.error.message), {
+          rpcCode: payload.error.code,
+          rpcData: payload.error.data,
+        })
+      }
+      return payload.result
     }
-    const payload = (await res.json()) as { result?: unknown; error?: RPCError }
-    if (payload.error) {
-      throw Object.assign(new Error(payload.error.message), {
-        rpcCode: payload.error.code,
-        rpcData: payload.error.data,
-      })
-    }
-    return payload.result
   }
 }
 

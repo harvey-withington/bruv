@@ -137,6 +137,15 @@ export function dragSortable(node: HTMLElement, options: Options) {
   let armed = false
   let startX = 0
   let startY = 0
+  // Where the finger grabbed the row, measured from the row's top-left
+  // at pointerdown. The ghost is anchored by this offset so the finger
+  // stays glued to the same spot — crucially, anchoring on the finger
+  // rather than on the row's arm-time rect makes the ghost immune to the
+  // reflow `dnd-active` triggers (collapsing every block body shifts the
+  // layout between pointerdown and arm; a rect-based anchor drifts by
+  // that shift, a finger-based one doesn't).
+  let grabDX = 0
+  let grabDY = 0
   let lastClientX = 0
   let lastClientY = 0
   let originalParent: HTMLElement | null = null
@@ -177,17 +186,26 @@ export function dragSortable(node: HTMLElement, options: Options) {
     return el.getBoundingClientRect()
   }
 
+  // Toggle a global no-select state for the duration of a press/drag.
+  // The CSS rule (body.dnd-no-select *) wins over per-element user-select
+  // (e.g. the textarea's restored user-select:text), so selection is fully
+  // suppressed while dragging and fully restored the instant we let go.
+  function setNoSelect(on: boolean) {
+    document.body.classList.toggle('dnd-no-select', on)
+  }
+
   function makeGhost(row: HTMLElement): HTMLElement {
     const rect = originRect(row)
     const clone = row.cloneNode(true) as HTMLElement
     clone.classList.add('dnd-ghost')
     clone.style.position = 'fixed'
-    clone.style.left = `${rect.left}px`
-    clone.style.top = `${rect.top}px`
     clone.style.width = `${rect.width}px`
-    clone.style.height = `${rect.height}px`
     clone.style.pointerEvents = 'none'
     clone.style.zIndex = '999'
+    // Scale from the grab point so the 1.04 zoom doesn't push the ghost
+    // out from under the finger (center-origin scaling shifts a tall
+    // ghost's top up by half the growth — that was the visible offset).
+    clone.style.transformOrigin = `${grabDX}px ${grabDY}px`
     clone.style.transform = 'scale(1.04)'
     clone.style.boxShadow = '0 12px 28px rgba(0,0,0,0.45)'
     clone.style.opacity = '0.95'
@@ -198,15 +216,14 @@ export function dragSortable(node: HTMLElement, options: Options) {
   }
 
   function moveGhost(x: number, y: number) {
-    if (!ghost || !dragRow) return
-    const rect = dragRow.getBoundingClientRect()
-    // Translate ghost so the finger sits on the same spot of the card
-    // it picked up (x - startX from the row's original left edge,
-    // similarly for y).
-    const dx = x - startX
-    const dy = y - startY
-    ghost.style.transform = `translate(${dx}px, ${dy}px) scale(1.04)`
-    void rect
+    if (!ghost) return
+    // Anchor the ghost on the finger using the grab offset captured at
+    // pointerdown. This stays correct even though `dnd-active` collapses
+    // every block body on arm (a reflow that moves the row between
+    // pointerdown and arm) — we never reference the row's post-reflow
+    // rect, only the finger and the offset within it.
+    ghost.style.left = `${x - grabDX}px`
+    ghost.style.top = `${y - grabDY}px`
   }
 
   function findElementUnder(x: number, y: number): HTMLElement | null {
@@ -337,6 +354,7 @@ export function dragSortable(node: HTMLElement, options: Options) {
       clearTimeout(pressTimer)
       pressTimer = null
     }
+    setNoSelect(false)
     stopAutoScroll()
     clearHoverExpand()
     if (ghost) {
@@ -460,8 +478,19 @@ export function dragSortable(node: HTMLElement, options: Options) {
     pointerID = ev.pointerId
     startX = ev.clientX
     startY = ev.clientY
+    const grabRect = row.getBoundingClientRect()
+    grabDX = ev.clientX - grabRect.left
+    grabDY = ev.clientY - grabRect.top
     lastClientX = ev.clientX
     lastClientY = ev.clientY
+    // Suppress native text selection from the instant of press. The same
+    // long-press that arms our drag also triggers the OS text-selection
+    // gesture (on Android, the "Tap to see search results" toolbar). That
+    // selection grabs the pointer and fires pointercancel — the drag dies
+    // before it starts. Setting user-select:none synchronously here, while
+    // the OS selection timer is still counting, prevents it. Cleared when
+    // the press converts to a scroll (below) and in teardown.
+    setNoSelect(true)
     pressTimer = setTimeout(() => {
       pressTimer = null
       arm(row, ev)
@@ -482,6 +511,9 @@ export function dragSortable(node: HTMLElement, options: Options) {
         clearTimeout(pressTimer)
         pressTimer = null
         pointerID = -1
+        // The press became a scroll, not a pickup — let the page select
+        // text / scroll normally again.
+        setNoSelect(false)
       }
       return
     }
@@ -635,6 +667,13 @@ export function dragSortable(node: HTMLElement, options: Options) {
     if (armed && e.cancelable) e.preventDefault()
   }
 
+  // Long-press on Android also raises a contextmenu / selection event.
+  // Swallow it while a press is pending or a drag is armed so the
+  // selection-search toolbar never appears and the pointer stays ours.
+  const blockContextMenu = (e: Event) => {
+    if ((pressTimer || armed) && e.cancelable) e.preventDefault()
+  }
+
   // Pointer events on the action's element bubble up from rows,
   // so a single set of listeners is enough.
   node.addEventListener('pointerdown', onPointerDown)
@@ -642,6 +681,7 @@ export function dragSortable(node: HTMLElement, options: Options) {
   node.addEventListener('pointerup', onPointerUp)
   node.addEventListener('pointercancel', onPointerCancel)
   document.addEventListener('touchmove', blockTouchScroll, { passive: false })
+  document.addEventListener('contextmenu', blockContextMenu)
 
   return {
     update(next: Options) {
@@ -653,6 +693,7 @@ export function dragSortable(node: HTMLElement, options: Options) {
       node.removeEventListener('pointerup', onPointerUp)
       node.removeEventListener('pointercancel', onPointerCancel)
       document.removeEventListener('touchmove', blockTouchScroll)
+      document.removeEventListener('contextmenu', blockContextMenu)
       teardown()
     },
   }

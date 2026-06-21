@@ -5,6 +5,8 @@
   import { loadRepoMeta, resetRepoMeta } from '../lib/repoMeta.svelte'
   import { replace } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
+  import { onReconnect } from '../lib/connectivity.svelte'
+  import ErrorState from '../components/ErrorState.svelte'
 
   // Server-side RepoSummary shape (transport/http/server.go).
   type RepoSummary = {
@@ -17,7 +19,9 @@
   let loading = $state(true)
   let errorMsg = $state<string | null>(null)
 
-  onMount(async () => {
+  async function loadRepos() {
+    loading = true
+    errorMsg = null
     try {
       const res = await apiFetch('/repos')
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
@@ -27,6 +31,11 @@
     } finally {
       loading = false
     }
+  }
+
+  onMount(() => {
+    void loadRepos()
+    return onReconnect(() => void loadRepos())
   })
 
   // True when two registry entries share an ID — registry corruption,
@@ -67,12 +76,7 @@
   {#if loading}
     <p class="status">{t('repo_picker.loading')}</p>
   {:else if errorMsg}
-    <div class="error" role="alert">
-      <p class="error-text">{errorMsg}</p>
-      <button type="button" class="retry" onclick={() => window.location.reload()}>
-        {t('common.retry')}
-      </button>
-    </div>
+    <ErrorState message={errorMsg} />
   {:else if repos.length === 0}
     <div class="empty">
       <h2>{t('repo_picker.empty_title')}</h2>
@@ -154,21 +158,6 @@
     color: var(--text);
   }
 
-  .error {
-    margin-top: 1rem;
-    padding: 1rem;
-    background: rgba(239, 68, 68, 0.12);
-    border: 1px solid rgba(239, 68, 68, 0.4);
-    border-radius: 8px;
-    text-align: center;
-  }
-
-  .error-text {
-    margin: 0 0 0.75rem;
-    color: #fca5a5;
-    font-size: 0.9rem;
-  }
-
   .warn {
     margin-bottom: 1rem;
     padding: 0.75rem 1rem;
@@ -182,18 +171,6 @@
     color: #fde68a;
     font-size: 0.85rem;
     line-height: 1.4;
-  }
-
-  .retry {
-    background: var(--accent);
-    color: var(--bg);
-    border: none;
-    border-radius: 6px;
-    padding: 0.5rem 1.25rem;
-    font: inherit;
-    font-weight: 600;
-    font-size: 0.85rem;
-    cursor: pointer;
   }
 
   .repo-list {

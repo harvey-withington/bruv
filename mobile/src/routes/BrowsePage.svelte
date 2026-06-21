@@ -24,9 +24,11 @@
     uniqueName,
   } from '../lib/browse.svelte'
   import ConfirmDialog from '../components/ConfirmDialog.svelte'
+  import ErrorState from '../components/ErrorState.svelte'
   import { navigate, projectURL } from '../lib/router.svelte'
   import { readActiveRepoID, apiFetch, repoRPC, machineRPC } from '../lib/auth'
   import { onEvent } from '../lib/events.svelte'
+  import { onReconnect } from '../lib/connectivity.svelte'
   import { t } from '../lib/i18n.svelte'
   import type { Brand, Stream } from '../lib/model'
   import type { AppNotification } from '@shared/types'
@@ -329,6 +331,26 @@
     if (ev.topic === 'notification:new') void loadUnread()
   })
   onDestroy(unsubEvents)
+
+  // On reconnect, force-refresh brands and any expanded sub-trees so the
+  // tree reflects server truth without a full reload (preserves which
+  // rows are open).
+  async function refreshBrowse() {
+    mutationError = null
+    await loadBrands(true)
+    for (const brand of browse.brands.items) {
+      if (!expandedBrands[brand.slug]) continue
+      await loadStreams(brand.slug, true)
+      const streams = browse.streamsFor(brand.slug)
+      for (const stream of streams?.items ?? []) {
+        if (expandedStreams[`${brand.slug}/${stream.slug}`]) {
+          void loadProjects(brand.slug, stream.slug, true)
+        }
+      }
+    }
+    void loadUnread()
+  }
+  onDestroy(onReconnect(refreshBrowse))
 
   function closeNotifications() {
     notificationsOpen = false
@@ -650,7 +672,7 @@
   {#if browse.brands.state === 'loading'}
     <p class="status">{t('common.loading')}</p>
   {:else if browse.brands.state === 'error'}
-    <p class="error">{browse.brands.error}</p>
+    <ErrorState message={browse.brands.error ?? t('common.error_generic')} />
   {:else if browse.brands.items.length === 0}
     <p class="status">{t('browse.empty')}</p>
   {:else}
@@ -725,7 +747,9 @@
             {#if !streams || (streams.state === 'loading' && streams.items.length === 0)}
               <p class="indent status">{t('common.loading')}</p>
             {:else if streams.state === 'error' && streams.items.length === 0}
-              <p class="indent error">{streams.error}</p>
+              <div class="indent">
+                <ErrorState compact message={streams.error ?? t('common.error_generic')} />
+              </div>
             {:else}
               <ul
                 class="streams"
@@ -805,7 +829,9 @@
                       {#if !projects || (projects.state === 'loading' && projects.items.length === 0)}
                         <p class="indent status">{t('common.loading')}</p>
                       {:else if projects.state === 'error' && projects.items.length === 0}
-                        <p class="indent error">{projects.error}</p>
+                        <div class="indent">
+                          <ErrorState compact message={projects.error ?? t('common.error_generic')} />
+                        </div>
                       {:else}
                         <ul
                           class="projects"

@@ -153,6 +153,9 @@
       // onchange already applies it live.
       prefs.theme = theme.mode
       const { default_category_name, ...uiPrefs } = prefs
+      // sidebar_width is an int server-side; the splitter can leave a
+      // fractional px value, so coerce before persisting.
+      uiPrefs.sidebar_width = Math.round(uiPrefs.sidebar_width)
       await Promise.all([
         SetPreferences({ default_category_name }),
         SetUIPreferences(uiPrefs),

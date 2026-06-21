@@ -397,6 +397,11 @@ const SHELL_METHODS = new Set<string>([
   'OpenLogsFolder',
   'OpenBugReportURL',
   'ForceQuit',
+  // Build info / version — report on the running desktop binary, so they
+  // live on the Wails shell rather than the per-repo RPC surface.
+  'GetBuildInfo',
+  'Version',
+  'CheckForUpdates',
 ])
 
 function buildShellMethod(name: string): (...args: unknown[]) => Promise<unknown> {

@@ -473,7 +473,7 @@
         {/if}
         <div class="col-slot">
           <Column
-            {category}
+            bind:category={board.categories[colIdx]}
             brandSlug={nav.brandSlug || undefined}
             streamSlug={nav.streamSlug || undefined}
             projectSlug={nav.projectSlug || undefined}

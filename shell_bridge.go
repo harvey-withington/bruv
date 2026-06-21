@@ -1,6 +1,9 @@
 package main
 
-import "bruv/internal/config"
+import (
+	"bruv/internal/config"
+	"bruv/internal/update"
+)
 
 // ShellAPI is the narrow Wails-bound surface exposed to the frontend.
 // It holds ONLY the methods that must execute inside the Wails shell:
@@ -56,6 +59,18 @@ func (s *ShellAPI) OpenBugReportURL() error  { return s.app.OpenBugReportURL() }
 // that beforeClose reads to decide between "hide to tray" and
 // "actually quit". Shell-lifecycle concern.
 func (s *ShellAPI) ForceQuit() { s.app.ForceQuit() }
+
+// --- Build info / version (used by the About dialog) ---
+//
+// Shell-bound because they report on the running desktop binary (its
+// version, build date, OS/arch, Go version) — the local app the user
+// launched, not whichever backend a remote connection points at.
+
+func (s *ShellAPI) Version() string { return s.app.Version() }
+
+func (s *ShellAPI) GetBuildInfo() BuildInfo { return s.app.GetBuildInfo() }
+
+func (s *ShellAPI) CheckForUpdates() update.Result { return s.app.CheckForUpdates() }
 
 // --- Per-device UI preferences ---
 //

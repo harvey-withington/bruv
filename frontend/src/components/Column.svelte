@@ -34,7 +34,7 @@
     cards: CardData[]
   }
 
-  let { category, brandSlug, streamSlug, projectSlug, onCardClick, onAddCard, onImportCard, onCardDrop, onDeleteCategory, onStartRename, renaming, renamingName, onRenamingNameChange, onCommitRename, onCancelRename, isReadonly, onCategoryUpdated, onAcceptedTypesChanged }: {
+  let { category = $bindable(), brandSlug, streamSlug, projectSlug, onCardClick, onAddCard, onImportCard, onCardDrop, onDeleteCategory, onStartRename, renaming, renamingName, onRenamingNameChange, onCommitRename, onCancelRename, isReadonly, onCategoryUpdated, onAcceptedTypesChanged }: {
     category: CategoryData
     brandSlug?: string
     streamSlug?: string

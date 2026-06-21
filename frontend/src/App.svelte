@@ -40,7 +40,7 @@
 
   // Restore sidebar width
   const savedWidth = localStorage.getItem('bruv-sidebar-width')
-  if (savedWidth) nav.sidebarWidth = Math.max(160, Math.min(500, Number(savedWidth)))
+  if (savedWidth) nav.sidebarWidth = Math.round(Math.max(160, Math.min(500, Number(savedWidth))))
 
   // Boot phase owns ONLY the boot-time transitions. Once we're
   // 'ready', nav.repoOpen is the source of truth for picker-vs-board
@@ -324,7 +324,7 @@
 
     function onMove(ev: PointerEvent) {
       const delta = ev.clientX - startX
-      nav.sidebarWidth = Math.max(160, Math.min(500, startW + delta))
+      nav.sidebarWidth = Math.round(Math.max(160, Math.min(500, startW + delta)))
     }
 
     function onUp() {

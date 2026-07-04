@@ -147,6 +147,13 @@ jobs:
       - name: go test
         run: go test ./... -count=1
 
+      # foldertemplate/ is its own Go module (future-external, zero BRUV
+      # imports — see plan/2026-07-04 implementation plan workspace.md §3),
+      # so the root `go test ./...` does not reach it.
+      - name: go test (foldertemplate module)
+        working-directory: foldertemplate
+        run: go test ./... -count=1
+
   frontend-check:
     name: Svelte type + a11y check
     runs-on: ubuntu-latest

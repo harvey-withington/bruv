@@ -16,10 +16,21 @@
   let { blocks, onCreate, onClose }: {
     blocks: Block[]
     /** Performs the create. Throws on failure (the dialog shows a toast and
-     *  stays open); resolves on success (the dialog closes). */
-    onCreate: (name: string, icon: string, color: string, blockIDs: string[]) => Promise<void>
+     *  stays open); resolves on success (the dialog closes). keepValueBlockIDs
+     *  is the subset of blockIDs whose items become a predefined structure. */
+    onCreate: (name: string, icon: string, color: string, blockIDs: string[], keepValueBlockIDs: string[]) => Promise<void>
     onClose: () => void
   } = $props()
+
+  // Block types whose value is a list of items worth keeping as a template
+  // structure (vs. simple fields, whose values are always cleared).
+  const KEEPABLE_TYPES = new Set(['checklist', 'list'])
+  function itemCount(b: Block): number {
+    return Array.isArray(b.value) ? b.value.length : 0
+  }
+  function canKeepItems(b: Block): boolean {
+    return KEEPABLE_TYPES.has(b.type) && itemCount(b) > 0
+  }
 
   const TYPE_PALETTE = [
     '#6366f1', '#22c55e', '#f59e0b', '#ec4899', '#06b6d4',
@@ -32,10 +43,13 @@
   let icon = $state('')
   let saving = $state(false)
   let showIconPicker = $state(false)
-  // Default: every block is part of the template. Captured once on open —
-  // the dialog is remounted per-open, so initial-value capture is intended.
+  // Default: every block is part of the template, and list-like blocks that
+  // already have items keep them as a starting structure. Captured once on
+  // open — the dialog is remounted per-open, so initial capture is intended.
   /* svelte-ignore state_referenced_locally */
   let selected = $state(new Set(blocks.map(b => b.id)))
+  /* svelte-ignore state_referenced_locally */
+  let keepItems = $state(new Set(blocks.filter(canKeepItems).map(b => b.id)))
 
   function blockLabel(b: Block): string {
     return b.label || b.key || b.type
@@ -48,11 +62,20 @@
     selected = next
   }
 
+  function toggleKeep(id: string) {
+    const next = new Set(keepItems)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    keepItems = next
+  }
+
   async function create() {
     if (!name.trim()) { showToast(t('create_type_from_card.name_required'), 'error'); return }
     saving = true
+    // Only keep items for blocks that are actually included in the template.
+    const keep = [...keepItems].filter(id => selected.has(id))
     try {
-      await onCreate(name.trim(), icon, color, [...selected])
+      await onCreate(name.trim(), icon, color, [...selected], keep)
       onClose()
     } catch (e) {
       const detail = e instanceof Error && e.message ? `: ${e.message}` : ''
@@ -146,6 +169,16 @@
                 <span class="block-name">{blockLabel(b)}</span>
                 <span class="block-type">{b.type}</span>
               </label>
+              {#if canKeepItems(b) && selected.has(b.id)}
+                <label class="keep-row">
+                  <input type="checkbox" checked={keepItems.has(b.id)} onchange={() => toggleKeep(b.id)} />
+                  <span class="keep-label">
+                    {itemCount(b) === 1
+                      ? t('create_type_from_card.keep_items_one')
+                      : t('create_type_from_card.keep_items', { count: itemCount(b) })}
+                  </span>
+                </label>
+              {/if}
             {/each}
           </div>
           <span class="hint">{t('create_type_from_card.blocks_hint')}</span>
@@ -286,6 +319,16 @@
   }
   .block-row:hover { background: var(--bg-hover); }
   .block-row input { cursor: pointer; }
+  .keep-row {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.2rem 0.5rem 0.4rem 1.9rem;
+    cursor: pointer;
+  }
+  .keep-row input { cursor: pointer; }
+  .keep-label { font-size: 0.75rem; color: var(--text-muted); }
+  .keep-row:hover .keep-label { color: var(--text-primary); }
   .block-name {
     flex: 1;
     min-width: 0;

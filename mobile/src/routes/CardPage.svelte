@@ -4,6 +4,7 @@
   import { onReconnect } from '../lib/connectivity.svelte'
   import { navigate, projectURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
+  import { renderInline } from '@shared/markdown'
   import { Trash2, MapPin, Plus, X, RefreshCw, Search, Paperclip, MessageSquare, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Copy, FileJson } from 'lucide-svelte'
   import { cardToMarkdown } from '@shared/cardMarkdown'
   import { downloadBlob, sanitizeFilenameStem } from '@shared/download'
@@ -620,7 +621,7 @@
     <span aria-hidden="true">‹</span> {t('common.back')}
   </button>
   <span class="topbar-title" title={card?.title ?? ''}>
-    {card?.title ?? t('common.loading')}
+    {@html renderInline(card?.title ?? t('common.loading'))}
   </span>
   <div class="topbar-right">
     <span class="save-state" aria-live="polite">

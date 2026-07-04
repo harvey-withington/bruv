@@ -4,6 +4,7 @@
   import { repoRPC } from '../lib/auth'
   import { navigate, cardURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
+  import { renderInline } from '@shared/markdown'
   import { repoMeta } from '../lib/repoMeta.svelte'
   import { getCardTypeColor, getCardTypeTextColor, getCardTypeLabel } from '@shared/cardTypes'
 
@@ -129,7 +130,7 @@
           <li>
             <button type="button" class="result" onclick={() => open(hit)}>
               <div class="result-text">
-                <span class="result-title">{hit.Title || t('inbox.untitled')}</span>
+                <span class="result-title">{@html renderInline(hit.Title || t('inbox.untitled'))}</span>
                 {#if hit.ProjectContext}
                   <span class="result-context">{hit.ProjectContext}</span>
                 {/if}

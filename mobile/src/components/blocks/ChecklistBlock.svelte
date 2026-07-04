@@ -5,14 +5,11 @@
   import type { Block, ChecklistItem } from '@shared/types'
   import { asChecklist, withValue, newID } from './narrow'
   import { dragSortable, type DragMoveDetail } from '../../lib/actions/dnd.svelte'
+  import EditableItemText from './EditableItemText.svelte'
 
   let { block, onChange }: { block: Block; onChange: (next: Block) => void } = $props()
 
   const items = $derived(asChecklist(block.value))
-
-  // Local drafts so typing doesn't fight upstream re-renders. Keyed
-  // by item.id so reorder/delete don't shift drafts onto wrong rows.
-  let drafts = $state<Record<string, string>>({})
 
   function commitItems(next: ChecklistItem[]) {
     onChange(withValue(block, next))
@@ -33,7 +30,6 @@
 
   function deleteItem(id: string) {
     commitItems(items.filter((it) => it.id !== id))
-    delete drafts[id]
   }
 
   function commitText(id: string, next: string) {
@@ -44,22 +40,13 @@
   }
 
   function addItem() {
-    // A blur on the focused row may have just committed its edit (via
-    // Enter, or by tapping "Add item"). That commit reaches us through
-    // onChange → the parent's card.blocks → our `block` prop, which does
-    // NOT propagate back synchronously. Flush it before reading `items`,
-    // otherwise we'd append to a stale array and clobber the just-typed
-    // text on the last row (it would save empty the first time).
+    // A pending commit from the just-edited row reaches us through onChange →
+    // the parent's card.blocks → our `block` prop, which does NOT propagate
+    // back synchronously. Flush it before reading `items`, otherwise we'd
+    // append to a stale array and clobber the just-typed text on the last row.
+    // The new blank row auto-enters edit mode and focuses itself.
     flushSync()
-    const id = newID()
-    commitItems([...items, { id, text: '', done: false }])
-    // Defer focus until the new <input> mounts.
-    queueMicrotask(() => {
-      const el = document.querySelector<HTMLInputElement>(
-        `[data-checklist-input="${id}"]`,
-      )
-      el?.focus()
-    })
+    commitItems([...items, { id: newID(), text: '', done: false }])
   }
 
   // Reorder via shared dragSortable action. The action mutates the DOM
@@ -114,39 +101,14 @@
           <Square size={20} />
         {/if}
       </button>
-      <input
-        class="text"
-        type="text"
-        data-checklist-input={item.id}
-        value={drafts[item.id] ?? item.text}
-        oninput={(e) => (drafts[item.id] = (e.currentTarget as HTMLInputElement).value)}
-        onblur={(e) => {
-          const v = (e.currentTarget as HTMLInputElement).value
-          delete drafts[item.id]
-          if (v.trim() === '') {
-            // Don't leave an empty row behind — drop abandoned/blank items.
-            deleteItem(item.id)
-          } else {
-            commitText(item.id, v)
-          }
-        }}
-        onkeydown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault()
-            ;(e.currentTarget as HTMLInputElement).blur()
-            addItem()
-          } else if (e.key === 'Escape') {
-            // Cancel the edit — and never let Escape bubble up to close the
-            // card. Revert to the stored text, then blur: onblur removes a
-            // blank new row, or keeps an existing row's text unchanged.
-            e.preventDefault()
-            e.stopPropagation()
-            const input = e.currentTarget as HTMLInputElement
-            delete drafts[item.id]
-            input.value = item.text
-            input.blur()
-          }
-        }}
+      <EditableItemText
+        text={item.text}
+        done={item.done}
+        autoEdit={item.text === ''}
+        placeholder={t('block.checklist.placeholder')}
+        onSave={(v) => commitText(item.id, v)}
+        onEmpty={() => deleteItem(item.id)}
+        onEnter={addItem}
       />
       <button
         type="button"
@@ -192,12 +154,8 @@
     gap: 0.4rem;
     padding: 0.2rem 0;
   }
-  .row.done .text {
-    text-decoration: line-through;
-    color: var(--text-muted);
-  }
   /* Dedicated grab area — keeps text-selection long-press on the
-     <input> intact by giving the drag action its own surface to
+     item text intact by giving the drag action its own surface to
      listen on (see dndhandle gate in dnd.svelte.ts). */
   .drag-handle {
     background: transparent;
@@ -247,25 +205,6 @@
   }
   .row.done .check {
     color: var(--accent);
-  }
-  .text {
-    flex: 1;
-    min-width: 0;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    color: var(--text);
-    font: inherit;
-    font-size: 0.95rem;
-    padding: 0.4rem 0.5rem;
-  }
-  .text:hover {
-    border-color: var(--border);
-  }
-  .text:focus {
-    outline: none;
-    border-color: var(--accent);
-    background: var(--bg-elev-1);
   }
   .del {
     background: transparent;

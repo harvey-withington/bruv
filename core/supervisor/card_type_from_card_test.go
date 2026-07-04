@@ -45,7 +45,7 @@ func TestCreateCardTypeFromCard(t *testing.T) {
 		t.Fatalf("UpdateCardBlocks: %v", err)
 	}
 
-	info, err := rt.CreateCardTypeFromCard(card.ID, "Episode", "calendar", "#ec4899", []string{"b1", "b2"})
+	info, err := rt.CreateCardTypeFromCard(card.ID, "Episode", "calendar", "#ec4899", []string{"b1", "b2"}, nil)
 	if err != nil {
 		t.Fatalf("CreateCardTypeFromCard: %v", err)
 	}
@@ -138,8 +138,79 @@ func TestCreateCardTypeFromCard(t *testing.T) {
 func TestCreateCardTypeFromCard_RequiresName(t *testing.T) {
 	rt := newTestRuntime(t)
 	card, _ := rt.CreateCard("", "x")
-	if _, err := rt.CreateCardTypeFromCard(card.ID, "   ", "", "#fff", nil); err == nil {
+	if _, err := rt.CreateCardTypeFromCard(card.ID, "   ", "", "#fff", nil, nil); err == nil {
 		t.Error("expected error for blank name")
+	}
+}
+
+func TestCreateCardTypeFromCard_KeepsChecklistItems(t *testing.T) {
+	rt := newTestRuntime(t)
+
+	card, err := rt.CreateCard("", "Release checklist")
+	if err != nil {
+		t.Fatalf("CreateCard: %v", err)
+	}
+	blocks := []model.Block{
+		{ID: "b1", Type: model.BlockChecklist, Label: "Steps", Value: []any{
+			map[string]any{"id": "i1", "text": "Tag the release", "done": true},
+			map[string]any{"id": "i2", "text": "Publish notes", "done": false},
+		}},
+		{ID: "b2", Type: model.BlockChecklist, Label: "Blank", Value: []any{
+			map[string]any{"id": "j1", "text": "scratch", "done": false},
+		}},
+	}
+	if _, err := rt.UpdateCardBlocks(card.ID, blocks); err != nil {
+		t.Fatalf("UpdateCardBlocks: %v", err)
+	}
+
+	// Keep b1's items as a starting structure; b2 is included but cleared.
+	info, err := rt.CreateCardTypeFromCard(card.ID, "Release", "", "#22c55e",
+		[]string{"b1", "b2"}, []string{"b1"})
+	if err != nil {
+		t.Fatalf("CreateCardTypeFromCard: %v", err)
+	}
+
+	templates, _ := rt.ListCardTemplates()
+	var tmpl *config.CardTemplate
+	for i := range templates {
+		if templates[i].ID == info.TemplateID {
+			tmpl = &templates[i]
+		}
+	}
+	if tmpl == nil {
+		t.Fatal("template not found")
+	}
+	byKey := map[string]model.Block{}
+	for _, b := range tmpl.Blocks {
+		byKey[b.Key] = b
+	}
+
+	// b1 ("steps") keeps its items, but every item is reset to unchecked.
+	steps, ok := byKey["steps"]
+	if !ok {
+		t.Fatalf("template missing 'steps' field; keys = %v", keysOf(tmpl.Blocks))
+	}
+	items, ok := steps.Value.([]any)
+	if !ok || len(items) != 2 {
+		t.Fatalf("steps value = %#v, want 2 kept items", steps.Value)
+	}
+	for _, it := range items {
+		m, ok := it.(map[string]any)
+		if !ok {
+			t.Fatalf("checklist item is not a map: %#v", it)
+		}
+		if m["done"] != false {
+			t.Errorf("kept checklist item done = %#v, want false (reset)", m["done"])
+		}
+	}
+
+	// b2 ("blank") was not in keepValueIDs, so it's cleared to no items.
+	blank, ok := byKey["blank"]
+	if !ok {
+		t.Fatalf("template missing 'blank' field; keys = %v", keysOf(tmpl.Blocks))
+	}
+	if got, ok := blank.Value.([]any); !ok || len(got) != 0 {
+		t.Errorf("blank value = %#v, want empty slice (cleared)", blank.Value)
 	}
 }
 

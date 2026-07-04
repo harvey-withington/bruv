@@ -5,6 +5,7 @@
   import { onReconnect } from '../lib/connectivity.svelte'
   import { navigate, cardURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
+  import { renderInline } from '@shared/markdown'
   import { loadProjectTags, projectKey as makeProjectKey } from '../lib/repoMeta.svelte'
   import {
     browse,
@@ -496,7 +497,7 @@
   <button type="button" class="back" onclick={() => navigate('/')}>
     <span aria-hidden="true">‹</span> {t('common.back')}
   </button>
-  <h1 title={projectName}>{projectName}</h1>
+  <h1 title={projectName}>{@html renderInline(projectName)}</h1>
   <button type="button" class="topbar-search" onclick={() => (searchOpen = true)} aria-label={t('browse.search')} title={t('browse.search')}>
     <Search size={18} />
   </button>
@@ -590,7 +591,7 @@
                 {#if cat.icon}
                   <DynamicIcon name={cat.icon} size={16} />
                 {/if}
-                <span class="cat-name">{cat.name}</span>
+                <span class="cat-name">{@html renderInline(cat.name)}</span>
                 <span class="count">{cat.cards.length}</span>
               </button>
               <button

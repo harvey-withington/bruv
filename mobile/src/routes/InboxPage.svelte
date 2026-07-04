@@ -5,6 +5,7 @@
   import { onReconnect } from '../lib/connectivity.svelte'
   import { navigate, cardURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
+  import { renderInline } from '@shared/markdown'
   import { repoMeta } from '../lib/repoMeta.svelte'
   import { getCardTypeColor, getCardTypeTextColor, getCardTypeLabel } from '@shared/cardTypes'
   import { onEvent } from '../lib/events.svelte'
@@ -255,7 +256,7 @@
                 </span>
               {/if}
               <div class="card-main">
-                <span class="card-title">{card.title || t('inbox.untitled')}</span>
+                <span class="card-title">{@html renderInline(card.title || t('inbox.untitled'))}</span>
                 {#if card.tags?.length}
                   <div class="tags">
                     {#each card.tags as tag}
@@ -308,7 +309,7 @@
                 </span>
               {/if}
               <div class="card-main">
-                <span class="card-title">{card.title || t('inbox.untitled')}</span>
+                <span class="card-title">{@html renderInline(card.title || t('inbox.untitled'))}</span>
                 {#if card.breadcrumb}
                   <span class="card-breadcrumb">{card.breadcrumb}</span>
                 {/if}

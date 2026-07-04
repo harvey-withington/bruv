@@ -876,8 +876,10 @@ export interface BackendAdapter {
   UpdateBuiltinCardType(id: string, color: string, templateId: string): Promise<void>
   // Create a new user card type from an existing card's blocks: the chosen
   // blocks become the type's template (values stripped, keys/meta kept), and
-  // the originating card is switched to the new type. Returns the new type.
-  CreateCardTypeFromCard(cardID: string, name: string, icon: string, color: string, blockIDs: string[]): Promise<CardTypeInfo>
+  // the originating card is switched to the new type. blockIDs in keepValueBlockIDs
+  // keep their current value as a predefined template structure (e.g. a
+  // checklist's items). Returns the new type.
+  CreateCardTypeFromCard(cardID: string, name: string, icon: string, color: string, blockIDs: string[], keepValueBlockIDs: string[]): Promise<CardTypeInfo>
 
   // Card templates
   ListCardTemplates(): Promise<CardTemplate[]>

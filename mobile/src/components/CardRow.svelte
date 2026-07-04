@@ -10,6 +10,7 @@
   import { getCardTypeColor, getCardTypeTextColor, getCardTypeLabel } from '@shared/cardTypes'
   import { repoMeta } from '../lib/repoMeta.svelte'
   import { t } from '../lib/i18n.svelte'
+  import { renderInline } from '@shared/markdown'
 
   type CardSummaryLite = {
     id: string
@@ -37,7 +38,7 @@
   onclick={onClick}
 >
   <div class="card-main">
-    <span class="card-title">{card.title || t('inbox.untitled')}</span>
+    <span class="card-title">{@html renderInline(card.title || t('inbox.untitled'))}</span>
     {#if card.tags?.length}
       <div class="tags">
         {#each card.tags as tag}

@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -15,14 +16,18 @@ import (
 // template — labels, types and meta (e.g. select options) preserved,
 // values stripped — and the originating card is switched to the new type.
 //
+// keepValueIDs is the subset of blockIDs whose current value should be
+// baked into the template instead of blanked — e.g. a checklist whose items
+// form a reusable structure. Checklist items kept this way start unchecked.
+//
 // Keys are the subtle bit. Template fields need stable schema keys, but a
 // freeform block added by hand has an empty key. We derive a key for each
 // selected block (its existing key, or one slugged from its label) and
 // assign that SAME key to the card's block before switching type, so
 // ApplyTypeBlocks reconciles by key instead of appending duplicate empty
 // fields. Net result: the card keeps its values, the template gets blank
-// ones, and there are no duplicates.
-func (r *Runtime) CreateCardTypeFromCard(cardID, name, icon, color string, blockIDs []string) (CardTypeInfo, error) {
+// (or, for keepValueIDs, predefined) ones, and there are no duplicates.
+func (r *Runtime) CreateCardTypeFromCard(cardID, name, icon, color string, blockIDs, keepValueIDs []string) (CardTypeInfo, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return CardTypeInfo{}, fmt.Errorf("type name is required")
@@ -38,7 +43,7 @@ func (r *Runtime) CreateCardTypeFromCard(cardID, name, icon, color string, block
 	// later collide when ListCardTypes appends the seed.
 	_ = r.Catalog.ListCardTypes()
 
-	templateBlocks, cardBlocks := buildTypeTemplateFromCard(card.Blocks, blockIDs)
+	templateBlocks, cardBlocks := buildTypeTemplateFromCard(card.Blocks, blockIDs, keepValueIDs)
 
 	tmpl, err := r.Catalog.CreateCardTemplate(name, templateBlocks)
 	if err != nil {
@@ -79,11 +84,16 @@ func (r *Runtime) CreateCardTypeFromCard(cardID, name, icon, color string, block
 // buildTypeTemplateFromCard turns a card's blocks into (1) template blocks
 // (values stripped, unique keys) and (2) a copy of the card's blocks with
 // those same keys assigned to the selected rows. Block order is preserved;
-// unselected blocks are returned unchanged.
-func buildTypeTemplateFromCard(cardBlocks []model.Block, selectedIDs []string) (templateBlocks, updatedCardBlocks []model.Block) {
+// unselected blocks are returned unchanged. Blocks listed in keepValueIDs
+// carry their current value into the template instead of a blank one.
+func buildTypeTemplateFromCard(cardBlocks []model.Block, selectedIDs, keepValueIDs []string) (templateBlocks, updatedCardBlocks []model.Block) {
 	selected := make(map[string]bool, len(selectedIDs))
 	for _, id := range selectedIDs {
 		selected[id] = true
+	}
+	keepValue := make(map[string]bool, len(keepValueIDs))
+	for _, id := range keepValueIDs {
+		keepValue[id] = true
 	}
 
 	updatedCardBlocks = make([]model.Block, len(cardBlocks))
@@ -102,12 +112,63 @@ func buildTypeTemplateFromCard(cardBlocks []model.Block, selectedIDs []string) (
 			Type:     b.Type,
 			Label:    b.Label,
 			Key:      key,
-			Value:    emptyValueForBlockType(b.Type),
+			Value:    templateValueForBlock(b, keepValue[b.ID]),
 			Required: b.Required,
 			Meta:     cloneBlockMeta(b.Meta),
 		})
 	}
 	return templateBlocks, updatedCardBlocks
+}
+
+// templateValueForBlock returns the value a template field should carry: a
+// blank default, or — when keep is set — a deep copy of the card's current
+// value so it becomes a predefined structure. Kept checklist items are reset
+// to unchecked so every new card starts the list fresh.
+func templateValueForBlock(b model.Block, keep bool) any {
+	if !keep {
+		return emptyValueForBlockType(b.Type)
+	}
+	cloned := cloneJSONValue(b.Value)
+	if cloned == nil {
+		return emptyValueForBlockType(b.Type)
+	}
+	if b.Type == model.BlockChecklist {
+		resetChecklistItemsDone(cloned)
+	}
+	return cloned
+}
+
+// cloneJSONValue deep-copies a JSON-native block value so the template and
+// the originating card never alias the same slice/map.
+func cloneJSONValue(v any) any {
+	if v == nil {
+		return nil
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	var out any
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+// resetChecklistItemsDone clears the done flag on each checklist item so a
+// templatised checklist is a blank structure, not a pre-ticked one.
+func resetChecklistItemsDone(v any) {
+	items, ok := v.([]any)
+	if !ok {
+		return
+	}
+	for _, it := range items {
+		if m, ok := it.(map[string]any); ok {
+			if _, has := m["done"]; has {
+				m["done"] = false
+			}
+		}
+	}
 }
 
 // uniqueTemplateFieldKey returns a stable, unique schema key for a template

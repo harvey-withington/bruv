@@ -250,9 +250,9 @@
 
   // Throws on failure so the dialog surfaces the error and stays open; on
   // success the card has been switched server-side, so reload types + card.
-  async function handleCreateTypeFromCard(name: string, icon: string, color: string, blockIDs: string[]) {
+  async function handleCreateTypeFromCard(name: string, icon: string, color: string, blockIDs: string[], keepValueBlockIDs: string[]) {
     if (!card) return
-    await tracked(CreateCardTypeFromCard(cardId, name, icon, color, blockIDs))
+    await tracked(CreateCardTypeFromCard(cardId, name, icon, color, blockIDs, keepValueBlockIDs))
     await loadCardTypes()
     card = await GetCard(cardId) as Card
     onUpdated?.()

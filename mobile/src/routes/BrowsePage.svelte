@@ -30,6 +30,7 @@
   import { onEvent } from '../lib/events.svelte'
   import { onReconnect } from '../lib/connectivity.svelte'
   import { t } from '../lib/i18n.svelte'
+  import { renderInline } from '@shared/markdown'
   import type { Brand, Stream } from '../lib/model'
   import type { AppNotification } from '@shared/types'
   import DynamicIcon from '../components/DynamicIcon.svelte'
@@ -717,7 +718,7 @@
                 {#if brand.icon}
                   <DynamicIcon name={brand.icon} size={18} />
                 {/if}
-                <span class="row-name">{brand.name}</span>
+                <span class="row-name">{@html renderInline(brand.name)}</span>
               </button>
               <button
                 type="button"
@@ -799,7 +800,7 @@
                           {#if stream.icon}
                             <DynamicIcon name={stream.icon} size={16} />
                           {/if}
-                          <span class="row-name">{stream.name}</span>
+                          <span class="row-name">{@html renderInline(stream.name)}</span>
                         </button>
                         <button
                           type="button"
@@ -879,7 +880,7 @@
                                     {#if project.icon}
                                       <DynamicIcon name={project.icon} size={16} />
                                     {/if}
-                                    <span class="row-name">{project.name}</span>
+                                    <span class="row-name">{@html renderInline(project.name)}</span>
                                     <span class="row-arrow" aria-hidden="true">›</span>
                                   </button>
                                   <button

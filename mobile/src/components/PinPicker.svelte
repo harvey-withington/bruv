@@ -4,6 +4,7 @@
   import { X } from 'lucide-svelte'
   import { browse, loadBrands, loadStreams, loadProjects, loadCategories } from '../lib/browse.svelte'
   import { t } from '../lib/i18n.svelte'
+  import { renderInline } from '@shared/markdown'
   import DynamicIcon from './DynamicIcon.svelte'
   import type { Brand, Stream, Project, Category } from '../lib/model'
 
@@ -91,7 +92,7 @@
               <button type="button" class="row brand-row" onclick={() => toggleBrand(brand)}>
                 <span class="caret" class:open={expandedBrands[brand.slug]} aria-hidden="true">▸</span>
                 {#if brand.icon}<DynamicIcon name={brand.icon} size={16} />{/if}
-                <span class="name">{brand.name}</span>
+                <span class="name">{@html renderInline(brand.name)}</span>
               </button>
 
               {#if expandedBrands[brand.slug]}
@@ -108,7 +109,7 @@
                         <button type="button" class="row stream-row" onclick={() => toggleStream(brand, stream)}>
                           <span class="caret" class:open={expandedStreams[skey]} aria-hidden="true">▸</span>
                           {#if stream.icon}<DynamicIcon name={stream.icon} size={14} />{/if}
-                          <span class="name">{stream.name}</span>
+                          <span class="name">{@html renderInline(stream.name)}</span>
                         </button>
 
                         {#if expandedStreams[skey]}
@@ -125,7 +126,7 @@
                                   <button type="button" class="row project-row" onclick={() => toggleProject(brand, stream, project)}>
                                     <span class="caret" class:open={expandedProjects[pkey]} aria-hidden="true">▸</span>
                                     {#if project.icon}<DynamicIcon name={project.icon} size={14} />{/if}
-                                    <span class="name">{project.name}</span>
+                                    <span class="name">{@html renderInline(project.name)}</span>
                                   </button>
 
                                   {#if expandedProjects[pkey]}
@@ -146,7 +147,7 @@
                                               onclick={() => onSelect({ brand, stream, project, category })}
                                             >
                                               {#if category.icon}<DynamicIcon name={category.icon} size={14} />{/if}
-                                              <span class="name">{category.name}</span>
+                                              <span class="name">{@html renderInline(category.name)}</span>
                                               <span class="pin-here" aria-hidden="true">{t('pin_picker.pin_here')}</span>
                                             </button>
                                           </li>

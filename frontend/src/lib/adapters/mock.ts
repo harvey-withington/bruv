@@ -220,7 +220,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     DeleteUserCardType: async () => {},
     UpdateUserCardTypeIcon: async () => ({ id: '', label: '', color: '', description: '' }),
     UpdateBuiltinCardType: async () => {},
-    CreateCardTypeFromCard: async (_cardID: string, name: string, icon: string, color: string): Promise<CardTypeInfo> => ({ id: 'ut-new', label: name, color, icon: icon || undefined, description: '', builtin: false }),
+    CreateCardTypeFromCard: async (_cardID: string, name: string, icon: string, color: string, _blockIDs: string[], _keepValueBlockIDs: string[]): Promise<CardTypeInfo> => ({ id: 'ut-new', label: name, color, icon: icon || undefined, description: '', builtin: false }),
 
     ListCardTemplates: async (): Promise<CardTemplate[]> => [],
     CreateCardTemplate: async (): Promise<CardTemplate> => ({ id: 'tpl-1', name: '', blocks: [] }),

@@ -6,6 +6,7 @@
   import { navigate, cardURL } from '../lib/router.svelte'
   import { onEvent } from '../lib/events.svelte'
   import { t } from '../lib/i18n.svelte'
+  import { renderInline } from '@shared/markdown'
   import type { ActivityEntry } from '@shared/types'
   import ErrorState from '../components/ErrorState.svelte'
 
@@ -114,7 +115,7 @@
               <div class="entry-line">
                 <span class="actor">{e.actor || t('activity.someone')}</span>
                 <span class="verb">{describe(e)}</span>
-                <span class="card-title">{e.card_title || t('inbox.untitled')}</span>
+                <span class="card-title">{@html renderInline(e.card_title || t('inbox.untitled'))}</span>
               </div>
               {#if e.brand_name || e.project_name}
                 <div class="entry-context">

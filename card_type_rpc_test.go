@@ -51,7 +51,7 @@ func TestCreateCardTypeFromCardOverRPC(t *testing.T) {
 	// would surface here as ErrMethodNotFound).
 	raw := func(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
 	params := []json.RawMessage{
-		raw(card.ID), raw("Episode"), raw("calendar"), raw("#ec4899"), raw([]string{"b1", "b2"}),
+		raw(card.ID), raw("Episode"), raw("calendar"), raw("#ec4899"), raw([]string{"b1", "b2"}), raw([]string{"b2"}),
 	}
 
 	result, rpcErr := disp.Dispatch(context.Background(), "CreateCardTypeFromCard", params)

@@ -66,9 +66,16 @@ jobs:
 
       # NSIS is required by `wails build -nsis` to generate the Windows
       # installer. GitHub's windows-latest runners ship with Chocolatey
-      # pre-installed, so this is a one-line install.
+      # pre-installed, so this is a one-line install. The choco package does
+      # NOT reliably expose makensis on PATH for subsequent steps — add the
+      # install dir explicitly, or the -nsis flag silently produces nothing
+      # (v0.1.0-alpha shipped without its installer exactly this way).
       - name: Install NSIS
-        run: choco install nsis -y --no-progress
+        shell: bash
+        run: |
+          choco install nsis -y --no-progress
+          echo "/c/Program Files (x86)/NSIS" >> "$GITHUB_PATH"
+          echo "/c/Program Files (x86)/NSIS/Bin" >> "$GITHUB_PATH"
 
       # Root package.json carries deps that `shared/*.ts` imports (marked,
       # lucide-svelte). Vite resolves those by walking up from shared/ to
@@ -107,6 +114,18 @@ jobs:
             -clean \
             -trimpath \
             -ldflags "-X main.AppVersion=${VERSION} -X main.BuildDate=${BUILD_DATE}"
+
+      # Guard against the installer silently going missing (wails does not
+      # fail the build when NSIS generation is skipped/unavailable). The
+      # release must never ship exe-only again.
+      - name: Assert installer was produced
+        shell: bash
+        run: |
+          ls -l build/bin
+          test -f build/bin/bruv-amd64-installer.exe || {
+            echo "::error::NSIS installer missing from build/bin — check makensis availability and NSIS compile output above"
+            exit 1
+          }
 
       - name: Upload unsigned artifacts
         uses: actions/upload-artifact@v4
@@ -181,7 +200,10 @@ jobs:
           tag_name: ${{ needs.build-windows.outputs.version }}
           name: BRUV ${{ needs.build-windows.outputs.version }}
           draft: true
-          prerelease: ${{ contains(needs.build-windows.outputs.version, 'b') || contains(needs.build-windows.outputs.version, '-') }}
+          # Not auto-derived from the version suffix: every current release is
+          # an alpha/beta, and marking it pre-release breaks /releases/latest
+          # (the website's download button).
+          prerelease: false
           files: dist/*
           body: |
             ## BRUV ${{ needs.build-windows.outputs.version }}

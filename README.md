@@ -103,6 +103,10 @@ BRUV is free and will stay free. If it saves you time and you'd like to chip in,
 
 A future optional hosted sync service is on the roadmap — the desktop app is architected for it via an [adapter pattern](CONTRIBUTING.md#backend-adapter-architecture). The app itself will remain free and local-first forever; the hosted service would be a separate, optional paid add-on.
 
+Hey, and coffee keeps the ideas coming!
+
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20my%20work-ff5e5b?logo=ko-fi&logoColor=white&style=for-the-badge)](https://ko-fi.com/harveywithington)
+
 ## Contributing and development
 
 Source, build instructions, architecture notes, and how to add a new backend adapter live in **[CONTRIBUTING.md](CONTRIBUTING.md)**. Pull requests, issues, and thoughtful feedback are welcome.

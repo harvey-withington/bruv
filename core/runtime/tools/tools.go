@@ -876,6 +876,10 @@ func (d *Dispatcher) ExecuteProject(tc llm.ToolCall, scope ProjectChatScope) (st
 			return "error: card(s) not in current project: " + strings.Join(bad, ", "), nil
 		}
 	}
+	// Workspace tools are read-only and project-scoped — shared handler.
+	if IsWorkspaceTool(tc.Name) {
+		return d.execWorkspaceTool(tc, scope)
+	}
 	switch tc.Name {
 	case "create_card":
 		title, _ := tc.Arguments["title"].(string)
@@ -1922,6 +1926,12 @@ func (d *Dispatcher) StageCard(tc llm.ToolCall, allCats []CategoryPath) (string,
 // any rejected IDs) so the conversation continues naturally without the LLM
 // thinking the call silently failed.
 func (d *Dispatcher) StageProject(tc llm.ToolCall, scope ProjectChatScope) (string, []model.PendingEdit) {
+	// Read-only workspace tools execute directly even in suggest mode —
+	// same treatment as web_fetch/web_search below: nothing to stage.
+	if IsWorkspaceTool(tc.Name) {
+		result, _ := d.execWorkspaceTool(tc, scope)
+		return result, nil
+	}
 	inScope := func(id string) bool {
 		if scope.CardIDs == nil {
 			return true

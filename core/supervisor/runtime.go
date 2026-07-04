@@ -42,6 +42,7 @@ import (
 	reposvc "bruv/core/services/repository"
 	"bruv/core/services/search"
 	"bruv/core/services/settings"
+	workspacesvc "bruv/core/services/workspace"
 	"bruv/internal/config"
 	"bruv/internal/index"
 	"bruv/internal/logging"
@@ -93,6 +94,7 @@ type Runtime struct {
 	Chat       *chatsvc.Service
 	Agent      *agentsvc.Service
 	Repository *reposvc.Service
+	Workspace  *workspacesvc.Service
 
 	tools   *tools.Dispatcher
 	prompts *prompts.Builder
@@ -156,6 +158,7 @@ func buildRuntime(repoPath, configDir string, secret []byte) (*Runtime, error) {
 	r.Chat = chatsvc.New(chatDeps{r})
 	r.Agent = agentsvc.New(agentDeps{r})
 	r.Repository = reposvc.New(repoDeps{r})
+	r.Workspace = workspacesvc.New(workspaceDeps{r})
 
 	r.tools = tools.New(toolsRTDeps{r})
 	r.prompts = prompts.New(promptsRTDeps{r})
@@ -199,16 +202,16 @@ func (r *Runtime) Bus() *events.MemBus { return r.bus }
 // Kept as methods so the desktop's existing field-based call sites
 // (a.repo, a.idx, a.cardService, ...) can be populated from a single
 // `app.bindToRuntime(rt)` step.
-func (r *Runtime) Repo() *repo.Repository       { return r.repo }
-func (r *Runtime) Index() *index.Index          { return r.idx }
+func (r *Runtime) Repo() *repo.Repository           { return r.repo }
+func (r *Runtime) Index() *index.Index              { return r.idx }
 func (r *Runtime) SchemaRegistry() *schema.Registry { return r.registry }
-func (r *Runtime) MCPRegistry() *mcp.Registry   { return r.mcpRegistry }
-func (r *Runtime) Watcher() *reposync.Watcher   { return r.watcher }
-func (r *Runtime) LLMActors() *sync.Map         { return &r.llmActors }
-func (r *Runtime) Tools() *tools.Dispatcher     { return r.tools }
-func (r *Runtime) Prompts() *prompts.Builder    { return r.prompts }
-func (r *Runtime) ChatRT() *chatrt.Runtime      { return r.chatRT }
-func (r *Runtime) AgentRT() *agentrt.Runtime    { return r.agentRT }
+func (r *Runtime) MCPRegistry() *mcp.Registry       { return r.mcpRegistry }
+func (r *Runtime) Watcher() *reposync.Watcher       { return r.watcher }
+func (r *Runtime) LLMActors() *sync.Map             { return &r.llmActors }
+func (r *Runtime) Tools() *tools.Dispatcher         { return r.tools }
+func (r *Runtime) Prompts() *prompts.Builder        { return r.prompts }
+func (r *Runtime) ChatRT() *chatrt.Runtime          { return r.chatRT }
+func (r *Runtime) AgentRT() *agentrt.Runtime        { return r.agentRT }
 
 // Agent control surface — thin forwarders so the JSON-RPC reflection
 // dispatcher exposes the same method names the desktop binding does.
@@ -466,6 +469,11 @@ type repoDeps struct{ r *Runtime }
 func (d repoDeps) Repo() *repo.Repository { return d.r.repo }
 func (d repoDeps) Index() *index.Index    { return d.r.idx }
 
+type workspaceDeps struct{ r *Runtime }
+
+func (d workspaceDeps) Repo() *repo.Repository            { return d.r.repo }
+func (d workspaceDeps) Publish(topic string, payload any) { d.r.bus.Publish(topic, payload) }
+
 // ---------------------------------------------------------------------
 // LLM runtime Deps adapters. "RT" suffix to avoid colliding with the
 // service-layer adapters above.
@@ -477,6 +485,7 @@ func (d toolsRTDeps) Repo() *repo.Repository            { return d.r.repo }
 func (d toolsRTDeps) Registry() *schema.Registry        { return d.r.registry }
 func (d toolsRTDeps) Publish(topic string, payload any) { d.r.bus.Publish(topic, payload) }
 func (d toolsRTDeps) Card() *card.Service               { return d.r.Card }
+func (d toolsRTDeps) Workspace() *workspacesvc.Service  { return d.r.Workspace }
 func (d toolsRTDeps) Project() *projectsvc.Service      { return d.r.Project }
 func (d toolsRTDeps) Catalog() *catalog.Service         { return d.r.Catalog }
 

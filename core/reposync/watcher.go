@@ -182,8 +182,23 @@ func shouldIgnoreDir(path, root string) bool {
 		return false
 	}
 	rel = filepath.ToSlash(rel)
-	return rel == ".bruv" || strings.HasPrefix(rel, ".bruv/") ||
-		rel == ".git" || strings.HasPrefix(rel, ".git/")
+	if rel == ".bruv" || strings.HasPrefix(rel, ".bruv/") ||
+		rel == ".git" || strings.HasPrefix(rel, ".git/") {
+		return true
+	}
+	// Template stores are opaque vault content (spec §6.3): possibly
+	// thousands of files of boilerplate. Watching them costs fsnotify
+	// handles and — on Windows — pins IRPs that make template folder
+	// renames/deletes fail. Global: templates/; brand-scoped:
+	// brands/<slug>/templates/.
+	parts := strings.Split(rel, "/")
+	if parts[0] == "templates" {
+		return true
+	}
+	if len(parts) >= 3 && parts[0] == "brands" && parts[2] == "templates" {
+		return true
+	}
+	return false
 }
 
 // run is the main event loop — drain fsnotify events, classify,
@@ -315,6 +330,19 @@ func classify(root, path string) (topic string, payload any, ok bool) {
 				"streamSlug":  parts[3],
 				"projectSlug": parts[5],
 				"external":    true,
+			}, true
+		}
+		// brands/<b>/streams/<s>/projects/<p>/workspace/{workspace,index}.json
+		// — vault-side workspace state changed externally (synced vault /
+		// hand edit). Local mutations also land here; clients tolerate the
+		// duplicate fire like every other topic.
+		if len(parts) == 8 && parts[2] == "streams" && parts[4] == "projects" && parts[6] == "workspace" &&
+			strings.HasSuffix(parts[7], ".json") {
+			return "workspace:updated", map[string]any{
+				"brand_slug":   parts[1],
+				"stream_slug":  parts[3],
+				"project_slug": parts[5],
+				"external":     true,
 			}, true
 		}
 		// brands/<b>/streams/<s>/projects/<p>/categories/<c>.json

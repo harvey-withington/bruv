@@ -3,17 +3,19 @@
   import CardTypesTab from './CardTypesTab.svelte'
   import MCPServersDialog from './MCPServersDialog.svelte'
   import NotificationPanel from './NotificationPanel.svelte'
-  import { Tags, SlidersHorizontal, BotMessageSquare, Timer, Inbox, Layers, Type, User, FolderOpen, Check, Bell, Plug } from 'lucide-svelte'
+  import { Tags, SlidersHorizontal, BotMessageSquare, Timer, Inbox, Layers, Type, User, FolderOpen, Check, Bell, Plug, Briefcase } from 'lucide-svelte'
   import { nav, inboxSearchFilters, boardSearchFilters } from '../lib/store.svelte'
   import { notifications } from '../lib/notifications.svelte'
   import { t } from '../lib/i18n.svelte'
 
-  let { onSelectCard, onOpenTagEditor, onOpenProjectSettings, onToggleProjectChat, projectChatActive }: {
+  let { onSelectCard, onOpenTagEditor, onOpenProjectSettings, onToggleProjectChat, projectChatActive, onToggleWorkspace, workspaceActive }: {
     onSelectCard?: (cardId: string) => void
     onOpenTagEditor?: () => void
     onOpenProjectSettings?: () => void
     onToggleProjectChat?: () => void
     projectChatActive?: boolean
+    onToggleWorkspace?: () => void
+    workspaceActive?: boolean
   } = $props()
 
   let showCardTypes = $state(false)
@@ -150,6 +152,7 @@
       <button class="icon-btn" onclick={onOpenTagEditor} title={t('toolbar.tags')}><Tags size={16} /></button>
     {/if}
     {#if nav.projectSlug}
+      <button class="icon-btn" class:active={workspaceActive} onclick={onToggleWorkspace} title={t('toolbar.workspace')}><Briefcase size={16} /></button>
       <button class="icon-btn" class:active={projectChatActive} onclick={onToggleProjectChat} title={t('toolbar.project_chat')}><BotMessageSquare size={16} /></button>
       <button class="icon-btn" onclick={onOpenProjectSettings} title={t('toolbar.project_settings')}><SlidersHorizontal size={16} /></button>
     {/if}

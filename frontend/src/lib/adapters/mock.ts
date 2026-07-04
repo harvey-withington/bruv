@@ -13,6 +13,12 @@ import type {
   Project,
   Stream,
   UserCardType,
+  Workspace,
+  WorkspaceIndex,
+  WorkspaceState,
+  WorkspaceTemplateEntry,
+  WorkspaceTemplateInspection,
+  WorkspaceTemplatePreview,
 } from '@shared/types'
 
 // --- Stub factories ---
@@ -25,6 +31,7 @@ const mockProject = (): Project => ({ id: 'project-1', stream_id: 'stream-1', br
 const mockCategory = (slug = 'test-category', name = 'Test Category'): Category => ({ id: 'category-1', project_id: 'project-1', name, slug, position: 0, created_at: '', updated_at: '' })
 const mockCard = (id = 'card-1'): Card => ({ id, title: '', description: '', type: '', tags: [], due_date: null, created_at: '', blocks: [], file_attachments: [] })
 const emptyChat = (): ChatHistory => ({ card_id: '', messages: [] })
+const mockWorkspace = (): Workspace => ({ id: 'ws-1', project_id: 'project-1', origin: { kind: 'local', url: 'C:/mock' }, adapter: 'plain-folder', created_at: '', updated_at: '' })
 const emptyIndexStats = (): IndexStats => ({ CardsIndexed: 0, CardsRemoved: 0, CardsSkipped: 0, PinsIndexed: 0, Duration: 0 })
 const mockPreferences = (): Preferences => ({
   default_category_name: 'Ideas',
@@ -221,6 +228,21 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     UpdateUserCardTypeIcon: async () => ({ id: '', label: '', color: '', description: '' }),
     UpdateBuiltinCardType: async () => {},
     CreateCardTypeFromCard: async (_cardID: string, name: string, icon: string, color: string, _blockIDs: string[], _keepValueBlockIDs: string[]): Promise<CardTypeInfo> => ({ id: 'ut-new', label: name, color, icon: icon || undefined, description: '', builtin: false }),
+
+    GetWorkspaceState: async (): Promise<WorkspaceState> => ({ attached: false }),
+    AttachWorkspace: async (): Promise<Workspace> => mockWorkspace(),
+    DetachWorkspace: async () => {},
+    RefreshWorkspaceIndex: async (): Promise<WorkspaceIndex> => ({ workspace_id: 'ws-1', generated_at: '', adapter: 'plain-folder', summary: '', tree: [] }),
+    SetWorkspaceLaunchCommand: async (): Promise<Workspace> => mockWorkspace(),
+    ReadWorkspaceFile: async (): Promise<string> => '',
+    WriteWorkspaceFile: async () => {},
+    ListWorkspaceTemplates: async (): Promise<WorkspaceTemplateEntry[]> => [],
+    GetWorkspaceTemplateParams: async () => [],
+    PreviewWorkspaceTemplate: async (): Promise<WorkspaceTemplatePreview> => ({ entries: [] }),
+    GenerateWorkspaceFromTemplate: async (): Promise<Workspace> => mockWorkspace(),
+    InspectWorkspaceTemplateFolder: async (): Promise<WorkspaceTemplateInspection> => ({ is_template: false, name: '', description: '', parameters: [], size_bytes: 0, large_warning: false }),
+    ImportWorkspaceTemplate: async (): Promise<WorkspaceTemplateEntry> => ({ id: 'templates/mock', name: 'Mock', description: '', scope: 'global', parameters: [] }),
+    SaveWorkspaceTemplate: async () => {},
 
     ListCardTemplates: async (): Promise<CardTemplate[]> => [],
     CreateCardTemplate: async (): Promise<CardTemplate> => ({ id: 'tpl-1', name: '', blocks: [] }),

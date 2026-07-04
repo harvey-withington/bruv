@@ -887,6 +887,25 @@ export interface BackendAdapter {
   UpdateCardTemplate(id: string, name: string, blocks: Block[]): Promise<CardTemplate>
   DeleteCardTemplate(id: string): Promise<void>
 
+  // Workspaces (M1: local origins). Vault-side state lives with the
+  // project; params are positional in Go declaration order.
+  GetWorkspaceState(brandSlug: string, streamSlug: string, projectSlug: string): Promise<WorkspaceState>
+  AttachWorkspace(brandSlug: string, streamSlug: string, projectSlug: string, dirPath: string): Promise<Workspace>
+  DetachWorkspace(brandSlug: string, streamSlug: string, projectSlug: string): Promise<void>
+  RefreshWorkspaceIndex(brandSlug: string, streamSlug: string, projectSlug: string): Promise<WorkspaceIndex>
+  SetWorkspaceLaunchCommand(brandSlug: string, streamSlug: string, projectSlug: string, command: string): Promise<Workspace>
+  ReadWorkspaceFile(brandSlug: string, streamSlug: string, projectSlug: string, rel: string): Promise<string>
+  WriteWorkspaceFile(brandSlug: string, streamSlug: string, projectSlug: string, rel: string, content: string): Promise<void>
+
+  // Workspace folder templates (vault content; ref = vault-relative id or absolute path)
+  ListWorkspaceTemplates(): Promise<WorkspaceTemplateEntry[]>
+  GetWorkspaceTemplateParams(ref: string): Promise<WorkspaceTemplateParameter[]>
+  PreviewWorkspaceTemplate(ref: string, values: Record<string, string>): Promise<WorkspaceTemplatePreview>
+  GenerateWorkspaceFromTemplate(brandSlug: string, streamSlug: string, projectSlug: string, ref: string, targetParent: string, values: Record<string, string>): Promise<Workspace>
+  InspectWorkspaceTemplateFolder(dir: string): Promise<WorkspaceTemplateInspection>
+  ImportWorkspaceTemplate(srcDir: string, brandSlug: string): Promise<WorkspaceTemplateEntry>
+  SaveWorkspaceTemplate(ref: string, tpl: WorkspaceTemplateDescriptor): Promise<void>
+
   // Index / search
   SearchCards(query: string, limit: number): Promise<SearchResult[]>
   SearchOrphanedCards(query: string, limit: number): Promise<SearchResult[]>
@@ -1007,4 +1026,105 @@ export interface BackendAdapter {
   // Activity & recently updated
   ListActivityLog(limit: number): Promise<ActivityEntry[]>
   ListRecentlyUpdatedCards(limit: number): Promise<RecentCard[]>
+}
+
+// --- Workspaces --------------------------------------------------------------
+
+export interface WorkspaceOrigin {
+  kind: 'local' | 'git' | 'rclone'
+  url?: string
+  subpath?: string
+  rclone_remote?: string
+}
+
+export interface WorkspaceClaim {
+  device: string
+  instance_id?: string
+  materialized_at: string
+  state?: 'clean' | 'dirty' | ''
+  last_seen: string
+}
+
+export interface Workspace {
+  id: string
+  project_id: string
+  origin: WorkspaceOrigin
+  adapter: string
+  launch_command?: string
+  claim?: WorkspaceClaim
+  created_at: string
+  updated_at: string
+}
+
+export interface WorkspaceEntry {
+  path: string
+  is_dir?: boolean
+  size?: number
+  symlink?: boolean
+}
+
+export interface WorkspaceIndex {
+  workspace_id: string
+  generated_at: string
+  adapter: string
+  summary: string
+  details?: Record<string, string>
+  warnings?: string[]
+  tree: WorkspaceEntry[]
+}
+
+export interface WorkspaceState {
+  attached: boolean
+  workspace?: Workspace
+  index?: WorkspaceIndex
+}
+
+// .ft/template.json parameter — camelCase keys, matching the on-disk
+// Folder Templates format (not BRUV's snake_case vault convention).
+export interface WorkspaceTemplateParameter {
+  name: string
+  type: string
+  prompt: string | null
+  placeholder: string | null
+  defaultValue: string | null
+  match: string | null
+  replaceInFileNames: boolean
+  replaceInFiles: boolean
+}
+
+export interface WorkspaceTemplateDescriptor {
+  name: string
+  description: string
+  defaultTargetPath: string
+  parameters: WorkspaceTemplateParameter[]
+}
+
+export interface WorkspaceTemplateEntry {
+  id: string
+  name: string
+  description: string
+  scope: string // "global" or a brand slug
+  parameters: WorkspaceTemplateParameter[]
+}
+
+export interface WorkspaceTemplatePreviewEntry {
+  sourceRel: string
+  outputRel: string
+  isDir: boolean
+  processed: boolean
+}
+
+export interface WorkspaceTemplatePreview {
+  entries: WorkspaceTemplatePreviewEntry[]
+  warnings?: string[]
+}
+
+export interface WorkspaceTemplateInspection {
+  is_template: boolean
+  name: string
+  description: string
+  parameters: WorkspaceTemplateParameter[]
+  size_bytes: number
+  large_warning: boolean
+  issues?: string[]
 }

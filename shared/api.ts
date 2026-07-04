@@ -172,6 +172,22 @@ export const CreateCardTemplate = (...args: Parameters<ReturnType<typeof getBack
 export const UpdateCardTemplate = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardTemplate']>) => getBackend().UpdateCardTemplate(...args)
 export const DeleteCardTemplate = (...args: Parameters<ReturnType<typeof getBackend>['DeleteCardTemplate']>) => getBackend().DeleteCardTemplate(...args)
 
+// Workspaces
+export const GetWorkspaceState = (...args: Parameters<ReturnType<typeof getBackend>['GetWorkspaceState']>) => getBackend().GetWorkspaceState(...args)
+export const AttachWorkspace = (...args: Parameters<ReturnType<typeof getBackend>['AttachWorkspace']>) => getBackend().AttachWorkspace(...args)
+export const DetachWorkspace = (...args: Parameters<ReturnType<typeof getBackend>['DetachWorkspace']>) => getBackend().DetachWorkspace(...args)
+export const RefreshWorkspaceIndex = (...args: Parameters<ReturnType<typeof getBackend>['RefreshWorkspaceIndex']>) => getBackend().RefreshWorkspaceIndex(...args)
+export const SetWorkspaceLaunchCommand = (...args: Parameters<ReturnType<typeof getBackend>['SetWorkspaceLaunchCommand']>) => getBackend().SetWorkspaceLaunchCommand(...args)
+export const ReadWorkspaceFile = (...args: Parameters<ReturnType<typeof getBackend>['ReadWorkspaceFile']>) => getBackend().ReadWorkspaceFile(...args)
+export const WriteWorkspaceFile = (...args: Parameters<ReturnType<typeof getBackend>['WriteWorkspaceFile']>) => getBackend().WriteWorkspaceFile(...args)
+export const ListWorkspaceTemplates = () => getBackend().ListWorkspaceTemplates()
+export const GetWorkspaceTemplateParams = (...args: Parameters<ReturnType<typeof getBackend>['GetWorkspaceTemplateParams']>) => getBackend().GetWorkspaceTemplateParams(...args)
+export const PreviewWorkspaceTemplate = (...args: Parameters<ReturnType<typeof getBackend>['PreviewWorkspaceTemplate']>) => getBackend().PreviewWorkspaceTemplate(...args)
+export const GenerateWorkspaceFromTemplate = (...args: Parameters<ReturnType<typeof getBackend>['GenerateWorkspaceFromTemplate']>) => getBackend().GenerateWorkspaceFromTemplate(...args)
+export const InspectWorkspaceTemplateFolder = (...args: Parameters<ReturnType<typeof getBackend>['InspectWorkspaceTemplateFolder']>) => getBackend().InspectWorkspaceTemplateFolder(...args)
+export const ImportWorkspaceTemplate = (...args: Parameters<ReturnType<typeof getBackend>['ImportWorkspaceTemplate']>) => getBackend().ImportWorkspaceTemplate(...args)
+export const SaveWorkspaceTemplate = (...args: Parameters<ReturnType<typeof getBackend>['SaveWorkspaceTemplate']>) => getBackend().SaveWorkspaceTemplate(...args)
+
 // Index / search
 export const SearchCards = (...args: Parameters<ReturnType<typeof getBackend>['SearchCards']>) => getBackend().SearchCards(...args)
 export const SearchOrphanedCards = (...args: Parameters<ReturnType<typeof getBackend>['SearchOrphanedCards']>) => getBackend().SearchOrphanedCards(...args)

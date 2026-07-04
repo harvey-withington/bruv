@@ -4,6 +4,7 @@ import (
 	"bruv/core/services/card"
 	"bruv/core/services/catalog"
 	projectsvc "bruv/core/services/project"
+	workspacesvc "bruv/core/services/workspace"
 	"bruv/internal/repo"
 	"bruv/internal/schema"
 )
@@ -33,6 +34,7 @@ type Deps interface {
 	Card() *card.Service
 	Project() *projectsvc.Service
 	Catalog() *catalog.Service
+	Workspace() *workspacesvc.Service
 }
 
 // Dispatcher is the tool-execution entry point. Construct once with

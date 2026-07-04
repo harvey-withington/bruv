@@ -10,6 +10,7 @@
   import TopBar from './components/TopBar.svelte'
   import Board from './components/Board.svelte'
   import ChatSection from './components/ChatSection.svelte'
+  import WorkspacePanel from './components/workspace/WorkspacePanel.svelte'
   import CardDetail from './components/CardDetail.svelte'
   import SettingsDialog from './components/SettingsDialog.svelte'
   import ProjectSettingsDialog from './components/ProjectSettingsDialog.svelte'
@@ -135,6 +136,7 @@
   let showProfile = $state(false)
   let showTagEditor = $state(false)
   let showProjectChat = $state(false)
+  let showWorkspace = $state(false)
   // Project-chat DOM-lag flag — see CardDetail's chatInDom for the same
   // pattern. ChatSection's slideOutWidth transition lives on its own
   // inner `{#if visible}` element; if the OUTER {#if} here unmounts the
@@ -378,9 +380,19 @@
         onOpenProjectSettings={() => showProjectSettings = true}
         onToggleProjectChat={() => showProjectChat = !showProjectChat}
         projectChatActive={showProjectChat}
+        onToggleWorkspace={() => showWorkspace = !showWorkspace}
+        workspaceActive={showWorkspace}
       />
       <div class="board-row">
         <Board />
+        {#if showWorkspace && nav.projectSlug}
+          <WorkspacePanel
+            brandSlug={nav.brandSlug!}
+            streamSlug={nav.streamSlug!}
+            projectSlug={nav.projectSlug!}
+            onClose={() => showWorkspace = false}
+          />
+        {/if}
         {#if projectChatInDom && nav.projectSlug}
           <ChatSection
             cardId=""

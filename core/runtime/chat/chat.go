@@ -84,7 +84,7 @@ func (rt *Runtime) RunLoop(ctx context.Context, provider llm.Provider, modelName
 				Content:   "Error: " + err.Error(),
 				Timestamp: time.Now().UTC(),
 			}
-			cf, _ = config.AppendChatMessage(rt.deps.Repo().Manifest.ID,lc.ChatID, errMsg)
+			cf, _ = config.AppendChatMessage(rt.deps.Repo().Manifest.ID, lc.ChatID, errMsg)
 			if lc.TotalTokensUsed != nil {
 				*lc.TotalTokensUsed = cumulativeTokens
 			}
@@ -104,7 +104,7 @@ func (rt *Runtime) RunLoop(ctx context.Context, provider llm.Provider, modelName
 				Content:   fmt.Sprintf("Token budget exceeded (%d / %d). Stopping.", cumulativeTokens, lc.TokenBudget),
 				Timestamp: time.Now().UTC(),
 			}
-			cf, _ = config.AppendChatMessage(rt.deps.Repo().Manifest.ID,lc.ChatID, budgetMsg)
+			cf, _ = config.AppendChatMessage(rt.deps.Repo().Manifest.ID, lc.ChatID, budgetMsg)
 			if lc.TotalTokensUsed != nil {
 				*lc.TotalTokensUsed = cumulativeTokens
 			}
@@ -122,7 +122,7 @@ func (rt *Runtime) RunLoop(ctx context.Context, provider llm.Provider, modelName
 				PinSuggestion: pinSuggestion,
 				PendingEdits:  allPendingEdits,
 			}
-			cf, _ = config.AppendChatMessage(rt.deps.Repo().Manifest.ID,lc.ChatID, assistantMsg)
+			cf, _ = config.AppendChatMessage(rt.deps.Repo().Manifest.ID, lc.ChatID, assistantMsg)
 			if lc.TotalTokensUsed != nil {
 				*lc.TotalTokensUsed = cumulativeTokens
 			}
@@ -191,7 +191,7 @@ func (rt *Runtime) RunLoop(ctx context.Context, provider llm.Provider, modelName
 		PinSuggestion: pinSuggestion,
 		PendingEdits:  allPendingEdits,
 	}
-	cf, _ = config.AppendChatMessage(rt.deps.Repo().Manifest.ID,lc.ChatID, assistantMsg)
+	cf, _ = config.AppendChatMessage(rt.deps.Repo().Manifest.ID, lc.ChatID, assistantMsg)
 	if lc.TotalTokensUsed != nil {
 		*lc.TotalTokensUsed = cumulativeTokens
 	}
@@ -243,6 +243,21 @@ func (rt *Runtime) SendProject(brandSlug, streamSlug, projectSlug, userMessage, 
 	cardTypes := rt.deps.Registry().List()
 	toolDefs := llm.ProjectTools(cardTypes, catMaps)
 
+	// Workspace tools, offered only when a workspace is attached and gated
+	// by the session context level: `all` → everything incl. file reads;
+	// `metadata` → structure/status but no file contents; `none` → nothing.
+	// (Same mapping the prompt builder uses for the workspace summary.)
+	if rt.deps.Repo().HasWorkspace(brandSlug, streamSlug, projectSlug) {
+		switch model.ProjectChatContextLevel(contextLevel) {
+		case model.ProjectChatContextNone:
+			// no workspace tools
+		case model.ProjectChatContextMetadata:
+			toolDefs = append(toolDefs, llm.WorkspaceTools(false)...)
+		default: // all (and unrecognised values default to all, like the prompt)
+			toolDefs = append(toolDefs, llm.WorkspaceTools(true)...)
+		}
+	}
+
 	// Build the per-call scope for tool callbacks. Both staging and execute
 	// callbacks use the cardIDs set to reject IDs the LLM hallucinated or
 	// copied from a different project; the slugs let project-metadata tools
@@ -269,10 +284,10 @@ func (rt *Runtime) SendProject(brandSlug, streamSlug, projectSlug, userMessage, 
 
 	suggestMode := cfg.AIMode == "suggest"
 	return rt.RunLoop(ctx, provider, modelName, cf, LoopConfig{
-		ChatID:             chatID,
-		SystemPrompt:       systemPrompt,
-		Tools:              toolDefs,
-		MaxIter:            5,
+		ChatID:       chatID,
+		SystemPrompt: systemPrompt,
+		Tools:        toolDefs,
+		MaxIter:      5,
 		// Per-entity mutating tools must be callable multiple times in one
 		// iteration so the LLM can act on several distinct targets in a single
 		// turn (e.g. set an icon on every category, move several cards). The
@@ -280,17 +295,17 @@ func (rt *Runtime) SendProject(brandSlug, streamSlug, projectSlug, userMessage, 
 		// LLM doesn't always reach for it. Query/read tools are deliberately
 		// NOT whitelisted — those should be deduped to stop runaway loops.
 		AllowDuplicateTool: map[string]bool{
-			"create_card":          true,
-			"update_card":          true,
-			"move_card":            true,
-			"add_tags_to_cards":    true,
-			"configure_agent":      true,
-			"create_category":      true,
-			"update_category":      true,
-			"delete_category":      true,
-			"create_project_tag":   true,
-			"update_project_tag":   true,
-			"delete_project_tag":   true,
+			"create_card":        true,
+			"update_card":        true,
+			"move_card":          true,
+			"add_tags_to_cards":  true,
+			"configure_agent":    true,
+			"create_category":    true,
+			"update_category":    true,
+			"delete_category":    true,
+			"create_project_tag": true,
+			"update_project_tag": true,
+			"delete_project_tag": true,
 		},
 		ExecuteTool: func(tc llm.ToolCall) (string, *model.ToolAction, *model.PinSuggestion) {
 			result, action := rt.deps.Tools().ExecuteProject(tc, scope)
@@ -436,8 +451,8 @@ func (rt *Runtime) SendCard(cardID, userMessage string) (*model.ChatFile, error)
 		// message. Previously 3, which was too tight for research
 		// flows — the loop would exhaust before the model got to
 		// speak, triggering the fallbackContent lie below.
-		MaxIter: 6,
-		SuggestMode:  cfg.AIMode == "suggest",
+		MaxIter:     6,
+		SuggestMode: cfg.AIMode == "suggest",
 		StageTool: func(tc llm.ToolCall) (string, []model.PendingEdit) {
 			return rt.deps.Tools().StageCard(tc, allCats)
 		},
@@ -523,5 +538,5 @@ func (rt *Runtime) saveUserMessage(chatID, userMessage string) (*model.ChatFile,
 		Content:   repo.SanitizeText(userMessage),
 		Timestamp: time.Now().UTC(),
 	}
-	return config.AppendChatMessage(rt.deps.Repo().Manifest.ID,chatID, userMsg)
+	return config.AppendChatMessage(rt.deps.Repo().Manifest.ID, chatID, userMsg)
 }

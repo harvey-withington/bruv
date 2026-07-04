@@ -10,8 +10,10 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gen2brain/beeep v0.11.2
 	github.com/google/uuid v1.6.0
+	github.com/harvey-withington/foldertemplate v0.0.0
 	github.com/kardianos/service v1.2.4
 	github.com/robfig/cron/v3 v3.0.1
+	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/wailsapp/wails/v2 v2.10.1
 	github.com/zalando/go-keyring v0.2.8
@@ -19,10 +21,15 @@ require (
 	modernc.org/sqlite v1.46.1
 )
 
+// foldertemplate lives in this monorepo as its own module (future-external:
+// planned standalone repo + CLI). Delete this replace after extraction.
+replace github.com/harvey-withington/foldertemplate => ./foldertemplate
+
 require (
 	git.sr.ht/~jackmordaunt/go-toast v1.1.2 // indirect
 	github.com/bep/debounce v1.2.1 // indirect
 	github.com/danieljoos/wincred v1.2.3 // indirect
+	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/esiqveland/notify v0.13.3 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect

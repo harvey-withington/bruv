@@ -51,6 +51,24 @@ func (b *Builder) Project(brandSlug, streamSlug, projectSlug string, brand *mode
 	sb.WriteString(fmt.Sprintf("project_id: `%s`\n", project.ID))
 	sb.WriteString("\n")
 
+	// Workspace context. The adapter summary is metadata-grade, so it is
+	// included at both All and Metadata levels — file *contents* remain
+	// gated behind workspace_read_file, which only the All level offers.
+	if level != model.ProjectChatContextNone && b.deps.Repo() != nil {
+		if ws, err := b.deps.Repo().GetWorkspace(brandSlug, streamSlug, projectSlug); err == nil {
+			sb.WriteString("## Workspace\n")
+			sb.WriteString(fmt.Sprintf("This project has an attached workspace (origin: %s, adapter: %s).\n", ws.Origin.Kind, ws.Adapter))
+			if idx, ierr := b.deps.Repo().GetWorkspaceIndex(brandSlug, streamSlug, projectSlug); ierr == nil && idx.Summary != "" {
+				sb.WriteString(idx.Summary + "\n")
+			}
+			if level == model.ProjectChatContextAll {
+				sb.WriteString("Tools: workspace_index (file tree), workspace_read_file (file contents), workspace_status (state).\n\n")
+			} else {
+				sb.WriteString("Tools: workspace_index (file tree), workspace_status (state). File contents are hidden at this context level.\n\n")
+			}
+		}
+	}
+
 	if cfg.Context != "" {
 		sb.WriteString("## User context\n" + cfg.Context + "\n\n")
 	}
@@ -197,7 +215,7 @@ func (b *Builder) Project(brandSlug, streamSlug, projectSlug string, brand *mode
 	return sb.String()
 }
 
-func (b *Builder) serializeCardForProjectPrompt( card *model.Card) string {
+func (b *Builder) serializeCardForProjectPrompt(card *model.Card) string {
 	const maxContentChars = 500
 	const maxAgentGoalChars = 200
 

@@ -14,6 +14,7 @@
   "error.network": "Can't reach the server. Check your connection and try again.",
   "error.offline": "Can't reach the server. We'll reconnect automatically, or tap Retry.",
   "error.server": "The server returned an error ({status}). Please try again.",
+  "error.method_not_supported": "{method} isn't supported by the BRUV server ({version}) — update the server to use this feature.",
 
   "enrol.title": "Pair this device",
   "enrol.subtitle": "Open BRUV on your desktop, generate a bootstrap token, and paste it below. The token is single-use and expires shortly after.",

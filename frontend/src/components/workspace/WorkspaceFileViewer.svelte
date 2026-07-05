@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { X } from 'lucide-svelte'
-  import { ReadWorkspaceFile, WriteWorkspaceFile } from '@shared/api'
+  import { X, ExternalLink, FolderSearch } from 'lucide-svelte'
+  import { OpenWorkspacePath, ReadWorkspaceFile, RevealWorkspacePath, WriteWorkspaceFile } from '@shared/api'
   import { renderMarkdown } from '@shared/markdown'
   import { t } from '../../lib/i18n.svelte'
   import { showToast } from '../../lib/toast.svelte'
@@ -8,14 +8,32 @@
 
   // Tier 2: markdown / plain-text files open in BRUV's built-in editor —
   // the same markdown-textarea model card bodies use. Everything else is
-  // refused by the backend with an "open externally" message.
-  let { brandSlug, streamSlug, projectSlug, path, onClose }: {
+  // Tier 1: the backend refuses the read and the open/reveal buttons take
+  // over (root is the workspace's on-disk folder for those shell actions).
+  let { brandSlug, streamSlug, projectSlug, root, path, onClose }: {
     brandSlug: string
     streamSlug: string
     projectSlug: string
+    root: string
     path: string
     onClose: () => void
   } = $props()
+
+  async function openExternal() {
+    try {
+      await OpenWorkspacePath(root, path)
+    } catch (e) {
+      showToast(t('workspace.open_failed', { error: e instanceof Error ? e.message : String(e) }), 'error')
+    }
+  }
+
+  async function reveal() {
+    try {
+      await RevealWorkspacePath(root, path)
+    } catch (e) {
+      showToast(t('workspace.open_failed', { error: e instanceof Error ? e.message : String(e) }), 'error')
+    }
+  }
 
   const isMarkdown = $derived(path.toLowerCase().endsWith('.md'))
 
@@ -77,8 +95,12 @@
         {#if editing}
           <button class="btn subtle" onclick={() => editing = false}>{t('common.cancel')}</button>
           <button class="btn primary" disabled={saving} onclick={save}>{saving ? t('common.saving') : t('common.save')}</button>
-        {:else if content !== null}
-          <button class="btn subtle" onclick={startEdit}>{t('common.edit')}</button>
+        {:else}
+          {#if content !== null}
+            <button class="btn subtle" onclick={startEdit}>{t('common.edit')}</button>
+          {/if}
+          <button class="icon-btn" onclick={openExternal} title={t('workspace.open_external')} aria-label={t('workspace.open_external')}><ExternalLink size={15} /></button>
+          <button class="icon-btn" onclick={reveal} title={t('workspace.reveal')} aria-label={t('workspace.reveal')}><FolderSearch size={15} /></button>
         {/if}
         <button class="icon-btn" onclick={onClose} title={t('common.close')} aria-label={t('common.close')}><X size={16} /></button>
       </div>
@@ -87,6 +109,10 @@
     <div class="body">
       {#if loadError}
         <p class="error">{loadError}</p>
+        <div class="error-actions">
+          <button class="btn subtle" onclick={openExternal}><ExternalLink size={13} /> {t('workspace.open_external')}</button>
+          <button class="btn subtle" onclick={reveal}><FolderSearch size={13} /> {t('workspace.reveal')}</button>
+        </div>
       {:else if content === null}
         <p class="loading">{t('common.loading')}</p>
       {:else if editing}
@@ -183,6 +209,15 @@
   .error {
     color: var(--danger, #ef4444);
     font-size: 0.85rem;
+  }
+  .error-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .error-actions .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
   }
   .loading {
     color: var(--text-faint);

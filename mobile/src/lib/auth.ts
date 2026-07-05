@@ -201,6 +201,20 @@ type RPCResponse<T> = {
 
 let _rpcID = 0
 
+// Best-effort server build version (GET /version, unauthenticated), cached
+// for the session. Used to make stale-server "method not found" errors
+// actionable — the fix is updating the server, so say so.
+let _serverVersion: Promise<string> | null = null
+function serverVersion(): Promise<string> {
+  if (!_serverVersion) {
+    _serverVersion = apiFetch('/version')
+      .then(r => (r.ok ? r.json() : null))
+      .then(v => (v && typeof v.version === 'string' ? v.version : ''))
+      .catch(() => '')
+  }
+  return _serverVersion
+}
+
 async function rpcCall<T>(endpoint: string, method: string, params: unknown[]): Promise<T> {
   const id = ++_rpcID
   const res = await apiFetch(endpoint, {
@@ -215,6 +229,12 @@ async function rpcCall<T>(endpoint: string, method: string, params: unknown[]): 
   }
   const payload = (await res.json()) as RPCResponse<T>
   if (payload.error) {
+    // -32601 = method not found: the server runs an older binary than
+    // this frontend. Name the version and the fix.
+    if (payload.error.code === -32601) {
+      const version = await serverVersion()
+      throw new Error(t('error.method_not_supported', { method, version: version || '?' }))
+    }
     throw new Error(`${method}: ${payload.error.message}`)
   }
   // Tolerate both `null` and `undefined` results — some Go methods

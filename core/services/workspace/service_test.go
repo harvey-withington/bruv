@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -194,6 +195,23 @@ func TestReadWriteFile(t *testing.T) {
 	}
 	if _, err := svc.ReadFile(ctx, b, st, p, "blob.bin"); err == nil {
 		t.Error("binary read must be refused")
+	}
+}
+
+// Regression: with zero templates the list must be an EMPTY slice, not nil —
+// nil marshals to JSON null, which the dialog treats as "still loading"
+// (permanent spinner). Same for parameter lists on paramless templates.
+func TestListTemplatesEmptyIsNotNil(t *testing.T) {
+	svc, _, _, _, _ := newTestService(t)
+	entries, err := svc.ListTemplates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entries == nil {
+		t.Fatal("ListTemplates must return an empty slice, not nil (JSON null)")
+	}
+	if raw, _ := json.Marshal(entries); string(raw) != "[]" {
+		t.Fatalf("empty template list marshals as %s, want []", raw)
 	}
 }
 

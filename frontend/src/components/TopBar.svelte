@@ -152,8 +152,9 @@
       <button class="icon-btn" onclick={onOpenTagEditor} title={t('toolbar.tags')}><Tags size={16} /></button>
     {/if}
     {#if nav.projectSlug}
-      <button class="icon-btn" class:active={workspaceActive} onclick={onToggleWorkspace} title={t('toolbar.workspace')}><Briefcase size={16} /></button>
+      <!-- Order matches the side panel's tab order: chat, then workspace. -->
       <button class="icon-btn" class:active={projectChatActive} onclick={onToggleProjectChat} title={t('toolbar.project_chat')}><BotMessageSquare size={16} /></button>
+      <button class="icon-btn" class:active={workspaceActive} onclick={onToggleWorkspace} title={t('toolbar.workspace')}><Briefcase size={16} /></button>
       <button class="icon-btn" onclick={onOpenProjectSettings} title={t('toolbar.project_settings')}><SlidersHorizontal size={16} /></button>
     {/if}
   </div>

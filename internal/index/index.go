@@ -31,6 +31,18 @@ func Open(dbPath string) (*Index, error) {
 		return nil, fmt.Errorf("open index db: %w", err)
 	}
 
+	// Wait out transient lock contention instead of failing instantly.
+	// Without this, a second connection (concurrent runtime build, the
+	// installed BRUV-Server service holding the same repo, WAL recovery
+	// after an unclean shutdown) makes Open fail with "database is
+	// locked" — and the caller then runs with a nil index forever, which
+	// renders boards cardless. Must be set BEFORE journal_mode: the WAL
+	// switch is itself the statement that hits the lock.
+	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("set busy timeout: %w", err)
+	}
+
 	// Enable WAL mode for crash safety and concurrent reads
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		db.Close()

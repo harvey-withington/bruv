@@ -49,9 +49,27 @@ func (s *ShellAPI) PickSaveFile(title, defaultName, filterName, filterPattern st
 
 // --- Shell-open helpers (Explorer/Finder/browser) ---
 
-func (s *ShellAPI) OpenConfigFolder() error  { return s.app.OpenConfigFolder() }
-func (s *ShellAPI) OpenLogsFolder() error    { return s.app.OpenLogsFolder() }
-func (s *ShellAPI) OpenBugReportURL() error  { return s.app.OpenBugReportURL() }
+func (s *ShellAPI) OpenConfigFolder() error { return s.app.OpenConfigFolder() }
+func (s *ShellAPI) OpenLogsFolder() error   { return s.app.OpenLogsFolder() }
+func (s *ShellAPI) OpenBugReportURL() error { return s.app.OpenBugReportURL() }
+
+// --- Workspace Tier 1 actions (device-side by definition) ---
+//
+// Open/reveal/launch act on files on THIS machine, so they run in the
+// shell process regardless of which connection is active. Paths resolve
+// through the internal/workspace chokepoint.
+
+func (s *ShellAPI) OpenWorkspacePath(root, rel string) error {
+	return s.app.OpenWorkspacePath(root, rel)
+}
+
+func (s *ShellAPI) RevealWorkspacePath(root, rel string) error {
+	return s.app.RevealWorkspacePath(root, rel)
+}
+
+func (s *ShellAPI) RunWorkspaceLaunchCommand(root, command string) error {
+	return s.app.RunWorkspaceLaunchCommand(root, command)
+}
 
 // --- Process control ---
 

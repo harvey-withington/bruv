@@ -11,6 +11,14 @@ const linkRenderer: RendererObject = {
       return `<a class="bruv-link" data-bruv="${payload}"${titleAttr}>${text}</a>`
     }
 
+    // Workspace file links: workspace://<ws-id>/<path>. Path-based, so they
+    // survive tier transitions; the click handler opens per current tier.
+    if (href.startsWith('workspace://')) {
+      const payload = href.slice('workspace://'.length)
+      const titleAttr = title ? ` title="${title}"` : ''
+      return `<a class="bruv-link" data-workspace="${payload}"${titleAttr}>${text}</a>`
+    }
+
     let target = ''
     // Support [text](url,_blank) syntax (pre-processed from "url, _blank")
     const commaIdx = href.lastIndexOf(',')

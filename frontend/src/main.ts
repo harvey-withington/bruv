@@ -27,6 +27,15 @@ document.addEventListener('click', (e) => {
     return
   }
 
+  // Workspace file links (workspace://<ws-id>/<path>) — open via the panel.
+  const wsLink = anchor.getAttribute('data-workspace')
+  if (wsLink) {
+    e.preventDefault()
+    e.stopPropagation()
+    document.dispatchEvent(new CustomEvent('bruv:navigate', { detail: { type: 'workspace-file', id: wsLink } }))
+    return
+  }
+
   // External links (http/https) — in Wails mode, ALWAYS open in system
   // browser to prevent the WebView from navigating away from the app.
   const href = anchor.getAttribute('href')

@@ -1,10 +1,12 @@
 <script lang="ts">
-  import { X, FolderOpen, LayoutTemplate, ArrowLeft } from 'lucide-svelte'
-  import { AttachWorkspace, GenerateWorkspaceFromTemplate, ListWorkspaceTemplates, PickFolder } from '@shared/api'
+  import { X, FolderOpen, LayoutTemplate, ArrowLeft, Pencil, FolderInput } from 'lucide-svelte'
+  import { AttachWorkspace, GenerateWorkspaceFromTemplate, ImportWorkspaceTemplate, InspectWorkspaceTemplateFolder, ListWorkspaceTemplates, PickFolder } from '@shared/api'
   import type { Workspace, WorkspaceTemplateEntry } from '@shared/types'
   import { t } from '../../lib/i18n.svelte'
   import { showToast } from '../../lib/toast.svelte'
+  import { showConfirm } from '../../lib/confirm.svelte'
   import { focusTrap } from '../../lib/actions'
+  import TemplateEditorDialog from './TemplateEditorDialog.svelte'
 
   let { brandSlug, streamSlug, projectSlug, onAttached, onClose }: {
     brandSlug: string
@@ -25,7 +27,7 @@
   let values = $state<Record<string, string>>({})
   let targetParent = $state('')
 
-  const visibleParams = $derived(selected?.parameters.filter(p => p.name && p.prompt) ?? [])
+  const visibleParams = $derived(selected?.parameters?.filter(p => p.name && p.prompt) ?? [])
 
   async function attachExisting() {
     busy = true
@@ -42,22 +44,50 @@
     }
   }
 
+  let editorRef = $state<string | null>(null)
+
+  async function loadTemplates() {
+    try {
+      // ?? [] belt-and-braces: null must never land in `templates` — it's
+      // the "still loading" sentinel, and an old server's Go nil slice
+      // marshals to JSON null.
+      templates = (await ListWorkspaceTemplates()) ?? []
+    } catch (e) {
+      templates = []
+      showToast(t('workspace.templates_load_failed', { error: e instanceof Error ? e.message : String(e) }), 'error')
+    }
+  }
+
   async function openTemplates() {
     step = 'template'
-    if (templates === null) {
-      try {
-        templates = await ListWorkspaceTemplates()
-      } catch (e) {
-        templates = []
-        showToast(t('workspace.templates_load_failed', { error: e instanceof Error ? e.message : String(e) }), 'error')
+    if (templates === null) await loadTemplates()
+  }
+
+  async function importTemplate() {
+    try {
+      const src = await PickFolder(t('workspace.import_template'))
+      if (!src) return
+      const insp = await InspectWorkspaceTemplateFolder(src)
+      if (!insp.is_template) {
+        showToast(t('workspace.import_not_template'), 'error')
+        return
       }
+      if (insp.large_warning) {
+        const size = `${Math.round(insp.size_bytes / (1024 * 1024))} MB`
+        if (!await showConfirm(t('workspace.import_large_confirm', { size }))) return
+      }
+      await ImportWorkspaceTemplate(src, '')
+      showToast(t('workspace.import_done'), 'success')
+      await loadTemplates()
+    } catch (e) {
+      showToast(t('workspace.import_failed', { error: e instanceof Error ? e.message : String(e) }), 'error')
     }
   }
 
   function chooseTemplate(tpl: WorkspaceTemplateEntry) {
     selected = tpl
     values = {}
-    for (const p of tpl.parameters) {
+    for (const p of tpl.parameters ?? []) {
       if (p.name && p.prompt) values[p.name] = p.defaultValue ?? ''
     }
     targetParent = ''
@@ -124,13 +154,17 @@
           <p class="muted">{t('workspace.no_templates')}</p>
         {:else}
           {#each templates as tpl (tpl.id)}
-            <button class="template-row" onclick={() => chooseTemplate(tpl)}>
-              <strong>{tpl.name}</strong>
-              {#if tpl.description}<span class="desc">{tpl.description}</span>{/if}
-              <span class="scope">{tpl.scope === 'global' ? t('workspace.scope_global') : tpl.scope}</span>
-            </button>
+            <div class="template-row-wrap">
+              <button class="template-row" onclick={() => chooseTemplate(tpl)}>
+                <strong>{tpl.name}</strong>
+                {#if tpl.description}<span class="desc">{tpl.description}</span>{/if}
+                <span class="scope">{tpl.scope === 'global' ? t('workspace.scope_global') : tpl.scope}</span>
+              </button>
+              <button class="icon-btn" onclick={() => editorRef = tpl.id} title={t('workspace.edit_template')} aria-label={t('workspace.edit_template')}><Pencil size={13} /></button>
+            </div>
           {/each}
         {/if}
+        <button class="btn subtle import-btn" onclick={importTemplate}><FolderInput size={14} /> {t('workspace.import_template')}</button>
       </div>
 
     {:else if step === 'params' && selected}
@@ -158,6 +192,10 @@
     {/if}
   </div>
 </div>
+
+{#if editorRef}
+  <TemplateEditorDialog templateRef={editorRef} onSaved={loadTemplates} onClose={() => editorRef = null} />
+{/if}
 
 <style>
   .dialog-overlay {
@@ -223,7 +261,14 @@
     flex-direction: column;
     gap: 0.35rem;
   }
+  .template-row-wrap {
+    display: flex;
+    align-items: stretch;
+    gap: 0.25rem;
+  }
+  .template-row-wrap .icon-btn { align-self: center; }
   .template-row {
+    flex: 1;
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -236,6 +281,7 @@
     text-align: left;
     cursor: pointer;
   }
+  .import-btn { align-self: flex-start; margin-top: 0.2rem; }
   .template-row:hover { border-color: var(--accent); }
   .template-row strong { font-size: 0.82rem; color: var(--text-primary); }
   .template-row .desc { font-size: 0.74rem; color: var(--text-muted); }

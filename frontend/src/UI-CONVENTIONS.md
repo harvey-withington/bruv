@@ -330,3 +330,28 @@ A reusable wrapper around `@lottiefiles/dotlottie-web` for rendering `.lottie` (
 4. **Enter saves** in single-line edits; **Ctrl+Enter** saves in multiline edits.
 5. **Use semantic HTML** — prefer `<button>` for actions, `<input>` for editable text.
 6. **Never remove elements from the DOM** to hide them — use `color: transparent` or `opacity: 0` so they remain accessible to screen readers and keyboard navigation.
+
+---
+
+## 13. SidePanel, Workspace Panel & WorkspaceFileTree
+
+**`SidePanel.svelte`** is the single right-hand panel host: one resizable, slide-animated container with a VS Code-style bottom tab bar, rendered as a sibling of `<Board/>` in App's `.board-row`. It owns ALL geometry (width persistence, drag-to-resize, slide in/out via width-not-transform animation — transforms break WebView2 scroll containers). Content components fill 100% and own zero geometry: `ChatSection` runs in `hosted` mode (its own shell/resize/animation disabled; card chat keeps `hosted=false`), `WorkspacePanel` is geometry-less by construction. Both tab panes stay mounted — inactive ones hide via CSS (`.sp-tab-pane.pane-hidden`) so chat drafts/scroll survive tab flips. TopBar buttons open-and-focus their tab, or close the panel when their tab is already frontmost; keyboard `p` = chat tab, `w` = workspace tab.
+
+Future-layout note: SidePanel is the deliberate seam for a horizontal split or a generic drag-drop panel scheme — consumers pass `tabs` + a content snippet keyed by tab id; only SidePanel internals change.
+
+**Panel-header convention** (Harvey, 2026-07-05): every panel header title is **icon + Proper Case** — never all-caps/`text-transform: uppercase`. Reference style: `0.82rem`, weight 600, `var(--text-strong)`, icon size 15, gap `0.4rem` (see WorkspacePanel's `.title` / ChatSection's `.chat-title`). Tab labels match their pane's header title verbatim.
+
+The Workspace panel content (`components/workspace/WorkspacePanel.svelte`) renders inside a SidePanel tab. Sub-dialogs (attach, template editor, file viewer) are self-contained overlay components in `components/workspace/`.
+
+**`WorkspaceFileTree.svelte`** is the reusable recursive collapsible tree:
+
+| Prop | Type | Notes |
+|---|---|---|
+| `entries` | `WorkspaceEntry[]` | Flat, sorted, slash-relative paths (the whole tree; each instance filters its own level) |
+| `prefix` | `string` | Path prefix this instance renders (`''` = root) |
+| `onOpenFile` | `(path: string) => void` | File row click |
+| `depth` | `number` | Indentation level (self-incremented on recursion) |
+
+It self-imports for recursion (never `<svelte:self>` — deprecated). Keyboard: rows are real `<button>`s, so Tab/Enter work for free.
+
+**Workspace file links**: markdown `workspace://<ws-id>/<path>` renders via `shared/markdown.ts` as `.bruv-link[data-workspace]`; the `main.ts` click interceptor dispatches `bruv:navigate {type: ''workspace-file''}` and App opens the panel + viewer. Same chain as `bruv:card:` links.

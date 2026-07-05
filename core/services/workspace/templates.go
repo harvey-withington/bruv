@@ -37,13 +37,23 @@ type TemplateEntry struct {
 	Parameters []ft.Parameter `json:"parameters"`
 }
 
+// nonNilParams keeps parameter lists JSON-marshalling as [] rather than
+// null — a nil slice reaching the frontend reads as "still loading" or
+// crashes a .filter/.map. Applies to every RPC-facing return below.
+func nonNilParams(p []ft.Parameter) []ft.Parameter {
+	if p == nil {
+		return []ft.Parameter{}
+	}
+	return p
+}
+
 // ListTemplates merges vault-level and Brand-scoped templates.
 func (s *Service) ListTemplates() ([]TemplateEntry, error) {
 	r, err := s.repo()
 	if err != nil {
 		return nil, err
 	}
-	var out []TemplateEntry
+	out := []TemplateEntry{} // never nil: JSON null reads as "still loading" client-side
 	scan := func(dir, scope string) {
 		root := filepath.Join(r.Root, filepath.FromSlash(dir))
 		_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -63,7 +73,7 @@ func (s *Service) ListTemplates() ([]TemplateEntry, error) {
 				Name:        tpl.Name,
 				Description: tpl.Description,
 				Scope:       scope,
-				Parameters:  tpl.Parameters,
+				Parameters:  nonNilParams(tpl.Parameters),
 			})
 			return filepath.SkipDir // a template's own subtree is opaque
 		})
@@ -102,7 +112,7 @@ func (s *Service) GetTemplateParams(ref string) ([]ft.Parameter, error) {
 	if err != nil {
 		return nil, err
 	}
-	return tpl.Parameters, nil
+	return nonNilParams(tpl.Parameters), nil
 }
 
 // PreviewTemplate dry-runs generation for the editor/creation dialog.
@@ -156,22 +166,41 @@ func (s *Service) builtinParams(brandSlug, streamSlug, projectSlug string) map[s
 	return extra
 }
 
-// TemplateInspection is the pre-import review of a candidate folder.
+// TemplateInspection is the pre-import review of a candidate folder — and
+// the template editor's load shape (it carries the full descriptor).
 type TemplateInspection struct {
-	IsTemplate  bool           `json:"is_template"`
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	Parameters  []ft.Parameter `json:"parameters"`
-	SizeBytes   int64          `json:"size_bytes"`
+	IsTemplate        bool           `json:"is_template"`
+	Name              string         `json:"name"`
+	Description       string         `json:"description"`
+	DefaultTargetPath string         `json:"default_target_path"`
+	Parameters        []ft.Parameter `json:"parameters"`
+	SizeBytes         int64          `json:"size_bytes"`
 	// LargeWarning flags folders above ImportSizeWarnBytes.
 	LargeWarning bool     `json:"large_warning"`
 	Issues       []string `json:"issues,omitempty"`
 }
 
-// InspectTemplateFolder validates a folder before import: is it a template,
-// what does it declare, how big is it. Folders without .ft/ report
-// IsTemplate=false — the UI offers to templatize them after import.
-func (s *Service) InspectTemplateFolder(dir string) (*TemplateInspection, error) {
+// InspectTemplateFolder validates a template ref (absolute folder path or
+// vault-relative id) before import/editing: is it a template, what does it
+// declare, how big is it. Folders without .ft/ report IsTemplate=false —
+// the UI offers to templatize them (the editor's save creates the .ft/).
+func (s *Service) InspectTemplateFolder(ref string) (*TemplateInspection, error) {
+	dir := ref
+	if !filepath.IsAbs(ref) {
+		r, err := s.repo()
+		if err != nil {
+			return nil, err
+		}
+		abs, err := pathsafe.Resolve(r.Root, ref)
+		if err != nil {
+			return nil, err
+		}
+		dir = abs
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		return nil, fmt.Errorf("%s is not a folder", ref)
+	}
+
 	insp := &TemplateInspection{}
 	var size int64
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
@@ -191,12 +220,13 @@ func (s *Service) InspectTemplateFolder(dir string) (*TemplateInspection, error)
 
 	tpl, err := ft.Load(dir)
 	if err != nil {
-		return insp, nil // not a template — still importable via templatize
+		return insp, nil // not a template — the editor's save can templatize it
 	}
 	insp.IsTemplate = true
 	insp.Name = tpl.Name
 	insp.Description = tpl.Description
-	insp.Parameters = tpl.Parameters
+	insp.DefaultTargetPath = tpl.DefaultTargetPath
+	insp.Parameters = nonNilParams(tpl.Parameters)
 	for _, issue := range tpl.Validate() {
 		insp.Issues = append(insp.Issues, issue.Error())
 	}

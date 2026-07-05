@@ -10,8 +10,10 @@
   import TopBar from './components/TopBar.svelte'
   import Board from './components/Board.svelte'
   import ChatSection from './components/ChatSection.svelte'
+  import SidePanel from './components/SidePanel.svelte'
   import WorkspacePanel from './components/workspace/WorkspacePanel.svelte'
   import CardDetail from './components/CardDetail.svelte'
+  import { BotMessageSquare, Briefcase } from 'lucide-svelte'
   import SettingsDialog from './components/SettingsDialog.svelte'
   import ProjectSettingsDialog from './components/ProjectSettingsDialog.svelte'
   import KeyboardShortcuts from './components/KeyboardShortcuts.svelte'
@@ -135,23 +137,47 @@
   let showProjectSettings = $state(false)
   let showProfile = $state(false)
   let showTagEditor = $state(false)
-  let showProjectChat = $state(false)
-  let showWorkspace = $state(false)
-  // Project-chat DOM-lag flag — see CardDetail's chatInDom for the same
-  // pattern. ChatSection's slideOutWidth transition lives on its own
-  // inner `{#if visible}` element; if the OUTER {#if} here unmounts the
-  // component synchronously when the user closes the panel, the out
-  // transition never runs. Keeping projectChatInDom true for the
-  // transition duration lets the slide-out animation play before the
-  // component is torn down.
-  const PROJECT_CHAT_OUT_DURATION = 240
-  // svelte-ignore state_referenced_locally
-  let projectChatInDom = $state(showProjectChat)
+  // Right-hand side panel: one resizable container with bottom tabs
+  // (VS Code-style) hosting Project Chat + Workspace. The TopBar buttons
+  // open the panel focused on their tab, or close it when their tab is
+  // already frontmost.
+  type SideTabID = 'chat' | 'workspace'
+  // Open state + active tab survive refresh (localStorage) — an open panel
+  // is part of the user's arranged workspace, not transient chrome.
+  const SIDE_PANEL_OPEN_KEY = 'bruv:sidePanelOpen'
+  const SIDE_PANEL_TAB_KEY = 'bruv:sidePanelTab'
+  let sidePanelOpen = $state(localStorage.getItem(SIDE_PANEL_OPEN_KEY) === '1')
+  let sidePanelTab = $state<SideTabID>(localStorage.getItem(SIDE_PANEL_TAB_KEY) === 'workspace' ? 'workspace' : 'chat')
   $effect(() => {
-    if (showProjectChat) {
-      projectChatInDom = true
-    } else if (projectChatInDom) {
-      const timer = setTimeout(() => { projectChatInDom = false }, PROJECT_CHAT_OUT_DURATION)
+    localStorage.setItem(SIDE_PANEL_OPEN_KEY, sidePanelOpen ? '1' : '0')
+    localStorage.setItem(SIDE_PANEL_TAB_KEY, sidePanelTab)
+  })
+  let workspaceFileRequest = $state<{ wsId: string; path: string } | null>(null)
+  const sideTabs = $derived([
+    // Labels intentionally match the panes' own header titles.
+    { id: 'chat', label: t('chat.project_title'), icon: BotMessageSquare },
+    { id: 'workspace', label: t('workspace.title'), icon: Briefcase },
+  ])
+  function toggleSideTab(tab: SideTabID) {
+    if (sidePanelOpen && sidePanelTab === tab) {
+      sidePanelOpen = false
+    } else {
+      sidePanelTab = tab
+      sidePanelOpen = true
+    }
+  }
+  // Panel DOM-lag flag — see CardDetail's chatInDom for the same pattern.
+  // SidePanel's slideOutWidth transition lives on its own inner
+  // `{#if visible}` element; if the OUTER {#if} here unmounts the
+  // component synchronously on close, the out transition never runs.
+  const SIDE_PANEL_OUT_DURATION = 240
+  // svelte-ignore state_referenced_locally
+  let sidePanelInDom = $state(sidePanelOpen)
+  $effect(() => {
+    if (sidePanelOpen) {
+      sidePanelInDom = true
+    } else if (sidePanelInDom) {
+      const timer = setTimeout(() => { sidePanelInDom = false }, SIDE_PANEL_OUT_DURATION)
       return () => clearTimeout(timer)
     }
   })
@@ -235,6 +261,16 @@
           console.error('Failed to navigate to project', e)
           showToast(t('error.navigate_failed'), 'error')
         }
+      } else if (detail.type === 'workspace-file') {
+        // workspace://<ws-id>/<path> — resolve inside the current project's
+        // workspace via the panel (v1: links work within their own project).
+        const sep = detail.id.indexOf('/')
+        workspaceFileRequest = {
+          wsId: sep === -1 ? detail.id : detail.id.slice(0, sep),
+          path: sep === -1 ? '' : detail.id.slice(sep + 1),
+        }
+        sidePanelTab = 'workspace'
+        sidePanelOpen = true
       }
     }
     document.addEventListener('bruv:navigate', handleBruvNav)
@@ -260,7 +296,10 @@
         document.querySelector<HTMLInputElement>('.search-box input, .search-input')?.focus()
       } else if (e.key === 'p' && !e.ctrlKey && !e.metaKey && nav.projectSlug) {
         e.preventDefault()
-        showProjectChat = !showProjectChat
+        toggleSideTab('chat')
+      } else if (e.key === 'w' && !e.ctrlKey && !e.metaKey && nav.projectSlug) {
+        e.preventDefault()
+        toggleSideTab('workspace')
       }
     }
     window.addEventListener('keydown', handleGlobalKeydown)
@@ -378,32 +417,47 @@
         onSelectCard={handleSearchSelectCard}
         onOpenTagEditor={() => showTagEditor = true}
         onOpenProjectSettings={() => showProjectSettings = true}
-        onToggleProjectChat={() => showProjectChat = !showProjectChat}
-        projectChatActive={showProjectChat}
-        onToggleWorkspace={() => showWorkspace = !showWorkspace}
-        workspaceActive={showWorkspace}
+        onToggleProjectChat={() => toggleSideTab('chat')}
+        projectChatActive={sidePanelOpen && sidePanelTab === 'chat'}
+        onToggleWorkspace={() => toggleSideTab('workspace')}
+        workspaceActive={sidePanelOpen && sidePanelTab === 'workspace'}
       />
       <div class="board-row">
         <Board />
-        {#if showWorkspace && nav.projectSlug}
-          <WorkspacePanel
-            brandSlug={nav.brandSlug!}
-            streamSlug={nav.streamSlug!}
-            projectSlug={nav.projectSlug!}
-            onClose={() => showWorkspace = false}
-          />
-        {/if}
-        {#if projectChatInDom && nav.projectSlug}
-          <ChatSection
-            cardId=""
-            visible={showProjectChat}
-            projectMode={true}
-            reloadKey={nav.projectSlug}
-            loadFn={() => LoadProjectChatHistory(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!)}
-            sendFn={(text, contextLevel) => SendProjectChatMessage(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, text, contextLevel ?? 'all')}
-            clearFn={() => ClearProjectChatHistory(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!)}
-            applyFn={(msgID, acceptIDs) => ApplyProjectPendingEdits(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, msgID, acceptIDs)}
-          />
+        {#if sidePanelInDom && nav.projectSlug}
+          <SidePanel
+            visible={sidePanelOpen}
+            tabs={sideTabs}
+            bind:activeTab={sidePanelTab}
+            onClose={() => sidePanelOpen = false}
+          >
+            {#snippet children(active: string)}
+              <!-- Both panes stay mounted; inactive ones hide via CSS so
+                   chat state (draft, scroll, history) survives tab flips. -->
+              <div class="sp-tab-pane" class:pane-hidden={active !== 'chat'}>
+                <ChatSection
+                  cardId=""
+                  hosted
+                  visible={sidePanelOpen}
+                  projectMode={true}
+                  reloadKey={nav.projectSlug ?? undefined}
+                  loadFn={() => LoadProjectChatHistory(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!)}
+                  sendFn={(text, contextLevel) => SendProjectChatMessage(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, text, contextLevel ?? 'all')}
+                  clearFn={() => ClearProjectChatHistory(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!)}
+                  applyFn={(msgID, acceptIDs) => ApplyProjectPendingEdits(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, msgID, acceptIDs)}
+                />
+              </div>
+              <div class="sp-tab-pane" class:pane-hidden={active !== 'workspace'}>
+                <WorkspacePanel
+                  brandSlug={nav.brandSlug!}
+                  streamSlug={nav.streamSlug!}
+                  projectSlug={nav.projectSlug!}
+                  openRequest={workspaceFileRequest}
+                  onRequestHandled={() => workspaceFileRequest = null}
+                />
+              </div>
+            {/snippet}
+          </SidePanel>
         {/if}
       </div>
     </div>
@@ -509,6 +563,20 @@
     flex: 1;
     display: flex;
     overflow: hidden;
+  }
+
+  /* Side-panel tab panes: both stay mounted (chat keeps its state across
+     tab flips); the inactive one hides. Rendered inside SidePanel via the
+     snippet, so the styles live here where the markup is authored. */
+  .sp-tab-pane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .sp-tab-pane.pane-hidden {
+    display: none;
   }
 
   .loading-screen {

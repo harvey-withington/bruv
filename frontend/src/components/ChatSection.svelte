@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from 'svelte'
-  import { Send, MapPin, Check, X, Wrench, ChevronUp, ChevronDown, MessageCircle, PencilLine, ListChecks, Trash2 } from 'lucide-svelte'
+  import { Send, MapPin, Check, X, Wrench, ChevronUp, ChevronDown, MessageCircle, PencilLine, ListChecks, Trash2, BotMessageSquare } from 'lucide-svelte'
   import { LoadChatHistory, SendChatMessage, IsLLMConfigured, AcceptPinSuggestion, RejectPinSuggestion, GetLLMConfig, SetLLMConfig, ApplyPendingEdits, ClearCardChatHistory } from '@shared/api'
   import type { ChatHistory, ChatMessage, ToolAction } from '@shared/types'
   import { showConfirm } from '../lib/confirm.svelte'
@@ -44,6 +44,7 @@
     splitterDragging = $bindable(false),
     onCardChanged,
     projectMode = false,
+    hosted = false,
     loadFn,
     sendFn,
     reloadKey,
@@ -56,6 +57,10 @@
     splitterDragging?: boolean
     onCardChanged?: () => void
     projectMode?: boolean
+    /** hosted: a parent container (SidePanel) owns width, resize, and the
+     *  slide animations — this component renders at 100% with its own
+     *  shell geometry disabled. Card chat keeps hosted=false. */
+    hosted?: boolean
     loadFn?: () => Promise<ChatHistory>
     /** sendFn is called when the user submits a message. In projectMode it
      *  receives the current contextLevel selection so the parent's closure
@@ -548,14 +553,16 @@
 
 {#if visible}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <div class="chat-panel" class:resizing style="width: {chatWidth}px; --chat-width: {chatWidth}px;" out:slideOutWidth={{ duration: 220 }}>
-    <div class="chat-resize-handle left" class:active={resizing} role="separator" tabindex="-1" onpointerdown={onSplitterDown}></div>
+  <div class="chat-panel" class:resizing class:hosted style={hosted ? undefined : `width: ${chatWidth}px; --chat-width: ${chatWidth}px;`} out:slideOutWidth={{ duration: 220 }}>
+    {#if !hosted}
+      <div class="chat-resize-handle left" class:active={resizing} role="separator" tabindex="-1" onpointerdown={onSplitterDown}></div>
+    {/if}
     <!-- Inner wrapper is pinned to the final width, so children don't
          reflow while the outer .chat-panel animates from 0 → chatWidth.
          The overflow on the right is clipped by .modal's overflow:hidden. -->
-    <div class="chat-panel-inner" style="width: {chatWidth}px;">
+    <div class="chat-panel-inner" style={hosted ? undefined : `width: ${chatWidth}px;`}>
     <div class="chat-header">
-      <span class="chat-title">{projectMode ? t('chat.project_title') : t('chat.title')}{messages.length > 0 ? ` (${messages.length})` : ''}</span>
+      <span class="chat-title"><BotMessageSquare size={15} /> {projectMode ? t('chat.project_title') : t('chat.title')}{messages.length > 0 ? ` (${messages.length})` : ''}</span>
       {#if projectMode}
         <div class="ctx-selector" role="group" aria-label={t('chat.context_label')}>
           <span class="ctx-selector-label">{t('chat.context_label')}</span>
@@ -827,6 +834,24 @@
     user-select: none;
   }
 
+  /* Hosted mode: a SidePanel owns geometry + animations; fill it. The
+     border comes from the host, and the entrance animation would double
+     up with the host's. Background + header metrics match the sibling
+     WorkspacePanel tab so switching tabs doesn't shift tone or rhythm. */
+  .chat-panel.hosted {
+    width: 100%;
+    height: 100%;
+    border-left: none;
+    animation: none;
+    background: var(--bg-base);
+  }
+  .chat-panel.hosted .chat-panel-inner {
+    width: 100%;
+  }
+  .chat-panel.hosted .chat-header {
+    padding: 0.55rem 0.75rem;
+  }
+
   .chat-resize-handle {
     position: absolute;
     top: 0;
@@ -854,12 +879,15 @@
     align-items: center;
     gap: 0.5rem;
   }
+  /* Matches WorkspacePanel's header title: icon + Proper Case, never
+     all-caps (panel-header convention — see UI-CONVENTIONS §13). */
   .chat-title {
-    font-size: 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.82rem;
     font-weight: 600;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    color: var(--text-strong);
   }
 
   /* Project chat: context level segmented control */

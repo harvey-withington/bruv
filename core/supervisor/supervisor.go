@@ -31,8 +31,25 @@ type Supervisor struct {
 	// mux is the aggregated event bus. Every loaded runtime's bus
 	// fans in here via a goroutine started in Load(); Unload() and
 	// SetEnabled(false) cancel that goroutine.
-	mux        *events.MemBus
-	muxUnsubs  map[string]func() // per-runtime cancel handles for the fan-in
+	mux       *events.MemBus
+	muxUnsubs map[string]func() // per-runtime cancel handles for the fan-in
+
+	// building single-flights buildRuntime per repo ID. On a repo
+	// switch the frontend fires a burst of parallel RPCs, each lazily
+	// calling Load(id) — without this, several buildRuntimes race on
+	// the same repo: duplicate watchers/schedulers/MCP subprocesses,
+	// and concurrent index.db opens where the loser-with-a-nil-index
+	// finishes FIRST (it skipped the refresh) and wins the cache slot.
+	// That was the "repo loads slowly then renders cardless until app
+	// restart" bug.
+	building map[string]*buildFlight
+}
+
+// buildFlight is one in-progress buildRuntime shared by concurrent Loads.
+type buildFlight struct {
+	done chan struct{}
+	rt   *Runtime
+	err  error
 }
 
 // New constructs a Supervisor from a slice of registry entries. Does
@@ -48,6 +65,7 @@ func New(entries []config.RepoEntry, configDir string) (*Supervisor, error) {
 		secret:    config.LoadServerSecret(),
 		mux:       events.NewMemBus(256),
 		muxUnsubs: make(map[string]func(), len(entries)),
+		building:  make(map[string]*buildFlight),
 	}
 	for _, e := range entries {
 		s.entries[e.ID] = e
@@ -111,34 +129,50 @@ func (s *Supervisor) LoadAll() {
 // Load builds a Runtime for the given registered ID and caches it.
 // Returns the existing Runtime if already loaded. Errors when the ID
 // isn't in the registry or when buildRuntime fails.
+//
+// Concurrent Loads for the same ID share ONE buildRuntime (see the
+// `building` field doc) — a build must never run twice for a repo, or
+// the two runtimes contend on the repo's index.db and duplicate every
+// background worker.
 func (s *Supervisor) Load(id string) (*Runtime, error) {
 	s.mu.Lock()
 	if rt, ok := s.runtimes[id]; ok {
 		s.mu.Unlock()
 		return rt, nil
 	}
+	if f, ok := s.building[id]; ok {
+		// Another goroutine is mid-build — wait for its result.
+		s.mu.Unlock()
+		<-f.done
+		if f.err != nil {
+			return nil, f.err
+		}
+		return f.rt, nil
+	}
 	entry, ok := s.entries[id]
-	s.mu.Unlock()
 	if !ok {
+		s.mu.Unlock()
 		return nil, fmt.Errorf("supervisor: repo %q not in registry", id)
 	}
+	f := &buildFlight{done: make(chan struct{})}
+	s.building[id] = f
+	s.mu.Unlock()
+
 	rt, err := buildRuntime(entry.Path, s.configDir, s.secret)
 	if err != nil {
-		return nil, fmt.Errorf("supervisor: build %q: %w", id, err)
+		err = fmt.Errorf("supervisor: build %q: %w", id, err)
 	}
+
 	s.mu.Lock()
-	// Race: a concurrent Load(id) may have raced past the cache check
-	// above and built its own runtime. Last-writer-wins on the map,
-	// but we close the loser to release its watcher / MCP / scheduler.
-	if existing, ok := s.runtimes[id]; ok {
-		s.mu.Unlock()
-		rt.Close()
-		return existing, nil
+	delete(s.building, id)
+	if err == nil {
+		s.runtimes[id] = rt
+		s.startBusFanIn(id, rt)
 	}
-	s.runtimes[id] = rt
-	s.startBusFanIn(id, rt)
+	f.rt, f.err = rt, err
 	s.mu.Unlock()
-	return rt, nil
+	close(f.done)
+	return rt, err
 }
 
 // Secret returns the HMAC secret used for signed attachment URLs.
@@ -242,27 +276,10 @@ func (s *Supervisor) RegisterAndLoad(path string) (*Runtime, error) {
 	}
 	s.mu.Lock()
 	s.entries[entry.ID] = entry
-	existing := s.runtimes[entry.ID]
 	s.mu.Unlock()
-	if existing != nil {
-		return existing, nil
-	}
-	rt, err := buildRuntime(entry.Path, s.configDir, s.secret)
-	if err != nil {
-		return nil, fmt.Errorf("supervisor: build runtime: %w", err)
-	}
-	s.mu.Lock()
-	if existing, ok := s.runtimes[entry.ID]; ok {
-		// Concurrent RegisterAndLoad / Load raced ahead. Close the
-		// loser, return the winner.
-		s.mu.Unlock()
-		rt.Close()
-		return existing, nil
-	}
-	s.runtimes[entry.ID] = rt
-	s.startBusFanIn(entry.ID, rt)
-	s.mu.Unlock()
-	return rt, nil
+	// Delegate to Load so registration shares the same single-flight
+	// as every other build path.
+	return s.Load(entry.ID)
 }
 
 // EntryByPath returns the registry entry whose Path matches (after

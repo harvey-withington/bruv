@@ -897,6 +897,12 @@ export interface BackendAdapter {
   ReadWorkspaceFile(brandSlug: string, streamSlug: string, projectSlug: string, rel: string): Promise<string>
   WriteWorkspaceFile(brandSlug: string, streamSlug: string, projectSlug: string, rel: string, content: string): Promise<void>
 
+  // Workspace Tier 1 actions — SHELL_METHODS, device-local only.
+  // root = the workspace's on-disk root (origin.url for local origins).
+  OpenWorkspacePath(root: string, rel: string): Promise<void>
+  RevealWorkspacePath(root: string, rel: string): Promise<void>
+  RunWorkspaceLaunchCommand(root: string, command: string): Promise<void>
+
   // Workspace folder templates (vault content; ref = vault-relative id or absolute path)
   ListWorkspaceTemplates(): Promise<WorkspaceTemplateEntry[]>
   GetWorkspaceTemplateParams(ref: string): Promise<WorkspaceTemplateParameter[]>
@@ -1123,6 +1129,7 @@ export interface WorkspaceTemplateInspection {
   is_template: boolean
   name: string
   description: string
+  default_target_path: string
   parameters: WorkspaceTemplateParameter[]
   size_bytes: number
   large_warning: boolean

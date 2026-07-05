@@ -196,18 +196,35 @@ type RPCError = { code: number; message: string; data?: unknown }
 // repoID is selected; calls without a repoID against per-repo methods
 // throw a clear "no repo selected" error rather than 404 on the wire.
 class RPCClient {
+  private readonly base: string
   private readonly repoEndpoint: string  // "" if no repo selected
   private readonly serverEndpoint: string
   private readonly headers: Record<string, string>
   private nextID = 1
+  private versionPromise: Promise<string> | null = null
 
   constructor(base: string, token: string, prefix: string) {
+    this.base = base
     this.repoEndpoint = prefix ? `${base}${prefix}/rpc` : ''
     this.serverEndpoint = `${base}/server/rpc`
     this.headers = {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     }
+  }
+
+  // Best-effort server build version (GET /version is unauthenticated and
+  // has existed since the first server release). Cached for the client's
+  // lifetime; '' when unreachable. Used to make stale-server errors
+  // actionable — see the -32601 branch in call().
+  private serverVersion(): Promise<string> {
+    if (!this.versionPromise) {
+      this.versionPromise = fetch(`${this.base}/version`)
+        .then(r => (r.ok ? r.json() : null))
+        .then(v => (v && typeof v.version === 'string' ? v.version : ''))
+        .catch(() => '')
+    }
+    return this.versionPromise
   }
 
   async call(method: string, params: unknown[]): Promise<unknown> {
@@ -248,6 +265,17 @@ class RPCClient {
       }
       const payload = (await res.json()) as { result?: unknown; error?: RPCError }
       if (payload.error) {
+        // "method not found" almost always means the connected server runs
+        // an older binary than this frontend (stale deploy / outdated
+        // install). Name the version and the fix instead of mystifying.
+        if (payload.error.code === -32601) {
+          const version = await this.serverVersion()
+          const server = version ? `BRUV server ${version}` : 'the connected BRUV server'
+          throw Object.assign(
+            new Error(`${method} is not supported by ${server} — update the server to use this feature.`),
+            { name: 'MethodNotSupportedError', rpcCode: payload.error.code, rpcData: payload.error.data, method, serverVersion: version },
+          )
+        }
         throw Object.assign(new Error(payload.error.message), {
           rpcCode: payload.error.code,
           rpcData: payload.error.data,
@@ -396,6 +424,10 @@ const SHELL_METHODS = new Set<string>([
   'OpenConfigFolder',
   'OpenLogsFolder',
   'OpenBugReportURL',
+  // Workspace Tier 1 actions — act on files on THIS device.
+  'OpenWorkspacePath',
+  'RevealWorkspacePath',
+  'RunWorkspaceLaunchCommand',
   'ForceQuit',
   // Build info / version — report on the running desktop binary, so they
   // live on the Wails shell rather than the per-repo RPC surface.

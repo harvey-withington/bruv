@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -37,10 +38,14 @@ func TestResolveRejectsEscapes(t *testing.T) {
 		"a/../../x",
 		"a/../..",
 		"/etc/passwd",
-		`\windows\system32`,
-		`C:\Windows`,
-		"C:evil.txt", // drive-relative — not IsAbs, still escapes
+		`\windows\system32`, // backslash-rooted is rejected on every platform
 		"../" + filepath.Base(root),
+	}
+	if runtime.GOOS == "windows" {
+		// Drive-qualified forms are absolute-intent ONLY on Windows; on
+		// Linux/macOS "C:evil.txt" is a legal relative filename and must
+		// be accepted — do not assert rejection there.
+		cases = append(cases, `C:\Windows`, "C:evil.txt")
 	}
 	for _, rel := range cases {
 		if _, err := Resolve(root, rel); !errors.Is(err, ErrPathEscapes) {

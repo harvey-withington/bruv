@@ -98,7 +98,15 @@ h2 { font-size: clamp(1.8rem, 4vw, 2.8rem); font-weight: 800; }
   max-width: var(--maxw); margin: 0 auto; padding: 16px 24px;
   backdrop-filter: blur(10px);
 }
-.brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 1.2rem; letter-spacing: 0.02em; }
+/* Scroll-scaled brand: renders large at page top and settles into its nav
+   slot as you scroll. Scale is driven by JS (see index.html); origin is
+   top-left so it grows into the hero's breathing room below, never under
+   the viewport edge. */
+.brand {
+  display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 1.2rem; letter-spacing: 0.02em;
+  transform-origin: left top;
+  will-change: transform;
+}
 .brand img { filter: drop-shadow(0 4px 14px rgba(139, 92, 246, 0.5)); }
 .nav-links { display: flex; align-items: center; gap: 28px; font-size: 0.95rem; color: var(--text-muted); }
 .nav-links a:hover { color: var(--text); }
@@ -115,7 +123,8 @@ h2 { font-size: clamp(1.8rem, 4vw, 2.8rem); font-weight: 800; }
 /* ---------- hero ---------- */
 .hero {
   position: relative; z-index: 1;
-  max-width: var(--maxw); margin: 0 auto; padding: 70px 24px 40px;
+  /* Extra top padding is the scroll-scaled brand's landing zone. */
+  max-width: var(--maxw); margin: 0 auto; padding: 112px 24px 40px;
   display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 56px; align-items: center;
 }
 .pill {

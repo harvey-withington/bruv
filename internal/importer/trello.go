@@ -25,15 +25,15 @@ import (
 // TrelloBoard is the top-level document produced by Trello's
 // "Show Menu → More → Print and export → JSON" action.
 type TrelloBoard struct {
-	ID       string          `json:"id"`
-	Name     string          `json:"name"`
-	Desc     string          `json:"desc"`
-	Closed   bool            `json:"closed"`
-	Lists    []TrelloList    `json:"lists"`
-	Cards    []TrelloCard    `json:"cards"`
-	Labels   []TrelloLabel   `json:"labels"`
-	Actions  []TrelloAction  `json:"actions"`
-	Members  []TrelloMember  `json:"members"`
+	ID      string         `json:"id"`
+	Name    string         `json:"name"`
+	Desc    string         `json:"desc"`
+	Closed  bool           `json:"closed"`
+	Lists   []TrelloList   `json:"lists"`
+	Cards   []TrelloCard   `json:"cards"`
+	Labels  []TrelloLabel  `json:"labels"`
+	Actions []TrelloAction `json:"actions"`
+	Members []TrelloMember `json:"members"`
 }
 
 type TrelloList struct {
@@ -56,20 +56,20 @@ type TrelloMember struct {
 }
 
 type TrelloCheckItem struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	State string `json:"state"` // "complete" | "incomplete"
+	ID    string  `json:"id"`
+	Name  string  `json:"name"`
+	State string  `json:"state"` // "complete" | "incomplete"
 	Pos   float64 `json:"pos"`
 }
 
 // TrelloChecklist is embedded in the top-level board as well as referenced by
 // cards via idChecklists — we look them up by ID to build card blocks.
 type TrelloChecklist struct {
-	ID         string             `json:"id"`
-	Name       string             `json:"name"`
-	IDCard     string             `json:"idCard"`
-	CheckItems []TrelloCheckItem  `json:"checkItems"`
-	Pos        float64            `json:"pos"`
+	ID         string            `json:"id"`
+	Name       string            `json:"name"`
+	IDCard     string            `json:"idCard"`
+	CheckItems []TrelloCheckItem `json:"checkItems"`
+	Pos        float64           `json:"pos"`
 }
 
 type TrelloAttachment struct {
@@ -97,9 +97,9 @@ type TrelloCard struct {
 // TrelloAction carries comment history and member-add actions. We only read
 // comments (type="commentCard") here.
 type TrelloAction struct {
-	ID   string `json:"id"`
-	Type string `json:"type"`
-	Date time.Time `json:"date"`
+	ID            string    `json:"id"`
+	Type          string    `json:"type"`
+	Date          time.Time `json:"date"`
 	MemberCreator struct {
 		FullName string `json:"fullName"`
 		Username string `json:"username"`
@@ -168,14 +168,14 @@ type Options struct {
 
 // Result summarises what the importer did.
 type Result struct {
-	ProjectSlug    string `json:"project_slug"`
-	ProjectName    string `json:"project_name"`
-	Categories     int    `json:"categories"`
-	Cards          int    `json:"cards"`
-	Labels         int    `json:"labels"`
-	Comments       int    `json:"comments"`
-	Archived       int    `json:"archived"`
-	SkippedClosed  int    `json:"skipped_closed"`
+	ProjectSlug   string `json:"project_slug"`
+	ProjectName   string `json:"project_name"`
+	Categories    int    `json:"categories"`
+	Cards         int    `json:"cards"`
+	Labels        int    `json:"labels"`
+	Comments      int    `json:"comments"`
+	Archived      int    `json:"archived"`
+	SkippedClosed int    `json:"skipped_closed"`
 }
 
 // --- Trello color → BRUV palette ---

@@ -107,7 +107,7 @@ func TestUpdateSelf_Title(t *testing.T) {
 	id := testCard(t, r, "Old Title", nil)
 
 	card, _ := r.GetCard(id)
-	result, action := a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	result, action := a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"title": "New Title",
 	}))
 	if result != "Card blocks updated successfully." {
@@ -128,7 +128,7 @@ func TestUpdateSelf_TitleEmpty_NoChange(t *testing.T) {
 	id := testCard(t, r, "Keep This", nil)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"title":   "",
 		"updates": []any{},
 	}))
@@ -147,7 +147,7 @@ func TestUpdateSelf_TitleAndBlocks(t *testing.T) {
 	id := testCard(t, r, "Old", blocks)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"title": "New",
 		"updates": []any{
 			map[string]any{"key": "description", "value": "new text"},
@@ -170,7 +170,7 @@ func TestUpdateSelf_TitleViaUpdatesArray(t *testing.T) {
 	id := testCard(t, r, "Old Title", nil)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"updates": []any{
 			map[string]any{"key": "title", "value": "Bitcoin Price: $71,005.87"},
 		},
@@ -196,7 +196,7 @@ func TestUpdateSelf_DueDate_TopLevel(t *testing.T) {
 	id := testCard(t, r, "Card", nil)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"due_date": "2026-05-01",
 	}))
 
@@ -214,7 +214,7 @@ func TestUpdateSelf_DueDate_RFC3339(t *testing.T) {
 	id := testCard(t, r, "Card", nil)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"due_date": "2026-05-01T10:00:00Z",
 	}))
 
@@ -232,7 +232,7 @@ func TestUpdateSelf_DueDateViaUpdatesArray(t *testing.T) {
 	id := testCard(t, r, "Card", nil)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"updates": []any{
 			map[string]any{"key": "due_date", "value": "2026-06-15"},
 		},
@@ -261,7 +261,7 @@ func TestUpdateSelf_Tags_TopLevel(t *testing.T) {
 	id := testCard(t, r, "Card", nil)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"tags": []any{"bitcoin", "crypto", "alert"},
 	}))
 
@@ -279,7 +279,7 @@ func TestUpdateSelf_TagsViaUpdatesArray(t *testing.T) {
 	id := testCard(t, r, "Card", nil)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"updates": []any{
 			map[string]any{"key": "tags", "value": []any{"news", "finance"}},
 		},
@@ -301,7 +301,7 @@ func TestUpdateSelf_TagsViaUpdatesArray_String(t *testing.T) {
 	id := testCard(t, r, "Card", nil)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"updates": []any{
 			map[string]any{"key": "tags", "value": "urgent"},
 		},
@@ -321,7 +321,7 @@ func TestUpdateSelf_TagsBlockTakesPriority(t *testing.T) {
 	id := testCard(t, r, "Card", blocks)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"updates": []any{
 			map[string]any{"key": "tags", "value": "custom block value"},
 		},
@@ -348,7 +348,7 @@ func TestUpdateSelf_AllIntrinsicFields(t *testing.T) {
 	id := testCard(t, r, "Old", blocks)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"title":    "New Title",
 		"due_date": "2026-12-25",
 		"tags":     []any{"holiday", "special"},
@@ -384,7 +384,7 @@ func TestUpdateSelf_TextBlock(t *testing.T) {
 	id := testCard(t, r, "Card", blocks)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"updates": []any{
 			map[string]any{"key": "notes", "value": "updated notes"},
 		},
@@ -408,7 +408,7 @@ func TestUpdateSelf_NumberBlock(t *testing.T) {
 	id := testCard(t, r, "Card", blocks)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"updates": []any{
 			map[string]any{"key": "price", "value": float64(71034.02)},
 		},
@@ -428,7 +428,7 @@ func TestUpdateSelf_NumberBlock_StringCoercion(t *testing.T) {
 	id := testCard(t, r, "Card", blocks)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"updates": []any{
 			map[string]any{"key": "count", "value": "42"},
 		},
@@ -452,7 +452,7 @@ func TestUpdateSelf_ListBlock_Array(t *testing.T) {
 	id := testCard(t, r, "Card", blocks)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"updates": []any{
 			map[string]any{"key": "items", "value": []any{"apple", "banana", "cherry"}},
 		},
@@ -476,7 +476,7 @@ func TestUpdateSelf_ListBlock_String(t *testing.T) {
 	id := testCard(t, r, "Card", blocks)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"updates": []any{
 			map[string]any{"key": "items", "value": "- first\n- second"},
 		},
@@ -501,7 +501,7 @@ func TestUpdateSelf_ChecklistBlock_StringArray(t *testing.T) {
 	id := testCard(t, r, "Card", blocks)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"updates": []any{
 			map[string]any{"key": "tasks", "value": []any{"task one", "task two"}},
 		},
@@ -525,7 +525,7 @@ func TestUpdateSelf_ChecklistBlock_MapArray(t *testing.T) {
 	id := testCard(t, r, "Card", blocks)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"updates": []any{
 			map[string]any{"key": "tasks", "value": []any{
 				map[string]any{"text": "done item", "done": true},
@@ -556,7 +556,7 @@ func TestUpdateSelf_CheckboxBlock(t *testing.T) {
 	id := testCard(t, r, "Card", blocks)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"updates": []any{
 			map[string]any{"key": "active", "value": "true"},
 		},
@@ -580,7 +580,7 @@ func TestUpdateSelf_DateBlock(t *testing.T) {
 	id := testCard(t, r, "Card", blocks)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"updates": []any{
 			map[string]any{"key": "deadline", "value": "2026-04-12T10:30:00Z"},
 		},
@@ -605,7 +605,7 @@ func TestUpdateSelf_SelectBlock_Valid(t *testing.T) {
 	id := testCard(t, r, "Card", blocks)
 
 	card, _ := r.GetCard(id)
-	result, _ := a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	result, _ := a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"updates": []any{
 			map[string]any{"key": "status", "value": "closed"},
 		},
@@ -629,7 +629,7 @@ func TestUpdateSelf_SelectBlock_Invalid(t *testing.T) {
 	id := testCard(t, r, "Card", blocks)
 
 	card, _ := r.GetCard(id)
-	result, _ := a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	result, _ := a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"updates": []any{
 			map[string]any{"key": "status", "value": "invalid_option"},
 		},
@@ -652,7 +652,7 @@ func TestUpdateSelf_RatingBlock(t *testing.T) {
 	id := testCard(t, r, "Card", blocks)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"updates": []any{
 			map[string]any{"key": "score", "value": float64(4)},
 		},
@@ -673,7 +673,7 @@ func TestUpdateSelf_RatingBlock_Clamped(t *testing.T) {
 	id := testCard(t, r, "Card", blocks)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"updates": []any{
 			map[string]any{"key": "score", "value": float64(99)},
 		},
@@ -697,7 +697,7 @@ func TestUpdateSelf_ProgressBlock(t *testing.T) {
 	id := testCard(t, r, "Card", blocks)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"updates": []any{
 			map[string]any{"key": "progress", "value": float64(75)},
 		},
@@ -717,7 +717,7 @@ func TestUpdateSelf_ProgressBlock_Clamped(t *testing.T) {
 	id := testCard(t, r, "Card", blocks)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"updates": []any{
 			map[string]any{"key": "progress", "value": float64(200)},
 		},
@@ -741,7 +741,7 @@ func TestUpdateSelf_MatchByLabel(t *testing.T) {
 	id := testCard(t, r, "Card", blocks)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"updates": []any{
 			map[string]any{"key": "my notes", "value": "found by label"},
 		},
@@ -762,7 +762,7 @@ func TestUpdateSelf_CreateNewBlock(t *testing.T) {
 	id := testCard(t, r, "Card", nil)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"updates": []any{
 			map[string]any{"key": "New Field", "value": "hello"},
 		},
@@ -792,7 +792,7 @@ func TestUpdateSelf_CreateNewBlock(t *testing.T) {
 
 func TestUpdateSelf_InvalidCardID(t *testing.T) {
 	a, _ := testRuntime(t)
-	result, action := a.executeAgentToolCall(context.Background(),"nonexistent", nil, call("update_self", map[string]any{
+	result, action := a.executeAgentToolCall(context.Background(), "nonexistent", nil, call("update_self", map[string]any{
 		"title": "Won't work",
 	}))
 	if action == nil {
@@ -808,7 +808,7 @@ func TestUpdateSelf_NoUpdatesNoTitle(t *testing.T) {
 	id := testCard(t, r, "Card", nil)
 
 	card, _ := r.GetCard(id)
-	result, _ := a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{}))
+	result, _ := a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{}))
 	if result != "Card blocks updated successfully." {
 		t.Fatalf("expected success for no-op, got: %s", result)
 	}
@@ -826,7 +826,7 @@ func TestReadCard(t *testing.T) {
 	id := testCard(t, r, "Test Card", blocks)
 
 	card, _ := r.GetCard(id)
-	result, action := a.executeAgentToolCall(context.Background(),"other-card", card, call("read_card", map[string]any{
+	result, action := a.executeAgentToolCall(context.Background(), "other-card", card, call("read_card", map[string]any{
 		"card_id": id,
 	}))
 	if action == nil || action.Tool != "read_card" {
@@ -842,7 +842,7 @@ func TestReadCard_NotFound(t *testing.T) {
 	id := testCard(t, r, "Card", nil)
 
 	card, _ := r.GetCard(id)
-	result, _ := a.executeAgentToolCall(context.Background(),id, card, call("read_card", map[string]any{
+	result, _ := a.executeAgentToolCall(context.Background(), id, card, call("read_card", map[string]any{
 		"card_id": "nonexistent",
 	}))
 	if result == "" {
@@ -859,7 +859,7 @@ func TestCreateCard(t *testing.T) {
 	seedID := testCard(t, r, "Seed", nil)
 
 	card, _ := r.GetCard(seedID)
-	result, action := a.executeAgentToolCall(context.Background(),seedID, card, call("create_card", map[string]any{
+	result, action := a.executeAgentToolCall(context.Background(), seedID, card, call("create_card", map[string]any{
 		"title": "New Agent Card",
 	}))
 	if action == nil || action.Tool != "create_card" {
@@ -883,7 +883,7 @@ func TestUpdateSelf_RadioBlock_Valid(t *testing.T) {
 	id := testCard(t, r, "Card", blocks)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"updates": []any{
 			map[string]any{"key": "priority", "value": "high"},
 		},
@@ -909,7 +909,7 @@ func TestUpdateSelf_MultipleBlocks(t *testing.T) {
 	id := testCard(t, r, "Card", blocks)
 
 	card, _ := r.GetCard(id)
-	a.executeAgentToolCall(context.Background(),id, card, call("update_self", map[string]any{
+	a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{
 		"title": "Updated Card",
 		"updates": []any{
 			map[string]any{"key": "summary", "value": "new summary"},

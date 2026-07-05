@@ -185,4 +185,3 @@ func TestSchemaToBlocks_AllBlocksHaveIDs(t *testing.T) {
 		}
 	}
 }
-

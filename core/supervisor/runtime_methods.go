@@ -42,10 +42,8 @@ type CardLocation = card.CardLocation
 type CategoryPath = card.CategoryPath
 type projectChatScope = tools.ProjectChatScope
 
-
 // Wails-bound forwarders for card CRUD, mutations, pins, moves,
 // checklist, and comments. Domain logic lives in core/services/card.
-
 
 // Type aliases preserve stable Wails TS bindings.
 
@@ -73,6 +71,7 @@ func (r *Runtime) UpdateCardTitle(id, title string) (*model.Card, error) {
 func (r *Runtime) UpdateCardType(id, cardType string) (*model.Card, error) {
 	return r.Card.UpdateType(id, cardType)
 }
+
 // UpdateCardDescription replaces the card's intrinsic description.
 // The legacy UpdateCardFields RPC was deleted in favour of this —
 // the previous "fields map with a magic 'description' key" model
@@ -147,7 +146,6 @@ func (r *Runtime) DeleteCardComment(cardID, commentID string) error {
 // Wails-bound forwarders for brand CRUD. Domain logic lives in
 // core/services/project.
 
-
 func (r *Runtime) CreateBrand(name string) (*model.Brand, error) { return r.Project.CreateBrand(name) }
 func (r *Runtime) GetBrand(slug string) (*model.Brand, error)    { return r.Project.GetBrand(slug) }
 func (r *Runtime) ListBrands() ([]model.Brand, error)            { return r.Project.ListBrands() }
@@ -164,7 +162,6 @@ func (r *Runtime) DeleteBrand(slug string) error { return r.Project.DeleteBrand(
 
 // Wails-bound forwarders for stream CRUD. Domain logic lives in
 // core/services/project.
-
 
 func (r *Runtime) CreateStream(brandSlug, name string) (*model.Stream, error) {
 	return r.Project.CreateStream(brandSlug, name)
@@ -187,7 +184,6 @@ func (r *Runtime) DeleteStream(brandSlug, streamSlug string) error {
 
 // Wails-bound forwarders for project CRUD. Domain logic lives in
 // core/services/project.
-
 
 func (r *Runtime) CreateProject(brandSlug, streamSlug, name string) (*model.Project, error) {
 	return r.Project.CreateProject(brandSlug, streamSlug, name)
@@ -213,7 +209,6 @@ func (r *Runtime) DeleteProject(brandSlug, streamSlug, projectSlug string) error
 
 // Wails-bound forwarders for category CRUD. Domain logic lives in
 // core/services/project.
-
 
 func (r *Runtime) CreateCategory(brandSlug, streamSlug, projectSlug, name string, position int) (*model.Category, error) {
 	return r.Project.CreateCategory(brandSlug, streamSlug, projectSlug, name, position)
@@ -242,7 +237,6 @@ func (r *Runtime) MoveCategoryCards(brandSlug, streamSlug, projectSlug, fromCate
 
 // Wails-bound forwarders for card types + templates + import/export.
 // Domain logic lives in core/services/catalog.
-
 
 // Exported type aliases preserve stable Wails TS bindings.
 type CardTypeInfo = catalog.CardTypeInfo
@@ -326,7 +320,6 @@ func (r *Runtime) resolveTemplateBlocks(cardType string) []model.Block {
 // plus chat-history shims and local wrappers around the pure
 // formatting helpers in core/runtime/promptfmt.
 
-
 // --- Chat history (forwarders to core/services/chat) ---
 
 func (r *Runtime) LoadChatHistory(cardID string) (*model.ChatFile, error) {
@@ -385,7 +378,6 @@ func renderCategoryHeader(cat model.Category) string {
 // ListRecentlyUpdatedCards remain on App until their neighbouring
 // services are extracted (repository lifecycle + inbox/activity,
 // respectively).
-
 
 // --- Index lifecycle (stays on App until repository-service extraction) ---
 
@@ -550,18 +542,17 @@ func (r *Runtime) ListRecentlyUpdatedCards(limit int) ([]RecentCard, error) {
 // directly; they'll migrate to receiving the llm.Service via their
 // Deps when chat and agent are extracted into services.
 
-
 // --- Wails-bound forwarders ---
 
-func (r *Runtime) GetLLMConfig() (config.LLMConfig, error)       { return r.LLM.GetConfig() }
-func (r *Runtime) SetLLMConfig(c config.LLMConfig) error         { return r.LLM.SetConfig(c) }
-func (r *Runtime) GetLLMAccounts() ([]config.LLMAccount, error)  { return r.LLM.GetAccounts() }
-func (r *Runtime) SaveLLMAccounts(x []config.LLMAccount) error   { return r.LLM.SaveAccounts(x) }
+func (r *Runtime) GetLLMConfig() (config.LLMConfig, error)      { return r.LLM.GetConfig() }
+func (r *Runtime) SetLLMConfig(c config.LLMConfig) error        { return r.LLM.SetConfig(c) }
+func (r *Runtime) GetLLMAccounts() ([]config.LLMAccount, error) { return r.LLM.GetAccounts() }
+func (r *Runtime) SaveLLMAccounts(x []config.LLMAccount) error  { return r.LLM.SaveAccounts(x) }
 func (r *Runtime) TestLLMAccountConnection(id string) (string, error) {
 	return r.LLM.TestAccountConnection(id)
 }
-func (r *Runtime) IsLLMConfigured() bool               { return r.LLM.IsConfigured() }
-func (r *Runtime) TestLLMConnection() (string, error)  { return r.LLM.TestConnection() }
+func (r *Runtime) IsLLMConfigured() bool              { return r.LLM.IsConfigured() }
+func (r *Runtime) TestLLMConnection() (string, error) { return r.LLM.TestConnection() }
 func (r *Runtime) GetTokenPricing() (map[string]config.ModelPricing, error) {
 	return r.LLM.GetPricing()
 }
@@ -612,7 +603,6 @@ func (r *Runtime) listCardTypeIDs() []string {
 // on App because it depends on the OS keychain secret resolver and
 // repo open state — the service triggers reloads via the Deps callback.
 
-
 // MCPServerView is the Wails-bound response shape. Aliased to the
 // service type so frontend TS bindings remain stable.
 type MCPServerView = mcpsvc.ServerView
@@ -661,7 +651,6 @@ func (r *Runtime) RestartMCPServer(name string) error {
 // Wails-bound forwarders for tags + labels. Domain logic lives in
 // core/services/catalog.
 
-
 func (r *Runtime) GetTagColors() (map[string]string, error) { return r.Catalog.GetTagColors() }
 
 func (r *Runtime) SetTagColor(tag, color string) (map[string]string, error) {
@@ -709,7 +698,6 @@ func (r *Runtime) healTagColors() { r.Catalog.HealTagColors() }
 // their lowercase forms locally for source-diff minimalism. The
 // canonical dispatcher lives on *tools.Dispatcher.
 
-
 // projectChatScope is the main-package alias for tools.ProjectChatScope
 // so existing construction sites and parameter names don't churn.
 
@@ -744,7 +732,6 @@ func coerceBlockValueForBlock(b *model.Block, val any) (any, error) {
 // Wails-bound forwarders for Trello import and project export.
 // Domain logic lives in core/services/repository.
 
-
 func (r *Runtime) ImportTrelloBoard(brandSlug, streamSlug, filePath, archiveMode, apiKey, apiToken string) (*importer.Result, error) {
 	return r.Repository.ImportTrelloBoard(brandSlug, streamSlug, filePath, archiveMode, apiKey, apiToken)
 }
@@ -775,7 +762,6 @@ func (r *Runtime) ExportProjectToFile(brandSlug, streamSlug, projectSlug, filePa
 // Pin suggestions live alongside pending edits because a user can
 // stage a pin via suggest_pin in Suggest mode; Accept/RejectPinSuggestion
 // are the per-message resolutions of those.
-
 
 // ApplyProjectPendingEdits applies the subset of accepted edits and rejects
 // the rest, for a project chat message. Mirrors ApplyPendingEdits but uses the

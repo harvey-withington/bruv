@@ -473,6 +473,7 @@ type workspaceDeps struct{ r *Runtime }
 
 func (d workspaceDeps) Repo() *repo.Repository            { return d.r.repo }
 func (d workspaceDeps) Publish(topic string, payload any) { d.r.bus.Publish(topic, payload) }
+func (d workspaceDeps) Card() *card.Service               { return d.r.Card }
 
 // ---------------------------------------------------------------------
 // LLM runtime Deps adapters. "RT" suffix to avoid colliding with the

@@ -161,8 +161,8 @@ func CardTools(cardTypes []string, categories []map[string]string, mcpToolIDs []
 					"description": "How often to run. Use: '@hourly', '@daily', '@weekly', '30m', '1h', or a cron expression like '0 9 * * *' (daily at 9am).",
 				},
 				"allowed_tools": map[string]any{
-					"type":  "array",
-					"items": map[string]any{"type": "string", "enum": buildAllowedToolsEnum(mcpToolIDs)},
+					"type":        "array",
+					"items":       map[string]any{"type": "string", "enum": buildAllowedToolsEnum(mcpToolIDs)},
 					"description": "Which tools the agent can use. Built-in tools: web_fetch, web_search, notify, update_self, create_card, read_card, http_request. MCP tools use a server__tool prefix (e.g. filesystem__read_text_file). Include MCP tools when the goal requires external capabilities like filesystem access.",
 				},
 				"notify_on": map[string]any{

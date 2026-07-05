@@ -190,6 +190,10 @@ export const GenerateWorkspaceFromTemplate = (...args: Parameters<ReturnType<typ
 export const InspectWorkspaceTemplateFolder = (...args: Parameters<ReturnType<typeof getBackend>['InspectWorkspaceTemplateFolder']>) => getBackend().InspectWorkspaceTemplateFolder(...args)
 export const ImportWorkspaceTemplate = (...args: Parameters<ReturnType<typeof getBackend>['ImportWorkspaceTemplate']>) => getBackend().ImportWorkspaceTemplate(...args)
 export const SaveWorkspaceTemplate = (...args: Parameters<ReturnType<typeof getBackend>['SaveWorkspaceTemplate']>) => getBackend().SaveWorkspaceTemplate(...args)
+export const ListProjectTemplates = (...args: Parameters<ReturnType<typeof getBackend>['ListProjectTemplates']>) => getBackend().ListProjectTemplates(...args)
+export const GenerateCardFolder = (...args: Parameters<ReturnType<typeof getBackend>['GenerateCardFolder']>) => getBackend().GenerateCardFolder(...args)
+export const ClearCardFolder = (...args: Parameters<ReturnType<typeof getBackend>['ClearCardFolder']>) => getBackend().ClearCardFolder(...args)
+export const LinkCardFolder = (...args: Parameters<ReturnType<typeof getBackend>['LinkCardFolder']>) => getBackend().LinkCardFolder(...args)
 
 // Index / search
 export const SearchCards = (...args: Parameters<ReturnType<typeof getBackend>['SearchCards']>) => getBackend().SearchCards(...args)

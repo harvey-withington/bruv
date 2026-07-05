@@ -253,7 +253,6 @@ func (r *Repository) duplicateAttachmentFiles(srcCardID, dstCardID string, atts 
 	return out, nil
 }
 
-
 // UpdateCardBlocks replaces a card's blocks. Blocks are the source
 // of truth for their own values now — no denormalised mirror.
 func (r *Repository) UpdateCardBlocks(cardID string, blocks []model.Block) (*model.Card, error) {

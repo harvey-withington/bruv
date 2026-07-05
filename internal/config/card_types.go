@@ -10,10 +10,10 @@ import (
 
 // UserCardType is a globally-stored card type created by the user.
 type UserCardType struct {
-	ID          string `json:"id"`                    // auto-slugged from label, immutable after create
+	ID          string `json:"id"` // auto-slugged from label, immutable after create
 	Label       string `json:"label"`
-	Color       string `json:"color"`                 // hex, e.g. "#6366f1"
-	Icon        string `json:"icon,omitempty"`         // lucide icon name, e.g. "rocket"
+	Color       string `json:"color"`          // hex, e.g. "#6366f1"
+	Icon        string `json:"icon,omitempty"` // lucide icon name, e.g. "rocket"
 	Description string `json:"description"`
 	AIHint      string `json:"ai_hint,omitempty"`
 	TemplateID  string `json:"template_id,omitempty"` // references CardTemplate.ID
@@ -21,7 +21,7 @@ type UserCardType struct {
 
 // CardTemplate is a globally-stored, reusable block layout shared across card types.
 type CardTemplate struct {
-	ID     string        `json:"id"`   // uuid
+	ID     string        `json:"id"` // uuid
 	Name   string        `json:"name"`
 	Blocks []model.Block `json:"blocks"`
 }
@@ -34,11 +34,11 @@ type BuiltinOverride struct {
 
 // UserTypeStore is the on-disk root for card_types.json.
 type UserTypeStore struct {
-	Seeded                bool                       `json:"seeded"`
-	StarterTemplatesSeeded bool                      `json:"starter_templates_seeded,omitempty"`
-	Types                 []UserCardType             `json:"types"`
-	Templates             []CardTemplate             `json:"templates"`
-	BuiltinOverrides      map[string]BuiltinOverride `json:"builtin_overrides,omitempty"`
+	Seeded                 bool                       `json:"seeded"`
+	StarterTemplatesSeeded bool                       `json:"starter_templates_seeded,omitempty"`
+	Types                  []UserCardType             `json:"types"`
+	Templates              []CardTemplate             `json:"templates"`
+	BuiltinOverrides       map[string]BuiltinOverride `json:"builtin_overrides,omitempty"`
 }
 
 func userTypesPath() (string, error) {

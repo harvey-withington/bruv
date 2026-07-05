@@ -122,17 +122,17 @@ type ServerProcess struct {
 	// window. Default 3 — zero means never restart.
 	maxRetries int
 
-	mu          sync.Mutex
-	status      HealthStatus
-	lastError   string
-	tools       []Tool
-	serverInfo  ServerInfo
-	protoVer    string
-	cmd         *exec.Cmd
-	client      *Client
-	transport   *Transport
-	startedAt   time.Time
-	failCount   int
+	mu            sync.Mutex
+	status        HealthStatus
+	lastError     string
+	tools         []Tool
+	serverInfo    ServerInfo
+	protoVer      string
+	cmd           *exec.Cmd
+	client        *Client
+	transport     *Transport
+	startedAt     time.Time
+	failCount     int
 	stopRequested bool
 }
 

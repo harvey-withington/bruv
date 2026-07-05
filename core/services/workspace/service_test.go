@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"bruv/core/services/card"
+	"bruv/internal/index"
 	"bruv/internal/model"
 	"bruv/internal/repo"
 
@@ -15,12 +17,25 @@ import (
 )
 
 type testDeps struct {
-	r      *repo.Repository
-	topics []string
+	r       *repo.Repository
+	cardSvc *card.Service
+	topics  []string
 }
 
 func (d *testDeps) Repo() *repo.Repository      { return d.r }
 func (d *testDeps) Publish(topic string, _ any) { d.topics = append(d.topics, topic) }
+func (d *testDeps) Card() *card.Service         { return d.cardSvc }
+
+// cardTestDeps satisfies card.Deps with no-op instrumentation, sharing the
+// repo + topic sink with the workspace testDeps.
+type cardTestDeps struct{ d *testDeps }
+
+func (c cardTestDeps) Repo() *repo.Repository                                          { return c.d.r }
+func (c cardTestDeps) Index() *index.Index                                             { return nil }
+func (c cardTestDeps) ApplyTypeBlocks(_, _ string)                                     {}
+func (c cardTestDeps) LogActivity(_, _, _ string)                                      {}
+func (c cardTestDeps) LogActivityWithContext(_, _, _, _ string, _ []card.CategoryPath) {}
+func (c cardTestDeps) Publish(topic string, _ any)                                     { c.d.topics = append(c.d.topics, topic) }
 func (d *testDeps) emitted(topic string) bool {
 	for _, t := range d.topics {
 		if t == topic {
@@ -49,6 +64,7 @@ func newTestService(t *testing.T) (*Service, *testDeps, string, string, string) 
 		t.Fatal(err)
 	}
 	deps := &testDeps{r: r}
+	deps.cardSvc = card.New(cardTestDeps{d: deps})
 	return New(deps), deps, b.Slug, st.Slug, p.Slug
 }
 
@@ -261,6 +277,114 @@ func TestGenerateFromTemplateAttaches(t *testing.T) {
 	}
 	if !strings.Contains(brief, "# Neon Nights") || !strings.Contains(brief, "Project: Big Movie") {
 		t.Errorf("built-in params not applied:\n%s", brief)
+	}
+}
+
+// The Bad Therapist flow: a template living INSIDE the workspace generates
+// an episode folder bound to a card (plan/2026-07-05 card folders design.md).
+func TestCardFolderLifecycle(t *testing.T) {
+	svc, deps, b, st, p := newTestService(t)
+
+	// Workspace = the "show" folder, with the episode template inside it.
+	showDir := writeFiles(t, t.TempDir(), map[string]string{"Planning/notes.md": "x", "Episodes/": ""})
+	prompt := "Episode Number"
+	if err := ft.Save(&ft.Template{
+		Name:              "Episode",
+		DefaultTargetPath: "Episodes", // relative → resolves against the workspace root
+		Parameters: []ft.Parameter{{
+			Name: "epNum", Type: "text", Prompt: &prompt,
+			ReplaceInFileNames: true, ReplaceInFiles: true,
+		}},
+	}, filepath.Join(showDir, "_Template - EP{epNum} - {bruvCard}")); err != nil {
+		t.Fatal(err)
+	}
+	writeFiles(t, filepath.Join(showDir, "_Template - EP{epNum} - {bruvCard}"), map[string]string{
+		"Drafts/EP{epNum}.fountain.ft$": "Title: {{$bruvCard}}\nEp: {{$epNum}}",
+	})
+	// Strip the template prefix on generation, as the real template does.
+	stripMatch := "^_Template - "
+	tplDir := filepath.Join(showDir, "_Template - EP{epNum} - {bruvCard}")
+	tpl, err := ft.Load(tplDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tpl.Parameters = append(tpl.Parameters, ft.Parameter{Match: &stripMatch, ReplaceInFileNames: true})
+	if err := ft.Save(tpl, tplDir); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.Attach(context.Background(), b, st, p, showDir); err != nil {
+		t.Fatal(err)
+	}
+	epCard, err := deps.cardSvc.Create("", "Patient Zero")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Workspace-resident template is discovered, listed before vault scopes.
+	entries, err := svc.ListProjectTemplates(b, st, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) == 0 || entries[0].Scope != "workspace" || entries[0].Name != "Episode" {
+		t.Fatalf("workspace template not first: %+v", entries)
+	}
+
+	// Blank target → the template's own DefaultTargetPath ("Episodes",
+	// resolved against the template folder's parent — the show root).
+	card, err := svc.GenerateCardFolder(context.Background(), b, st, p, epCard.ID,
+		entries[0].ID, "", map[string]string{"epNum": "002"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if card.Folder == nil || card.Folder.Path != "Episodes/EP002 - Patient Zero" {
+		t.Fatalf("folder binding = %+v", card.Folder)
+	}
+	script, err := os.ReadFile(filepath.Join(showDir, "Episodes", "EP002 - Patient Zero", "Drafts", "EP002.fountain"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(script), "Title: Patient Zero") {
+		t.Errorf("bruvCard not applied in content:\n%s", script)
+	}
+
+	// Escape attempts and double-binding are refused.
+	if _, err := svc.GenerateCardFolder(context.Background(), b, st, p, epCard.ID, entries[0].ID, "Episodes", nil); err == nil {
+		t.Error("second generate on a bound card must fail")
+	}
+	unbound, err := svc.ClearCardFolder(epCard.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unbound.Folder != nil {
+		t.Error("unbind must clear the binding")
+	}
+	if _, err := os.Stat(filepath.Join(showDir, "Episodes", "EP002 - Patient Zero")); err != nil {
+		t.Error("unbind must never delete the folder on disk")
+	}
+	if _, err := svc.GenerateCardFolder(context.Background(), b, st, p, epCard.ID, entries[0].ID, "../outside", nil); err == nil {
+		t.Error("target escape must be rejected")
+	}
+
+	// Re-link the existing folder (the unlink-then-relink path).
+	relinked, err := svc.LinkCardFolder(b, st, p, epCard.ID, "Episodes/EP002 - Patient Zero")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if relinked.Folder == nil || relinked.Folder.Path != "Episodes/EP002 - Patient Zero" {
+		t.Fatalf("relink = %+v", relinked.Folder)
+	}
+	if _, err := svc.LinkCardFolder(b, st, p, epCard.ID, "Episodes"); err == nil {
+		t.Error("linking while bound must fail")
+	}
+	if _, err := svc.ClearCardFolder(epCard.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.LinkCardFolder(b, st, p, epCard.ID, "Episodes/nope"); err == nil {
+		t.Error("linking a nonexistent folder must fail")
+	}
+	if _, err := svc.LinkCardFolder(b, st, p, epCard.ID, "../escape"); err == nil {
+		t.Error("link escape must be rejected")
 	}
 }
 

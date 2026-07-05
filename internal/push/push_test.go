@@ -123,10 +123,10 @@ func TestRegistry_Upsert_RejectsIncomplete(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases := []Subscription{
-		{Endpoint: "https://x", P256dh: "p", Auth: "a"},                     // no device id
-		{DeviceID: "d", P256dh: "p", Auth: "a"},                             // no endpoint
-		{DeviceID: "d", Endpoint: "https://x", Auth: "a"},                   // no p256dh
-		{DeviceID: "d", Endpoint: "https://x", P256dh: "p"},                 // no auth
+		{Endpoint: "https://x", P256dh: "p", Auth: "a"},     // no device id
+		{DeviceID: "d", P256dh: "p", Auth: "a"},             // no endpoint
+		{DeviceID: "d", Endpoint: "https://x", Auth: "a"},   // no p256dh
+		{DeviceID: "d", Endpoint: "https://x", P256dh: "p"}, // no auth
 	}
 	for i, c := range cases {
 		if err := reg.Upsert(c); err == nil {

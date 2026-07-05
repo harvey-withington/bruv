@@ -8,9 +8,9 @@ import (
 
 // RevalidateStats tracks what was repaired during a revalidation pass.
 type RevalidateStats struct {
-	StalePinsRemoved   int
-	OrphanedPinDirs    int
-	OrphanedChatFiles  int
+	StalePinsRemoved  int
+	OrphanedPinDirs   int
+	OrphanedChatFiles int
 }
 
 func (s RevalidateStats) String() string {

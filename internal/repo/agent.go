@@ -117,8 +117,8 @@ func (r *Repository) loadAgentRuns(cardID string) []model.AgentRun {
 		return nil
 	}
 	var file struct {
-		CardID string            `json:"card_id"`
-		Runs   []model.AgentRun  `json:"runs"`
+		CardID string           `json:"card_id"`
+		Runs   []model.AgentRun `json:"runs"`
 	}
 	if err := readJSON(path, &file); err != nil {
 		return nil
@@ -135,8 +135,8 @@ func (r *Repository) saveAgentRuns(cardID string, runs []model.AgentRun) error {
 		return nil
 	}
 	payload := struct {
-		CardID string            `json:"card_id"`
-		Runs   []model.AgentRun  `json:"runs"`
+		CardID string           `json:"card_id"`
+		Runs   []model.AgentRun `json:"runs"`
 	}{CardID: cardID, Runs: runs}
 	return writeJSON(path, payload)
 }

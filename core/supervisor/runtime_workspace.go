@@ -115,3 +115,27 @@ func (r *Runtime) ImportWorkspaceTemplate(srcDir, brandSlug string) (*workspaces
 func (r *Runtime) SaveWorkspaceTemplate(ref string, tpl ft.Template) error {
 	return r.Workspace.SaveTemplate(ref, tpl)
 }
+
+// --- Card Folders (plan/2026-07-05 card folders design.md) -------------------
+
+// ListProjectTemplates merges workspace-resident templates (first) with the
+// vault/brand registries — the card-folder create dialog's picker.
+func (r *Runtime) ListProjectTemplates(brandSlug, streamSlug, projectSlug string) ([]workspacesvc.TemplateEntry, error) {
+	return r.Workspace.ListProjectTemplates(brandSlug, streamSlug, projectSlug)
+}
+
+// GenerateCardFolder generates a template into the project workspace and
+// binds the result to the card. Returns the updated card.
+func (r *Runtime) GenerateCardFolder(ctx context.Context, brandSlug, streamSlug, projectSlug, cardID, ref, targetRel string, values map[string]string) (*model.Card, error) {
+	return r.Workspace.GenerateCardFolder(ctx, brandSlug, streamSlug, projectSlug, cardID, ref, targetRel, values)
+}
+
+// ClearCardFolder unbinds a card's folder (files untouched).
+func (r *Runtime) ClearCardFolder(cardID string) (*model.Card, error) {
+	return r.Workspace.ClearCardFolder(cardID)
+}
+
+// LinkCardFolder binds an existing workspace subfolder to the card.
+func (r *Runtime) LinkCardFolder(brandSlug, streamSlug, projectSlug, cardID, rel string) (*model.Card, error) {
+	return r.Workspace.LinkCardFolder(brandSlug, streamSlug, projectSlug, cardID, rel)
+}

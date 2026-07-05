@@ -63,15 +63,15 @@ func (r *Runtime) ReorderCategories(brandSlug, streamSlug, projectSlug string, o
 // but the underlying state is shared via config.* helpers.
 
 func (r *Runtime) GetPreferences() (config.Preferences, error) { return r.Settings.GetPreferences() }
-func (r *Runtime) SetPreferences(p json.RawMessage) error   { return r.Settings.SetPreferences(p) }
+func (r *Runtime) SetPreferences(p json.RawMessage) error      { return r.Settings.SetPreferences(p) }
 func (r *Runtime) GetAuthInfo() config.AuthInfo                { return r.Settings.GetAuthInfo() }
 func (r *Runtime) GetProfile() (config.UserProfile, error)     { return r.Settings.GetProfile() }
 func (r *Runtime) SetProfile(p config.UserProfile) error       { return r.Settings.SetProfile(p) }
 
 // --- Notifications ---
 
-func (r *Runtime) GetNotifyConfig() (config.NotifyConfig, error) { return r.Notify.GetConfig() }
-func (r *Runtime) SetNotifyConfig(c config.NotifyConfig) error   { return r.Notify.SetConfig(c) }
+func (r *Runtime) GetNotifyConfig() (config.NotifyConfig, error)    { return r.Notify.GetConfig() }
+func (r *Runtime) SetNotifyConfig(c config.NotifyConfig) error      { return r.Notify.SetConfig(c) }
 func (r *Runtime) GetNotifications() ([]config.Notification, error) { return r.Notify.List() }
 func (r *Runtime) MarkNotificationRead(id string) error             { return r.Notify.MarkRead(id) }
 func (r *Runtime) MarkAllNotificationsRead() error                  { return r.Notify.MarkAllRead() }

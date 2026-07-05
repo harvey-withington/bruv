@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ChevronRight, ChevronDown, Folder, FileText, Link2 } from 'lucide-svelte'
+  import { ChevronRight, ChevronDown, Folder, FileText, Link2, LayoutTemplate } from 'lucide-svelte'
   import type { WorkspaceEntry } from '@shared/types'
   import WorkspaceFileTree from './WorkspaceFileTree.svelte'
 
@@ -11,7 +11,7 @@
   // (WorkspacePanel) and passed down every level — that's what lets
   // Expand All / Collapse All and the accordion mode operate across the
   // whole tree instead of per-level islands.
-  let { entries, prefix = '', onOpenFile, depth = 0, collapsed, mode = 'multi' }: {
+  let { entries, prefix = '', onOpenFile, depth = 0, collapsed, mode = 'multi', templateRoots }: {
     entries: WorkspaceEntry[]
     prefix?: string
     onOpenFile?: (path: string) => void
@@ -20,7 +20,19 @@
     /** 'single': expanding a folder collapses its siblings (accordion),
      *  matching the Sidebar project tree's mode toggle. */
     mode?: 'single' | 'multi'
+    /** Folder-Template roots (dirs containing .ft/template.json), computed
+     *  once at the root instance and passed down. */
+    templateRoots?: Set<string>
   } = $props()
+
+  // Icons distinguish elements: template roots render distinctly.
+  const tplRoots = $derived(
+    templateRoots ?? new Set(
+      entries
+        .filter(e => !e.is_dir && e.path.endsWith('/.ft/template.json'))
+        .map(e => e.path.slice(0, -'/.ft/template.json'.length))
+    )
+  )
 
   const level = $derived(entries.filter(e => {
     if (!e.path.startsWith(prefix)) return false
@@ -47,13 +59,13 @@
   {#each level as e (e.path)}
     <li>
       {#if e.is_dir}
-        <button class="node dir" onclick={() => toggleDir(e.path)}>
+        <button class="node dir" class:tpl={tplRoots.has(e.path)} onclick={() => toggleDir(e.path)}>
           {#if collapsed[e.path]}<ChevronRight size={12} />{:else}<ChevronDown size={12} />{/if}
-          <Folder size={13} />
+          {#if tplRoots.has(e.path)}<LayoutTemplate size={13} />{:else}<Folder size={13} />{/if}
           <span class="name">{name(e)}</span>
         </button>
         {#if !collapsed[e.path]}
-          <WorkspaceFileTree {entries} prefix={e.path + '/'} {onOpenFile} depth={depth + 1} {collapsed} {mode} />
+          <WorkspaceFileTree {entries} prefix={e.path + '/'} {onOpenFile} depth={depth + 1} {collapsed} {mode} templateRoots={tplRoots} />
         {/if}
       {:else}
         <button class="node file" onclick={() => onOpenFile?.(e.path)}>
@@ -95,6 +107,16 @@
   .node.dir {
     color: var(--text-primary);
     font-weight: 500;
+  }
+  /* Folder-Template roots: cyan-tinted (--template-accent, theme-aware) so
+     they read as generators, not ordinary content folders. */
+  .node.dir.tpl {
+    color: var(--template-accent);
+  }
+  .node.dir.tpl:hover,
+  .node.dir.tpl:focus-visible {
+    color: var(--template-accent);
+    filter: brightness(1.15);
   }
   .name {
     overflow: hidden;

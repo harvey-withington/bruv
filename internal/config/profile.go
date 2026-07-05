@@ -15,10 +15,10 @@ import (
 // see identity.go.)
 type UserProfile struct {
 	DisplayName string   `json:"display_name"`
-	Role        string   `json:"role"`         // e.g. "Software Engineer", "Content Creator"
-	Bio         string   `json:"bio"`          // Short personal description
-	Expertise   []string `json:"expertise"`    // Areas of knowledge / skill
-	AvatarURL   string   `json:"avatar_url"`   // Profile picture URL or path
+	Role        string   `json:"role"`       // e.g. "Software Engineer", "Content Creator"
+	Bio         string   `json:"bio"`        // Short personal description
+	Expertise   []string `json:"expertise"`  // Areas of knowledge / skill
+	AvatarURL   string   `json:"avatar_url"` // Profile picture URL or path
 }
 
 func profilePath() (string, error) {

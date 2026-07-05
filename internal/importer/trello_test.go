@@ -1,9 +1,9 @@
 package importer
 
 import (
-	"bytes"
 	"bruv/internal/model"
 	"bruv/internal/repo"
+	"bytes"
 	"io"
 	"net/http"
 	"testing"

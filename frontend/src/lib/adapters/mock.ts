@@ -244,8 +244,12 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     PreviewWorkspaceTemplate: async (): Promise<WorkspaceTemplatePreview> => ({ entries: [] }),
     GenerateWorkspaceFromTemplate: async (): Promise<Workspace> => mockWorkspace(),
     InspectWorkspaceTemplateFolder: async (): Promise<WorkspaceTemplateInspection> => ({ is_template: false, name: '', description: '', default_target_path: '', parameters: [], size_bytes: 0, large_warning: false }),
-    ImportWorkspaceTemplate: async (): Promise<WorkspaceTemplateEntry> => ({ id: 'templates/mock', name: 'Mock', description: '', scope: 'global', parameters: [] }),
+    ImportWorkspaceTemplate: async (): Promise<WorkspaceTemplateEntry> => ({ id: 'templates/mock', name: 'Mock', description: '', scope: 'global', parameters: [], default_target_path: '' }),
     SaveWorkspaceTemplate: async () => {},
+    ListProjectTemplates: async (): Promise<WorkspaceTemplateEntry[]> => [],
+    GenerateCardFolder: async (): Promise<Card> => mockCard(),
+    ClearCardFolder: async (): Promise<Card> => mockCard(),
+    LinkCardFolder: async (): Promise<Card> => mockCard(),
 
     ListCardTemplates: async (): Promise<CardTemplate[]> => [],
     CreateCardTemplate: async (): Promise<CardTemplate> => ({ id: 'tpl-1', name: '', blocks: [] }),

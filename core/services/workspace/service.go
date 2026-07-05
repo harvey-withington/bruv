@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"bruv/core/services/card"
 	wsengine "bruv/core/workspace"
 	"bruv/internal/model"
 	"bruv/internal/repo"
@@ -27,6 +28,9 @@ type Deps interface {
 	// mutation (attach, refresh, config, file write), "workspace:deleted"
 	// on detach. Payload is a Ref.
 	Publish(topic string, payload any)
+	// Card routes card-folder bindings through the card service so its
+	// activity-log + event instrumentation is inherited.
+	Card() *card.Service
 }
 
 // Ref is the event payload locating the workspace's project.

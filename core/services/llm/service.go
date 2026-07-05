@@ -35,8 +35,8 @@ func (s *Service) SetConfig(c config.LLMConfig) error   { return config.SaveLLMC
 
 // --- Accounts ---
 
-func (s *Service) GetAccounts() ([]config.LLMAccount, error)     { return config.LoadLLMAccounts() }
-func (s *Service) SaveAccounts(a []config.LLMAccount) error      { return config.SaveLLMAccounts(a) }
+func (s *Service) GetAccounts() ([]config.LLMAccount, error) { return config.LoadLLMAccounts() }
+func (s *Service) SaveAccounts(a []config.LLMAccount) error  { return config.SaveLLMAccounts(a) }
 
 // TestAccountConnection probes a configured account with a minimal
 // prompt and returns the model name echoed back on success.

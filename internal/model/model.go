@@ -144,23 +144,23 @@ type Block struct {
 
 // Block type constants.
 const (
-	BlockText      = "text"
-	BlockChecklist = "checklist"
-	BlockList      = "list"
-	BlockMedia     = "media"
-	BlockURL       = "url"
-	BlockDivider   = "divider"
-	BlockSelect    = "select"
-	BlockNumber    = "number"
-	BlockDate      = "date"
-	BlockRating    = "rating"
-	BlockCheckbox  = "checkbox"
-	BlockRadio     = "radio"
+	BlockText          = "text"
+	BlockChecklist     = "checklist"
+	BlockList          = "list"
+	BlockMedia         = "media"
+	BlockURL           = "url"
+	BlockDivider       = "divider"
+	BlockSelect        = "select"
+	BlockNumber        = "number"
+	BlockDate          = "date"
+	BlockRating        = "rating"
+	BlockCheckbox      = "checkbox"
+	BlockRadio         = "radio"
 	BlockCheckboxGroup = "checkbox_group"
-	BlockImage     = "image"
-	BlockProgress  = "progress"
-	BlockAlarm     = "alarm"
-	BlockSurvey    = "survey"
+	BlockImage         = "image"
+	BlockProgress      = "progress"
+	BlockAlarm         = "alarm"
+	BlockSurvey        = "survey"
 
 	// Legacy block types — kept for migration compatibility.
 	BlockVideo = "video"
@@ -221,10 +221,22 @@ type Card struct {
 	ContextLevel    ContextLevel     `json:"context_level"`
 	DueDate         *time.Time       `json:"due_date"`
 	Tags            []string         `json:"tags"`
-	Labels          []string         `json:"labels,omitempty"` // label IDs from project's tags.json
+	Labels          []string         `json:"labels,omitempty"`  // label IDs from project's tags.json
 	Members         []string         `json:"members,omitempty"` // member IDs/usernames
+	Folder          *CardFolder      `json:"folder,omitempty"`
 	Blocks          []Block          `json:"blocks"`
 	FileAttachments []FileAttachment `json:"file_attachments,omitempty"`
+}
+
+// CardFolder binds a card to a subfolder of a project Workspace — intrinsic
+// (0-or-1 per card), deliberately NOT a block: blocks are repeatable and
+// drag anywhere; the folder is a fixed anchor like title/tags/due date.
+// Design: plan/2026-07-05 card folders design.md. Path is slash-relative to
+// the workspace root and chokepoint-resolved on every use; the binding
+// renders wherever the card renders (it carries its own workspace id).
+type CardFolder struct {
+	WorkspaceID string `json:"workspace_id"`
+	Path        string `json:"path"`
 }
 
 // Pin represents a card's membership in a specific Project/Category.
@@ -278,13 +290,13 @@ type PendingEdit struct {
 
 // ChatMessage is a single message in a card's chat history.
 type ChatMessage struct {
-	ID            string          `json:"id"`
-	Role          string          `json:"role"`
-	Content       string          `json:"content"`
-	Timestamp     time.Time       `json:"timestamp"`
-	ToolActions   []ToolAction    `json:"tool_actions,omitempty"`
-	PinSuggestion *PinSuggestion  `json:"pin_suggestion,omitempty"`
-	PendingEdits  []PendingEdit   `json:"pending_edits,omitempty"`
+	ID            string         `json:"id"`
+	Role          string         `json:"role"`
+	Content       string         `json:"content"`
+	Timestamp     time.Time      `json:"timestamp"`
+	ToolActions   []ToolAction   `json:"tool_actions,omitempty"`
+	PinSuggestion *PinSuggestion `json:"pin_suggestion,omitempty"`
+	PendingEdits  []PendingEdit  `json:"pending_edits,omitempty"`
 }
 
 // ChatFile is the on-disk format for cards/<card-uuid>.messages.json.
@@ -306,43 +318,43 @@ const (
 // AgentConfig holds the agent configuration for a card.
 // Persisted separately as cards/<card-uuid>.agent.json.
 type AgentConfig struct {
-	Enabled       bool        `json:"enabled"`
-	Goal          string      `json:"goal"`
-	Schedule      string      `json:"schedule"`
-	AllowedTools  []string    `json:"allowed_tools"`
-	Status        AgentStatus `json:"status"`
-	NotifyOn      []string    `json:"notify_on,omitempty"`
-	NotifyChannel string      `json:"notify_channel,omitempty"`
-	LLMAccountID  string      `json:"llm_account_id,omitempty"` // empty = use default account
-	LLMModel      string      `json:"llm_model,omitempty"`      // empty = use account default model
-	LastRunAt       *time.Time  `json:"last_run_at,omitempty"`
-	NextRunAt       *time.Time  `json:"next_run_at,omitempty"`
-	MaxTokensBudget int         `json:"max_tokens_budget,omitempty"` // 0 = default (50000)
-	RunStartedAt    *time.Time  `json:"run_started_at,omitempty"`   // set when entering running state; used for stuck detection
-	MinIntervalMins int         `json:"min_interval_minutes,omitempty"` // 0 = default (5); minimum minutes between runs
-	MaxRetries      int         `json:"max_retries,omitempty"`      // 0 = no retry
-	RetryCount      int         `json:"retry_count,omitempty"`      // current consecutive failure count
-	RetryBackoffMins int        `json:"retry_backoff_minutes,omitempty"` // 0 = default (5)
-	CostBudgetUSD    float64    `json:"cost_budget_usd,omitempty"`
-	CostSpentUSD     float64    `json:"cost_spent_usd,omitempty"`
-	StartDate         *time.Time `json:"start_date,omitempty"`
-	EndDate           *time.Time `json:"end_date,omitempty"`
-	ActiveWindowStart string     `json:"active_window_start,omitempty"` // "09:00" format
-	ActiveWindowEnd   string     `json:"active_window_end,omitempty"`   // "17:00" format
-	OneShot           bool       `json:"one_shot,omitempty"`
-	Timezone          string     `json:"timezone,omitempty"` // IANA timezone, empty = local
+	Enabled           bool        `json:"enabled"`
+	Goal              string      `json:"goal"`
+	Schedule          string      `json:"schedule"`
+	AllowedTools      []string    `json:"allowed_tools"`
+	Status            AgentStatus `json:"status"`
+	NotifyOn          []string    `json:"notify_on,omitempty"`
+	NotifyChannel     string      `json:"notify_channel,omitempty"`
+	LLMAccountID      string      `json:"llm_account_id,omitempty"` // empty = use default account
+	LLMModel          string      `json:"llm_model,omitempty"`      // empty = use account default model
+	LastRunAt         *time.Time  `json:"last_run_at,omitempty"`
+	NextRunAt         *time.Time  `json:"next_run_at,omitempty"`
+	MaxTokensBudget   int         `json:"max_tokens_budget,omitempty"`     // 0 = default (50000)
+	RunStartedAt      *time.Time  `json:"run_started_at,omitempty"`        // set when entering running state; used for stuck detection
+	MinIntervalMins   int         `json:"min_interval_minutes,omitempty"`  // 0 = default (5); minimum minutes between runs
+	MaxRetries        int         `json:"max_retries,omitempty"`           // 0 = no retry
+	RetryCount        int         `json:"retry_count,omitempty"`           // current consecutive failure count
+	RetryBackoffMins  int         `json:"retry_backoff_minutes,omitempty"` // 0 = default (5)
+	CostBudgetUSD     float64     `json:"cost_budget_usd,omitempty"`
+	CostSpentUSD      float64     `json:"cost_spent_usd,omitempty"`
+	StartDate         *time.Time  `json:"start_date,omitempty"`
+	EndDate           *time.Time  `json:"end_date,omitempty"`
+	ActiveWindowStart string      `json:"active_window_start,omitempty"` // "09:00" format
+	ActiveWindowEnd   string      `json:"active_window_end,omitempty"`   // "17:00" format
+	OneShot           bool        `json:"one_shot,omitempty"`
+	Timezone          string      `json:"timezone,omitempty"` // IANA timezone, empty = local
 }
 
 // AgentRun records a single execution of a card's agent.
 type AgentRun struct {
-	ID         string       `json:"id"`
-	CardID     string       `json:"card_id"`
-	StartedAt  time.Time    `json:"started_at"`
-	FinishedAt *time.Time   `json:"finished_at,omitempty"`
-	Status     string       `json:"status"`
-	Summary    string       `json:"summary,omitempty"`
-	ToolCalls  []ToolAction `json:"tool_calls,omitempty"`
-	Error      string       `json:"error,omitempty"`
+	ID           string       `json:"id"`
+	CardID       string       `json:"card_id"`
+	StartedAt    time.Time    `json:"started_at"`
+	FinishedAt   *time.Time   `json:"finished_at,omitempty"`
+	Status       string       `json:"status"`
+	Summary      string       `json:"summary,omitempty"`
+	ToolCalls    []ToolAction `json:"tool_calls,omitempty"`
+	Error        string       `json:"error,omitempty"`
 	TokensUsed   int          `json:"tokens_used,omitempty"`
 	ModelUsed    string       `json:"model_used,omitempty"`
 	ProviderUsed string       `json:"provider_used,omitempty"`

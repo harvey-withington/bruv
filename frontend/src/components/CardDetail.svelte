@@ -16,6 +16,7 @@
   import CardShareMenu from './CardShareMenu.svelte'
   import CardMetaPanel from './CardMetaPanel.svelte'
   import CardTagsField from './CardTagsField.svelte'
+  import CardFolderChip from './workspace/CardFolderChip.svelte'
   import CardBlocks from './CardBlocks.svelte'
   import CreateTypeFromCardDialog from './CreateTypeFromCardDialog.svelte'
   import SaveIndicator from './SaveIndicator.svelte'
@@ -592,6 +593,9 @@
             <span class="field-label">{t('card.tags')}</span>
             <CardTagsField {card} {cardId} {pinBreadcrumbs} track={tracked} onCardUpdated={applyCardUpdate} />
           </div>
+          <!-- Renders nothing when the project has no workspace and the
+               card no binding (Card Folders availability rule). -->
+          <CardFolderChip {card} onCardUpdated={applyCardUpdate} />
         </div>
 
         <DescriptionSection

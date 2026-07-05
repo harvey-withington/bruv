@@ -485,10 +485,10 @@ func (rt *Runtime) executeAgent(ctx context.Context, cardID string) error {
 	}
 
 	resultCf, err := rt.deps.ChatRT().RunLoop(runCtx, provider, modelName, cf, chatrt.LoopConfig{
-		ChatID:       "__agent__" + cardID,
-		SystemPrompt: systemPrompt,
-		Tools:        toolDefs,
-		MaxIter:      10,
+		ChatID:          "__agent__" + cardID,
+		SystemPrompt:    systemPrompt,
+		Tools:           toolDefs,
+		MaxIter:         10,
 		TokenBudget:     budget,
 		TotalTokensUsed: &tokensUsed,
 		ExecuteTool: func(tc llm.ToolCall) (string, *model.ToolAction, *model.PinSuggestion) {
@@ -917,4 +917,3 @@ func truncateMCPOutput(content string) (string, bool) {
 	}
 	return content[:mcpOutputLimit] + "\n\n[truncated: output exceeded 8KB limit]", true
 }
-

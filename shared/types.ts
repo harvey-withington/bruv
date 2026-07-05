@@ -285,6 +285,7 @@ export type Card = {
   updated_at?: string
   context_level?: string    // "isolated" | "project" | "brand" | "global"
   labels?: string[]         // label IDs from the project's tags.json
+  folder?: CardFolder       // workspace subfolder binding (Card Folders)
   blocks: Block[]
   file_attachments: Attachment[]
   members?: string[]
@@ -912,6 +913,13 @@ export interface BackendAdapter {
   ImportWorkspaceTemplate(srcDir: string, brandSlug: string): Promise<WorkspaceTemplateEntry>
   SaveWorkspaceTemplate(ref: string, tpl: WorkspaceTemplateDescriptor): Promise<void>
 
+  // Card Folders: bind a card to a subfolder of its project's workspace,
+  // generated from a template. Workspace-resident templates list first.
+  ListProjectTemplates(brandSlug: string, streamSlug: string, projectSlug: string): Promise<WorkspaceTemplateEntry[]>
+  GenerateCardFolder(brandSlug: string, streamSlug: string, projectSlug: string, cardID: string, ref: string, targetRel: string, values: Record<string, string>): Promise<Card>
+  ClearCardFolder(cardID: string): Promise<Card>
+  LinkCardFolder(brandSlug: string, streamSlug: string, projectSlug: string, cardID: string, rel: string): Promise<Card>
+
   // Index / search
   SearchCards(query: string, limit: number): Promise<SearchResult[]>
   SearchOrphanedCards(query: string, limit: number): Promise<SearchResult[]>
@@ -1085,6 +1093,13 @@ export interface WorkspaceState {
   index?: WorkspaceIndex
 }
 
+// CardFolder binds a card to a subfolder of a project Workspace (intrinsic,
+// 0-or-1 per card — see plan/2026-07-05 card folders design.md).
+export interface CardFolder {
+  workspace_id: string
+  path: string
+}
+
 // .ft/template.json parameter — camelCase keys, matching the on-disk
 // Folder Templates format (not BRUV's snake_case vault convention).
 export interface WorkspaceTemplateParameter {
@@ -1109,8 +1124,11 @@ export interface WorkspaceTemplateEntry {
   id: string
   name: string
   description: string
-  scope: string // "global" or a brand slug
+  scope: string // "global", "workspace", or a brand slug
   parameters: WorkspaceTemplateParameter[]
+  // The template's own output location (relative → resolved against the
+  // template folder's parent; ../ allowed). Blank target field = use this.
+  default_target_path: string
 }
 
 export interface WorkspaceTemplatePreviewEntry {

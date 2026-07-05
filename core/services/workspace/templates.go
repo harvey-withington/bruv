@@ -35,6 +35,10 @@ type TemplateEntry struct {
 	// Scope is "global" or the owning brand's slug.
 	Scope      string         `json:"scope"`
 	Parameters []ft.Parameter `json:"parameters"`
+	// DefaultTargetPath is the template's own output location — a relative
+	// path (../ allowed) resolved against the template folder's PARENT, or
+	// an absolute path. Surfaced in the UI as the blank-field default.
+	DefaultTargetPath string `json:"default_target_path"`
 }
 
 // nonNilParams keeps parameter lists JSON-marshalling as [] rather than
@@ -69,11 +73,12 @@ func (s *Service) ListTemplates() ([]TemplateEntry, error) {
 				return nil
 			}
 			out = append(out, TemplateEntry{
-				ID:          filepath.ToSlash(rel),
-				Name:        tpl.Name,
-				Description: tpl.Description,
-				Scope:       scope,
-				Parameters:  nonNilParams(tpl.Parameters),
+				ID:                filepath.ToSlash(rel),
+				Name:              tpl.Name,
+				Description:       tpl.Description,
+				Scope:             scope,
+				Parameters:        nonNilParams(tpl.Parameters),
+				DefaultTargetPath: tpl.DefaultTargetPath,
 			})
 			return filepath.SkipDir // a template's own subtree is opaque
 		})

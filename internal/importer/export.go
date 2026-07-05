@@ -16,25 +16,25 @@ const ExportFormatVersion = 1
 // Intentionally self-contained so a repo can be backed up and restored without
 // external references.
 type ProjectExport struct {
-	FormatVersion int                   `json:"format_version"`
-	ExportedAt    time.Time             `json:"exported_at"`
-	Source        string                `json:"source"` // "bruv"
-	Brand         string                `json:"brand_slug"`
-	Stream        string                `json:"stream_slug"`
-	Project       model.Project         `json:"project"`
-	Categories    []model.Category      `json:"categories"`
-	Labels        []model.Label         `json:"labels"`
-	Cards         []ExportedCard        `json:"cards"`
-	TagColors     map[string]string     `json:"tag_colors,omitempty"`
+	FormatVersion int               `json:"format_version"`
+	ExportedAt    time.Time         `json:"exported_at"`
+	Source        string            `json:"source"` // "bruv"
+	Brand         string            `json:"brand_slug"`
+	Stream        string            `json:"stream_slug"`
+	Project       model.Project     `json:"project"`
+	Categories    []model.Category  `json:"categories"`
+	Labels        []model.Label     `json:"labels"`
+	Cards         []ExportedCard    `json:"cards"`
+	TagColors     map[string]string `json:"tag_colors,omitempty"`
 }
 
 // ExportedCard bundles a card with its pin position and comment thread so a
 // re-importer can restore category membership and history.
 type ExportedCard struct {
-	Card       model.Card       `json:"card"`
-	CategoryID string           `json:"category_id"`
-	Position   int              `json:"position"`
-	Comments   []model.Comment  `json:"comments,omitempty"`
+	Card       model.Card      `json:"card"`
+	CategoryID string          `json:"category_id"`
+	Position   int             `json:"position"`
+	Comments   []model.Comment `json:"comments,omitempty"`
 }
 
 // ExportProject reads a project out of the repository into a self-contained

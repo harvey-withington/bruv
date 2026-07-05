@@ -13,9 +13,9 @@ import (
 
 // DueDateScanner polls for cards with approaching due dates and dispatches notifications.
 type DueDateScanner struct {
-	mu       sync.Mutex
-	stopCh   chan struct{}
-	stopped  bool
+	mu      sync.Mutex
+	stopCh  chan struct{}
+	stopped bool
 
 	cardsDir     string
 	notifiedPath string
@@ -25,8 +25,8 @@ type DueDateScanner struct {
 	channels   string          // notification channels
 	enabled    bool
 
-	notifyFn          func(cardID, cardTitle string, threshold time.Duration, overdue bool)
-	markAlarmFiredFn  func(cardID, blockID string)
+	notifyFn         func(cardID, cardTitle string, threshold time.Duration, overdue bool)
+	markAlarmFiredFn func(cardID, blockID string)
 }
 
 // NewDueDateScanner creates a new scanner.

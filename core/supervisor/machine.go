@@ -61,18 +61,26 @@ var errPushNotConfigured = fmt.Errorf("push notifications are not configured on 
 
 // --- Preferences / Profile / Auth ---
 
-func (m *MachineService) GetPreferences() (config.Preferences, error) { return config.LoadPreferences() }
-func (m *MachineService) SetPreferences(p json.RawMessage) error       { return config.UpdatePreferencesPartial(p) }
-func (m *MachineService) GetProfile() (config.UserProfile, error)     { return config.LoadProfile() }
-func (m *MachineService) SetProfile(p config.UserProfile) error       { return config.SaveProfile(p) }
-func (m *MachineService) GetAuthInfo() config.AuthInfo                { return config.GetLocalAuthInfo() }
+func (m *MachineService) GetPreferences() (config.Preferences, error) {
+	return config.LoadPreferences()
+}
+func (m *MachineService) SetPreferences(p json.RawMessage) error {
+	return config.UpdatePreferencesPartial(p)
+}
+func (m *MachineService) GetProfile() (config.UserProfile, error) { return config.LoadProfile() }
+func (m *MachineService) SetProfile(p config.UserProfile) error   { return config.SaveProfile(p) }
+func (m *MachineService) GetAuthInfo() config.AuthInfo            { return config.GetLocalAuthInfo() }
 
 // --- LLM accounts / config / pricing ---
 
-func (m *MachineService) GetLLMConfig() (config.LLMConfig, error)       { return config.LoadLLMConfig() }
-func (m *MachineService) SetLLMConfig(c config.LLMConfig) error         { return config.SaveLLMConfig(c) }
-func (m *MachineService) GetLLMAccounts() ([]config.LLMAccount, error)  { return config.LoadLLMAccounts() }
-func (m *MachineService) SaveLLMAccounts(x []config.LLMAccount) error   { return config.SaveLLMAccounts(x) }
+func (m *MachineService) GetLLMConfig() (config.LLMConfig, error) { return config.LoadLLMConfig() }
+func (m *MachineService) SetLLMConfig(c config.LLMConfig) error   { return config.SaveLLMConfig(c) }
+func (m *MachineService) GetLLMAccounts() ([]config.LLMAccount, error) {
+	return config.LoadLLMAccounts()
+}
+func (m *MachineService) SaveLLMAccounts(x []config.LLMAccount) error {
+	return config.SaveLLMAccounts(x)
+}
 func (m *MachineService) GetTokenPricing() (map[string]config.ModelPricing, error) {
 	return config.LoadCustomPricing()
 }

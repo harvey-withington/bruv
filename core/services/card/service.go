@@ -377,6 +377,23 @@ func (s *Service) UpdateTags(id string, tags []string) (*model.Card, error) {
 	return card, err
 }
 
+// SetFolder binds (or, with nil, unbinds) the card's workspace folder.
+// Pure binding — never creates, moves, or deletes files on disk.
+func (s *Service) SetFolder(id string, folder *model.CardFolder) (*model.Card, error) {
+	r := s.deps.Repo()
+	if r == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	card, err := r.UpdateCard(id, func(c *model.Card) {
+		c.Folder = folder
+	})
+	if err == nil {
+		s.deps.LogActivity(id, model.ActivityUpdatedField, "folder")
+		s.emitCardUpdated(card)
+	}
+	return card, err
+}
+
 func (s *Service) UpdateDueDate(id, dueDate string) (*model.Card, error) {
 	r := s.deps.Repo()
 	if r == nil {

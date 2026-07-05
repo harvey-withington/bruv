@@ -14,15 +14,15 @@ type ModelPricing struct {
 
 // DefaultPricing contains built-in pricing data (USD per million tokens).
 var DefaultPricing = map[string]ModelPricing{
-	"gpt-4o":                      {InputPerMTok: 2.50, OutputPerMTok: 10.00},
-	"gpt-4o-mini":                 {InputPerMTok: 0.15, OutputPerMTok: 0.60},
-	"gpt-4.1":                     {InputPerMTok: 2.00, OutputPerMTok: 8.00},
-	"gpt-4.1-mini":                {InputPerMTok: 0.40, OutputPerMTok: 1.60},
-	"gpt-4.1-nano":                {InputPerMTok: 0.10, OutputPerMTok: 0.40},
-	"claude-sonnet-4-20250514":    {InputPerMTok: 3.00, OutputPerMTok: 15.00},
-	"claude-3-5-haiku-20241022":   {InputPerMTok: 0.80, OutputPerMTok: 4.00},
-	"claude-opus-4-20250514":      {InputPerMTok: 15.00, OutputPerMTok: 75.00},
-	"llama3":                      {InputPerMTok: 0.00, OutputPerMTok: 0.00},
+	"gpt-4o":                    {InputPerMTok: 2.50, OutputPerMTok: 10.00},
+	"gpt-4o-mini":               {InputPerMTok: 0.15, OutputPerMTok: 0.60},
+	"gpt-4.1":                   {InputPerMTok: 2.00, OutputPerMTok: 8.00},
+	"gpt-4.1-mini":              {InputPerMTok: 0.40, OutputPerMTok: 1.60},
+	"gpt-4.1-nano":              {InputPerMTok: 0.10, OutputPerMTok: 0.40},
+	"claude-sonnet-4-20250514":  {InputPerMTok: 3.00, OutputPerMTok: 15.00},
+	"claude-3-5-haiku-20241022": {InputPerMTok: 0.80, OutputPerMTok: 4.00},
+	"claude-opus-4-20250514":    {InputPerMTok: 15.00, OutputPerMTok: 75.00},
+	"llama3":                    {InputPerMTok: 0.00, OutputPerMTok: 0.00},
 }
 
 // fallbackPricing is used when a model is not found in the pricing map.

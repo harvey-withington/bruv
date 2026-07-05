@@ -29,9 +29,9 @@ import (
 
 	"bruv/core/supervisor"
 	"bruv/internal/config"
+	"bruv/internal/logging"
 	"bruv/internal/mcpserver"
 	"bruv/internal/push"
-	"bruv/internal/logging"
 	transporthttp "bruv/transport/http"
 )
 
@@ -244,4 +244,3 @@ func portOf(addr string) string {
 	}
 	return addr
 }
-

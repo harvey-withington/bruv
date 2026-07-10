@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { Search, X } from 'lucide-svelte'
+  import { EditScope } from '@shared/editScope'
   import { repoRPC } from '../lib/auth'
   import { navigate, cardURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
@@ -24,6 +25,14 @@
   }
 
   let { onClose }: { onClose: () => void } = $props()
+
+  // Keyboard entry contract: the sheet closes on Escape / Ctrl+Enter.
+  // The search input is a filter, not a data-entry draft — it never
+  // registers as an active edit, so Escape closes even while typing
+  // (a search sheet closes unchosen, like a picker). Pages that open
+  // this sheet skip their own window handling while it's open.
+  const editScope = new EditScope()
+  editScope.requestClose = () => onClose()
 
   let input = $state('')
   let results = $state<SearchHit[]>([])
@@ -87,6 +96,8 @@
     }
   })
 </script>
+
+<svelte:window onkeydown={(e) => editScope.handleWindowKeydown(e)} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->

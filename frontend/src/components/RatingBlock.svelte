@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Star } from 'lucide-svelte'
   import type { BlockMeta } from '@shared/types'
+  import { t } from '../lib/i18n.svelte'
 
   let {
     value,
@@ -28,7 +29,7 @@
       class:filled={i < (hoverIndex >= 0 ? hoverIndex + 1 : (value || 0))}
       onmouseenter={() => hoverIndex = i}
       onclick={() => setRating(i)}
-      aria-label="Rate {i + 1} of {maxStars}"
+      aria-label={t('block.rate_star', { n: i + 1, max: maxStars })}
     >
       <Star size={20} fill={i < (hoverIndex >= 0 ? hoverIndex + 1 : (value || 0)) ? 'currentColor' : 'none'} />
     </button>

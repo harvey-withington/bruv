@@ -1,11 +1,13 @@
 <script lang="ts">
-  import { GetAgentConfig, SaveAgentConfig, TriggerAgent, CancelAgent, IsLLMConfigured, ListAgentCardStates, GetLLMAccounts, ListMCPServers } from '@shared/api'
+  import { GetAgentConfig, SaveAgentConfig, TriggerAgent, CancelAgent, DeleteAgent, GetAgentRuns, IsLLMConfigured, ListAgentCardStates, GetLLMAccounts, ListMCPServers, ValidateSchedulePreview } from '@shared/api'
   import type { MCPServerView } from '@shared/types'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
+  import { showConfirm } from '../lib/confirm.svelte'
   import { board } from '../lib/store.svelte'
+  import { downloadBlob } from '@shared/download'
   import type { AgentConfig, LLMAccount } from '@shared/types'
-  import { Timer, Play, Square } from 'lucide-svelte'
+  import { Timer, Play, Square, Download, Trash2 } from 'lucide-svelte'
   import LLMAccountSelect from './LLMAccountSelect.svelte'
   import { onMount, onDestroy } from 'svelte'
   import { onEvent } from '../lib/events'
@@ -13,11 +15,21 @@
   let { cardId }: { cardId: string } = $props()
 
   let loading = $state(true)
+  let loadError = $state(false)
   let llmConfigured = $state(true)
   let saving = $state(false)
   let triggering = $state(false)
+  let removing = $state(false)
   let dirty = $state(false)
   let nextRunAt = $state<string | null>(null)
+
+  // Scheduler bookkeeping loaded with the config and sent back verbatim
+  // on save. Hardcoding these to null/0 meant every config touch reset
+  // one-shot / min-interval / retry state — a one-shot agent that had
+  // already run would fire again after any settings tweak.
+  let lastRunAt = $state<string | null>(null)
+  let runStartedAt = $state<string | null>(null)
+  let retryCount = $state(0)
 
   // Wizard step
   let agentStep = $state<1 | 2 | 3>(1)
@@ -110,10 +122,59 @@
     { label: '30m', value: '30m' },
   ]
 
+  // Schedule preview — debounced call to the (previously orphaned)
+  // ValidateSchedulePreview RPC. Purely advisory: an RPC failure hides
+  // the preview silently rather than surfacing a toast, and a staleness
+  // token (mirroring store.svelte.ts's boardLoadSeq) drops responses
+  // for a schedule the user has already changed away from.
+  let schedulePreviewRuns = $state<string[]>([])
+  let schedulePreviewInvalid = $state(false)
+  let schedulePreviewSeq = 0
+  let schedulePreviewTimer: ReturnType<typeof setTimeout> | undefined
+
+  function toRFC3339(localDateTime: string): string {
+    if (!localDateTime) return ''
+    const d = new Date(localDateTime)
+    return isNaN(d.getTime()) ? '' : d.toISOString()
+  }
+
+  function updateSchedulePreview() {
+    clearTimeout(schedulePreviewTimer)
+    const sched = schedule.trim()
+    if (!sched) {
+      schedulePreviewRuns = []
+      schedulePreviewInvalid = false
+      return
+    }
+    schedulePreviewTimer = setTimeout(async () => {
+      const seq = ++schedulePreviewSeq
+      try {
+        const runs = await ValidateSchedulePreview(sched, toRFC3339(startDate), toRFC3339(endDate), timezone, 3)
+        if (seq !== schedulePreviewSeq) return // stale — schedule changed again while this was in flight
+        schedulePreviewRuns = runs || []
+        // An empty result with no error means the backend couldn't parse
+        // the schedule string at all.
+        schedulePreviewInvalid = schedulePreviewRuns.length === 0
+      } catch {
+        if (seq !== schedulePreviewSeq) return
+        schedulePreviewRuns = []
+        schedulePreviewInvalid = false
+      }
+    }, 400)
+  }
+
+  // Stale-response guard: this tab is reused across cards (mention-link
+  // navigation swaps cardId mid-load). Without it a slow GetAgentConfig
+  // for the previous card populates the form under the new card — and
+  // Save would then write the OLD card's agent config onto the new one.
+  let configLoadSeq = 0
+
   async function loadConfig(silent: boolean = false) {
+    const seq = ++configLoadSeq
     if (!silent) loading = true
     try {
       const [af, isConfigured, accounts, servers] = await Promise.all([GetAgentConfig(cardId), IsLLMConfigured(), GetLLMAccounts(), ListMCPServers()])
+      if (seq !== configLoadSeq) return
       mcpServers = servers ?? []
       llmAccounts = accounts || []
       llmConfigured = isConfigured
@@ -141,11 +202,21 @@
       oneShot = af.config.one_shot || false
       timezone = af.config.timezone || ''
       nextRunAt = af.config.next_run_at
+      lastRunAt = af.config.last_run_at ?? null
+      runStartedAt = af.config.run_started_at ?? null
+      retryCount = af.config.retry_count || 0
+      loadError = false
       dirty = false
     } catch (e) {
+      if (seq !== configLoadSeq) return
+      // Render an explicit error state instead of a default form — a
+      // transient load failure followed by Save used to overwrite the
+      // real on-disk config with blank defaults.
+      loadError = true
       console.error('Failed to load agent config:', e)
+      showToast(t('agent.load_failed'), 'error')
     } finally {
-      loading = false
+      if (seq === configLoadSeq) loading = false
     }
   }
 
@@ -173,6 +244,7 @@
   }
 
   async function save() {
+    if (loadError) return // never overwrite a config we failed to read
     saving = true
     try {
       const config: AgentConfig = {
@@ -185,13 +257,19 @@
         notify_channel: notifyChannels.length > 0 ? notifyChannels.join(',') : '',
         llm_account_id: llmAccountId,
         llm_model: llmModel,
-        last_run_at: null,
-        next_run_at: null,
+        // Bookkeeping is preserved verbatim — the backend feeds
+        // last_run_at into its schedule math, so nulling it here used
+        // to re-fire one-shot agents and bypass min-interval. next_run_at
+        // is recomputed server-side on every save regardless of what we
+        // send (agentsvc.SaveConfig); passing the loaded value is just
+        // the honest round-trip.
+        last_run_at: lastRunAt,
+        next_run_at: nextRunAt,
         max_tokens_budget: maxTokensBudget,
-        run_started_at: null,
+        run_started_at: runStartedAt,
         min_interval_minutes: minIntervalMins,
         max_retries: maxRetries,
-        retry_count: 0,
+        retry_count: retryCount,
         retry_backoff_minutes: retryBackoffMins,
         cost_budget_usd: costBudgetUSD,
         cost_spent_usd: costSpentUSD,
@@ -214,6 +292,45 @@
       console.error('Failed to save agent config:', e)
     } finally {
       saving = false
+    }
+  }
+
+  // The card has an agent file on disk (enabled or not) — drives the
+  // remove/export affordances. agentCardStates carries every card with
+  // a config file; the local fields cover a just-saved config before
+  // the states map refreshes.
+  const hasAgent = $derived(cardId in board.agentCardStates || enabled || goal !== '' || schedule !== '')
+
+  // Export the run history as a JSON download — offered before Remove
+  // so the history isn't lost silently (it's deleted with the agent).
+  async function exportHistory() {
+    try {
+      const runs = (await GetAgentRuns(cardId)) ?? []
+      const payload = { card_id: cardId, exported_at: new Date().toISOString(), runs }
+      downloadBlob(JSON.stringify(payload, null, 2), `agent-history-${cardId}.json`, 'application/json;charset=utf-8')
+      showToast(t('agent.history_exported'), 'success')
+    } catch (e) {
+      showToast(t('agent.history_export_failed'), 'error')
+      console.error('Failed to export agent run history:', e)
+    }
+  }
+
+  async function removeAgent() {
+    if (!await showConfirm(t('agent.remove_confirm'))) return
+    removing = true
+    try {
+      await DeleteAgent(cardId)
+      showToast(t('agent.removed'), 'success')
+      // Refresh board indicators + reset this tab to the plain-card state.
+      try {
+        board.agentCardStates = (await ListAgentCardStates()) || {}
+      } catch { /* ignore */ }
+      await loadConfig(true)
+    } catch (e) {
+      showToast(t('agent.remove_failed'), 'error')
+      console.error('Failed to remove agent:', e)
+    } finally {
+      removing = false
     }
   }
 
@@ -253,10 +370,10 @@
 
   function statusColor(s: string): string {
     switch (s) {
-      case 'idle': return 'var(--color-success, #22c55e)'
-      case 'running': return 'var(--color-info, #3b82f6)'
-      case 'failed': return 'var(--color-error, #ef4444)'
-      default: return 'var(--color-muted, #94a3b8)'
+      case 'idle': return 'var(--success)'
+      case 'running': return 'var(--info)'
+      case 'failed': return 'var(--danger)'
+      default: return 'var(--text-muted)'
     }
   }
 
@@ -302,11 +419,19 @@
 
   onDestroy(() => {
     for (const fn of cleanupFns) { if (typeof fn === 'function') fn() }
+    clearTimeout(schedulePreviewTimer)
   })
 
   $effect(() => {
     void cardId // track cardId so we reload when it changes
     loadConfig()
+  })
+
+  $effect(() => {
+    // Track every field the preview depends on so a change to any of
+    // them (not just the raw cron text) re-triggers the debounce.
+    void schedule; void startDate; void endDate; void timezone
+    updateSchedulePreview()
   })
 </script>
 
@@ -314,6 +439,13 @@
   <div class="agent-loading">
     <Timer size={24} strokeWidth={1.5} />
     <span>{t('app.loading')}</span>
+  </div>
+{:else if loadError}
+  <!-- Explicit error state: rendering the default form here would let
+       Save overwrite the real on-disk config with blanks. -->
+  <div class="agent-loading agent-load-error">
+    <span class="load-error-text">{t('agent.load_failed')}</span>
+    <button class="retry-btn" onclick={() => loadConfig()}>{t('agent.load_retry')}</button>
   </div>
 {:else}
   <div class="agent-tab">
@@ -419,6 +551,20 @@
               >{preset.label}</button>
             {/each}
           </div>
+          {#if schedule.trim()}
+            {#if schedulePreviewInvalid}
+              <p class="schedule-preview schedule-preview-invalid">{t('agent.schedule_invalid')}</p>
+            {:else if schedulePreviewRuns.length > 0}
+              <div class="schedule-preview">
+                <span class="schedule-preview-label">{t('agent.schedule_next_runs')}</span>
+                <ul class="schedule-preview-list">
+                  {#each schedulePreviewRuns as run}
+                    <li>{new Date(run).toLocaleString()}</li>
+                  {/each}
+                </ul>
+              </div>
+            {/if}
+          {/if}
         </div>
 
         <div class="config-row">
@@ -515,7 +661,7 @@
                         />
                         <div class="tool-info">
                           <span class="tool-name">{server.spec.name}</span>
-                          <span class="tool-desc">{server.tools.length} {server.tools.length === 1 ? 'tool' : 'tools'}</span>
+                          <span class="tool-desc">{server.tools.length === 1 ? t('agent.mcp_tool_count_one') : t('agent.mcp_tool_count_other', { n: server.tools.length })}</span>
                         </div>
                       </label>
                     {/each}
@@ -585,6 +731,26 @@
         </div>
       {/if}
     </div>
+
+    {#if hasAgent}
+      <!-- Remove agent: the confirm warns that run history is deleted
+           and points at Export history, which sits right next to it. -->
+      <div class="remove-row">
+        <button class="export-btn" onclick={exportHistory}>
+          <Download size={13} />
+          {t('agent.export_history')}
+        </button>
+        <button
+          class="remove-btn"
+          onclick={removeAgent}
+          disabled={removing || status === 'running'}
+          title={status === 'running' ? t('agent.remove_while_running') : ''}
+        >
+          <Trash2 size={13} />
+          {removing ? '…' : t('agent.remove')}
+        </button>
+      </div>
+    {/if}
   </div>
 {/if}
 
@@ -597,6 +763,26 @@
     padding: 2rem;
     color: var(--text-muted);
     justify-content: center;
+  }
+  .agent-load-error {
+    flex-direction: column;
+  }
+  .load-error-text {
+    color: var(--danger);
+  }
+  .retry-btn {
+    padding: 0.3rem 0.75rem;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-muted);
+    border-radius: 5px;
+    color: var(--text-body);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: border-color var(--duration-normal), color var(--duration-normal);
+  }
+  .retry-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
   }
 
   .agent-tab {
@@ -686,11 +872,11 @@
     align-items: center;
     gap: 0.25rem;
     padding: 0.2rem 0.55rem;
-    background: linear-gradient(135deg, #6366f1, #06b6d4, #a855f7, #6366f1);
+    background: var(--agent-running-gradient);
     background-size: 300% 300%;
     animation: agent-neon 2s ease infinite;
     color: white;
-    box-shadow: 0 0 6px rgba(99, 102, 241, 0.5), 0 0 12px rgba(168, 85, 247, 0.3);
+    box-shadow: var(--agent-running-glow);
     border: none;
     border-radius: 5px;
     font-size: 0.73rem;
@@ -705,10 +891,12 @@
 
   /* Neon gradient animation for running agents */
   .status-badge.status-running {
-    background: linear-gradient(135deg, #6366f1, #06b6d4, #a855f7, #6366f1);
+    background: var(--agent-running-gradient);
     background-size: 300% 300%;
     animation: agent-neon 2s ease infinite;
-    box-shadow: 0 0 4px rgba(99, 102, 241, 0.4), 0 0 8px rgba(168, 85, 247, 0.2);
+    /* Same token as the sibling badges in AgentDashboard/AgentsPage —
+       the hand-tuned rgba pair here had already drifted from them. */
+    box-shadow: var(--agent-running-glow-sm);
   }
   @keyframes agent-neon {
     0% { background-position: 0% 50%; }
@@ -861,6 +1049,31 @@
     border-color: var(--accent);
   }
 
+  /* ── Schedule preview ── */
+  .schedule-preview {
+    margin: 0.3rem 0 0;
+    font-size: 0.7rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  .schedule-preview-label {
+    font-size: 0.62rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+  }
+  .schedule-preview-list {
+    margin: 0;
+    padding-left: 1.1rem;
+    color: var(--text-muted);
+    font-family: monospace;
+  }
+  .schedule-preview-invalid {
+    color: var(--danger);
+  }
+
   /* ── Notifications ── */
   .notify-row {
     display: flex;
@@ -984,4 +1197,32 @@
   .cost-reset-btn:hover {
     border-color: var(--accent);
   }
+
+  /* ── Remove agent row ── */
+  .remove-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border-muted);
+  }
+  .export-btn,
+  .remove-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.25rem 0.6rem;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-muted);
+    border-radius: 5px;
+    color: var(--text-body);
+    font-size: 0.73rem;
+    cursor: pointer;
+    transition: border-color var(--duration-normal), color var(--duration-normal);
+  }
+  .export-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .remove-btn { color: var(--danger); }
+  .remove-btn:hover { border-color: var(--danger); }
+  .remove-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

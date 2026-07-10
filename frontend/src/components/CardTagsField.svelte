@@ -3,6 +3,8 @@
   import { X } from 'lucide-svelte'
   import DynamicIcon from './DynamicIcon.svelte'
   import { projectTags, nav, getTagColor, getTagIcon } from '../lib/store.svelte'
+  import { getContext, onDestroy } from 'svelte'
+  import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
   import { floatingDropdown } from '../lib/actions'
@@ -88,6 +90,31 @@
   let tagInputEl = $state<HTMLInputElement | null>(null)
   let highlightIdx = $state(-1)
 
+  // Edit-scope registration (keyboard entry contract). The input is a
+  // serial-style entry: registered while focused, so an idle empty tag
+  // input never blocks Escape-closing the card. Hand-rolled rather than
+  // the inlineEdit action because Enter here is overloaded by the
+  // suggestion picker (highlight selection vs literal add).
+  const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
+  let unregisterEdit: (() => void) | null = null
+
+  function registerEdit() {
+    if (!editScope || unregisterEdit) return
+    unregisterEdit = editScope.register({ commit: () => { void addTag() }, cancel: cancelTagEntry })
+  }
+  function deregisterEdit() {
+    unregisterEdit?.()
+    unregisterEdit = null
+  }
+  onDestroy(deregisterEdit)
+
+  function cancelTagEntry() {
+    newTag = ''
+    showTagPicker = false
+    highlightIdx = -1
+    tagInputEl?.blur()
+  }
+
   let filteredProjectTags = $derived(
     projectTags.list.filter(t =>
       !isProjectTagAssigned(t.name) &&
@@ -140,6 +167,13 @@
       }
     } else if (e.key === 'Enter') {
       e.preventDefault()
+      if (e.ctrlKey || e.metaKey) {
+        // Contract: Ctrl+Enter commits and closes the card.
+        e.stopPropagation()
+        await addTag()
+        editScope?.requestClose?.()
+        return
+      }
       if (highlightIdx >= 0 && highlightIdx < filteredProjectTags.length) {
         toggleProjectTag(filteredProjectTags[highlightIdx].name)
         newTag = ''
@@ -148,13 +182,22 @@
         addTag()
       }
     } else if (e.key === 'Escape') {
+      // Layered per the contract: first Escape closes the suggestion
+      // picker (a picker closes unchosen), the next cancels the tag
+      // entry itself. Only after that does Escape reach the card.
+      e.preventDefault()
       e.stopPropagation()
-      showTagPicker = false
-      highlightIdx = -1
+      if (showTagPicker) {
+        showTagPicker = false
+        highlightIdx = -1
+      } else {
+        cancelTagEntry()
+      }
     }
   }
 
   function handleTagInputFocus() {
+    registerEdit()
     if (Date.now() < suppressPickerUntil) return
     showTagPicker = true
     highlightIdx = -1
@@ -164,6 +207,9 @@
     // Keep picker open if focus moves to picker items
     const related = e.relatedTarget as HTMLElement | null
     if (related?.closest('.tag-picker-dropdown')) return
+    // Contract: blur keeps the typed draft uncommitted; the field just
+    // stops counting as an active edit.
+    deregisterEdit()
     // Small delay so click events on picker items fire first
     setTimeout(() => { showTagPicker = false; highlightIdx = -1 }, 150)
   }

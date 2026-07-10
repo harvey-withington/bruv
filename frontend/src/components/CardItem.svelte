@@ -258,14 +258,14 @@
 
   /* Running: neon AI gradient glow animation */
   .agent-indicator.running {
-    background: linear-gradient(135deg, #6366f1, #06b6d4, #a855f7, #6366f1);
+    background: var(--agent-running-gradient);
     background-size: 300% 300%;
     animation: agent-neon 2s ease infinite;
     color: white;
-    box-shadow: 0 0 6px rgba(99, 102, 241, 0.5), 0 0 12px rgba(168, 85, 247, 0.3);
+    box-shadow: var(--agent-running-glow);
   }
   .agent-indicator.running:hover {
-    background: #eb5a46;
+    background: var(--danger);
     animation: none;
     box-shadow: 0 0 6px rgba(235, 90, 70, 0.5);
     transform: scale(1.15);

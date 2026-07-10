@@ -14,7 +14,9 @@ export function t(key: string, params?: Record<string, string | number>): string
   let str = dict[key] ?? key
   if (params) {
     for (const [k, v] of Object.entries(params)) {
-      str = str.replace(`{${k}}`, String(v))
+      // replaceAll — a key using the same placeholder twice must not
+      // render the second occurrence literally.
+      str = str.replaceAll(`{${k}}`, String(v))
     }
   }
   return str

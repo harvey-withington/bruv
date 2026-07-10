@@ -118,7 +118,7 @@
   async function bulkDelete() {
     if (selectedIds.size === 0) return
     const count = selectedIds.size
-    const msg = t('inbox.confirm_bulk_delete').replace('{count}', String(count))
+    const msg = t('inbox.confirm_bulk_delete', { count })
     if (!await showConfirm(msg)) return
     deleting = true
     try {
@@ -129,7 +129,7 @@
       selectMode = false
       document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
       document.dispatchEvent(new CustomEvent('bruv:sidebar-changed'))
-      showToast(t('inbox.bulk_deleted').replace('{count}', String(count)), 'success')
+      showToast(t('inbox.bulk_deleted', { count }), 'success')
     } catch (e) {
       showToast(t('error.delete_failed'), 'error')
       console.error('Bulk delete failed:', e)
@@ -177,7 +177,7 @@
           {#if selectedIds.size > 0}
             <button class="bulk-delete-btn" onclick={bulkDelete} disabled={deleting}>
               <Trash2 size={12} />
-              {t('inbox.delete_selected').replace('{count}', String(selectedIds.size))}
+              {t('inbox.delete_selected', { count: selectedIds.size })}
             </button>
           {/if}
         </div>

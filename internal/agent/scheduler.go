@@ -117,20 +117,23 @@ func (s *Scheduler) IsRunning(cardID string) bool {
 
 // TriggerNow runs an agent immediately, bypassing the schedule check.
 func (s *Scheduler) TriggerNow(ctx context.Context, cardID string) error {
+	// Check-and-set under one lock: claiming the slot only inside the
+	// spawned goroutine (after sem acquire) left a window where a tick
+	// and a "run now" landing together both passed the check and ran
+	// the same agent twice. A claimed-but-queued agent counts as
+	// running — that's the point.
 	s.mu.Lock()
 	if s.running[cardID] {
 		s.mu.Unlock()
 		return fmt.Errorf("agent for card %q is already running", cardID)
 	}
+	s.running[cardID] = true
 	s.mu.Unlock()
 
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
 		s.sem <- struct{}{} // acquire
-		s.mu.Lock()
-		s.running[cardID] = true
-		s.mu.Unlock()
 
 		defer func() {
 			if r := recover(); r != nil {
@@ -163,21 +166,20 @@ func (s *Scheduler) tick(ctx context.Context) {
 	}
 
 	for _, ag := range agents {
+		// Same atomic check-and-set as TriggerNow — see comment there.
 		s.mu.Lock()
-		alreadyRunning := s.running[ag.CardID]
-		s.mu.Unlock()
-		if alreadyRunning {
+		if s.running[ag.CardID] {
+			s.mu.Unlock()
 			continue
 		}
+		s.running[ag.CardID] = true
+		s.mu.Unlock()
 
 		cardID := ag.CardID
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
 			s.sem <- struct{}{} // acquire
-			s.mu.Lock()
-			s.running[cardID] = true
-			s.mu.Unlock()
 
 			defer func() {
 				if r := recover(); r != nil {

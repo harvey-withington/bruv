@@ -9,6 +9,7 @@ import (
 	"net"
 	nethttp "net/http"
 	"runtime"
+	"sync"
 	"time"
 
 	"bruv/core/events"
@@ -134,8 +135,11 @@ type Server struct {
 
 	// Per-repo dispatchers, built lazily on first request and cached.
 	// The bus + attachment resolver come from the resolved RepoTarget
-	// at request time.
-	dispatchers map[string]*Dispatcher
+	// at request time. Guarded by dispatchersMu — concurrent HTTP
+	// handlers read and write this map (e.g. the desktop's parallel
+	// RPC burst on first repo load).
+	dispatchersMu sync.RWMutex
+	dispatchers   map[string]*dispatcherEntry
 
 	// Per-machine dispatcher for /server/rpc, built once at construct
 	// time when Config.MachineTarget is set.
@@ -143,6 +147,15 @@ type Server struct {
 
 	httpServer *nethttp.Server
 	listener   net.Listener
+}
+
+// dispatcherEntry pairs a cached dispatcher with the target it was
+// built from, so a repo whose runtime was swapped out (disable →
+// enable, remove → re-add) gets a fresh dispatcher instead of one
+// bound to the dead runtime.
+type dispatcherEntry struct {
+	d      *Dispatcher
+	target any
 }
 
 // NewMulti builds a multi-repo server. Repos is required; per-repo
@@ -161,7 +174,7 @@ func NewMulti(cfg Config) (*Server, error) {
 	s := &Server{
 		cfg:         cfg,
 		devices:     devices,
-		dispatchers: make(map[string]*Dispatcher),
+		dispatchers: make(map[string]*dispatcherEntry),
 	}
 	if cfg.MachineTarget != nil {
 		s.machineDispatcher = NewDispatcher(cfg.MachineTarget, DefaultDeniedMethods())
@@ -177,11 +190,23 @@ func (s *Server) dispatcherFor(repoID string) (*Dispatcher, *RepoTarget) {
 	if target == nil {
 		return nil, nil
 	}
-	if d, ok := s.dispatchers[repoID]; ok {
-		return d, target
+
+	s.dispatchersMu.RLock()
+	entry, ok := s.dispatchers[repoID]
+	s.dispatchersMu.RUnlock()
+	if ok && entry.target == target.Target {
+		return entry.d, target
+	}
+
+	s.dispatchersMu.Lock()
+	defer s.dispatchersMu.Unlock()
+	// Re-check under the write lock — another handler may have built
+	// it while we waited.
+	if entry, ok := s.dispatchers[repoID]; ok && entry.target == target.Target {
+		return entry.d, target
 	}
 	d := NewDispatcher(target.Target, DefaultDeniedMethods())
-	s.dispatchers[repoID] = d
+	s.dispatchers[repoID] = &dispatcherEntry{d: d, target: target.Target}
 	return d, target
 }
 

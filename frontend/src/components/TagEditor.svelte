@@ -6,6 +6,7 @@
   import { X, Plus, Trash2, Palette, Smile } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
+  import { showConfirm } from '../lib/confirm.svelte'
   import { focusTrap, inlineEdit } from '../lib/actions'
   import IconPicker from './IconPicker.svelte'
   import DynamicIcon from './DynamicIcon.svelte'
@@ -27,9 +28,6 @@
 
   // Usage counts: tag name (lowercase) → number of cards
   let tagUsage = $state<Record<string, number>>({})
-
-  // Delete confirmation
-  let confirmDelete = $state<{ id: string; name: string; count: number } | null>(null)
 
   async function loadUsageCounts() {
     const counts: Record<string, number> = {}
@@ -71,11 +69,14 @@
     const tag = projectTags.list.find(t => t.id === tagId)
     if (!tag) return
     const count = tagUsage[tag.name.toLowerCase()] || 0
-    if (count > 0) {
-      confirmDelete = { id: tagId, name: tag.name, count }
-    } else {
-      await doRemoveTag(tagId, tag.name)
-    }
+    // Ruling 2026-07-10: delete buttons always confirm — zero-usage
+    // tags included (the tag itself is still destructive metadata).
+    // Uses the app-wide ConfirmDialog instead of the old bespoke modal.
+    const msg = count > 0
+      ? `${t('tags.confirm_delete_title', { name: tag.name })} ${t('tags.confirm_delete_msg', { count })}`
+      : t('tags.confirm_delete_unused', { name: tag.name })
+    if (!await showConfirm(msg)) return
+    await doRemoveTag(tagId, tag.name)
   }
 
   async function doRemoveTag(tagId: string, tagName: string) {
@@ -92,7 +93,6 @@
       }
       // Remove from project
       projectTags.list = await RemoveProjectLabel(nav.brandSlug, nav.streamSlug, nav.projectSlug, tagId) || []
-      confirmDelete = null
       await loadUsageCounts()
       // Refresh board so card items drop the removed tag
       if (nav.brandSlug && nav.streamSlug && nav.projectSlug) {
@@ -158,6 +158,28 @@
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') onClose()
   }
+
+  // Search/create input: Enter already creates a tag when possible (the
+  // commit). Escape is layered per the contract — first Escape clears an
+  // in-progress query (a picker/typeahead closes unchosen before the
+  // container does), only an Escape on an empty field reaches the dialog's
+  // own close. Hand-rolled (not the inlineEdit action) because this field
+  // has no edit-in-place toggle to hang scope registration off of; the
+  // stopPropagation below is what actually prevents the dialog's own
+  // keydown handler above from also firing on the same Escape press.
+  function handleSearchKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter') {
+      if (canCreate) createTag()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      if (query) {
+        query = ''
+      } else {
+        onClose()
+      }
+    }
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -174,7 +196,7 @@
       type="text"
       class="search-input"
       bind:value={query}
-      onkeydown={(e) => { if (e.key === 'Enter' && canCreate) createTag() }}
+      onkeydown={handleSearchKeydown}
       placeholder={t('tags.search_placeholder')}
     />
 
@@ -220,7 +242,7 @@
                 class:active={tag.color === color}
                 style:background={color}
                 onclick={() => changeColor(tag.id, color)}
-                aria-label={t('tags.set_color').replace('{color}', color)}
+                aria-label={t('tags.set_color', { color })}
               ></button>
             {/each}
           </div>
@@ -251,20 +273,6 @@
   {/if}
 {/if}
 
-{#if confirmDelete}
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="confirm-backdrop" role="presentation" onclick={() => confirmDelete = null}>
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="confirm-dialog" role="dialog" tabindex="-1" onclick={(e) => e.stopPropagation()} use:focusTrap>
-      <h3 class="confirm-title">{t('tags.confirm_delete_title').replace('{name}', confirmDelete.name)}</h3>
-      <p class="confirm-msg">{t('tags.confirm_delete_msg').replace('{count}', String(confirmDelete.count))}</p>
-      <div class="confirm-actions">
-        <button class="btn-ghost" onclick={() => confirmDelete = null}>{t('common.cancel')}</button>
-        <button class="btn-danger" onclick={() => confirmDelete && doRemoveTag(confirmDelete.id, confirmDelete.name)}>{t('tags.delete')}</button>
-      </div>
-    </div>
-  </div>
-{/if}
 
 <style>
   .modal-backdrop {
@@ -355,7 +363,7 @@
     font-weight: 600;
     padding: 0.15rem 0.5rem;
     border-radius: 4px;
-    color: #fff;
+    color: var(--on-color);
     flex: 1;
     min-width: 0;
     overflow: hidden;
@@ -466,71 +474,4 @@
     margin: 0;
   }
 
-  .confirm-backdrop {
-    position: fixed;
-    inset: 0;
-    background: var(--bg-overlay);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 300;
-  }
-
-  .confirm-dialog {
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 1.25rem;
-    width: 320px;
-    box-shadow: 0 8px 32px var(--shadow-lg);
-  }
-
-  .confirm-title {
-    margin: 0 0 0.5rem;
-    font-size: 0.95rem;
-    font-weight: 600;
-    color: var(--text-strong);
-  }
-
-  .confirm-msg {
-    margin: 0 0 1rem;
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-    line-height: 1.4;
-  }
-
-  .confirm-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.5rem;
-  }
-
-  .btn-ghost {
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text-secondary);
-    font-size: 0.8rem;
-    padding: 0.35rem 0.75rem;
-    cursor: pointer;
-    transition: background var(--duration-normal);
-  }
-  .btn-ghost:hover {
-    background: var(--bg-elevated);
-  }
-
-  .btn-danger {
-    background: var(--danger);
-    border: none;
-    border-radius: 6px;
-    color: #fff;
-    font-size: 0.8rem;
-    font-weight: 500;
-    padding: 0.35rem 0.75rem;
-    cursor: pointer;
-    transition: opacity var(--duration-normal);
-  }
-  .btn-danger:hover {
-    opacity: 0.85;
-  }
 </style>

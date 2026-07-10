@@ -246,6 +246,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     InspectWorkspaceTemplateFolder: async (): Promise<WorkspaceTemplateInspection> => ({ is_template: false, name: '', description: '', default_target_path: '', parameters: [], size_bytes: 0, large_warning: false }),
     ImportWorkspaceTemplate: async (): Promise<WorkspaceTemplateEntry> => ({ id: 'templates/mock', name: 'Mock', description: '', scope: 'global', parameters: [], default_target_path: '' }),
     SaveWorkspaceTemplate: async () => {},
+    DeleteWorkspaceTemplate: async () => {},
     ListProjectTemplates: async (): Promise<WorkspaceTemplateEntry[]> => [],
     GenerateCardFolder: async (): Promise<Card> => mockCard(),
     ClearCardFolder: async (): Promise<Card> => mockCard(),
@@ -272,6 +273,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     MarkNotificationRead: async () => {},
     MarkAllNotificationsRead: async () => {},
     ClearAllNotifications: async () => {},
+    DeleteNotification: async () => {},
     GetCategoryAcceptedTypes: async () => null,
     ValidateSchedulePreview: async () => [],
     GetAgentConfig: async () => ({ card_id: '', config: { enabled: false, goal: '', schedule: '', allowed_tools: [], status: 'disabled' as const, notify_on: [], notify_channel: '', llm_account_id: '', llm_model: '', last_run_at: null, next_run_at: null, max_tokens_budget: 0, run_started_at: null, min_interval_minutes: 0, max_retries: 0, retry_count: 0, retry_backoff_minutes: 0, cost_budget_usd: 0, cost_spent_usd: 0, start_date: null, end_date: null, active_window_start: '', active_window_end: '', one_shot: false, timezone: '' }, runs: [] }),
@@ -280,6 +282,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     TriggerAgent: async () => {},
     CancelAgent: async () => {},
     ClearAgentRuns: async () => {},
+    DeleteAgent: async () => {},
     PauseAllAgents: async () => {},
     ResumeAllAgents: async () => {},
     GetAgentSchedulerStatus: async () => ({ active: false, paused: false, runningCount: 0 }),
@@ -313,9 +316,6 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
 
     AddCardAttachment: async () => mockCard(),
     RemoveCardAttachment: async () => mockCard(),
-
-    GetTokenPricing: async () => ({}),
-    SaveTokenPricing: async () => {},
 
     GetDueDateSettings: async () => ({ enabled: true, thresholds: ['24h', '1h', '0'], channels: 'in-app,system' }),
     SaveDueDateSettings: async () => {},

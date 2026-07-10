@@ -3,6 +3,8 @@
   import { fly, fade } from 'svelte/transition'
   import { X, Clipboard } from 'lucide-svelte'
   import { repoRPC } from '../lib/auth'
+  import { inlineEdit } from '@shared/inlineEdit'
+  import { EditScope } from '@shared/editScope'
   import { t } from '../lib/i18n.svelte'
   import type { Card } from '@shared/types'
 
@@ -25,6 +27,13 @@
   let saving = $state(false)
   let errorMsg = $state<string | null>(null)
   let inputEl: HTMLTextAreaElement | undefined = $state()
+
+  // Keyboard entry contract. The composer registers while focused, so
+  // Escape first cancels the entry (clears the draft, drops focus) and
+  // only a further Escape closes the sheet — it no longer discards a
+  // non-empty draft and closes in one keystroke.
+  const editScope = new EditScope()
+  editScope.requestClose = () => onClose()
 
   onMount(() => {
     // Auto-focus on open. Mobile keyboards typically open on focus,
@@ -71,22 +80,25 @@
     }
   }
 
-  function onKey(e: KeyboardEvent) {
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      onClose()
-    } else if (e.key === 'Enter' && !e.shiftKey) {
-      // Enter saves; Shift+Enter inserts a newline (mirrors common
-      // chat-app convention).
-      e.preventDefault()
-      save()
-    }
+  // Composer keyboard behaviour comes from the shared inlineEdit action,
+  // mobile multiline variant (Enter inserts a newline; the Save button
+  // saves). Cancel (Escape / Back) only dismisses the keyboard — it
+  // must NOT destroy the draft: an accidental back-swipe mid-capture
+  // would be data loss. closeOnCtrlEnter is off because save() already
+  // closes the sheet on success — letting the action also call
+  // requestClose would double-close AND close before a save error
+  // could surface. Ctrl+Enter therefore still means "save + close",
+  // via save() itself.
+  function cancelCompose() {
+    inputEl?.blur()
   }
 
   function onBackdrop(e: MouseEvent) {
     if (e.target === e.currentTarget) onClose()
   }
 </script>
+
+<svelte:window onkeydown={(e) => editScope.handleWindowKeydown(e)} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
@@ -106,7 +118,15 @@
     <textarea
       bind:this={inputEl}
       bind:value={title}
-      onkeydown={onKey}
+      use:inlineEdit={{
+        serial: true,
+        multiline: true,
+        enterInsertsNewline: true,
+        closeOnCtrlEnter: false,
+        onCommit: () => { void save() },
+        onCancel: cancelCompose,
+        scope: editScope,
+      }}
       placeholder={t('capture.placeholder')}
       rows="3"
       disabled={saving}

@@ -150,6 +150,9 @@ func (r *Repository) UpdateCard(id string, update func(*model.Card)) (*model.Car
 
 // UpdateCardDirect writes a pre-modified card directly to disk.
 func (r *Repository) UpdateCardDirect(id string, card *model.Card) error {
+	if err := validID(id); err != nil {
+		return err
+	}
 	return writeJSON(r.cardFilePath(id), card)
 }
 
@@ -210,14 +213,14 @@ func (r *Repository) DuplicateCard(srcCardID string) (*model.Card, error) {
 	if len(src.FileAttachments) > 0 {
 		copies, err := r.duplicateAttachmentFiles(src.ID, newCard.ID, src.FileAttachments)
 		if err != nil {
-			_ = os.RemoveAll(filepath.Join(r.Root, "attachments", newCard.ID))
+			_ = os.RemoveAll(r.attachmentsDirPath(newCard.ID))
 			return nil, fmt.Errorf("duplicate attachments: %w", err)
 		}
 		newCard.FileAttachments = copies
 	}
 
 	if err := writeJSON(r.cardFilePath(newCard.ID), &newCard); err != nil {
-		_ = os.RemoveAll(filepath.Join(r.Root, "attachments", newCard.ID))
+		_ = os.RemoveAll(r.attachmentsDirPath(newCard.ID))
 		return nil, fmt.Errorf("write duplicated card: %w", err)
 	}
 	return &newCard, nil
@@ -231,7 +234,7 @@ func (r *Repository) DuplicateCard(srcCardID string) (*model.Card, error) {
 // silently rather than failing the whole duplicate — the copy ends
 // up matching the source's actual on-disk state.
 func (r *Repository) duplicateAttachmentFiles(srcCardID, dstCardID string, atts []model.FileAttachment) ([]model.FileAttachment, error) {
-	dstDir := filepath.Join(r.Root, "attachments", dstCardID)
+	dstDir := r.attachmentsDirPath(dstCardID)
 	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create attachments dir: %w", err)
 	}
@@ -283,14 +286,24 @@ func (r *Repository) ListCardsByType(cardType string) ([]model.Card, error) {
 // server can resolve cardID+id to a file path at request time
 // without re-reading the card metadata.
 func (r *Repository) AddCardAttachment(cardID, name, data string) (*model.Card, error) {
-	dir := filepath.Join(r.Root, "attachments", cardID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("create attachments dir: %w", err)
+	// Validate + confirm the card exists BEFORE touching the disk —
+	// writing first meant an RPC with a bogus (or traversal) card ID
+	// still created directories and wrote attacker-controlled bytes.
+	if err := validID(cardID); err != nil {
+		return nil, err
+	}
+	if !fileExists(r.cardFilePath(cardID)) {
+		return nil, fmt.Errorf("card %q not found", cardID)
 	}
 
 	decoded, err := base64Decode(data)
 	if err != nil {
 		return nil, fmt.Errorf("decode attachment: %w", err)
+	}
+
+	dir := r.attachmentsDirPath(cardID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("create attachments dir: %w", err)
 	}
 
 	id := fmt.Sprintf("att-%s", uuid.New().String())
@@ -315,7 +328,7 @@ func (r *Repository) RemoveCardAttachment(cardID, attachmentID string) (*model.C
 	return r.UpdateCard(cardID, func(card *model.Card) {
 		for i, att := range card.FileAttachments {
 			if att.ID == attachmentID {
-				_ = os.Remove(filepath.Join(r.Root, "attachments", cardID, att.ID))
+				_ = os.Remove(r.AttachmentPath(cardID, att.ID))
 				card.FileAttachments = append(card.FileAttachments[:i], card.FileAttachments[i+1:]...)
 				return
 			}
@@ -323,11 +336,17 @@ func (r *Repository) RemoveCardAttachment(cardID, attachmentID string) (*model.C
 	})
 }
 
+// attachmentsDirPath returns the directory holding a card's
+// attachment files.
+func (r *Repository) attachmentsDirPath(cardID string) string {
+	return filepath.Join(r.Root, "attachments", safeSeg(cardID))
+}
+
 // AttachmentPath resolves an attachment's location on disk. Returns
 // the path even if the file doesn't exist — caller checks fstat. The
 // server's HTTP handler uses this after verifying the request's HMAC.
 func (r *Repository) AttachmentPath(cardID, attachmentID string) string {
-	return filepath.Join(r.Root, "attachments", cardID, attachmentID)
+	return filepath.Join(r.attachmentsDirPath(cardID), safeSeg(attachmentID))
 }
 
 // FindAttachment returns the metadata entry for an attachment ID on a

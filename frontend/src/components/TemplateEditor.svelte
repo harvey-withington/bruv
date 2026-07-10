@@ -3,8 +3,10 @@
   import { fade } from 'svelte/transition'
   import { showToast } from '../lib/toast.svelte'
   import { showConfirm } from '../lib/confirm.svelte'
-  import { focusTrap, portal } from '../lib/actions'
+  import { focusTrap, portal, inlineEdit } from '../lib/actions'
   import { draggable } from '../lib/draggable'
+  import { setContext } from 'svelte'
+  import { EditScope, EDIT_SCOPE_KEY } from '@shared/editScope'
   import { GripVertical, Plus, Trash2, Type, ListChecks, List, Film, Link, Minus, X, ChevronDown, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell } from 'lucide-svelte'
   import EditableChecklist from './EditableChecklist.svelte'
   import EditableList from './EditableList.svelte'
@@ -18,9 +20,22 @@
     onClose: () => void
   } = $props()
 
+  // Keyboard entry contract: this dialog's own closable-container scope.
+  // Its affirmative "commit + close" action is Save (there's no
+  // per-field auto-save — everything is staged locally until Save is
+  // clicked), so Ctrl+Enter from any registered field commits then
+  // saves-and-closes via requestClose. Mirrors OptionsEditorDialog,
+  // which this dialog can itself open on top of (the block-options
+  // editor) — each gets its own scope so the two never fight over the
+  // same Escape/Ctrl+Enter press.
+  const editScope = new EditScope()
+  editScope.requestClose = () => { void save() }
+  setContext(EDIT_SCOPE_KEY, editScope)
+
   // Form state seeded once from the incoming `template` prop; saved via onSave.
   /* svelte-ignore state_referenced_locally */
   let name = $state(template?.name ?? '')
+  let nameInputEl = $state<HTMLInputElement | null>(null)
   /* svelte-ignore state_referenced_locally */
   let blocks = $state<Block[]>(template?.blocks ? JSON.parse(JSON.stringify(template.blocks)) : [])
   let saving = $state(false)
@@ -119,6 +134,17 @@
     newSelectOptions = { ...newSelectOptions, [blockId]: '' }
   }
 
+  // Serial add-input per the keyboard entry contract: Enter commits and
+  // re-arms, Escape discards the draft and ends the entry, blur keeps
+  // the draft uncommitted. Keyed by block id since each pre-populate
+  // editor has its own add-option row.
+  let selectOptionInputEls = $state<Record<string, HTMLInputElement | null>>({})
+
+  function cancelSelectOption(blockId: string) {
+    newSelectOptions = { ...newSelectOptions, [blockId]: '' }
+    selectOptionInputEls[blockId]?.blur()
+  }
+
   function removeSelectOption(blockId: string, idx: number) {
     const block = blocks.find(b => b.id === blockId)
     if (!block) return
@@ -146,6 +172,10 @@
     }
   }
 
+  function defaultSelectOptions(): string[] {
+    return [1, 2, 3].map(n => t('block.default_option', { n }))
+  }
+
   function addBlock(blockType: string) {
     showBlockPicker = false
     const option = BLOCK_OPTIONS.find(o => o.type === blockType)
@@ -157,13 +187,13 @@
     else if (blockType === 'list') value = []
     else if (blockType === 'media') value = []
     else if (blockType === 'divider') value = null
-    else if (blockType === 'select') { value = ''; meta = { options: ['Option 1', 'Option 2', 'Option 3'] } }
+    else if (blockType === 'select') { value = ''; meta = { options: defaultSelectOptions() } }
     else if (blockType === 'number') value = 0
     else if (blockType === 'date') value = ''
     else if (blockType === 'rating') { value = 0; meta = { max: 5 } }
     else if (blockType === 'checkbox') value = false
-    else if (blockType === 'radio') { value = ''; meta = { options: ['Option 1', 'Option 2', 'Option 3'] } }
-    else if (blockType === 'checkbox_group') { value = []; meta = { options: ['Option 1', 'Option 2', 'Option 3'] } }
+    else if (blockType === 'radio') { value = ''; meta = { options: defaultSelectOptions() } }
+    else if (blockType === 'checkbox_group') { value = []; meta = { options: defaultSelectOptions() } }
     else if (blockType === 'image') value = null
     else if (blockType === 'progress') value = 0
     else if (blockType === 'alarm') { value = null; meta = { alarm_channels: 'in-app,system' } }
@@ -224,10 +254,26 @@
     editingLabelId = null
   }
 
+  function cancelLabel() {
+    editingLabelId = null
+  }
+
+  // Template name field: Enter commits by blurring (the template itself
+  // is saved via the dialog's Save button, not per-field), Escape reverts
+  // to the last-loaded name and blurs.
+  function commitName() {
+    nameInputEl?.blur()
+  }
+
+  function cancelName() {
+    name = template?.name ?? ''
+    nameInputEl?.blur()
+  }
+
   async function deleteBlock(blockId: string) {
     const block = blocks.find(b => b.id === blockId)
     const ok = await showConfirm(
-      t('template_editor.confirm_delete_block').replace('{name}', block?.label ?? '')
+      t('template_editor.confirm_delete_block', { name: block?.label ?? '' })
     )
     if (!ok) return
     blocks = blocks.filter(b => b.id !== blockId)
@@ -247,10 +293,21 @@
     }
   }
 
+  // Container side of the keyboard entry contract. Escape closes
+  // (cancels, discarding local edits) only when nothing is being
+  // edited — the block-label and add-option fields consume Escape
+  // themselves via the inlineEdit action; this is the backstop for
+  // presses that land while no field is focused. Ctrl+Enter commits any
+  // in-flight edit then saves-and-closes via editScope.requestClose.
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
+      if (editScope.hasActive()) return
       e.stopPropagation()
       onClose()
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault()
+      editScope.commitAll()
+      void save()
     }
   }
 
@@ -282,8 +339,10 @@
         <span class="field-label">{t('template_editor.name')}</span>
         <input
           class="field-input"
+          bind:this={nameInputEl}
           bind:value={name}
           placeholder={t('template_editor.name_placeholder')}
+          use:inlineEdit={{ onCommit: commitName, onCancel: cancelName }}
         />
       </div>
 
@@ -332,8 +391,7 @@
                       class="label-input"
                       bind:value={labelDraft}
                       autofocus
-                      onblur={() => commitLabel(block.id)}
-                      onkeydown={(e) => { if (e.key === 'Enter') commitLabel(block.id); if (e.key === 'Escape') { e.stopPropagation(); editingLabelId = null } }}
+                      use:inlineEdit={{ onCommit: () => commitLabel(block.id), onCancel: cancelLabel, scope: editScope }}
                     />
                   {:else}
                     <button class="block-label-btn" onclick={() => startEditLabel(block)}>
@@ -404,7 +462,8 @@
                               placeholder={t('block.option_placeholder')}
                               value={newSelectOptions[block.id] || ''}
                               oninput={(e) => { newSelectOptions = { ...newSelectOptions, [block.id]: (e.target as HTMLInputElement).value } }}
-                              onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSelectOption(block.id) } }}
+                              bind:this={selectOptionInputEls[block.id]}
+                              use:inlineEdit={{ serial: true, onCommit: () => addSelectOption(block.id), onCancel: () => cancelSelectOption(block.id), scope: editScope }}
                             />
                             <button class="config-option-add-btn" onclick={() => addSelectOption(block.id)}>
                               <Plus size={12} />
@@ -430,7 +489,8 @@
                               placeholder={t('block.option_placeholder')}
                               value={newSelectOptions[block.id] || ''}
                               oninput={(e) => { newSelectOptions = { ...newSelectOptions, [block.id]: (e.target as HTMLInputElement).value } }}
-                              onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSelectOption(block.id) } }}
+                              bind:this={selectOptionInputEls[block.id]}
+                              use:inlineEdit={{ serial: true, onCommit: () => addSelectOption(block.id), onCancel: () => cancelSelectOption(block.id), scope: editScope }}
                             />
                             <button class="config-option-add-btn" onclick={() => addSelectOption(block.id)}>
                               <Plus size={12} />

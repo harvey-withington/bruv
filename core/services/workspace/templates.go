@@ -6,7 +6,9 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"bruv/internal/model"
@@ -301,6 +303,48 @@ func (s *Service) SaveTemplate(ref string, tpl ft.Template) error {
 		dir = abs
 	}
 	if err := ft.Save(&tpl, dir); err != nil {
+		return err
+	}
+	s.deps.Publish("workspace:templates", Ref{})
+	return nil
+}
+
+// isVaultTemplateID reports whether a vault-relative ID sits inside a
+// recognised templates root — templates/<name> or
+// brands/<brand>/templates/<name> — and is not the root itself.
+func isVaultTemplateID(ref string) bool {
+	parts := strings.Split(path.Clean(filepath.ToSlash(ref)), "/")
+	switch {
+	case len(parts) >= 2 && parts[0] == templatesDirName:
+		return true
+	case len(parts) >= 4 && parts[0] == "brands" && parts[2] == templatesDirName:
+		return true
+	}
+	return false
+}
+
+// DeleteTemplate removes a vault-resident template folder (the whole
+// tree, .ft/ included). Only vault-relative IDs under a templates root
+// are accepted — absolute refs (the editor's edit-in-place workflow)
+// point at folders BRUV doesn't own, so deleting those is refused.
+func (s *Service) DeleteTemplate(ref string) error {
+	r, err := s.repo()
+	if err != nil {
+		return err
+	}
+	if filepath.IsAbs(ref) || !isVaultTemplateID(ref) {
+		return fmt.Errorf("%q is not a vault template — only vault-resident templates can be deleted", ref)
+	}
+	abs, err := pathsafe.Resolve(r.Root, ref)
+	if err != nil {
+		return err
+	}
+	// Require an actual template root so a malformed ID can never wipe
+	// an arbitrary folder that merely lives under templates/.
+	if _, err := ft.Load(abs); err != nil {
+		return fmt.Errorf("not a template: %w", err)
+	}
+	if err := os.RemoveAll(abs); err != nil {
 		return err
 	}
 	s.deps.Publish("workspace:templates", Ref{})

@@ -123,7 +123,7 @@ func SaveLLMAccounts(accounts []LLMAccount) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
+	return atomicWriteFile(path, data, 0o600)
 }
 
 // MigrateLLMKeysToKeychain moves any plaintext API keys from llm_accounts.json

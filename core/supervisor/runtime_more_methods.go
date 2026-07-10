@@ -10,6 +10,7 @@ package supervisor
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,6 +77,7 @@ func (r *Runtime) GetNotifications() ([]config.Notification, error) { return r.N
 func (r *Runtime) MarkNotificationRead(id string) error             { return r.Notify.MarkRead(id) }
 func (r *Runtime) MarkAllNotificationsRead() error                  { return r.Notify.MarkAllRead() }
 func (r *Runtime) ClearAllNotifications() error                     { return r.Notify.ClearAll() }
+func (r *Runtime) DeleteNotification(id string) error               { return r.Notify.Delete(id) }
 
 // --- Due-date settings ---
 //
@@ -130,6 +132,22 @@ func (r *Runtime) GetAgentRuns(cardID string) ([]model.AgentRun, error) {
 }
 func (r *Runtime) ClearAgentRuns(cardID string) error {
 	return r.Agent.ClearRuns(cardID)
+}
+
+// DeleteAgent removes a card's agent entirely — config, run history,
+// and index state — so the card renders as a plain card again.
+// Refused while the agent is executing: the run's completion
+// write-back would recreate the config file right after deletion.
+// The scheduler discovers due agents by re-scanning cards/*.agent.json
+// on every tick, so once the file is gone the agent can never run again.
+func (r *Runtime) DeleteAgent(cardID string) error {
+	if s := r.agentRT.Scheduler(); s != nil && s.IsRunning(cardID) {
+		return fmt.Errorf("agent for card %q is currently running — cancel it first", cardID)
+	}
+	if _, running := r.agentRT.AgentCancels().Load(cardID); running {
+		return fmt.Errorf("agent for card %q is currently running — cancel it first", cardID)
+	}
+	return r.Agent.Delete(cardID)
 }
 
 // ListAgentCardStates scans the cards directory for *.agent.json

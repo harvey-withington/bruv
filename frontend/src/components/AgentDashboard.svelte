@@ -1,6 +1,7 @@
 <script lang="ts">
   import { GetAllAgents, TriggerAgent, CancelAgent, PauseAllAgents, ResumeAllAgents, GetAgentSchedulerStatus } from '@shared/api'
   import type { AgentSummary } from '@shared/types'
+  import { formatRelativeTime } from '@shared/relativeTime'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
   import { Timer, Play, Square, Pause, CirclePlay, CircleCheck, CircleX, TriangleAlert, Clock, X } from 'lucide-svelte'
@@ -14,6 +15,7 @@
 
   let agents = $state<AgentSummary[]>([])
   let loading = $state(true)
+  let loadError = $state(false)
   let schedulerPaused = $state(false)
 
   async function load() {
@@ -26,8 +28,11 @@
         return a.card_title.localeCompare(b.card_title)
       })
       schedulerPaused = status.paused
+      loadError = false
     } catch (e) {
       console.error('Failed to load agents:', e)
+      loadError = true
+      showToast(t('dashboard.load_failed'), 'error')
     } finally {
       loading = false
     }
@@ -89,16 +94,7 @@
 
   function formatRelative(iso: string | null): string {
     if (!iso) return '-'
-    const d = new Date(iso)
-    const diff = Date.now() - d.getTime()
-    const mins = Math.floor(Math.abs(diff) / 60000)
-    const future = diff < 0
-    if (mins < 1) return future ? 'soon' : 'just now'
-    if (mins < 60) return future ? `in ${mins}m` : `${mins}m ago`
-    const hours = Math.floor(mins / 60)
-    if (hours < 24) return future ? `in ${hours}h` : `${hours}h ago`
-    const days = Math.floor(hours / 24)
-    return future ? `in ${days}d` : `${days}d ago`
+    return formatRelativeTime(iso, t)
   }
 
   function truncate(s: string | null, len: number): string {
@@ -167,6 +163,12 @@
 
     {#if loading}
       <div class="dashboard-loading">{t('app.loading')}</div>
+    {:else if loadError}
+      <div class="dashboard-empty dashboard-load-error">
+        <Timer size={32} strokeWidth={1} />
+        <p class="load-error-text">{t('dashboard.load_failed')}</p>
+        <button class="retry-btn" onclick={load}>{t('agent.load_retry')}</button>
+      </div>
     {:else if agents.length === 0}
       <div class="dashboard-empty">
         <Timer size={32} strokeWidth={1} />
@@ -348,6 +350,24 @@
     flex-direction: column;
     align-items: center;
     gap: 0.5rem;
+  }
+  .load-error-text {
+    color: var(--danger);
+    margin: 0;
+  }
+  .retry-btn {
+    padding: 0.3rem 0.75rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-muted);
+    border-radius: 5px;
+    color: var(--text-body);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: border-color var(--duration-normal), color var(--duration-normal);
+  }
+  .retry-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
   }
 
   /* Table */

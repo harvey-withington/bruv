@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte'
+  import { onMount, getContext } from 'svelte'
   import { Send, Trash2, Pencil, Check, X } from 'lucide-svelte'
   import { repoRPC } from '../lib/auth'
   import { renderMarkdown } from '@shared/markdown'
+  import { inlineEdit } from '@shared/inlineEdit'
+  import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import { t } from '../lib/i18n.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import type { CardComment } from '@shared/types'
@@ -29,6 +31,11 @@
   let editDraft = $state('')
 
   let confirmingDelete = $state<string | null>(null)
+
+  // CardPage's edit scope (keyboard entry contract) reaches here via
+  // context — the composer and the edit field register through their
+  // inlineEdit actions below.
+  const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
 
   async function reload() {
     try {
@@ -101,11 +108,13 @@
     textareaEl.style.height = `${Math.min(textareaEl.scrollHeight, 160)}px`
   }
 
-  function handleKey(e: KeyboardEvent) {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault()
-      void add()
-    }
+  // Composer keyboard behaviour comes from the shared inlineEdit action,
+  // mobile multiline variant (Enter inserts a newline; the Post button
+  // posts; hardware Ctrl+Enter posts and closes the card). Cancel
+  // (Escape / Back) only dismisses the keyboard — it must NOT destroy
+  // the draft: an accidental back-swipe mid-comment would be data loss.
+  function cancelCompose() {
+    textareaEl?.blur()
   }
 
   function formatTime(iso: string): string {
@@ -131,13 +140,22 @@
       {#each comments as c (c.id)}
         <li class="comment">
           {#if editingId === c.id}
+            <!-- blurCommits off: the Save/Cancel buttons sit right below
+                 the field — a blur-commit would fire before a Cancel
+                 click could land. The draft stays put on blur instead.
+                 Mobile multiline variant: Enter inserts a newline; the
+                 Save button (or hardware Ctrl+Enter) commits. -->
             <textarea
               class="edit-area"
               bind:value={editDraft}
               rows="3"
-              onkeydown={(e) => {
-                if (e.key === 'Escape') { e.preventDefault(); cancelEdit() }
-                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void saveEdit(c) }
+              use:inlineEdit={{
+                multiline: true,
+                enterInsertsNewline: true,
+                blurCommits: false,
+                onCommit: () => { void saveEdit(c) },
+                onCancel: cancelEdit,
+                scope: editScope,
               }}
               ></textarea>
             <div class="edit-actions">
@@ -174,7 +192,14 @@
       bind:this={textareaEl}
       bind:value={draft}
       oninput={autoGrow}
-      onkeydown={handleKey}
+      use:inlineEdit={{
+        serial: true,
+        multiline: true,
+        enterInsertsNewline: true,
+        onCommit: () => { void add() },
+        onCancel: cancelCompose,
+        scope: editScope,
+      }}
       placeholder={t('comments.placeholder')}
       rows="2"
       disabled={posting}

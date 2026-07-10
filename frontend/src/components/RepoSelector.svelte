@@ -29,7 +29,7 @@
     Trash2, Pencil, AlertTriangle, ChevronDown, ChevronRight,
   } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
-  import { focusTrap, focusOnMount } from '../lib/actions'
+  import { focusTrap, focusOnMount, inlineEdit } from '../lib/actions'
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
   import BruvIcon from './BruvIcon.svelte'
@@ -123,7 +123,8 @@
       // of dumping the user back on the picker).
       await switchToRepo(connectionID, repoID)
     } catch (e) {
-      showToast((e as Error)?.message ?? String(e), 'error')
+      console.error('Failed to switch repo:', e)
+      showToast(t('connection.switch_failed'), 'error')
     }
   }
 
@@ -136,7 +137,8 @@
       await setRepoEnabled(connectionID, repoID, currentlyDisabled)
       await load()
     } catch (e) {
-      showToast((e as Error)?.message ?? String(e), 'error')
+      console.error('Failed to toggle repo enabled state:', e)
+      showToast(t('selector.err_toggle_repo'), 'error')
     }
   }
 
@@ -159,19 +161,21 @@
       await load()
       showToast(t('connection.updated'), 'success')
     } catch (e) {
-      showToast((e as Error)?.message ?? String(e), 'error')
+      console.error('Failed to update connection:', e)
+      showToast(t('connection.edit_failed'), 'error')
     }
   }
 
   async function removeRemote(connectionID: string, name: string) {
-    const ok = await showConfirm(t('connection.remove_confirm').replace('{name}', name))
+    const ok = await showConfirm(t('connection.remove_confirm', { name }))
     if (!ok) return
     try {
       await removeConnection(connectionID)
       await load()
       showToast(t('connection.removed'), 'success')
     } catch (e) {
-      showToast((e as Error)?.message ?? String(e), 'error')
+      console.error('Failed to remove connection:', e)
+      showToast(t('connection.remove_failed'), 'error')
     }
   }
 
@@ -180,7 +184,8 @@
       await addConnection(args.name, args.url, args.deviceToken, { activate: true })
       // activate: true → reloads.
     } catch (e) {
-      showToast((e as Error)?.message ?? String(e), 'error')
+      console.error('Failed to add connection:', e)
+      showToast(t('connection.add_failed'), 'error')
     }
   }
 
@@ -221,7 +226,8 @@
       } catch { /* chip just stays stale until next boot — non-fatal */ }
       showToast(t('selector.rename_done'), 'success')
     } catch (e) {
-      showToast((e as Error)?.message ?? String(e), 'error')
+      console.error('Failed to rename repo:', e)
+      showToast(t('selector.err_rename_repo'), 'error')
     }
   }
 
@@ -230,7 +236,7 @@
   // this in the picker" action.
   async function removeRepoEntry(e: MouseEvent, connectionID: string, repoID: string, name: string) {
     e.stopPropagation()
-    const ok = await showConfirm(t('tree.remove_local_confirm').replace('{name}', name))
+    const ok = await showConfirm(t('tree.remove_local_confirm', { name }))
     if (!ok) return
     // Capture "was this the active one" BEFORE the remove — backend
     // unloads the runtime, so a post-remove GetCurrentRepo against
@@ -248,7 +254,8 @@
       }
       await load()
     } catch (err) {
-      showToast((err as Error)?.message ?? String(err), 'error')
+      console.error('Failed to remove repo entry:', err)
+      showToast(t('selector.err_remove_repo'), 'error')
     }
   }
 
@@ -275,7 +282,8 @@
       error = null
       view = 'configure-local'
     } catch (e) {
-      showToast((e as Error)?.message ?? String(e), 'error')
+      console.error('Failed to inspect folder:', e)
+      showToast(t('selector.err_inspect_repo'), 'error')
     }
   }
 
@@ -467,10 +475,7 @@
                             class="rename-input"
                             type="text"
                             bind:value={renameDraft}
-                            onkeydown={(e) => {
-                              if (e.key === 'Enter') commitRenameRepo(node.connectionID, repo.id)
-                              if (e.key === 'Escape') cancelRenameRepo()
-                            }}
+                            use:inlineEdit={{ onCommit: () => commitRenameRepo(node.connectionID, repo.id), onCancel: cancelRenameRepo }}
                             use:focusOnMount={true}
                           />
                           <button

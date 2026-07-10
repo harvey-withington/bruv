@@ -249,8 +249,12 @@ func (r *Repository) brandsPath() string {
 	return filepath.Join(r.Root, brandsDir)
 }
 
+// The builders below wrap every externally-influenced segment in
+// safeSeg — slugs and IDs arrive from RPC and must never traverse
+// out of the repo root (see validate.go).
+
 func (r *Repository) brandPath(slug string) string {
-	return filepath.Join(r.Root, brandsDir, slug)
+	return filepath.Join(r.Root, brandsDir, safeSeg(slug))
 }
 
 func (r *Repository) brandFilePath(slug string) string {
@@ -262,7 +266,7 @@ func (r *Repository) streamsPath(brandSlug string) string {
 }
 
 func (r *Repository) streamPath(brandSlug, streamSlug string) string {
-	return filepath.Join(r.streamsPath(brandSlug), streamSlug)
+	return filepath.Join(r.streamsPath(brandSlug), safeSeg(streamSlug))
 }
 
 func (r *Repository) streamFilePath(brandSlug, streamSlug string) string {
@@ -274,7 +278,7 @@ func (r *Repository) projectsPath(brandSlug, streamSlug string) string {
 }
 
 func (r *Repository) projectPath(brandSlug, streamSlug, projectSlug string) string {
-	return filepath.Join(r.projectsPath(brandSlug, streamSlug), projectSlug)
+	return filepath.Join(r.projectsPath(brandSlug, streamSlug), safeSeg(projectSlug))
 }
 
 func (r *Repository) projectFilePath(brandSlug, streamSlug, projectSlug string) string {
@@ -290,7 +294,7 @@ func (r *Repository) categoriesPath(brandSlug, streamSlug, projectSlug string) s
 }
 
 func (r *Repository) categoryFilePath(brandSlug, streamSlug, projectSlug, categorySlug string) string {
-	return filepath.Join(r.categoriesPath(brandSlug, streamSlug, projectSlug), categorySlug+".json")
+	return filepath.Join(r.categoriesPath(brandSlug, streamSlug, projectSlug), safeSeg(categorySlug)+".json")
 }
 
 func (r *Repository) cardsPath() string {
@@ -298,7 +302,7 @@ func (r *Repository) cardsPath() string {
 }
 
 func (r *Repository) cardFilePath(id string) string {
-	return filepath.Join(r.Root, cardsDir, id+".json")
+	return filepath.Join(r.Root, cardsDir, safeSeg(id)+".json")
 }
 
 // cardTypesPath returns the location of the repo-scoped card types store.
@@ -309,7 +313,7 @@ func (r *Repository) cardTypesPath() string {
 }
 
 func (r *Repository) pinsDirPath(cardID string) string {
-	return filepath.Join(r.Root, pinsDir, cardID)
+	return filepath.Join(r.Root, pinsDir, safeSeg(cardID))
 }
 
 func (r *Repository) pinsFilePath(cardID string) string {

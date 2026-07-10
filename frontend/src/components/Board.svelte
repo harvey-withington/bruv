@@ -11,6 +11,7 @@
   import { t } from '../lib/i18n.svelte'
   import { focusTrap } from '../lib/actions'
   import { showToast } from '../lib/toast.svelte'
+  import { showConfirm } from '../lib/confirm.svelte'
   import { importCardFromJson, ImportError } from '../lib/cardExport'
 
   let renamingCategorySlug = $state<string | null>(null)
@@ -268,6 +269,10 @@
         } catch (e) {
           console.error('Column copy failed:', e)
           showToast(t('error.copy_failed'), 'error')
+          // Reload from disk — the local splice may have already moved
+          // the copy when the reorder RPC failed, leaving the board
+          // diverged from persisted order.
+          await refreshBoard()
         }
       }
       return
@@ -294,9 +299,12 @@
   }
 
   async function handleDeleteCategoryRequest(categoryId: string, categorySlug: string, categoryName: string, cardCount: number) {
+    // Ruling 2026-07-10: a delete button ALWAYS confirms — empty
+    // containers included. Structure is deliberate; only add-flow
+    // cancellations (e.g. the untouched placeholder card) stay silent.
     if (cardCount === 0) {
-      // Empty category — delete immediately without confirmation
       if (!nav.brandSlug || !nav.streamSlug || !nav.projectSlug) return
+      if (!await showConfirm(t('board.delete_category_empty_confirm', { name: categoryName }))) return
       try {
         await DeleteCategory(nav.brandSlug, nav.streamSlug, nav.projectSlug, categorySlug)
         await refreshBoard()
@@ -463,6 +471,15 @@
   {:else if !nav.projectSlug}
     <div class="empty-board">
       <p class="empty-text">{t('app.no_project')}</p>
+    </div>
+
+  {:else if board.loadError}
+    <!-- A failed load must not masquerade as an empty board. -->
+    <div class="empty-board">
+      <p class="empty-text">{t('error.board_load_failed')}</p>
+      <button class="btn-secondary" onclick={() => loadBoard(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!)}>
+        {t('error.board_load_retry')}
+      </button>
     </div>
 
   {:else}

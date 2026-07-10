@@ -29,6 +29,14 @@
   "enrol.submit": "Pair",
   "enrol.submitting": "Pairing…",
   "enrol.err_generic": "Enrolment failed.",
+  "enrol.err_url_required": "Server URL is required.",
+  "enrol.err_token_required": "Bootstrap token is required.",
+  "enrol.err_bad_response": "The server's response was missing a device token.",
+  "error.no_active_repo": "No vault selected — pick one in Settings.",
+  "push.err_unsupported": "Push notifications are not supported on this device.",
+  "push.err_not_paired": "Pair this device before enabling push notifications.",
+  "push.err_permission": "Notification permission was not granted.",
+  "push.err_no_vapid": "Push isn't configured on this server.",
 
   "browse.switch_vault": "Switch vault",
   "browse.brands": "Brands",
@@ -177,6 +185,7 @@
   "pin_picker.pin_here": "Pin here",
 
   "tags.add": "Add tag",
+  "tags.remove": "Remove {tag}",
   "tags.placeholder": "Type and press Enter",
 
   "capture.fab_label": "Quick capture",
@@ -324,6 +333,18 @@
   "chat.open_card": "Open",
   "chat.err_send": "Couldn't send the message.",
   "chat.err_apply": "Couldn't apply some edits.",
+  "chat.action_title": "Title: {title}",
+  "chat.action_due_date": "Due: {date}",
+  "chat.action_due_date_cleared": "Cleared due date",
+  "chat.action_set_type": "Set type: {type}",
+  "chat.action_updated_fields": "Updated: {fields}",
+  "chat.action_added_tags": "Added tags: {tags}",
+  "chat.action_added_field": "Added field: {field} ({type})",
+  "chat.action_suggested_pin": "Suggested pin: {result}",
+  "chat.action_created_card": "Created card: {title}",
+  "chat.action_tagged_cards": "Tagged {count} cards: {tags}",
+  "chat.action_moved_card": "Moved card",
+  "chat.action_updated_card": "Updated card",
 
   "settings.title": "Settings",
   "settings.display": "Display",
@@ -373,6 +394,8 @@
   "notifications.mark_all_read": "Mark all read",
   "notifications.clear_all": "Clear all",
   "notifications.clear_confirm": "Remove every notification from this list? This can't be undone.",
+  "notifications.dismiss": "Dismiss",
+  "notifications.dismiss_failed": "Couldn't dismiss notification",
 
   "search.title": "Search",
   "search.placeholder": "Search cards…",
@@ -410,7 +433,20 @@
   "device_name.ios": "iOS device",
   "device_name.generic": "Mobile device",
 
+  "icon.unknown": "Unknown icon: {name}",
+  "editable.edit_label": "Edit {value}",
+  "editor.done": "Done",
+
   "not_found.title": "Not found",
   "not_found.body": "No route matched.",
-  "not_found.home": "Back to home"
+  "not_found.home": "Back to home",
+
+  "time.just_now": "just now",
+  "time.soon": "soon",
+  "time.minutes_ago": "{n}m ago",
+  "time.hours_ago": "{n}h ago",
+  "time.days_ago": "{n}d ago",
+  "time.in_minutes": "in {n}m",
+  "time.in_hours": "in {n}h",
+  "time.in_days": "in {n}d"
 }

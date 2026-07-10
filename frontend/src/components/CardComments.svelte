@@ -1,6 +1,8 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, getContext } from 'svelte'
   import { Pencil, Trash2, Check, X } from 'lucide-svelte'
+  import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
+  import { inlineEdit } from '../lib/actions'
   import { t } from '../lib/i18n.svelte'
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
@@ -19,6 +21,9 @@
   let posting = $state(false)
   let editingId = $state<string | null>(null)
   let editDraft = $state('')
+  let composerEl = $state<HTMLTextAreaElement | null>(null)
+
+  const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
 
   $effect(() => {
     count = comments.length
@@ -92,27 +97,12 @@
     }
   }
 
-  // Ctrl/Cmd+Enter inside the comment composer must NOT bubble — the parent
-  // CardDetail modal treats it as "save and close", which would steal focus
-  // and dismiss the card before the comment is posted.
-  function handleComposerKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault()
-      e.stopPropagation()
-      post()
-    }
-  }
-
-  function handleEditKeydown(e: KeyboardEvent, c: CardComment) {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault()
-      e.stopPropagation()
-      saveEdit(c)
-    } else if (e.key === 'Escape') {
-      e.preventDefault()
-      e.stopPropagation()
-      cancelEdit()
-    }
+  // Composer keyboard behaviour comes from the shared inlineEdit action
+  // (serial composer: Enter posts, Shift+Enter newline, Escape discards
+  // the draft, blur keeps it, Ctrl+Enter posts and closes the card).
+  function cancelCompose() {
+    draft = ''
+    composerEl?.blur()
   }
 
   function formatTs(iso: string): string {
@@ -156,10 +146,19 @@
             {/if}
           </div>
           {#if editingId === c.id}
+            <!-- blurCommits off: the Save/Cancel buttons sit right below
+                 the field — a blur-commit would fire before a Cancel
+                 click could land. The draft stays put on blur instead. -->
             <textarea
               class="comment-edit-input"
               bind:value={editDraft}
-              onkeydown={(e) => handleEditKeydown(e, c)}
+              use:inlineEdit={{
+                multiline: true,
+                blurCommits: false,
+                onCommit: () => { void saveEdit(c) },
+                onCancel: cancelEdit,
+                scope: editScope,
+              }}
               rows="3"
             ></textarea>
             <div class="comment-edit-actions">
@@ -181,8 +180,15 @@
   <div class="comments-composer">
     <textarea
       class="comment-input"
+      bind:this={composerEl}
       bind:value={draft}
-      onkeydown={handleComposerKeydown}
+      use:inlineEdit={{
+        serial: true,
+        multiline: true,
+        onCommit: () => { void post() },
+        onCancel: cancelCompose,
+        scope: editScope,
+      }}
       placeholder={t('comments.add_placeholder')}
       rows="1"
       disabled={posting}

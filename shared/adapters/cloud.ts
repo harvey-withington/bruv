@@ -306,8 +306,6 @@ const SERVER_METHODS = new Set<string>([
   'SetLLMConfig',
   'GetLLMAccounts',
   'SaveLLMAccounts',
-  'GetTokenPricing',
-  'SaveTokenPricing',
   'IsLLMConfigured',
   'GetNotifyConfig',
   'SetNotifyConfig',
@@ -384,7 +382,10 @@ class EventStream {
     } catch {
       // Not JSON — dispatch the bare topic event.
     }
-    const ev: BackendEvent = { type: topic, ...fields }
+    // Spread AFTER stamping the topic would let a payload carrying a
+    // `type` JSON field clobber it (model.Card serialises `type`) and
+    // silently break every onEvent filter — so stamp last.
+    const ev: BackendEvent = { ...fields, type: topic }
     for (const cb of this.listeners) {
       try {
         cb(ev)

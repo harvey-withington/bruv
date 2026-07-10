@@ -2,7 +2,7 @@
   import { nav, board, prefs as prefsStore, loadCardTypes, loadGlobalTagColors, setupAgentEventListeners } from './lib/store.svelte'
   import { onMount, onDestroy } from 'svelte'
   import { loadTheme } from './lib/theme.svelte'
-  import { loadNotifications, handleNewNotification } from './lib/notifications.svelte'
+  import { loadNotifications, handleNewNotification, type NotificationPayload } from './lib/notifications.svelte'
   import { onEvent } from './lib/events'
   import { loadLocale, t } from './lib/i18n.svelte'
   import { showToast } from './lib/toast.svelte'
@@ -326,8 +326,8 @@
     // next event arrived.
     loadNotifications()
     notifCleanups = [
-      onEvent('notification:new', (data: any) => {
-        handleNewNotification(data)
+      onEvent<NotificationPayload>('notification:new', (data) => {
+        handleNewNotification(data ?? {})
       }),
       // Belt-and-braces: refresh from disk after every agent run so
       // any in-app notification fired by the agent shows up even if
@@ -440,7 +440,7 @@
                   hosted
                   visible={sidePanelOpen}
                   projectMode={true}
-                  reloadKey={nav.projectSlug ?? undefined}
+                  reloadKey={nav.projectSlug ? `${nav.brandSlug}/${nav.streamSlug}/${nav.projectSlug}` : undefined}
                   loadFn={() => LoadProjectChatHistory(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!)}
                   sendFn={(text, contextLevel) => SendProjectChatMessage(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, text, contextLevel ?? 'all')}
                   clearFn={() => ClearProjectChatHistory(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!)}

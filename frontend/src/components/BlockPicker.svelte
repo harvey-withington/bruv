@@ -1,23 +1,26 @@
 <script lang="ts">
   import { Plus, Type, ListChecks, List, Film, Link, Minus, ChevronDown, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell, ClipboardList } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
-  import { floatingDropdown } from '../lib/actions'
+  import { floatingDropdown, clickOutside } from '../lib/actions'
   import type { Block } from '@shared/types'
 
   // "+ Add block" button with its type-picker dropdown. Owns the open
-  // state, click-outside handling, and the block-type catalogue (label
-  // + icon per type); the parent owns what "add" means (default value,
-  // persist) via onAdd.
+  // state, click-outside/Escape handling, and the block-type catalogue
+  // (label + icon per type); the parent owns what "add" means (default
+  // value, persist) via onAdd.
 
   let { onAdd }: { onAdd: (type: Block['type'], label: string) => void } = $props()
 
   let open = $state(false)
   let btnEl = $state<HTMLButtonElement | null>(null)
 
-  function handleWindowClick(e: MouseEvent) {
+  function handleKeydown(e: KeyboardEvent) {
     if (!open) return
-    const target = e.target as Node
-    if (!btnEl?.contains(target) && !(target as HTMLElement).closest?.('.add-block-picker')) open = false
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      open = false
+    }
   }
 
   const BLOCK_OPTIONS: ReadonlyArray<{ type: Block['type']; label: string; icon: typeof Type }> = [
@@ -41,7 +44,7 @@
   ]
 </script>
 
-<svelte:window onclick={handleWindowClick} />
+<svelte:window onkeydown={handleKeydown} />
 
 <div class="add-block-toolbar">
   <button class="add-block-btn" bind:this={btnEl} onclick={() => open = !open} title={t('tooltip.add_block')}>
@@ -49,9 +52,13 @@
     <span>{t('tooltip.add_block')}</span>
   </button>
   {#if open && btnEl}
-    <div class="add-block-picker" use:floatingDropdown={{ trigger: btnEl }}>
+    <div
+      class="dropdown-menu dropdown-menu--grid"
+      use:floatingDropdown={{ trigger: btnEl }}
+      use:clickOutside={{ onOutsideClick: () => open = false, exclude: [btnEl] }}
+    >
       {#each BLOCK_OPTIONS as opt (opt.type)}
-        <button class="block-picker-item" onclick={() => { onAdd(opt.type, opt.label); open = false }} title={opt.label}>
+        <button class="dropdown-menu-item" onclick={() => { onAdd(opt.type, opt.label); open = false }} title={opt.label}>
           <opt.icon size={14} />
           <span>{opt.label}</span>
         </button>
@@ -81,36 +88,13 @@
     cursor: pointer;
     transition: background var(--duration-normal), transform var(--duration-fast);
   }
-  .add-block-btn:hover {
+  .add-block-btn:hover,
+  .add-block-btn:focus-visible {
     background: var(--success-hover);
     border-color: var(--success-hover);
   }
 
-  /* :global because floatingDropdown re-parents the dropdown out of
-     this component's scope boundary. */
-  :global(.add-block-picker) {
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    box-shadow: 0 4px 16px var(--shadow-lg);
-    padding: 0.35rem;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 2px;
-    min-width: 220px;
-  }
-  :global(.add-block-picker .block-picker-item) {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.4rem 0.6rem;
-    border: none;
-    border-radius: 5px;
-    background: transparent;
-    color: var(--text-body);
-    font-size: 0.8rem;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  :global(.add-block-picker .block-picker-item:hover) { background: var(--bg-elevated); color: var(--text-primary); }
+  /* Menu chrome lives in the shared .dropdown-menu / .dropdown-menu-item
+     classes (style.css) — :global there too, since floatingDropdown
+     re-parents the menu out of this component's scope boundary. */
 </style>

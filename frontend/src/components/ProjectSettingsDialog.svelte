@@ -9,18 +9,35 @@
     ListCategories, RenameCategory, UpdateCategoryDescription, UpdateCategoryAcceptedTypes, UpdateCategoryIcon,
     PickSaveFile, ExportProjectToFile,
   } from '@shared/api'
-  import { onMount } from 'svelte'
+  import { onMount, setContext } from 'svelte'
+  import { EditScope, EDIT_SCOPE_KEY } from '@shared/editScope'
+  import { inlineEdit } from '../lib/actions'
   import IconPicker from './IconPicker.svelte'
   import DynamicIcon from './DynamicIcon.svelte'
 
   let { onClose }: { onClose: () => void } = $props()
 
+  // Keyboard entry contract: this dialog's own closable-container scope.
+  // Every field here saves itself on blur/commit (no separate Save
+  // button), so the container's affirmative close is just onClose.
+  const editScope = new EditScope()
+  editScope.requestClose = () => onClose()
+  setContext(EDIT_SCOPE_KEY, editScope)
+
   let loaded = $state(false)
   let projectName = $state('')
   let projectDescription = $state('')
+  let projectNameEl = $state<HTMLInputElement | null>(null)
+  let projectDescEl = $state<HTMLTextAreaElement | null>(null)
   let categories = $state<Array<{ id: string; slug: string; name: string; description: string; icon: string; accepted_types: string[] | null }>>([])
   let expandedCat = $state<string | null>(null)
   let iconPickerCatSlug = $state<string | null>(null)
+  // Row-keyed element refs for the category name/description fields —
+  // used only to revert the DOM's displayed value on Escape (these
+  // inputs are uncontrolled `value=` bindings, matching the existing
+  // onblur-save pattern below, so cancelling doesn't touch `categories`).
+  let catNameEls = $state<Record<string, HTMLInputElement | null>>({})
+  let catDescEls = $state<Record<string, HTMLInputElement | null>>({})
 
   onMount(async () => {
     if (!nav.brandSlug || !nav.streamSlug || !nav.projectSlug) return
@@ -57,6 +74,12 @@
       showToast(t('error.save_failed'), 'error')
     }
   }
+
+  // Plain always-visible fields (no edit-in-place toggle): Escape reverts
+  // to the value loaded when the dialog opened and blurs, rather than
+  // leaving a half-typed value in place.
+  function cancelProjectName() { projectName = nav.projectName || ''; projectNameEl?.blur() }
+  function cancelProjectDescription() { projectDescription = ''; projectDescEl?.blur() }
 
   async function saveCategoryField(catSlug: string, field: 'name' | 'description' | 'accepted_types' | 'icon', value: unknown) {
     if (!nav.brandSlug || !nav.streamSlug || !nav.projectSlug) return
@@ -136,6 +159,21 @@
     }
   }
 
+  // Container side of the keyboard entry contract. Escape closes only
+  // when nothing is being edited — field-level Escapes consume the
+  // event themselves via the inlineEdit action, so this is the backstop
+  // for presses that land while no field is focused.
+  function handleOverlayKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      if (editScope.hasActive()) return
+      onClose()
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault()
+      editScope.commitAll()
+      onClose()
+    }
+  }
+
   function handleCatDescBlur(catIdx: number, newDesc: string) {
     const cat = categories[catIdx]
     if (newDesc !== cat.description) {
@@ -144,11 +182,25 @@
       saveCategoryField(cat.slug, 'description', newDesc)
     }
   }
+
+  function cancelCatName(catIdx: number) {
+    const cat = categories[catIdx]
+    const el = catNameEls[cat.id]
+    if (el) el.value = cat.name
+    el?.blur()
+  }
+
+  function cancelCatDescription(catIdx: number) {
+    const cat = categories[catIdx]
+    const el = catDescEls[cat.id]
+    if (el) el.value = cat.description
+    el?.blur()
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="dialog-overlay" onclick={onClose} onkeydown={(e) => { if (e.key === 'Escape') onClose() }} out:fade={{ duration: 150 }}>
+<div class="dialog-overlay" onclick={onClose} onkeydown={handleOverlayKeydown} out:fade={{ duration: 150 }}>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div class="dialog" onclick={(e) => e.stopPropagation()}>
@@ -166,19 +218,19 @@
             <span class="field-label">{t('project_settings.name')}</span>
             <input
               type="text"
+              bind:this={projectNameEl}
               bind:value={projectName}
-
-              onblur={saveProjectInfo}
+              use:inlineEdit={{ onCommit: () => { void saveProjectInfo() }, onCancel: cancelProjectName }}
             />
           </label>
           <label class="field">
             <span class="field-label">{t('project_settings.description')}</span>
             <textarea
               rows="2"
+              bind:this={projectDescEl}
               bind:value={projectDescription}
               placeholder={t('project_settings.description_placeholder')}
-
-              onblur={saveProjectInfo}
+              use:inlineEdit={{ multiline: true, onCommit: () => { void saveProjectInfo() }, onCancel: cancelProjectDescription }}
             ></textarea>
           </label>
         </div>
@@ -200,7 +252,7 @@
                   </span>
                   <span class="cat-name">{cat.name}</span>
                   {#if cat.accepted_types?.length}
-                    <span class="cat-types-badge">{cat.accepted_types.length} types</span>
+                    <span class="cat-types-badge">{t('column.n_types', { n: cat.accepted_types.length })}</span>
                   {:else}
                     <span class="cat-types-all">{t('column.all_types')}</span>
                   {/if}
@@ -220,7 +272,11 @@
                     <input
                       type="text"
                       value={cat.name}
-                      onblur={(e) => handleCatNameBlur(i, (e.target as HTMLInputElement).value)}
+                      bind:this={catNameEls[cat.id]}
+                      use:inlineEdit={{
+                        onCommit: () => handleCatNameBlur(i, catNameEls[cat.id]?.value ?? cat.name),
+                        onCancel: () => cancelCatName(i),
+                      }}
                     />
                   </label>
                   <label class="field">
@@ -229,7 +285,11 @@
                       type="text"
                       value={cat.description}
                       placeholder={t('column.descriptionPlaceholder')}
-                      onblur={(e) => handleCatDescBlur(i, (e.target as HTMLInputElement).value)}
+                      bind:this={catDescEls[cat.id]}
+                      use:inlineEdit={{
+                        onCommit: () => handleCatDescBlur(i, catDescEls[cat.id]?.value ?? cat.description),
+                        onCancel: () => cancelCatDescription(i),
+                      }}
                     />
                   </label>
                   <div class="field">

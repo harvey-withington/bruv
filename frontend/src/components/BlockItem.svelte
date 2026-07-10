@@ -17,9 +17,11 @@
   import { renderMarkdown } from '@shared/markdown'
   import { t } from '../lib/i18n.svelte'
   import { focusOnMount, inlineEdit } from '../lib/actions'
+  import { getContext } from 'svelte'
+  import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import { showToast } from '../lib/toast.svelte'
   import { UpdateCardBlocks, CreateCard, PinCard } from '@shared/api'
-  import type { Block, Card, ChecklistItem, ListItem, MediaItem, SurveyQuestion } from '@shared/types'
+  import type { Block, BlockMeta, Card, ChecklistItem, ListItem, MediaItem, SurveyQuestion } from '@shared/types'
   import EditableChecklist from './EditableChecklist.svelte'
   import EditableList from './EditableList.svelte'
   import MediaBlock from './MediaBlock.svelte'
@@ -111,6 +113,37 @@
     onToggleTextExpand: (blockId: string) => void
     isBlockEmpty: (block: Block) => boolean
   } = $props()
+
+  // Dialog edit scope — the inlineEdit actions below register their
+  // in-flight edits here (Escape layering, Ctrl+Enter commit+close,
+  // silent-reload guard). Text blocks register in CardBlocks instead.
+  const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
+
+  // One guarded save for every widget-style block (select, number,
+  // date, rating, checkbox, radio, checkbox_group, image, progress,
+  // alarm, survey). These used to fire tracked(UpdateCardBlocks(...))
+  // without await/catch — on RPC failure the UI silently kept a value
+  // the disk never got. Rolls the block back and toasts instead.
+  async function commitBlock(target: Block, val: Block['value'], newMeta?: BlockMeta) {
+    if (!card) return
+    const prevValue = target.value
+    const prevMeta = target.meta
+    target.value = val
+    if (newMeta) target.meta = { ...target.meta, ...newMeta }
+    try {
+      await tracked(UpdateCardBlocks(cardId, card.blocks))
+      onUpdated?.()
+    } catch (e) {
+      // Roll back only if no newer local write landed while this save
+      // was in flight — otherwise a slow failing save would clobber the
+      // user's more recent value with the older snapshot.
+      if (target.value === val) {
+        target.value = prevValue
+        target.meta = prevMeta
+      }
+      showToast(t('error.save_failed'), 'error')
+    }
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -142,7 +175,7 @@
         class="block-label-input"
         use:focusOnMount={true}
         bind:value={blockLabelDraft}
-        use:inlineEdit={{ onCommit: () => onRenameLabel(block.id), onCancel: () => { editingBlockLabelId = null } }}
+        use:inlineEdit={{ onCommit: () => onRenameLabel(block.id), onCancel: () => { editingBlockLabelId = null }, scope: editScope }}
       />
     {:else}
       <div class="section-title block-label-row action-reveal-parent">
@@ -296,18 +329,11 @@
               use:focusOnMount
               bind:value={blockDrafts[block.id]}
               placeholder={t('block.url_placeholder')}
-              onkeydown={(e) => {
-                if (e.key === 'Escape') {
-                  e.stopPropagation()
-                  blockDrafts[block.id] = String(block.value ?? '')
-                  editingBlockId = null
-                } else if (e.key === 'Enter') {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  onSaveUrl(block.id)
-                }
+              use:inlineEdit={{
+                onCommit: () => onSaveUrl(block.id),
+                onCancel: () => { blockDrafts[block.id] = String(block.value ?? ''); editingBlockId = null },
+                scope: editScope,
               }}
-              onblur={() => onSaveUrl(block.id)}
             />
           {:else if block.value}
             <div class="block-url-row">
@@ -329,122 +355,65 @@
           <SelectBlock
             value={block.value as string | string[]}
             meta={block.meta || { options: [] }}
-            onUpdate={(val, newMeta) => {
-              if (!card) return
-              block.value = val
-              if (newMeta) block.meta = { ...block.meta, ...newMeta }
-              tracked(UpdateCardBlocks(cardId, card.blocks))
-              onUpdated?.()
-            }}
+            onUpdate={(val, newMeta) => commitBlock(block, val, newMeta)}
           />
         {:else if block.type === 'number'}
           <NumberBlock
             value={block.value as number | null}
             meta={block.meta || {}}
-            onUpdate={(val) => {
-              if (!card) return
-              block.value = val
-              tracked(UpdateCardBlocks(cardId, card.blocks))
-              onUpdated?.()
-            }}
+            onUpdate={(val) => commitBlock(block, val)}
           />
         {:else if block.type === 'date'}
           <DateBlock
             value={block.value as string | null}
             meta={block.meta || {}}
-            onUpdate={(val) => {
-              if (!card) return
-              block.value = val
-              tracked(UpdateCardBlocks(cardId, card.blocks))
-              onUpdated?.()
-            }}
+            onUpdate={(val) => commitBlock(block, val)}
           />
         {:else if block.type === 'rating'}
           <RatingBlock
             value={(block.value as number) || 0}
             meta={block.meta || {}}
-            onUpdate={(val) => {
-              if (!card) return
-              block.value = val
-              tracked(UpdateCardBlocks(cardId, card.blocks))
-              onUpdated?.()
-            }}
+            onUpdate={(val) => commitBlock(block, val)}
           />
 
         {:else if block.type === 'checkbox'}
           <CheckboxBlock
             value={!!block.value}
-            onUpdate={(val) => {
-              if (!card) return
-              block.value = val
-              tracked(UpdateCardBlocks(cardId, card.blocks))
-              onUpdated?.()
-            }}
+            onUpdate={(val) => commitBlock(block, val)}
           />
         {:else if block.type === 'radio'}
           <RadioBlock
             value={(block.value as string) || ''}
             meta={block.meta || { options: [] }}
-            onUpdate={(val) => {
-              if (!card) return
-              block.value = val
-              tracked(UpdateCardBlocks(cardId, card.blocks))
-              onUpdated?.()
-            }}
+            onUpdate={(val) => commitBlock(block, val)}
           />
         {:else if block.type === 'checkbox_group'}
           <CheckboxGroupBlock
             value={(block.value as string[]) || []}
             meta={block.meta || { options: [] }}
-            onUpdate={(val) => {
-              if (!card) return
-              block.value = val
-              tracked(UpdateCardBlocks(cardId, card.blocks))
-              onUpdated?.()
-            }}
+            onUpdate={(val) => commitBlock(block, val)}
           />
         {:else if block.type === 'image'}
           <ImageBlock
             value={block.value as string | { url: string; caption?: string } | null}
             cardId={cardId}
-            onUpdate={(val) => {
-              if (!card) return
-              block.value = val
-              tracked(UpdateCardBlocks(cardId, card.blocks))
-              onUpdated?.()
-            }}
+            onUpdate={(val) => commitBlock(block, val)}
           />
         {:else if block.type === 'progress'}
           <ProgressBlock
             value={(block.value as number) || 0}
-            onUpdate={(val) => {
-              if (!card) return
-              block.value = val
-              tracked(UpdateCardBlocks(cardId, card.blocks))
-              onUpdated?.()
-            }}
+            onUpdate={(val) => commitBlock(block, val)}
           />
         {:else if block.type === 'alarm'}
           <AlarmBlock
             value={block.value as string | null}
             meta={block.meta || {}}
-            onUpdate={(val, newMeta) => {
-              if (!card) return
-              block.value = val
-              if (newMeta) block.meta = { ...block.meta, ...newMeta }
-              tracked(UpdateCardBlocks(cardId, card.blocks))
-              onUpdated?.()
-            }}
+            onUpdate={(val, newMeta) => commitBlock(block, val, newMeta)}
           />
         {:else if block.type === 'survey'}
           <SurveyBlock
             value={(block.value as SurveyQuestion[]) || []}
-            onUpdate={(val) => {
-              if (!card) return
-              block.value = val
-              tracked(UpdateCardBlocks(cardId, card.blocks))
-              onUpdated?.()
-            }}
+            onUpdate={(val) => commitBlock(block, val)}
           />
 
         {:else}

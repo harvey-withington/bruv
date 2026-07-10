@@ -13,7 +13,7 @@ import (
 // commentsFilePath returns the on-disk path for a card's comments file,
 // mirroring the sibling-file pattern used by chat and agent state.
 func (r *Repository) commentsFilePath(cardID string) string {
-	return filepath.Join(r.Root, cardsDir, cardID+".comments.json")
+	return filepath.Join(r.Root, cardsDir, safeSeg(cardID)+".comments.json")
 }
 
 // LoadComments retrieves all comments for a card.

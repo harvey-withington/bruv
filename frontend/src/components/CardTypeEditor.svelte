@@ -2,8 +2,10 @@
   import { t } from '../lib/i18n.svelte'
   import { fade } from 'svelte/transition'
   import { showToast } from '../lib/toast.svelte'
-  import { focusTrap, portal, floatingDropdown } from '../lib/actions'
+  import { focusTrap, portal, floatingDropdown, inlineEdit } from '../lib/actions'
   import { draggable } from '../lib/draggable'
+  import { setContext } from 'svelte'
+  import { EditScope, EDIT_SCOPE_KEY } from '@shared/editScope'
   import { X, Pencil, ChevronDown, Smile } from 'lucide-svelte'
   import TemplateEditor from './TemplateEditor.svelte'
   import DynamicIcon from './DynamicIcon.svelte'
@@ -17,6 +19,15 @@
     onSave: (saved: UserCardType, updatedTemplates: CardTemplate[]) => void
     onClose: () => void
   } = $props()
+
+  // Keyboard entry contract: this dialog's own closable-container scope.
+  // Nested TemplateEditor gets its own scope when open (setContext
+  // shadows this one for its children), so the existing
+  // showTemplateEditor guard below is what keeps the two dialogs'
+  // Escape/Ctrl+Enter presses from fighting each other.
+  const editScope = new EditScope()
+  editScope.requestClose = () => { void save() }
+  setContext(EDIT_SCOPE_KEY, editScope)
 
   const TYPE_PALETTE = [
     '#6366f1', '#22c55e', '#f59e0b', '#ec4899', '#06b6d4',
@@ -42,6 +53,17 @@
   let showIconPicker = $state(false)
   /* svelte-ignore state_referenced_locally */
   const isBuiltin = type?.builtin ?? false
+
+  // Plain always-visible fields (no edit-in-place toggle): Enter commits
+  // by blurring — the type itself is saved via the dialog's Save button
+  // — and Escape reverts to the value loaded when the dialog opened.
+  let labelInputEl = $state<HTMLInputElement | null>(null)
+  let descriptionInputEl = $state<HTMLTextAreaElement | null>(null)
+  let aiHintInputEl = $state<HTMLTextAreaElement | null>(null)
+
+  function cancelLabelEdit() { label = type?.label ?? ''; labelInputEl?.blur() }
+  function cancelDescriptionEdit() { description = type?.description ?? ''; descriptionInputEl?.blur() }
+  function cancelAiHintEdit() { aiHint = type?.ai_hint ?? ''; aiHintInputEl?.blur() }
 
   let slugPreview = $derived(
     label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
@@ -103,7 +125,13 @@
       if (showTemplateEditor) return
       if (showIconPicker) return
       if (showTemplatePicker) { showTemplatePicker = false; return }
+      if (editScope.hasActive()) return
       onClose()
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      if (showTemplateEditor) return
+      e.preventDefault()
+      editScope.commitAll()
+      void save()
     }
   }
 
@@ -156,8 +184,10 @@
           <span class="field-label">{t('card_type_editor.label')}</span>
           <input
             class="field-input"
+            bind:this={labelInputEl}
             bind:value={label}
             placeholder={t('card_type_editor.label_placeholder')}
+            use:inlineEdit={{ onCommit: () => labelInputEl?.blur(), onCancel: cancelLabelEdit }}
           />
           {#if !type && slugPreview}
             <span class="slug-preview">{t('card_type_editor.id_preview')}: <code>{slugPreview}</code></span>
@@ -206,9 +236,11 @@
           <span class="field-label">{t('card_type_editor.description')}</span>
           <textarea
             class="field-input textarea"
+            bind:this={descriptionInputEl}
             bind:value={description}
             placeholder={t('card_type_editor.description_placeholder')}
             rows={2}
+            use:inlineEdit={{ multiline: true, onCommit: () => descriptionInputEl?.blur(), onCancel: cancelDescriptionEdit }}
           ></textarea>
         </div>
 
@@ -216,9 +248,11 @@
           <span class="field-label">{t('card_type_editor.ai_hint')}</span>
           <textarea
             class="field-input textarea"
+            bind:this={aiHintInputEl}
             bind:value={aiHint}
             placeholder={t('card_type_editor.ai_hint_placeholder')}
             rows={2}
+            use:inlineEdit={{ multiline: true, onCommit: () => aiHintInputEl?.blur(), onCancel: cancelAiHintEdit }}
           ></textarea>
         </div>
       {/if}

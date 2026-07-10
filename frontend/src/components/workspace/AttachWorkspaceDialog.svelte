@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { X, FolderOpen, LayoutTemplate, ArrowLeft, Pencil, FolderInput } from 'lucide-svelte'
-  import { AttachWorkspace, GenerateWorkspaceFromTemplate, ImportWorkspaceTemplate, InspectWorkspaceTemplateFolder, ListWorkspaceTemplates, PickFolder } from '@shared/api'
+  import { X, FolderOpen, LayoutTemplate, ArrowLeft, Pencil, FolderInput, Trash2 } from 'lucide-svelte'
+  import { AttachWorkspace, DeleteWorkspaceTemplate, GenerateWorkspaceFromTemplate, ImportWorkspaceTemplate, InspectWorkspaceTemplateFolder, ListWorkspaceTemplates, PickFolder } from '@shared/api'
   import type { Workspace, WorkspaceTemplateEntry } from '@shared/types'
   import { t } from '../../lib/i18n.svelte'
   import { showToast } from '../../lib/toast.svelte'
@@ -84,6 +84,17 @@
     }
   }
 
+  async function deleteTemplate(tpl: WorkspaceTemplateEntry) {
+    if (!await showConfirm(t('workspace.delete_template_confirm', { name: tpl.name }))) return
+    try {
+      await DeleteWorkspaceTemplate(tpl.id)
+      showToast(t('workspace.template_deleted'), 'success')
+      await loadTemplates()
+    } catch (e) {
+      showToast(t('workspace.template_delete_failed', { error: e instanceof Error ? e.message : String(e) }), 'error')
+    }
+  }
+
   function chooseTemplate(tpl: WorkspaceTemplateEntry) {
     selected = tpl
     values = {}
@@ -161,6 +172,7 @@
                 <span class="scope">{tpl.scope === 'global' ? t('workspace.scope_global') : tpl.scope}</span>
               </button>
               <button class="icon-btn" onclick={() => editorRef = tpl.id} title={t('workspace.edit_template')} aria-label={t('workspace.edit_template')}><Pencil size={13} /></button>
+              <button class="icon-btn danger" onclick={() => deleteTemplate(tpl)} title={t('workspace.delete_template')} aria-label={t('workspace.delete_template')}><Trash2 size={13} /></button>
             </div>
           {/each}
         {/if}
@@ -342,5 +354,6 @@
     display: flex;
   }
   .icon-btn:hover { color: var(--text-primary); background: var(--bg-subtle-hover); }
+  .icon-btn.danger:hover { color: var(--danger); }
   .muted { color: var(--text-faint); font-size: 0.8rem; padding: 0.5rem; }
 </style>

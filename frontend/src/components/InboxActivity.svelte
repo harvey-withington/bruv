@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ActivityEntry } from '@shared/types'
+  import { formatRelativeTime } from '@shared/relativeTime'
   import { t } from '../lib/i18n.svelte'
 
   let {
@@ -27,7 +28,7 @@
       case 'deleted':          return t('activity.deleted')
       case 'updated_title':    return t('activity.updated_title')
       case 'updated_type':     return t('activity.updated_type')
-      case 'updated_field':    return t('activity.updated_field', { field: entry.field || 'content' })
+      case 'updated_field':    return t('activity.updated_field', { field: entry.field || t('activity.field_content') })
       case 'updated_tags':     return t('activity.updated_tags')
       case 'updated_due_date': return t('activity.updated_due_date')
       case 'pinned':           return t('activity.pinned')
@@ -43,15 +44,7 @@
   }
 
   function relativeTime(iso: string): string {
-    const diff = Date.now() - new Date(iso).getTime()
-    const mins = Math.floor(diff / 60000)
-    if (mins < 1) return 'just now'
-    if (mins < 60) return `${mins}m ago`
-    const hours = Math.floor(mins / 60)
-    if (hours < 24) return `${hours}h ago`
-    const days = Math.floor(hours / 24)
-    if (days < 7) return `${days}d ago`
-    return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    return formatRelativeTime(iso, t)
   }
 </script>
 

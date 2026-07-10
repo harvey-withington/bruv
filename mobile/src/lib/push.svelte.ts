@@ -21,6 +21,7 @@
 // errPushNotConfigured).
 
 import { repoRPC, machineRPC, readEnrolment } from './auth'
+import { t } from './i18n.svelte'
 
 export type PushStatus = 'unsupported' | 'denied' | 'subscribed' | 'unsubscribed'
 
@@ -45,21 +46,21 @@ export async function getStatus(): Promise<PushStatus> {
  *  on the server, or any browser API failure. Returns the endpoint
  *  for diagnostic display. */
 export async function enable(): Promise<string> {
-  if (!isSupported()) throw new Error('Push notifications are not supported on this device.')
+  if (!isSupported()) throw new Error(t('push.err_unsupported'))
 
   const enrol = readEnrolment()
-  if (!enrol?.deviceID) throw new Error('Device must be paired before enabling push.')
+  if (!enrol?.deviceID) throw new Error(t('push.err_not_paired'))
 
   const permission = await Notification.requestPermission()
   if (permission !== 'granted') {
-    throw new Error('Notification permission was not granted.')
+    throw new Error(t('push.err_permission'))
   }
 
   // GetVapidPublicKey — server-rendered, base64url. Empty string means
   // backend is configured but VAPID generation failed (unusual).
   const vapidKey = (await machineRPC<string>('GetVapidPublicKey')) ?? ''
   if (!vapidKey) {
-    throw new Error('Server has no VAPID key — push is not configured on this server.')
+    throw new Error(t('push.err_no_vapid'))
   }
 
   const reg = await navigator.serviceWorker.ready

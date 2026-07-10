@@ -1,6 +1,9 @@
 <script lang="ts">
   import { Trash2, ExternalLink } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
+  import { getContext } from 'svelte'
+  import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
+  import { inlineEdit } from '../lib/actions'
 
   type MediaItem = { id: string; url: string; caption?: string; mime?: string }
 
@@ -13,7 +16,10 @@
   } = $props()
 
   let newUrl = $state('')
+  let addInputEl = $state<HTMLInputElement | null>(null)
   let expandedId = $state<string | null>(null)
+
+  const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
 
   function emit(updated: MediaItem[]) {
     onUpdate?.(updated)
@@ -54,9 +60,11 @@
     return item.mime?.startsWith('video') === true || (item.url?.match(/\.(mp4|webm|ogg|mov)(\?|$)/i) != null)
   }
 
-  function handleAddKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter') addMedia()
-    else if (e.key === 'Escape') { e.stopPropagation(); (e.target as HTMLElement)?.blur() }
+  // Serial add-input per the keyboard entry contract (see
+  // EditableChecklist for the same pattern).
+  function cancelAdd() {
+    newUrl = ''
+    addInputEl?.blur()
   }
 </script>
 
@@ -104,8 +112,9 @@
 <div class="media-add">
   <input
     type="text"
+    bind:this={addInputEl}
     bind:value={newUrl}
-    onkeydown={handleAddKeydown}
+    use:inlineEdit={{ serial: true, onCommit: addMedia, onCancel: cancelAdd, scope: editScope }}
     placeholder={t('block.add_media')}
     class="media-add-input"
   />

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { t } from '../lib/i18n.svelte'
   import { ChevronDown, X } from 'lucide-svelte'
-  import { floatingDropdown } from '../lib/actions'
+  import { floatingDropdown, clickOutside } from '../lib/actions'
   import type { BlockMeta } from '@shared/types'
 
   let {
@@ -37,20 +37,6 @@
       showOptions = false
     }
   }
-
-  function handleClickOutside(e: MouseEvent) {
-    const target = e.target as HTMLElement
-    if (!target.closest('.select-dropdown') && !triggerEl?.contains(target)) {
-      showOptions = false
-    }
-  }
-
-  $effect(() => {
-    if (showOptions) {
-      document.addEventListener('mousedown', handleClickOutside)
-      return () => document.removeEventListener('mousedown', handleClickOutside)
-    }
-  })
 </script>
 
 <div class="select-wrapper">
@@ -82,7 +68,11 @@
     </span>
   </div>
   {#if showOptions && triggerEl}
-    <div class="select-dropdown" use:floatingDropdown={{ trigger: triggerEl, matchWidth: true }}>
+    <div
+      class="select-dropdown"
+      use:floatingDropdown={{ trigger: triggerEl, matchWidth: true }}
+      use:clickOutside={{ onOutsideClick: () => showOptions = false, exclude: [triggerEl] }}
+    >
       {#each options as opt}
         <button
           class="select-option"

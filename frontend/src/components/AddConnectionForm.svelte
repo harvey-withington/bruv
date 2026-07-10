@@ -33,7 +33,9 @@
   let errorMsg = $state<string | null>(null)
 
   function defaultDeviceName(): string {
-    const platform = (navigator as any).platform || 'device'
+    // navigator.platform is deprecated but still the best short device
+    // hint; typed since TS still declares it.
+    const platform = navigator.platform || 'device'
     return `${platform.toLowerCase().replace(/[^a-z0-9]/g, '')}`
   }
 
@@ -88,7 +90,8 @@
       }
       await onEnrolled({ name, url, deviceToken: body.device_token })
     } catch (err) {
-      errorMsg = (err as Error).message || t('connection.err_network')
+      console.error('Failed to enrol connection:', err)
+      errorMsg = t('connection.err_network')
     } finally {
       submitting = false
     }

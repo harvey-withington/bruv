@@ -24,9 +24,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/google/uuid"
 )
+
+// reposMu serializes registry read-modify-write cycles. Without it two
+// concurrent registry ops (e.g. a rename racing a disable) each load,
+// mutate, and save — last writer silently discards the other's change.
+var reposMu sync.Mutex
 
 // RepoEntry is one row in the server's repo registry.
 //
@@ -78,7 +84,9 @@ func LoadRepos() (ReposStore, error) {
 	return s, nil
 }
 
-// SaveRepos writes the registry atomically.
+// SaveRepos writes the registry atomically (tmp + rename — a crash
+// mid-write must never corrupt repos.json, which would brick server
+// boot with "no repos configured").
 func SaveRepos(s ReposStore) error {
 	path, err := reposFilePath()
 	if err != nil {
@@ -88,7 +96,7 @@ func SaveRepos(s ReposStore) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return atomicWriteFile(path, data, 0o644)
 }
 
 // SetRepoName renames a registry entry. The new name is the per-machine
@@ -98,6 +106,8 @@ func SetRepoName(id, name string) error {
 	if name == "" {
 		return fmt.Errorf("name is required")
 	}
+	reposMu.Lock()
+	defer reposMu.Unlock()
 	store, err := LoadRepos()
 	if err != nil {
 		return err
@@ -119,6 +129,8 @@ func SetRepoName(id, name string) error {
 // SetRepoDisabled flips the Disabled flag for an entry. The caller is
 // responsible for reloading the supervisor afterwards.
 func SetRepoDisabled(id string, disabled bool) error {
+	reposMu.Lock()
+	defer reposMu.Unlock()
 	store, err := LoadRepos()
 	if err != nil {
 		return err
@@ -140,6 +152,8 @@ func SetRepoDisabled(id string, disabled bool) error {
 // RemoveRepo drops an entry from the registry. The caller is
 // responsible for shutting down its runtime.
 func RemoveRepo(id string) error {
+	reposMu.Lock()
+	defer reposMu.Unlock()
 	store, err := LoadRepos()
 	if err != nil {
 		return err
@@ -177,6 +191,8 @@ func AppendRepo(path, name string) (RepoEntry, error) {
 		name = filepath.Base(abs)
 	}
 
+	reposMu.Lock()
+	defer reposMu.Unlock()
 	store, err := LoadRepos()
 	if err != nil {
 		return RepoEntry{}, err

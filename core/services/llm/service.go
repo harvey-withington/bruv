@@ -182,15 +182,6 @@ func (s *Service) TestConnection() (string, error) {
 	return resp.Model, nil
 }
 
-// --- Token pricing ---
-
-func (s *Service) GetPricing() (map[string]config.ModelPricing, error) {
-	return config.LoadCustomPricing()
-}
-func (s *Service) SavePricing(p map[string]config.ModelPricing) error {
-	return config.SaveCustomPricing(p)
-}
-
 // DefaultModelForProvider returns the provider's house default when
 // no explicit model is configured on the account or legacy config.
 func DefaultModelForProvider(provider string) string {

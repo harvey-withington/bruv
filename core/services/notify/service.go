@@ -48,3 +48,8 @@ func (s *Service) MarkAllRead() error {
 func (s *Service) ClearAll() error {
 	return config.ClearAllNotifications()
 }
+
+// Delete removes a single notification. Idempotent on missing IDs.
+func (s *Service) Delete(id string) error {
+	return config.DeleteNotification(id)
+}

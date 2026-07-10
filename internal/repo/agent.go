@@ -66,7 +66,7 @@ func truncateAny(v any, maxLen int) any {
 
 // agentFilePath returns the path to a card's agent config file.
 func (r *Repository) agentFilePath(cardID string) string {
-	return filepath.Join(r.Root, cardsDir, cardID+".agent.json")
+	return filepath.Join(r.Root, cardsDir, safeSeg(cardID)+".agent.json")
 }
 
 // agentRunsFilePath returns the path to a card's agent run history.
@@ -83,7 +83,7 @@ func (r *Repository) agentRunsFilePath(cardID string) string {
 	if r.RunsDir == "" {
 		return ""
 	}
-	return filepath.Join(r.RunsDir, cardID+".json")
+	return filepath.Join(r.RunsDir, safeSeg(cardID)+".json")
 }
 
 // SetRunsDir configures the server-side runs directory. Called by

@@ -346,13 +346,15 @@ func classify(root, path string) (topic string, payload any, ok bool) {
 			}, true
 		}
 		// brands/<b>/streams/<s>/projects/<p>/categories/<c>.json
-		if len(parts) == 7 && parts[2] == "streams" && parts[4] == "projects" && parts[5] == "categories" {
-			catFile := parts[6]
+		// (8 segments — the old len==7 && parts[5]=="categories" condition
+		// was unreachable, so external category edits refreshed nothing.)
+		if len(parts) == 8 && parts[2] == "streams" && parts[4] == "projects" && parts[6] == "categories" {
+			catFile := parts[7]
 			if strings.HasSuffix(catFile, ".json") {
 				return "category:updated", map[string]any{
 					"brandSlug":    parts[1],
 					"streamSlug":   parts[3],
-					"projectSlug":  strings.TrimSuffix(parts[6], ".json"),
+					"projectSlug":  parts[5],
 					"categorySlug": strings.TrimSuffix(catFile, ".json"),
 					"external":     true,
 				}, true

@@ -25,6 +25,9 @@ export const KNOWN_TOPICS = [
   'scheduler:paused',
   'index:stale',
   'notification:new',
+  'workspace:updated',
+  'workspace:deleted',
+  'workspace:templates',
 ] as const
 
 export type KnownTopic = (typeof KNOWN_TOPICS)[number]

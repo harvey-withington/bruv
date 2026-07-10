@@ -102,7 +102,7 @@
               <span class="shortcut-keys">
                 {#each shortcut.keys as key, i}
                   {#if i > 0}<span class="key-sep">+</span>{/if}
-                  <kbd>{key}</kbd>
+                  <kbd>{key === 'Drag' ? t('shortcuts.key_drag') : key}</kbd>
                 {/each}
               </span>
             </div>

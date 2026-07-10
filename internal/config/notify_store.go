@@ -122,3 +122,23 @@ func ClearAllNotifications() error {
 	defer notifyMu.Unlock()
 	return saveNotifications([]Notification{})
 }
+
+// DeleteNotification removes a single notification by ID. Idempotent —
+// deleting a missing/already-removed ID is not an error, so callers
+// (e.g. a dismiss button racing a clear-all) don't need to special-case it.
+func DeleteNotification(id string) error {
+	notifyMu.Lock()
+	defer notifyMu.Unlock()
+	list, err := LoadNotifications()
+	if err != nil {
+		return err
+	}
+	out := make([]Notification, 0, len(list))
+	for _, n := range list {
+		if n.ID == id {
+			continue
+		}
+		out = append(out, n)
+	}
+	return saveNotifications(out)
+}

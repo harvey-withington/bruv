@@ -150,7 +150,7 @@
   }
 
   async function removeAttachment(att: Attachment) {
-    const ok = await showConfirm(t('attachment.remove_confirm').replace('{name}', att.name))
+    const ok = await showConfirm(t('attachment.remove_confirm', { name: att.name }))
     if (!ok) return
     try {
       const updated = await RemoveCardAttachment(cardId, att.id) as Card
@@ -179,7 +179,7 @@
           <div class="attachment-item action-reveal-parent">
             <Icon size={14} />
             <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-            <span class="attachment-name clickable-preview" onclick={() => previewAtt(att)} title={t('attachment.preview_named').replace('{name}', att.name)}>{att.name}</span>
+            <span class="attachment-name clickable-preview" onclick={() => previewAtt(att)} title={t('attachment.preview_named', { name: att.name })}>{att.name}</span>
             <span class="attachment-size">{formatSize(att.size)}</span>
             <button class="action-reveal attachment-action" onclick={() => previewAtt(att)} title={t('attachment.preview')}><Eye size={11} /></button>
             <button class="action-reveal attachment-action" onclick={() => downloadAttachment(att)} title={t('attachment.download')}><Download size={11} /></button>

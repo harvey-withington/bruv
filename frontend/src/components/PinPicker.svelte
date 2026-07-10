@@ -3,6 +3,7 @@
   import { fade } from 'svelte/transition'
   import { X } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
+  import { showToast } from '../lib/toast.svelte'
   import { focusTrap } from '../lib/actions'
 
   type CategoryPath = {
@@ -21,6 +22,7 @@
 
   let allCategories = $state<CategoryPath[]>([])
   let loading = $state(false)
+  let loadError = $state(false)
   let query = $state('')
   let items = $state<CategoryPath[]>([])
   let selectedIndex = $state(0)
@@ -41,8 +43,11 @@
     loading = true
     try {
       allCategories = await ListAllCategories() || []
+      loadError = false
     } catch (e) {
       console.error('PinPicker: failed to load categories', e)
+      loadError = true
+      showToast(t('pin.load_failed'), 'error')
     }
     loading = false
   }
@@ -118,6 +123,8 @@
         </div>
       {:else if loading}
         <div class="pin-empty">{t('pin.loading')}</div>
+      {:else if loadError}
+        <div class="pin-empty pin-error">{t('pin.load_failed')}</div>
       {:else if query.trim()}
         <div class="pin-empty">{t('pin.no_results')}</div>
       {:else}
@@ -232,5 +239,9 @@
     font-size: 0.82rem;
     color: var(--text-muted);
     text-align: center;
+  }
+
+  .pin-error {
+    color: var(--danger);
   }
 </style>

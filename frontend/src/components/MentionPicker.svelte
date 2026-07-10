@@ -1,6 +1,7 @@
 <script lang="ts">
   import { SearchCards, ListBrands, ListStreams, ListProjects } from '@shared/api'
   import { t } from '../lib/i18n.svelte'
+  import { showToast } from '../lib/toast.svelte'
   import { getCardTypeColor } from '@shared/cardTypes'
   import { cardTypes } from '../lib/store.svelte'
 
@@ -26,6 +27,7 @@
   let inputEl = $state<HTMLInputElement | null>(null)
   let projectCache = $state<PickerItem[]>([])
   let projectsLoaded = $state(false)
+  let projectsLoadError = $state(false)
 
   $effect(() => {
     if (visible) {
@@ -50,7 +52,7 @@
               type: 'project',
               label: `${brand.name} / ${stream.name} / ${project.name}`,
               subtitle: '',
-              badge: 'project',
+              badge: t('mention.badge_project'),
               badgeColor: '#71717a',
               link: `bruv:project:${project.id}`,
             })
@@ -59,8 +61,11 @@
       }
       projectCache = results
       projectsLoaded = true
+      projectsLoadError = false
     } catch (e) {
       console.error('MentionPicker: failed to load projects', e)
+      projectsLoadError = true
+      showToast(t('mention.load_failed'), 'error')
     }
   }
 
@@ -142,6 +147,9 @@
         class="mention-input"
       />
     </div>
+    {#if projectsLoadError}
+      <div class="mention-load-error">{t('mention.load_failed')}</div>
+    {/if}
     {#if items.length > 0}
       <div class="mention-results" role="listbox">
         {#each items as item, i}
@@ -265,5 +273,13 @@
     font-size: 0.8rem;
     color: var(--text-muted);
     text-align: center;
+  }
+
+  .mention-load-error {
+    padding: 0.5rem 0.6rem;
+    font-size: 0.75rem;
+    color: var(--danger);
+    text-align: center;
+    border-bottom: 1px solid var(--border-muted);
   }
 </style>

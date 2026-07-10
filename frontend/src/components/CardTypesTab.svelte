@@ -5,8 +5,9 @@
   import { showConfirm } from '../lib/confirm.svelte'
   import { Plus, Pencil, Trash2, X, Upload, Download, FolderOpen } from 'lucide-svelte'
   import CardTypeEditor from './CardTypeEditor.svelte'
+  import TemplateEditor from './TemplateEditor.svelte'
   import {
-    CreateUserCardType, UpdateUserCardType, DeleteUserCardType, UpdateBuiltinCardType,
+    CreateUserCardType, UpdateUserCardType, UpdateUserCardTypeIcon, DeleteUserCardType, UpdateBuiltinCardType,
     ListCardTemplates, CreateCardTemplate, UpdateCardTemplate, DeleteCardTemplate,
     ExportCardTypesToFile, ImportCardTypesFromFile, ImportCardTypesFromRepo,
     PickSaveFile, PickFile, PickFolder,
@@ -52,7 +53,7 @@
       const path = await PickSaveFile(
         t('card_types.export_title'),
         'bruv-card-types.json',
-        'BRUV Card Types',
+        t('card_types.file_filter_name'),
         '*.json',
       )
       if (!path) return
@@ -79,7 +80,7 @@
     try {
       let result: CardTypesImportResult
       if (importSource === 'file') {
-        const path = await PickFile(t('card_types.import_file_title'), 'BRUV Card Types', '*.json')
+        const path = await PickFile(t('card_types.import_file_title'), t('card_types.file_filter_name'), '*.json')
         if (!path) return
         result = await ImportCardTypesFromFile(path, importMode)
       } else {
@@ -132,6 +133,8 @@
         ? (templateIdMap[saved.template_id] ?? saved.template_id)
         : ''
 
+      let savedTypeId = editingType?.id ?? ''
+
       if (editingType?.builtin) {
         await UpdateBuiltinCardType(
           editingType.id,
@@ -148,13 +151,29 @@
           resolvedTemplateId,
         )
       } else {
-        await CreateUserCardType(
+        const created = await CreateUserCardType(
           saved.label,
           saved.color,
           saved.description,
           saved.ai_hint ?? '',
           resolvedTemplateId,
         )
+        savedTypeId = created.id
+      }
+
+      // Icon isn't part of Create/UpdateUserCardType — persist it separately via
+      // the dedicated RPC (mirrors CreateCardTypeFromCard's backend flow). Builtin
+      // types don't support icon overrides, so skip those.
+      if (!editingType?.builtin) {
+        const previousIcon = editingType?.icon ?? ''
+        const nextIcon = saved.icon ?? ''
+        if (nextIcon !== previousIcon) {
+          try {
+            await UpdateUserCardTypeIcon(savedTypeId, nextIcon)
+          } catch {
+            showToast(t('error.card_type_icon_save_failed'), 'error')
+          }
+        }
       }
 
       await loadCardTypes()
@@ -166,17 +185,19 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape' && !showEditor) onClose()
+    if (e.key !== 'Escape') return
+    if (showEditor || showTemplateEditor) return
+    onClose()
   }
 
   function handleOverlayClick(e: MouseEvent) {
-    if (showEditor) return
+    if (showEditor || showTemplateEditor) return
     if (e.target === e.currentTarget) onClose()
   }
 
   async function handleDelete(type: CardTypeInfo) {
     const ok = await showConfirm(
-      t('card_types.confirm_delete').replace('{label}', type.label)
+      t('card_types.confirm_delete', { label: type.label })
     )
     if (!ok) return
     try {
@@ -184,6 +205,43 @@
       await loadCardTypes()
     } catch {
       showToast(t('error.card_type_delete_failed'), 'error')
+    }
+  }
+
+  // Standalone template editor — lets a template be edited (or created) directly
+  // from its row in the Templates section, independent of a card type's picker.
+  let editingTemplate = $state<CardTemplate | undefined>(undefined)
+  let showTemplateEditor = $state(false)
+
+  function openEditTemplate(tmpl: CardTemplate) {
+    editingTemplate = tmpl
+    showTemplateEditor = true
+  }
+
+  async function handleTemplateSave(saved: CardTemplate) {
+    try {
+      if (saved.id) {
+        await UpdateCardTemplate(saved.id, saved.name, saved.blocks)
+      } else {
+        await CreateCardTemplate(saved.name, saved.blocks)
+      }
+      await loadTemplates()
+      showTemplateEditor = false
+    } catch (e) {
+      showToast(t('error.template_save_failed'), 'error')
+    }
+  }
+
+  async function handleDeleteTemplate(tmpl: CardTemplate) {
+    const ok = await showConfirm(
+      t('card_types.confirm_delete_template', { name: tmpl.name })
+    )
+    if (!ok) return
+    try {
+      await DeleteCardTemplate(tmpl.id)
+      await loadTemplates()
+    } catch {
+      showToast(t('error.template_delete_failed'), 'error')
     }
   }
 </script>
@@ -266,6 +324,36 @@
           {/each}
         </ul>
       </section>
+
+      <section class="section">
+        <div class="section-header">
+          <h3 class="section-title">{t('card_types.section_templates')}</h3>
+        </div>
+
+        {#if loadingTemplates}
+          <p class="empty-hint">{t('common.loading')}</p>
+        {:else if templates.length === 0}
+          <p class="empty-hint">{t('card_types.templates_empty')}</p>
+        {:else}
+          <ul class="type-list">
+            {#each templates as tmpl (tmpl.id)}
+              <li class="type-row">
+                <div class="type-info">
+                  <span class="type-label">{tmpl.name}</span>
+                </div>
+                <div class="type-actions">
+                  <button class="icon-btn" onclick={() => openEditTemplate(tmpl)} title={t('card_types.edit')}>
+                    <Pencil size={13} />
+                  </button>
+                  <button class="icon-btn danger" onclick={() => handleDeleteTemplate(tmpl)} title={t('card_types.delete')}>
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </section>
     </div>
   </div>
 
@@ -276,6 +364,15 @@
       allTypes={cardTypes.list}
       onSave={handleSave}
       onClose={() => showEditor = false}
+    />
+  {/if}
+
+  {#if showTemplateEditor}
+    <TemplateEditor
+      template={editingTemplate}
+      allTypes={cardTypes.list}
+      onSave={handleTemplateSave}
+      onClose={() => showTemplateEditor = false}
     />
   {/if}
 

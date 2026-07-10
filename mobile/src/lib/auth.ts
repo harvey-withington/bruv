@@ -110,8 +110,8 @@ export async function enrol(args: {
   const token = args.bootstrapToken.trim()
   const name = args.deviceName.trim() || defaultDeviceName()
 
-  if (!url) throw new Error('Server URL is required.')
-  if (!token) throw new Error('Bootstrap token is required.')
+  if (!url) throw new Error(t('enrol.err_url_required'))
+  if (!token) throw new Error(t('enrol.err_token_required'))
 
   const res = await fetch(`${url}/auth/enrol`, {
     method: 'POST',
@@ -139,7 +139,7 @@ export async function enrol(args: {
     device_name?: string
   }
   if (!body.device_token || !body.device_id) {
-    throw new Error('Server response missing device token.')
+    throw new Error(t('enrol.err_bad_response'))
   }
 
   const result: EnrolmentResult = {
@@ -235,7 +235,11 @@ async function rpcCall<T>(endpoint: string, method: string, params: unknown[]): 
       const version = await serverVersion()
       throw new Error(t('error.method_not_supported', { method, version: version || '?' }))
     }
-    throw new Error(`${method}: ${payload.error.message}`)
+    // Business error from the Go side. Log the method for diagnosis
+    // but surface only the message — "MethodName: text" error rails
+    // read as debugging output, not user feedback.
+    console.error(`rpc ${method}: ${payload.error.message}`)
+    throw new Error(payload.error.message)
   }
   // Tolerate both `null` and `undefined` results — some Go methods
   // return zero values that JSON-marshal to null. Caller should `?? []`
@@ -251,7 +255,7 @@ async function rpcCall<T>(endpoint: string, method: string, params: unknown[]): 
  */
 export async function repoRPC<T = unknown>(method: string, params: unknown[] = []): Promise<T> {
   const repoID = readActiveRepoID()
-  if (!repoID) throw new Error('no active repo')
+  if (!repoID) throw new Error(t('error.no_active_repo'))
   return rpcCall<T>(`/repos/${encodeURIComponent(repoID)}/rpc`, method, params)
 }
 

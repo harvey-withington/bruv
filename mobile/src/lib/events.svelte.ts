@@ -13,41 +13,12 @@
 // custom headers. Same shape the cloud adapter uses on desktop.
 
 import { readEnrolment, readActiveRepoID } from './auth'
+import { KNOWN_TOPICS, type KnownTopic } from '@shared/adapters/topics'
 
-export type BackendEventTopic =
-  | 'card:created'
-  | 'card:updated'
-  | 'card:deleted'
-  | 'brand:updated'
-  | 'brand:deleted'
-  | 'stream:updated'
-  | 'stream:deleted'
-  | 'project:updated'
-  | 'project:deleted'
-  | 'category:updated'
-  | 'category:deleted'
-  | 'labels:updated'
-  | 'cardtype:updated'
-  | 'cardtype:deleted'
-  | 'agent:started'
-  | 'agent:completed'
-  | 'agent:failed'
-  | 'scheduler:paused'
-  | 'index:stale'
-  | 'notification:new'
-
-const KNOWN_TOPICS: BackendEventTopic[] = [
-  'card:created', 'card:updated', 'card:deleted',
-  'brand:updated', 'brand:deleted',
-  'stream:updated', 'stream:deleted',
-  'project:updated', 'project:deleted',
-  'category:updated', 'category:deleted',
-  'labels:updated',
-  'cardtype:updated', 'cardtype:deleted',
-  'agent:started', 'agent:completed', 'agent:failed',
-  'scheduler:paused', 'index:stale',
-  'notification:new',
-]
+// Topics come from the single shared list — a hand-maintained mobile
+// copy silently drifted (the workspace:* topics were missing, so those
+// events were published but never delivered here).
+export type BackendEventTopic = KnownTopic
 
 export type BackendEvent = {
   topic: BackendEventTopic

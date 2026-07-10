@@ -45,11 +45,9 @@
     <div class="header-icon">
       <BruvIcon size={64} />
     </div>
-    <h1>{t('remote.unreachable_title').replace('{server}', activeConnectionLabel())}</h1>
+    <h1>{t('remote.unreachable_title', { server: activeConnectionLabel() })}</h1>
     <p class="subtitle">
-      {t('remote.unreachable_subtitle')
-        .replace('{server}', activeConnectionLabel())
-        .replace('{url}', activeURL)}
+      {t('remote.unreachable_subtitle', { server: activeConnectionLabel(), url: activeURL })}
     </p>
 
     <div class="status">

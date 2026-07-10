@@ -12,66 +12,12 @@ export function focusOnMount(node: HTMLInputElement | HTMLTextAreaElement, selec
 }
 
 /**
- * Svelte action: encapsulates the inline-edit commit/cancel pattern.
- * Commits on Enter or blur, cancels on Escape.
- * Prevents the classic double-fire bug where pressing Enter sets state that
- * removes the element, causing blur to call commit a second time.
- *
- * Usage:
- *   <input use:inlineEdit={{ onCommit: () => save(), onCancel: () => revert() }} />
+ * inlineEdit moved to shared/inlineEdit.ts (both surfaces implement the
+ * same keyboard entry contract — see UI-CONVENTIONS "Keyboard entry").
+ * Re-exported here so existing `from '../lib/actions'` imports keep
+ * working unchanged.
  */
-export function inlineEdit(
-  node: HTMLInputElement | HTMLTextAreaElement,
-  params: { onCommit: () => void; onCancel: () => void; container?: string },
-) {
-  let committed = false
-
-  function commit() {
-    if (committed) return
-    committed = true
-    params.onCommit()
-  }
-
-  function cancel() {
-    if (committed) return
-    committed = true
-    params.onCancel()
-  }
-
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      commit()
-    } else if (e.key === 'Escape') {
-      e.stopPropagation()
-      cancel()
-    }
-  }
-
-  function handleBlur(e: FocusEvent) {
-    // If a container selector is set, only commit when focus leaves the container
-    if (params.container) {
-      const container = node.closest(params.container)
-      const related = e.relatedTarget as HTMLElement | null
-      if (container && related && container.contains(related)) return
-    }
-    commit()
-  }
-
-  node.addEventListener('keydown', handleKeydown as EventListener)
-  node.addEventListener('blur', handleBlur as EventListener)
-
-  return {
-    update(newParams: typeof params) {
-      params = newParams
-      committed = false
-    },
-    destroy() {
-      node.removeEventListener('keydown', handleKeydown as EventListener)
-      node.removeEventListener('blur', handleBlur as EventListener)
-    },
-  }
-}
+export { inlineEdit, type InlineEditParams } from '@shared/inlineEdit'
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
@@ -135,6 +81,45 @@ export function floatingDropdown(
       window.removeEventListener('scroll', reposition, true)
       window.removeEventListener('resize', reposition)
       node.remove()
+    },
+  }
+}
+
+/**
+ * Svelte action: calls `onOutsideClick` on any click that lands outside
+ * the node and outside every element in `exclude` (typically the
+ * trigger button that opens the popover — excluding it means the
+ * trigger's own click can toggle the popover without this action
+ * immediately firing a close as well).
+ *
+ * Attach directly to the popover/menu content and pair with
+ * conditional rendering so it only listens while open:
+ *   {#if open}
+ *     <div use:clickOutside={{ onOutsideClick: () => open = false, exclude: [triggerEl] }}>…</div>
+ *   {/if}
+ */
+export function clickOutside(
+  node: HTMLElement,
+  options: { onOutsideClick: (event: MouseEvent) => void; exclude?: (HTMLElement | null | undefined)[] },
+) {
+  let { onOutsideClick, exclude } = options
+
+  function handleClick(e: MouseEvent) {
+    const target = e.target as Node
+    if (node.contains(target)) return
+    if (exclude?.some(el => el?.contains(target))) return
+    onOutsideClick(e)
+  }
+
+  document.addEventListener('click', handleClick)
+
+  return {
+    update(newOptions: { onOutsideClick: (event: MouseEvent) => void; exclude?: (HTMLElement | null | undefined)[] }) {
+      onOutsideClick = newOptions.onOutsideClick
+      exclude = newOptions.exclude
+    },
+    destroy() {
+      document.removeEventListener('click', handleClick)
     },
   }
 }

@@ -429,3 +429,51 @@ func TestImportTemplateFromFolder(t *testing.T) {
 		t.Fatalf("ListTemplates after import = %+v", entries)
 	}
 }
+
+func TestDeleteTemplate(t *testing.T) {
+	svc, deps, b, _, _ := newTestService(t)
+
+	src := t.TempDir()
+	tplDir := filepath.Join(src, "yt-video")
+	if err := ft.Save(&ft.Template{Name: "YT"}, tplDir); err != nil {
+		t.Fatal(err)
+	}
+	writeFiles(t, tplDir, map[string]string{"plan.md": "x"})
+	entry, err := svc.ImportTemplateFromFolder(tplDir, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Guards: absolute refs, escapes, non-template roots, and plain
+	// vault folders outside a templates root must all be refused.
+	if err := svc.DeleteTemplate(tplDir); err == nil {
+		t.Error("absolute ref must be refused")
+	}
+	if err := svc.DeleteTemplate("templates/../cards"); err == nil {
+		t.Error("escape ref must be refused")
+	}
+	if err := svc.DeleteTemplate("brands/" + b); err == nil {
+		t.Error("non-template vault folder must be refused")
+	}
+	if err := svc.DeleteTemplate("brands/" + b + "/templates/missing"); err == nil {
+		t.Error("nonexistent template must be refused")
+	}
+
+	deps.topics = nil
+	if err := svc.DeleteTemplate(entry.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(deps.r.Root, "brands", b, "templates", "yt-video")); !os.IsNotExist(err) {
+		t.Errorf("template folder still on disk: %v", err)
+	}
+	if !deps.emitted("workspace:templates") {
+		t.Error("delete must publish workspace:templates")
+	}
+	entries, err := svc.ListTemplates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("ListTemplates after delete = %+v", entries)
+	}
+}

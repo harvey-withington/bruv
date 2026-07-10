@@ -1,7 +1,9 @@
 <script lang="ts">
   import { GetAgentConfig, ClearAgentRuns } from '@shared/api'
+  import { formatRelativeTime } from '@shared/relativeTime'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
+  import { showConfirm } from '../lib/confirm.svelte'
   import type { AgentRun } from '@shared/types'
   import { Clock, CircleCheck, CircleX, TriangleAlert, Square, Trash2, Timer } from 'lucide-svelte'
   import { onMount, onDestroy } from 'svelte'
@@ -10,6 +12,7 @@
   let { cardId }: { cardId: string } = $props()
 
   let loading = $state(true)
+  let loadError = $state(false)
   let runs = $state<AgentRun[]>([])
   let expandedRun = $state<string | null>(null)
 
@@ -18,14 +21,18 @@
     try {
       const af = await GetAgentConfig(cardId)
       runs = af.runs || []
+      loadError = false
     } catch (e) {
       console.error('Failed to load agent runs:', e)
+      loadError = true
+      showToast(t('agent.runs_load_failed'), 'error')
     } finally {
       loading = false
     }
   }
 
   async function clearRuns() {
+    if (!await showConfirm(t('agent.clear_runs_confirm'))) return
     try {
       await ClearAgentRuns(cardId)
       runs = []
@@ -55,16 +62,7 @@
   }
 
   function formatTime(iso: string): string {
-    const d = new Date(iso)
-    const diff = Date.now() - d.getTime()
-    const mins = Math.floor(diff / 60000)
-    if (mins < 1) return 'just now'
-    if (mins < 60) return `${mins}m ago`
-    const hours = Math.floor(mins / 60)
-    if (hours < 24) return `${hours}h ago`
-    const days = Math.floor(hours / 24)
-    if (days < 7) return `${days}d ago`
-    return d.toLocaleDateString()
+    return formatRelativeTime(iso, t)
   }
 
   function formatDuration(started: string, finished: string | null): string {
@@ -108,6 +106,11 @@
     <Timer size={20} strokeWidth={1.5} />
     <span>{t('app.loading')}</span>
   </div>
+{:else if loadError}
+  <div class="runs-loading runs-load-error">
+    <span class="load-error-text">{t('agent.runs_load_failed')}</span>
+    <button class="retry-btn" onclick={() => loadRuns()}>{t('agent.load_retry')}</button>
+  </div>
 {:else}
   <div class="runs-tab">
     {#if runs.length > 0}
@@ -143,7 +146,7 @@
             <span class="run-duration">{formatDuration(run.started_at, run.finished_at ?? null)}</span>
             <span class="run-badge">{run.tool_calls?.length ?? 0} {t('agents_page.col_tools').toLowerCase()}</span>
             {#if run.tokens_used}
-              <span class="run-badge accent">{run.tokens_used.toLocaleString()} tok</span>
+              <span class="run-badge accent">{t('agent.tokens_short', { n: run.tokens_used.toLocaleString() })}</span>
             {/if}
             <span class="run-preview">{parseError(run.error) || run.summary || t('agent.run_no_summary')}</span>
           </button>
@@ -186,6 +189,19 @@
     display: flex; align-items: center; gap: 0.5rem;
     padding: 2rem; color: var(--text-muted); justify-content: center;
   }
+  .runs-load-error { flex-direction: column; }
+  .load-error-text { color: var(--danger); }
+  .retry-btn {
+    padding: 0.3rem 0.75rem;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-muted);
+    border-radius: 5px;
+    color: var(--text-body);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: border-color var(--duration-normal), color var(--duration-normal);
+  }
+  .retry-btn:hover { border-color: var(--accent); color: var(--accent); }
   .runs-tab {
     padding: 1rem 1.25rem;
     display: flex; flex-direction: column; gap: 0.5rem;

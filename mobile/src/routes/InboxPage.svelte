@@ -361,8 +361,8 @@
 
 {#if confirmingDelete}
   <ConfirmDialog
-    title={t('inbox.bulk_delete_title')}
-    body={t('inbox.bulk_delete_body', { n: selectedCount })}
+    title={t('inbox.bulk_delete_title', { n: selectedCount })}
+    body={t('inbox.bulk_delete_body')}
     confirmLabel={t('inbox.bulk_delete')}
     destructive
     onConfirm={performBulkDelete}

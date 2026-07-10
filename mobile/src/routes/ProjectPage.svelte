@@ -6,6 +6,7 @@
   import { navigate, cardURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
   import { renderInline } from '@shared/markdown'
+  import { inlineEdit } from '@shared/inlineEdit'
   import { loadProjectTags, projectKey as makeProjectKey } from '../lib/repoMeta.svelte'
   import {
     browse,
@@ -250,6 +251,11 @@
       void reloadProject()
     } catch (err) {
       mutationError = `${t('project.err_rename_category')} ${err instanceof Error ? err.message : ''}`.trim()
+      // Close the input — the inlineEdit action treats a commit as the
+      // end of the edit session, so keep-open-and-retry isn't reachable
+      // from the keyboard. The inline error explains; the user reopens
+      // rename from the kebab menu to retry.
+      renaming = null
     } finally {
       renameBusy = false
     }
@@ -271,10 +277,9 @@
     }
   }
 
-  function onRenameKey(e: KeyboardEvent) {
-    if (e.key === 'Enter') { e.preventDefault(); void commitRename() }
-    else if (e.key === 'Escape') { e.preventDefault(); cancelRename() }
-  }
+  // Rename keyboard behaviour comes from the shared inlineEdit action
+  // (Enter/blur commit, Escape cancels — deleting a fresh-create row).
+  // ProjectPage isn't a closable container, so no EditScope is passed.
 
   async function handleAddCategory() {
     if (renaming) await commitRename()
@@ -569,11 +574,11 @@
                 <input
                   bind:this={renameInputEl}
                   bind:value={renameDraft}
-                  onblur={commitRename}
-                  onkeydown={onRenameKey}
+                  use:inlineEdit={{ onCommit: () => void commitRename(), onCancel: cancelRename }}
                   class="rename-input"
                   aria-label={t('project.rename_category')}
                   placeholder={t('project.rename_category')}
+                  enterkeyhint="done"
                   disabled={renameBusy}
                 />
               </div>

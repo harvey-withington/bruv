@@ -81,12 +81,9 @@ func (m *MachineService) GetLLMAccounts() ([]config.LLMAccount, error) {
 func (m *MachineService) SaveLLMAccounts(x []config.LLMAccount) error {
 	return config.SaveLLMAccounts(x)
 }
-func (m *MachineService) GetTokenPricing() (map[string]config.ModelPricing, error) {
-	return config.LoadCustomPricing()
-}
-func (m *MachineService) SaveTokenPricing(p map[string]config.ModelPricing) error {
-	return config.SaveCustomPricing(p)
-}
+// Token-pricing RPCs deleted 2026-07-10 (ruled: costs stay estimates
+// from the built-in table; hand-editing <configDir>/pricing.json is
+// still honoured by config.EstimateCost's merge).
 
 // IsLLMConfigured returns true if any usable LLM provider exists.
 // Mirrors core/services/llm.IsConfigured but doesn't require a Runtime

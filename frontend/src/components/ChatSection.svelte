@@ -237,7 +237,7 @@
           acceptIDs.includes(e.id) && e.status === 'pending' && e.detail.startsWith('error:')
         ) ?? []
         if (failed.length > 0) {
-          showToast(t('error.edit_apply_some_failed').replace('{count}', String(failed.length)), 'error')
+          showToast(t('error.edit_apply_some_failed', { count: failed.length }), 'error')
         }
       } else {
         onCardChanged?.()
@@ -265,11 +265,18 @@
   let messagesContainerEl = $state<HTMLDivElement | null>(null)
   let textareaEl = $state<HTMLTextAreaElement | null>(null)
 
+  // Stale-response guard: switching projects (or cards) while a
+  // history load is in flight must not let the old chat's response
+  // render — and be *sent into* — under the new context.
+  let chatLoadSeq = 0
+
   async function loadChat() {
+    const seq = ++chatLoadSeq
     loading = true
     try {
       if (projectMode && loadFn) {
         const [result, isConfigured, llmCfg] = await Promise.all([loadFn(), IsLLMConfigured(), GetLLMConfig()])
+        if (seq !== chatLoadSeq) return
         messages = result?.messages || []
         configured = isConfigured
         const mode = llmCfg?.ai_mode
@@ -280,14 +287,18 @@
           IsLLMConfigured(),
           GetLLMConfig(),
         ])
+        if (seq !== chatLoadSeq) return
         messages = result?.messages || []
         configured = isConfigured
         const mode = llmCfg?.ai_mode
         aiMode = (mode === 'chat' || mode === 'suggest') ? mode : 'edit'
       }
     } catch (e) {
+      if (seq !== chatLoadSeq) return
       console.error('Failed to load chat:', e)
+      showToast(t('error.chat_load_failed'), 'error')
     }
+    if (seq !== chatLoadSeq) return
     loading = false
     // On initial load, jump the scroll container to the bottom
     // unconditionally — the sticky-to-bottom $effect's "user scrolled
@@ -347,6 +358,10 @@
     } catch (e) {
       console.error('Failed to send message:', e)
       showToast(t('error.chat_send_failed'), 'error')
+      // Undo the optimistic bubble and give the user their text back —
+      // losing a typed message to a transient RPC failure is data loss.
+      messages = messages.filter(m => !m.id.startsWith('temp-'))
+      if (!inputText.trim()) inputText = text
     }
     sending = false
   }
@@ -366,6 +381,7 @@
       document.dispatchEvent(new CustomEvent('bruv:sidebar-changed'))
     } catch (e) {
       console.error('Failed to accept pin:', e)
+      showToast(t('error.pin_failed'), 'error')
     }
   }
 
@@ -379,6 +395,7 @@
       )
     } catch (e) {
       console.error('Failed to reject pin:', e)
+      showToast(t('error.pin_failed'), 'error')
     }
   }
 
@@ -407,23 +424,23 @@
   function toolActionLabel(action: ToolAction): string {
     const inp = (action.input ?? {}) as Record<string, unknown>
     switch (action.tool) {
-      case 'set_title': return `Title: ${inp.title || '?'}`
-      case 'set_due_date': return inp.due_date ? `Due: ${inp.due_date}` : 'Cleared due date'
-      case 'set_card_type': return `Set type: ${inp.card_type || '?'}`
+      case 'set_title': return t('chat.action_title', { title: (inp.title as string) || '?' })
+      case 'set_due_date': return inp.due_date ? t('chat.action_due_date', { date: inp.due_date as string }) : t('chat.action_due_date_cleared')
+      case 'set_card_type': return t('chat.action_set_type', { type: (inp.card_type as string) || '?' })
       case 'set_fields':
       case 'update_blocks': {
         const fields = (inp.fields || inp.blocks) as Record<string, unknown> | undefined
         const keys = fields ? Object.keys(fields) : []
-        return `Updated: ${keys.join(', ') || '?'}`
+        return t('chat.action_updated_fields', { fields: keys.join(', ') || '?' })
       }
-      case 'add_tags': return `Added tags: ${(inp.tags as string[] || []).join(', ')}`
-      case 'add_field': return `Added field: ${inp.label || inp.key || '?'} (${inp.field_type || '?'})`
-      case 'suggest_pin': return `Suggested pin: ${action.result || '?'}`
+      case 'add_tags': return t('chat.action_added_tags', { tags: (inp.tags as string[] || []).join(', ') })
+      case 'add_field': return t('chat.action_added_field', { field: (inp.label as string) || (inp.key as string) || '?', type: (inp.field_type as string) || '?' })
+      case 'suggest_pin': return t('chat.action_suggested_pin', { result: action.result || '?' })
       // Project-level tools
-      case 'create_card': return `Created card: ${inp.title || '?'}`
-      case 'add_tags_to_cards': return `Tagged ${(inp.card_ids as string[] || []).length} cards: ${(inp.tags as string[] || []).join(', ')}`
-      case 'move_card': return `Moved card`
-      case 'update_card': return action.result || 'Updated card'
+      case 'create_card': return t('chat.action_created_card', { title: (inp.title as string) || '?' })
+      case 'add_tags_to_cards': return t('chat.action_tagged_cards', { count: (inp.card_ids as string[] || []).length, tags: (inp.tags as string[] || []).join(', ') })
+      case 'move_card': return t('chat.action_moved_card')
+      case 'update_card': return action.result || t('chat.action_updated_card')
       default: return action.tool
     }
   }
@@ -632,7 +649,7 @@
                       checked={allChecked(msg)}
                       indeterminate={someChecked(msg) && !allChecked(msg)}
                       onchange={() => toggleAll(msg)}
-                      aria-label="Select all"
+                      aria-label={t('chat.select_all')}
                     />
                   {:else}
                     <ListChecks size={12} class="resolved-icon" />
@@ -641,7 +658,7 @@
                   {#if projectMode && hasPendingEdits(msg)}
                     {@const cardCount = distinctCardCount(msg)}
                     {#if cardCount > 0}
-                      <span class="pending-edits-count">{cardCount === 1 ? t('chat.suggest_one_card') : t('chat.suggest_n_cards').replace('{count}', String(cardCount))}</span>
+                      <span class="pending-edits-count">{cardCount === 1 ? t('chat.suggest_one_card') : t('chat.suggest_n_cards', { count: cardCount })}</span>
                     {/if}
                   {/if}
                   {#if hasPendingEdits(msg)}
@@ -961,16 +978,16 @@
     color: var(--text-primary);
   }
   .mode-btn.mode-chat {
-    color: #22c55e;
-    border-color: rgba(34, 197, 94, 0.5);
+    color: var(--success);
+    border-color: color-mix(in srgb, var(--success) 50%, transparent);
   }
   .mode-btn.mode-suggest {
-    color: #f59e0b;
-    border-color: rgba(245, 158, 11, 0.5);
+    color: var(--warning);
+    border-color: color-mix(in srgb, var(--warning) 50%, transparent);
   }
   .mode-btn.mode-edit {
-    color: #ef4444;
-    border-color: rgba(239, 68, 68, 0.5);
+    color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 50%, transparent);
   }
 
   .chat-banner {
@@ -1368,8 +1385,8 @@
     border-color: var(--accent);
   }
   .chat-nav-clear:hover {
-    color: var(--color-error, #ef4444);
-    border-color: var(--color-error, #ef4444);
+    color: var(--danger);
+    border-color: var(--danger);
   }
 
   .chat-input-row {

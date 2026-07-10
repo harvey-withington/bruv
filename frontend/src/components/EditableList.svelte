@@ -2,6 +2,9 @@
   import { Trash2, GripVertical } from 'lucide-svelte'
   import EditableText from './EditableText.svelte'
   import { t } from '../lib/i18n.svelte'
+  import { getContext } from 'svelte'
+  import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
+  import { inlineEdit } from '../lib/actions'
   import { computeReorder, wouldReorder, DROP_END } from '../lib/reorder'
 
   type ListItem = { id: string; text: string }
@@ -17,6 +20,9 @@
   } = $props()
 
   let newText = $state('')
+  let addInputEl = $state<HTMLInputElement | null>(null)
+
+  const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
 
   function emit(updated: ListItem[]) {
     onUpdate?.(updated)
@@ -47,9 +53,11 @@
     }, 0)
   }
 
-  function handleAddKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter') addItem()
-    else if (e.key === 'Escape') { e.stopPropagation(); (e.target as HTMLElement)?.blur() }
+  // Serial add-input per the keyboard entry contract (see
+  // EditableChecklist for the same pattern).
+  function cancelAdd() {
+    newText = ''
+    addInputEl?.blur()
   }
 
   // --- Drag-to-reorder (HTML5 native, mirrors EditableChecklist) ---
@@ -145,8 +153,9 @@
 <div class="li-add">
   <input
     type="text"
+    bind:this={addInputEl}
     bind:value={newText}
-    onkeydown={handleAddKeydown}
+    use:inlineEdit={{ serial: true, onCommit: addItem, onCancel: cancelAdd, scope: editScope }}
     placeholder={placeholder || t('block.list_placeholder')}
     class="li-add-input"
   />

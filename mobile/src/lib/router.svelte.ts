@@ -129,6 +129,17 @@ function withViewTransition(mutate: () => void): void {
 }
 
 if (typeof window !== 'undefined') {
+  // Native per-entry scroll restoration fights the SPA. On any history
+  // traversal (hardware/gesture back) the browser re-applies the
+  // DESTINATION entry's saved scroll offset — including when CardPage's
+  // Back = Escape layer cancels the traversal by pushing the current
+  // URL straight back, which used to yank a mid-scroll card to the top.
+  // Views re-render from route state and load data async, so the native
+  // restore never lined up with real content anyway; manual mode makes
+  // every traversal scroll-neutral and deterministic.
+  if ('scrollRestoration' in window.history) {
+    window.history.scrollRestoration = 'manual'
+  }
   window.addEventListener('popstate', () => {
     withViewTransition(() => {
       _route = parseAndMaybeMigrate(currentPath())

@@ -145,7 +145,7 @@
 {#if confirmingDelete}
   <ConfirmDialog
     title={t('comments.delete_title')}
-    body={t('attachment.remove_confirm').replace('{name}', confirmingDelete.name)}
+    body={t('attachment.remove_confirm', { name: confirmingDelete.name })}
     confirmLabel={t('attachment.remove')}
     destructive
     onConfirm={() => removeAttachment(confirmingDelete!)}

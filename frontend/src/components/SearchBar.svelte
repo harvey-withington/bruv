@@ -9,6 +9,10 @@
 
   let inputEl: HTMLInputElement | undefined = $state()
   let debounceTimer: ReturnType<typeof setTimeout> | undefined
+  // Staleness token — Escape/clear while a search is in flight must not
+  // let a late response reopen the dropdown for a query the input no
+  // longer shows (see store.svelte.ts's boardLoadSeq for the same pattern).
+  let searchSeq = 0
 
   // The active store depends on context
   const activeQuery = $derived(nav.inboxMode ? search.query : boardSearch.query)
@@ -20,6 +24,8 @@
 
   function clearSearch() {
     setQuery('')
+    clearTimeout(debounceTimer)
+    searchSeq++ // invalidate any in-flight response
     if (nav.inboxMode) {
       search.results = []
       search.open = false
@@ -34,6 +40,9 @@
     const q = (e.target as HTMLInputElement).value
     setQuery(q)
     clearTimeout(debounceTimer)
+    // Bump the token on every keystroke (including a clear) so a response
+    // for an earlier query can never land after this one.
+    const seq = ++searchSeq
 
     if (!q.trim()) {
       if (nav.inboxMode) {
@@ -52,10 +61,14 @@
     debounceTimer = setTimeout(async () => {
       try {
         const results = await SearchOrphanedCards(search.query, 20)
+        // Drop the response if a newer search superseded it, or if the
+        // query was cleared while the request was in flight.
+        if (seq !== searchSeq || !search.query.trim()) return
         search.results = results || []
         search.open = search.results.length > 0
         search.matchingIds = new Set(search.results.map(r => r.CardID))
       } catch {
+        if (seq !== searchSeq) return
         search.results = []
         search.open = false
         search.matchingIds = new Set()

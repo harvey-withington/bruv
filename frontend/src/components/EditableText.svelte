@@ -1,5 +1,8 @@
 <script lang="ts">
   import { renderMarkdown, renderInline } from '@shared/markdown'
+  import { getContext } from 'svelte'
+  import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
+  import { inlineEdit } from '../lib/actions'
   import { t } from '../lib/i18n.svelte'
 
   let {
@@ -30,6 +33,10 @@
   let draft = $state('')
   let inputEl = $state<HTMLInputElement | HTMLTextAreaElement | null>(null)
 
+  // Containing dialog/sheet scope (Escape layering, Ctrl+Enter). Fields
+  // outside a scoped container get null and simply skip registration.
+  const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
+
   $effect(() => { if (!editing) draft = value })
 
   $effect(() => {
@@ -59,14 +66,11 @@
     onCancel?.()
   }
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') {
-      e.stopPropagation()
-      cancel()
-    } else if (e.key === 'Enter' && !multiline) {
-      e.preventDefault()
-      save()
-    } else if (e.key === 'Tab' && !multiline) {
+  // Enter/Escape/Ctrl+Enter/blur come from the shared inlineEdit action
+  // (the keyboard entry contract); Tab-advance is this component's own
+  // extra and runs from a separate listener.
+  function handleTab(e: KeyboardEvent) {
+    if (e.key === 'Tab' && !multiline) {
       e.preventDefault()
       save()
       onTab?.()
@@ -83,8 +87,8 @@
       class="inline-edit-input {className}"
       bind:this={inputEl}
       bind:value={draft}
-      onkeydown={handleKeydown}
-      onblur={save}
+      use:inlineEdit={{ multiline: true, onCommit: save, onCancel: cancel, scope: editScope }}
+      onkeydown={handleTab}
       {rows}
     ></textarea>
   {:else}
@@ -92,8 +96,8 @@
       class="inline-edit-input {className}"
       bind:this={inputEl}
       bind:value={draft}
-      onkeydown={handleKeydown}
-      onblur={save}
+      use:inlineEdit={{ onCommit: save, onCancel: cancel, scope: editScope }}
+      onkeydown={handleTab}
     />
   {/if}
 {:else}

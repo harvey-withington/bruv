@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { notifications, markRead, markAllRead, clearAll, timeAgo } from '../lib/notifications.svelte'
+  import { notifications, markRead, markAllRead, clearAll, dismissNotification, timeAgo } from '../lib/notifications.svelte'
   import { t } from '../lib/i18n.svelte'
+  import { showConfirm } from '../lib/confirm.svelte'
   import { CheckCheck, Trash2, X } from 'lucide-svelte'
 
   let { onClose }: { onClose: () => void } = $props()
@@ -13,6 +14,16 @@
   function handleItemClick(notif: typeof notifications.list[0]) {
     if (!notif.read) markRead(notif.id)
     if (notif.card_id) navigateToCard(notif.card_id)
+  }
+
+  async function handleClearAll() {
+    if (!await showConfirm(t('notifications.clear_confirm'))) return
+    clearAll()
+  }
+
+  function handleDismiss(e: MouseEvent, id: string) {
+    e.stopPropagation()
+    dismissNotification(id)
   }
 
   function handleBackdropClick(e: MouseEvent) {
@@ -31,7 +42,7 @@
         <button class="notif-action-btn" onclick={() => markAllRead()} title={t('notifications.mark_all_read')}>
           <CheckCheck size={14} />
         </button>
-        <button class="notif-action-btn" onclick={() => clearAll()} title={t('notifications.clear_all')}>
+        <button class="notif-action-btn" onclick={handleClearAll} title={t('notifications.clear_all')}>
           <Trash2 size={14} />
         </button>
         <button class="notif-action-btn" onclick={onClose}>
@@ -41,24 +52,34 @@
     </div>
     <div class="notif-list">
       {#each notifications.list as notif (notif.id)}
-        <button
-          class="notif-item"
-          class:unread={!notif.read}
-          onclick={() => handleItemClick(notif)}
-        >
-          <div class="notif-item-content">
-            <div class="notif-item-title">{notif.title}</div>
-            {#if notif.body}
-              <div class="notif-item-body">{notif.body}</div>
-            {/if}
-          </div>
-          <div class="notif-item-meta">
-            {#if notif.card_title}
-              <span class="notif-card">{notif.card_title}</span>
-            {/if}
-            <span class="notif-time">{timeAgo(notif.created_at)}</span>
-          </div>
-        </button>
+        <div class="notif-item-row action-reveal-parent">
+          <button
+            class="notif-item"
+            class:unread={!notif.read}
+            onclick={() => handleItemClick(notif)}
+          >
+            <div class="notif-item-content">
+              <div class="notif-item-title">{notif.title}</div>
+              {#if notif.body}
+                <div class="notif-item-body">{notif.body}</div>
+              {/if}
+            </div>
+            <div class="notif-item-meta">
+              {#if notif.card_title}
+                <span class="notif-card">{notif.card_title}</span>
+              {/if}
+              <span class="notif-time">{timeAgo(notif.created_at)}</span>
+            </div>
+          </button>
+          <button
+            class="notif-dismiss-btn action-reveal action-reveal--danger"
+            onclick={(e) => handleDismiss(e, notif.id)}
+            title={t('notifications.dismiss')}
+            aria-label={t('notifications.dismiss')}
+          >
+            <X size={12} />
+          </button>
+        </div>
       {:else}
         <div class="notif-empty">{t('notifications.empty')}</div>
       {/each}
@@ -133,25 +154,39 @@
     flex: 1;
   }
 
+  .notif-item-row {
+    display: flex;
+    align-items: stretch;
+    border-bottom: 1px solid var(--border-muted);
+    transition: background var(--duration-fast);
+  }
+  .notif-item-row:last-child { border-bottom: none; }
+  .notif-item-row:hover { background: var(--bg-hover); }
+
   .notif-item {
     display: flex;
     flex-direction: column;
     gap: 0.2rem;
     padding: 0.5rem 0.75rem;
-    width: 100%;
+    flex: 1;
+    min-width: 0;
     text-align: left;
     background: none;
     border: none;
-    border-bottom: 1px solid var(--border-muted);
     color: var(--text-body);
     cursor: pointer;
-    transition: background var(--duration-fast);
   }
-  .notif-item:last-child { border-bottom: none; }
-  .notif-item:hover { background: var(--bg-hover); }
   .notif-item.unread {
     border-left: 3px solid var(--accent);
     background: color-mix(in srgb, var(--accent) 5%, transparent);
+  }
+
+  .notif-dismiss-btn {
+    align-self: center;
+    margin-right: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .notif-item-content {

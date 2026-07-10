@@ -87,23 +87,23 @@
   function toolLabel(action: ToolAction): string {
     const inp = (action.input ?? {}) as Record<string, unknown>
     switch (action.tool) {
-      case 'set_title': return `Title: ${inp.title || '?'}`
-      case 'set_due_date': return inp.due_date ? `Due: ${inp.due_date}` : 'Cleared due date'
-      case 'set_card_type': return `Set type: ${inp.card_type || '?'}`
+      case 'set_title': return t('chat.action_title', { title: (inp.title as string) || '?' })
+      case 'set_due_date': return inp.due_date ? t('chat.action_due_date', { date: inp.due_date as string }) : t('chat.action_due_date_cleared')
+      case 'set_card_type': return t('chat.action_set_type', { type: (inp.card_type as string) || '?' })
       case 'set_fields':
       case 'update_blocks': {
         const fields = (inp.fields || inp.blocks) as Record<string, unknown> | undefined
         const keys = fields ? Object.keys(fields) : []
-        return `Updated: ${keys.join(', ') || '?'}`
+        return t('chat.action_updated_fields', { fields: keys.join(', ') || '?' })
       }
-      case 'add_tags': return `Added tags: ${(inp.tags as string[] || []).join(', ')}`
-      case 'add_field': return `Added field: ${inp.label || inp.key || '?'}`
-      case 'suggest_pin': return `Suggested pin: ${action.result || '?'}`
-      case 'create_card': return `Created card: ${inp.title || '?'}`
+      case 'add_tags': return t('chat.action_added_tags', { tags: (inp.tags as string[] || []).join(', ') })
+      case 'add_field': return t('chat.action_added_field', { field: (inp.label as string) || (inp.key as string) || '?', type: (inp.field_type as string) || '?' })
+      case 'suggest_pin': return t('chat.action_suggested_pin', { result: action.result || '?' })
+      case 'create_card': return t('chat.action_created_card', { title: (inp.title as string) || '?' })
       case 'add_tags_to_cards':
-        return `Tagged ${(inp.card_ids as string[] || []).length} cards: ${(inp.tags as string[] || []).join(', ')}`
-      case 'move_card': return 'Moved card'
-      case 'update_card': return action.result || 'Updated card'
+        return t('chat.action_tagged_cards', { count: (inp.card_ids as string[] || []).length, tags: (inp.tags as string[] || []).join(', ') })
+      case 'move_card': return t('chat.action_moved_card')
+      case 'update_card': return action.result || t('chat.action_updated_card')
       default: return action.tool
     }
   }

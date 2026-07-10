@@ -10,12 +10,15 @@
    *
    * Extracted from CardDetail. The parent provides `track` (save-
    * indicator wrapper) and receives updated cards via onCardUpdated;
-   * `addBlock` / `restoreCollapsedFromMeta` / `resetDrafts` /
-   * `hasActiveEdit` / `commitActiveEdit` are exported for the parent's
-   * add-block button, load path, and modal-level keyboard handling.
+   * `addBlock` / `restoreCollapsedFromMeta` / `resetDrafts` are
+   * exported for the parent's add-block button and load path. In-flight
+   * edits register with the dialog's EditScope (context), which owns
+   * the modal-level Escape / Ctrl+Enter behaviour.
    */
   import { UpdateCardBlocks } from '@shared/api'
   import { ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree } from 'lucide-svelte'
+  import { getContext } from 'svelte'
+  import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import { t } from '../lib/i18n.svelte'
   import MentionPicker from './MentionPicker.svelte'
   import BlockItem from './BlockItem.svelte'
@@ -46,9 +49,15 @@
       block.meta || {},
     )
     if (result) {
+      const prevMeta = block.meta
       block.meta = { ...block.meta, ...result.meta, options: result.options }
-      await track(UpdateCardBlocks(cardId, card.blocks))
-      onUpdated?.()
+      try {
+        await track(UpdateCardBlocks(cardId, card.blocks))
+        onUpdated?.()
+      } catch (e) {
+        block.meta = prevMeta
+        showToast(t('error.save_failed'), 'error')
+      }
     }
   }
 
@@ -76,11 +85,19 @@
     // text block or a populated checklist is easy to hit by accident
     // and there's no undo path.
     const name = block.label || block.key || block.type
-    if (!await showConfirm(t('card.clear_block_confirm').replace('{name}', name))) return
+    if (!await showConfirm(t('card.clear_block_confirm', { name }))) return
+    const prevValue = block.value
+    const prevMeta = block.meta
     block.value = getEmptyValue(block.type)
     if (block.type === 'alarm') block.meta = { ...block.meta, alarm_time: undefined, alarm_fired: false }
-    await track(UpdateCardBlocks(cardId, card.blocks))
-    onUpdated?.()
+    try {
+      await track(UpdateCardBlocks(cardId, card.blocks))
+      onUpdated?.()
+    } catch (e) {
+      block.value = prevValue
+      block.meta = prevMeta
+      showToast(t('error.save_failed'), 'error')
+    }
   }
 
   // Block label editing
@@ -94,16 +111,28 @@
   let checklistInputEls = $state<Record<string, HTMLInputElement | null>>({})
   let newChecklistTexts = $state<Record<string, string>>({})
 
-  /** True while a block value or label edit is in progress — the parent
-   *  uses this to gate modal-level Escape/silent-reload behaviour. */
-  export function hasActiveEdit(): boolean {
-    return editingBlockId !== null || editingBlockLabelId !== null
-  }
+  // The dialog's edit scope (Escape-layering + Ctrl+Enter + silent-
+  // reload guard). Text-block edits register here via the effect below;
+  // URL inputs and label renames register through their inlineEdit
+  // actions in BlockItem, so this effect must skip them or commitAll
+  // would fire the same save twice.
+  const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
 
-  /** Commit any in-progress block text / label edit (modal Ctrl+Enter). */
-  export async function commitActiveEdit(): Promise<void> {
-    if (editingBlockId !== null) await saveTextBlock(editingBlockId)
-    if (editingBlockLabelId !== null) await renameBlockLabel(editingBlockLabelId)
+  $effect(() => {
+    const id = editingBlockId
+    if (id === null) return
+    const block = card.blocks.find((b: Block) => b.id === id)
+    if (block?.type !== 'text') return
+    return editScope?.register({
+      commit: () => { void saveTextBlock(id) },
+      cancel: () => cancelBlockEdit(id),
+    })
+  })
+
+  function cancelBlockEdit(blockId: string) {
+    editingBlockId = null
+    const block = card.blocks.find((b: Block) => b.id === blockId)
+    blockDrafts[blockId] = String(block?.value ?? '')
   }
 
   /** Re-seed text/url drafts from the current card (called by the parent
@@ -357,6 +386,10 @@
     }
   }
 
+  function defaultSelectOptions(): string[] {
+    return [1, 2, 3].map(n => t('block.default_option', { n }))
+  }
+
   export async function addBlock(blockType: Block['type'], label: string) {
     const id = `blk-${crypto.randomUUID().slice(0, 8)}`
     let value: Block['value'] = ''
@@ -365,13 +398,13 @@
     else if (blockType === 'list') value = []
     else if (blockType === 'media') value = []
     else if (blockType === 'divider') value = null
-    else if (blockType === 'select') { value = ''; meta = { options: ['Option 1', 'Option 2', 'Option 3'] } }
+    else if (blockType === 'select') { value = ''; meta = { options: defaultSelectOptions() } }
     else if (blockType === 'number') value = 0
     else if (blockType === 'date') value = ''
     else if (blockType === 'rating') { value = 0; meta = { max: 5 } }
     else if (blockType === 'checkbox') value = false
-    else if (blockType === 'radio') { value = ''; meta = { options: ['Option 1', 'Option 2', 'Option 3'] } }
-    else if (blockType === 'checkbox_group') { value = []; meta = { options: ['Option 1', 'Option 2', 'Option 3'] } }
+    else if (blockType === 'radio') { value = ''; meta = { options: defaultSelectOptions() } }
+    else if (blockType === 'checkbox_group') { value = []; meta = { options: defaultSelectOptions() } }
     else if (blockType === 'image') value = null
     else if (blockType === 'progress') value = 0
     else if (blockType === 'alarm') { value = null; meta = { alarm_channels: 'in-app,system' } }
@@ -405,7 +438,7 @@
   async function deleteBlock(blockId: string) {
     const block = card.blocks.find((b: Block) => b.id === blockId)
     if (!block) return
-    if (!await showConfirm(t('card.confirm_delete_block').replace('{name}', block.label || block.type))) return
+    if (!await showConfirm(t('card.confirm_delete_block', { name: block.label || block.type }))) return
     const blocks = card.blocks.filter((b: Block) => b.id !== blockId)
     let updated: Card
     try {
@@ -479,17 +512,23 @@
   }
 
   async function handleTextBlockKeydown(e: KeyboardEvent, blockId: string) {
-    if (mentionVisible) return
+    if (mentionVisible || e.isComposing) return
     if (e.key === 'Escape') {
-      e.stopPropagation()
-      editingBlockId = null
-      const block = card.blocks.find((b: Block) => b.id === blockId)
-      blockDrafts[blockId] = String(block?.value ?? '')
-    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()
-      e.stopPropagation()  // prevent the modal's backdrop keydown from also calling saveTextBlock
+      e.stopPropagation()
+      cancelBlockEdit(blockId)
+    } else if (e.key === 'Enter') {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault()
+        e.stopPropagation()  // prevent the modal's backdrop keydown from also calling saveTextBlock
+        await saveTextBlock(blockId)
+        onClose()
+        return
+      }
+      // Contract: Enter commits, Shift+Enter inserts the newline.
+      if (e.shiftKey) return
+      e.preventDefault()
       await saveTextBlock(blockId)
-      onClose()
     }
   }
 

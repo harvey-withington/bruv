@@ -1,9 +1,12 @@
 <script lang="ts">
-  import { untrack } from 'svelte'
+  import { untrack, getContext } from 'svelte'
   import { t } from '../../lib/i18n.svelte'
   import { renderMarkdown } from '@shared/markdown'
+  import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import type { Block } from '@shared/types'
   import { asString, withValue } from './narrow'
+  import { draftEdit } from '../../lib/actions/draftEdit'
+  import EditorDoneButton from '../EditorDoneButton.svelte'
 
   // `mode` is owned by the parent BlockEditor so the edit/preview toggle
   // can live in the shared block toolbar (next to the trash button)
@@ -23,10 +26,10 @@
   let draft = $state(untrack(() => asString(block.value)))
   let textareaEl: HTMLTextAreaElement | null = $state(null)
   let lastSaved = $state(untrack(() => asString(block.value)))
+  // Focused = an edit session is live → show the ✓ Done affordance.
+  let editorActive = $state(false)
 
-  // Debounced save: 500ms after last keystroke, push through onChange.
-  // Cleared on blur (immediate save) and on unmount.
-  let timer: ReturnType<typeof setTimeout> | null = null
+  const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
 
   function autoGrow() {
     if (!textareaEl) return
@@ -36,34 +39,30 @@
     textareaEl.style.height = `${Math.min(textareaEl.scrollHeight, cap)}px`
   }
 
-  function commit(next: string) {
-    if (next === lastSaved) return
-    lastSaved = next
-    onChange(withValue(block, next))
+  // Keyboard entry contract, mobile multiline variant (draftEdit
+  // action): Enter inserts a newline; the draft is committed on blur /
+  // ✓ Done / Ctrl+Enter and reverted on Escape — no keystroke-debounced
+  // autosave, so cancel actually cancels.
+  function commitDraft() {
+    if (draft === lastSaved) return
+    lastSaved = draft
+    onChange(withValue(block, draft))
   }
 
-  function handleInput(e: Event) {
-    draft = (e.currentTarget as HTMLTextAreaElement).value
-    autoGrow()
-    if (timer) clearTimeout(timer)
-    timer = setTimeout(() => {
-      timer = null
-      commit(draft)
-    }, 500)
+  function revertDraft() {
+    draft = lastSaved
   }
 
-  function handleBlur() {
-    if (timer) {
-      clearTimeout(timer)
-      timer = null
-    }
-    commit(draft)
-  }
-
+  // Fresh block prop (e.g. the component gets re-keyed to a different
+  // block): drop any stale draft and re-seed from the new block.
+  let seededID = untrack(() => block.id)
   $effect(() => {
-    return () => {
-      if (timer) clearTimeout(timer)
-    }
+    if (block.id === seededID) return
+    seededID = block.id
+    untrack(() => {
+      draft = asString(block.value)
+      lastSaved = draft
+    })
   })
 
   // External-edit sync: when block.value changes from outside (SSE
@@ -85,12 +84,20 @@
       bind:this={textareaEl}
       class="text-input"
       placeholder={t('block.text.placeholder')}
-      value={draft}
-      oninput={handleInput}
-      onblur={handleBlur}
+      bind:value={draft}
+      oninput={autoGrow}
+      use:draftEdit={{ multiline: true, enterInsertsNewline: true, onCommit: commitDraft, onCancel: revertDraft, scope: editScope }}
       rows="3"
-      onfocus={autoGrow}
+      onfocus={() => { editorActive = true; autoGrow() }}
+      onblur={() => (editorActive = false)}
     ></textarea>
+    {#if editorActive}
+      <div class="editor-actions">
+        <!-- Commit via the action's blur path — one code path for
+             tap-away and ✓ Done. -->
+        <EditorDoneButton onDone={() => textareaEl?.blur()} />
+      </div>
+    {/if}
   {:else}
     <div class="preview">
       {#if draft.trim() === ''}
@@ -126,6 +133,11 @@
   .text-input:focus {
     outline: none;
     border-color: var(--accent);
+  }
+
+  .editor-actions {
+    display: flex;
+    justify-content: flex-end;
   }
 
   .preview {

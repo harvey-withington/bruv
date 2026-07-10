@@ -1,26 +1,32 @@
 <script lang="ts">
-  import { untrack } from 'svelte'
+  import { untrack, getContext } from 'svelte'
   import { t } from '../../lib/i18n.svelte'
+  import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import type { Block } from '@shared/types'
   import { asUrlValue, withValue } from './narrow'
+  import { draftEdit } from '../../lib/actions/draftEdit'
 
   let { block, onChange }: { block: Block; onChange: (next: Block) => void } = $props()
 
   const value = $derived(asUrlValue(block.value))
 
-  // Local drafts so debounced commits don't fight typing on either field.
+  // Local drafts, committed explicitly per the keyboard entry contract
+  // (draftEdit action: Enter/blur commit, Escape reverts, Ctrl+Enter
+  // commits + closes the page). Both fields commit together — the block
+  // value is one {url, caption} object.
   // untrack: seed once from the prop; in-flight typing owns the field.
   let urlDraft = $state(untrack(() => value.url))
   let captionDraft = $state(untrack(() => value.caption ?? ''))
-  let urlTimer: ReturnType<typeof setTimeout> | null = null
-  let captionTimer: ReturnType<typeof setTimeout> | null = null
   // External-edit sync state: tracks the last value we ourselves
   // committed, so the $effect below can distinguish our own echoes
   // from genuinely-external changes.
   let lastSavedUrl = $state(untrack(() => value.url))
   let lastSavedCaption = $state(untrack(() => value.caption ?? ''))
 
-  function commit() {
+  const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
+
+  function commitDrafts() {
+    if (urlDraft === lastSavedUrl && captionDraft === lastSavedCaption) return
     const next: { url: string; caption?: string } = { url: urlDraft }
     if (captionDraft.trim() !== '') next.caption = captionDraft
     lastSavedUrl = urlDraft
@@ -28,39 +34,24 @@
     onChange(withValue(block, next))
   }
 
-  function handleUrl(e: Event) {
-    urlDraft = (e.currentTarget as HTMLInputElement).value
-    if (urlTimer) clearTimeout(urlTimer)
-    urlTimer = setTimeout(() => {
-      urlTimer = null
-      commit()
-    }, 400)
+  function revertDrafts() {
+    urlDraft = lastSavedUrl
+    captionDraft = lastSavedCaption
   }
 
-  function handleCaption(e: Event) {
-    captionDraft = (e.currentTarget as HTMLInputElement).value
-    if (captionTimer) clearTimeout(captionTimer)
-    captionTimer = setTimeout(() => {
-      captionTimer = null
-      commit()
-    }, 400)
-  }
-
-  function handleBlur() {
-    if (urlTimer) {
-      clearTimeout(urlTimer)
-      urlTimer = null
-    }
-    if (captionTimer) {
-      clearTimeout(captionTimer)
-      captionTimer = null
-    }
-    commit()
-  }
-
-  $effect(() => () => {
-    if (urlTimer) clearTimeout(urlTimer)
-    if (captionTimer) clearTimeout(captionTimer)
+  // Fresh block prop (re-keyed to a different block): drop stale
+  // drafts and re-seed.
+  let seededID = untrack(() => block.id)
+  $effect(() => {
+    if (block.id === seededID) return
+    seededID = block.id
+    untrack(() => {
+      const next = asUrlValue(block.value)
+      urlDraft = next.url
+      captionDraft = next.caption ?? ''
+      lastSavedUrl = urlDraft
+      lastSavedCaption = captionDraft
+    })
   })
 
   // External-edit sync. Track last committed url + caption to detect
@@ -85,17 +76,17 @@
     inputmode="url"
     class="field"
     placeholder={t('block.url.url_placeholder')}
-    value={urlDraft}
-    oninput={handleUrl}
-    onblur={handleBlur}
+    bind:value={urlDraft}
+    enterkeyhint="done"
+    use:draftEdit={{ onCommit: commitDrafts, onCancel: revertDrafts, scope: editScope }}
   />
   <input
     type="text"
     class="field"
     placeholder={t('block.url.caption_placeholder')}
-    value={captionDraft}
-    oninput={handleCaption}
-    onblur={handleBlur}
+    bind:value={captionDraft}
+    enterkeyhint="done"
+    use:draftEdit={{ onCommit: commitDrafts, onCancel: revertDrafts, scope: editScope }}
   />
   {#if urlDraft}
     <a class="preview" href={urlDraft} target="_blank" rel="noopener noreferrer">

@@ -52,17 +52,18 @@ A click-to-edit text field with full keyboard accessibility.
 | `multiline` | `boolean` | `false` | Use `<textarea>` instead of `<input>` |
 | `markdown` | `boolean` | `false` | Render value as full block markdown when not editing |
 | `inlineMarkdown` | `boolean` | `false` | Render value as inline markdown (no block elements) when not editing |
-| `rows` | `number` | `3` | Textarea row count (only used when `multiline` is true) |
+| `rows` | `number` | `4` | Textarea row count (only used when `multiline` is true) |
 | `class` | `string` | `''` | Extra CSS class applied to the root element |
 | `onSave` | `(value: string) => void` | — | Called when the user commits a change |
 | `onCancel` | `() => void` | — | Called when the user cancels (Escape) |
 | `onTab` | `() => void` | — | Called on Tab keypress — useful for moving focus to the next field |
 
-**Keyboard behaviour:**
-- **Click** or **Enter** (when focused on the display) → enters edit mode, selects all text.
-- **Enter** → saves (single-line mode); **Ctrl+Enter** → saves (multiline mode).
+**Keyboard behaviour** (implements the Keyboard Entry Contract — §8):
+- **Click** or **Enter/Space** (when focused on the display) → enters edit mode, selects all text.
+- **Enter** → saves in BOTH modes; in multiline mode **Shift+Enter** inserts a newline.
+- **Ctrl+Enter** → saves and closes the containing card/dialog (via its `EditScope`).
 - **Escape** → cancels edit, reverts to original value, calls `onCancel`.
-- **Tab** → calls `onTab` if provided; otherwise default tab behaviour.
+- **Tab** → saves then calls `onTab` if provided (single-line only).
 - **Blur** → saves.
 
 **Example:**
@@ -98,7 +99,7 @@ A checklist with inline editing, toggle, add, and remove — all keyboard access
 - **Escape** in edit → cancels.
 - **Tab** from edit → saves and moves focus to the delete button on the same row.
 
-**Add-item input** at the bottom accepts Enter to add.
+**Add-item input** at the bottom is a *serial* input per the Keyboard Entry Contract (§8): Enter adds the item and re-arms for the next, Escape discards the draft and ends the entry, blur keeps the draft uncommitted.
 
 **Example:**
 
@@ -195,30 +196,48 @@ Omit the argument (or pass `false`) for focus-only (ideal for textareas).
 
 ---
 
-## 8. `inlineEdit` — Svelte Action for Inline Edit Inputs
+## 8. Keyboard Entry Contract — `inlineEdit` action + `EditScope`
 
-**File:** `lib/actions.ts`
+**Files:** `shared/inlineEdit.ts` + `shared/editScope.ts` (desktop re-exports the action from `lib/actions.ts`). **Applies to BOTH surfaces.**
 
-Encapsulates the commit-on-Enter/blur, cancel-on-Escape pattern for inline edit inputs. Prevents the classic **double-fire bug** where pressing Enter changes state that removes the input, causing blur to call the commit callback a second time.
+Every data-entry surface follows ONE contract (ruling, 2026-07-10):
+
+| Key | Behaviour |
+|---|---|
+| **Enter** | Commits and ends the edit. Multiline: **Shift+Enter** inserts a newline — chat-style everywhere, including card description, text blocks, and comments. Serial "add another" inputs (checklist/list/media/option add rows): commits the item and re-arms for the next. |
+| **Escape** | Cancels without committing (revert draft). Consumed (`preventDefault` + `stopPropagation`) — never bubbles while an edit is active. |
+| **Ctrl/Cmd+Enter** | Commits, then closes the containing card/dialog. Sole exception: the chat composer sends **without** closing (`closeOnCtrlEnter: false`). |
+| **Escape, nothing editing** | Closes the card/dialog/sheet. |
+| **Blur** | Commits edit-in-place fields. Add-inputs and composers keep their draft uncommitted — never silently discard. |
+
+Discrete pickers (select/date/rating/checkbox/radio/color/icon) commit on choice; Escape closes them unchosen. They are not draft-based.
+
+**Mobile-surface variant (ruling, 2026-07-10).** The table above assumes a hardware keyboard. The mobile PWA is touch-first, so per-surface (no input-modality sniffing):
+- Single-line fields: virtual Enter commits, and every field declares `enterkeyhint` so the keyboard's action key says what it does.
+- **Multiline fields: virtual Enter inserts a newline** (platform-native — Shift+Enter needs two fingers on a touch keyboard). Commit = tap-away (blur) or the explicit ✓ Done button on the active editor. Chat: Enter = newline, the Send button sends. Hardware chords still work everywhere: Ctrl+Enter commits (+closes), Escape cancels. Implemented via the `enterInsertsNewline` option on `inlineEdit`/`draftEdit` — desktop never sets it.
+- **Back = Escape**: while an edit is active, Back (app ← button, gesture, hardware) cancels the edit and the page stays open; with nothing active it navigates. Composers (chat, quick capture, comments) preserve their draft on a Back-cancel — an accidental back-swipe must never eat a typed message. A cancel (or commit) never moves the page's scroll position — the mobile router sets `history.scrollRestoration = 'manual'` so the undone traversal can't re-apply a stale scroll offset.
+- **Checklist/list item rows: Enter (the keyboard's ✓ tick) JUST commits — no next-row advance** (ruling, 2026-07-10). Adding rows is the + button's job (it spawns a blank auto-edit row); one + tap per item is the accepted trade-off. Desktop's serial add-input keeps its re-arm behaviour — this is a mobile-surface rule only.
+- **Cancelling a just-added blank row removes it** (add-cancel per §12.5): Back, hardware Escape, or tap-away with an empty draft on a row that never committed text leaves nothing behind (`EditableItemText` fires `onEmpty` from its cancel path when the committed text is blank).
+
+**Field side — the `inlineEdit` action.**
 
 ```svelte
 {#if editing}
   <input
     use:focusOnMount={true}
     bind:value={draft}
-    use:inlineEdit={{ onCommit: () => save(), onCancel: () => revert() }}
+    use:inlineEdit={{ onCommit: () => save(), onCancel: () => revert(), scope: editScope }}
   />
 {/if}
 ```
 
-**Behaviour:**
-- **Enter** → calls `onCommit` once, then ignores the subsequent blur.
-- **Escape** → calls `onCancel` once (with `stopPropagation`), then ignores the subsequent blur.
-- **Blur** → calls `onCommit` (unless already committed/cancelled).
+Options: `onCommit`, `onCancel`, `multiline`, `serial`, `blurCommits` (default true; forced off by `serial`), `container` (CSS selector — blur ignored while focus stays inside it), `scope`, `closeOnCtrlEnter`. The action also prevents the classic **double-fire bug** (Enter unmounts the input → blur would commit a second time) and ignores keystrokes during IME composition.
 
-**Where used:** CardDetail block label rename, Sidebar hierarchy rename, Column rename, TagEditor tag rename.
+Hand-rolled handlers are acceptable ONLY where the flow is genuinely special (suggestion pickers; mobile item rows where Enter must commit without closing the page) — they must still implement the table above and register with the scope. Reference: `CardTagsField.svelte`.
 
-**Do not** write inline `onkeydown` + `onblur` handlers for simple commit/cancel inputs — use this action instead.
+**Container side — `EditScope`.** Each closable container (card dialog, modal dialog, mobile sheet) creates a scope, sets `requestClose`, and shares it via `setContext(EDIT_SCOPE_KEY, scope)`. Nested dialogs create their own scope — context shadowing routes fields to the nearest container. The container's window keydown asks `scope.hasActive()` before closing on Escape and calls `scope.commitAll()` for the Ctrl+Enter chord (`scope.handleWindowKeydown` is a ready-made helper). The scope also feeds "don't clobber my edit" guards (e.g. CardDetail skips silent card reloads while the scope has active edits).
+
+**Do not** write inline `onkeydown` + `onblur` handlers for simple commit/cancel inputs — use this action.
 
 ---
 
@@ -257,6 +276,16 @@ card = await tracked(UpdateCardTitle(cardId, title)) as Card
 **Where used:** CardDetail modal footer.
 
 **i18n keys:** `common.saving`, `common.saved`
+
+---
+
+## 9.5 `clickOutside` Action & Shared Dropdown Chrome
+
+**Files:** `lib/actions.ts` (`clickOutside`), `style.css` (`.dropdown-menu` family)
+
+`clickOutside(node, { onOutsideClick, exclude? })` closes popovers/menus on any click outside the node. Pass the trigger element in `exclude` so its own click can toggle without immediately re-closing. Attach to the popover content and pair with conditional rendering so it only listens while open. **Do not** hand-roll document-level click listeners for this — four divergent copies were consolidated into this action (2026-07-10).
+
+Dropdown menus share the global `.dropdown-menu` / `.dropdown-menu-item` classes (+ `.dropdown-menu--grid` for grid layouts) in `style.css` — same shared-utility pattern as `.action-reveal`. Discrete dropdowns also close on **Escape** (consumed) per §8/§12.5, and every `:hover` style needs its `:focus-visible` twin (§12.2). Reference implementations: `CardShareMenu.svelte`, `BlockPicker.svelte`.
 
 ---
 
@@ -326,10 +355,22 @@ A reusable wrapper around `@lottiefiles/dotlottie-web` for rendering `.lottie` (
 
 1. **All interactive elements must be keyboard-reachable.** Use `tabindex="0"` on non-button elements that act as buttons.
 2. **Focus-visible must match hover state.** If a button turns red on hover, it must also turn red on `:focus-visible`.
-3. **Escape always cancels** an in-progress edit without saving.
-4. **Enter saves** in single-line edits; **Ctrl+Enter** saves in multiline edits.
+3. **Escape always cancels** an in-progress edit without saving — and closes the containing card/dialog only when nothing is being edited (see §8).
+4. **Enter commits** in ALL edits (multiline uses Shift+Enter for newlines); **Ctrl+Enter** commits and closes the container (see §8).
 5. **Use semantic HTML** — prefer `<button>` for actions, `<input>` for editable text.
 6. **Never remove elements from the DOM** to hide them — use `color: transparent` or `opacity: 0` so they remain accessible to screen readers and keyboard navigation.
+
+---
+
+## 12.5 Drag Surfaces & Grip Handles
+
+The design metaphor is **"everything you expect to be draggable is"** — draggable elements get `cursor: grab` and body-drag, with **no grip icon** (sidebar tree, kanban columns, cards, blocks-as-a-whole).
+
+**Sanctioned exception (ruling, 2026-07-10):** rows whose *body is an edit surface* — clicking the row starts editing or another primary action — keep a `GripVertical` as their only drag surface, because the click has to mean "edit": BlockItem, EditableChecklist/EditableList item rows, SurveyBlock questions, OptionsEditorDialog/TemplateEditor/TemplateEditorDialog option & param rows, LLMAccountsManager account rows (click expands the inline editor), MCPServersDialog arg rows (text inputs), and mobile Checklist/ListBlock (where the grip also avoids the touch-scroll conflict). Do not "fix" grip-only dragging on such rows, and do not add grips anywhere else.
+
+**Delete vs add-cancel (ruling, 2026-07-10):** clicking a **delete/clear button always confirms** via ConfirmDialog — even for empty containers and zero-usage tags. Cancelling an add-flow (Escape on an untouched placeholder, backing out of an add input) **never prompts**.
+
+The boundary (Harvey, 2026-07-10): confirmation applies to deleting an **object** (card, category, brand/stream/project, tag, template, agent, attachment, comment, notification list). Removing a **row inside an editing surface** — a checklist/list item, media item, tag chip on a card, select option, survey question, MCP arg, template param, a single notification — is an *edit to the containing object*, not a delete, and stays promptless.
 
 ---
 

@@ -4,19 +4,61 @@
   // still answer text / rating / single-choice / multi-choice
   // questions from their phone.
 
+  import { untrack, getContext } from 'svelte'
   import { Star } from 'lucide-svelte'
   import { t } from '../../lib/i18n.svelte'
+  import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import type { Block, SurveyQuestion } from '@shared/types'
   import { asSurveyQuestions, withValue } from './narrow'
+  import { draftEdit } from '../../lib/actions/draftEdit'
+  import EditorDoneButton from '../EditorDoneButton.svelte'
 
   let { block, onChange }: { block: Block; onChange: (next: Block) => void } = $props()
 
   const questions = $derived(asSurveyQuestions(block.value))
 
+  const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
+
   function answer(qID: string, ans: string | string[] | number | undefined) {
     const next = questions.map((q) => (q.id === qID ? { ...q, answer: ans } : q))
     onChange(withValue(block, next))
   }
+
+  // Text answers are draft-based per the keyboard entry contract,
+  // mobile multiline variant (draftEdit action: Enter inserts a
+  // newline; blur / ✓ Done commit, Escape reverts). Drafts are keyed
+  // by stable question ID and exist only while an answer is being
+  // edited — outside that window the field renders q.answer, so
+  // external edits flow through untouched.
+  let textDrafts = $state<Record<string, string>>({})
+  // Which question's textarea is focused → shows its ✓ Done button.
+  let focusedQuestionID = $state<string | null>(null)
+  // Element refs keyed by question ID so ✓ Done can blur the right
+  // textarea (blur = the action's commit path).
+  const answerEls = new Map<string, HTMLTextAreaElement>()
+
+  function textAnswer(q: SurveyQuestion): string {
+    return typeof q.answer === 'string' ? q.answer : ''
+  }
+
+  function commitText(q: SurveyQuestion) {
+    const draft = textDrafts[q.id]
+    if (draft === undefined) return
+    delete textDrafts[q.id]
+    if (draft !== textAnswer(q)) answer(q.id, draft)
+  }
+
+  function revertText(q: SurveyQuestion) {
+    delete textDrafts[q.id]
+  }
+
+  // Fresh block prop (re-keyed to a different block): drop stale drafts.
+  let seededID = untrack(() => block.id)
+  $effect(() => {
+    if (block.id === seededID) return
+    seededID = block.id
+    textDrafts = {}
+  })
 
   function isChosen(q: SurveyQuestion, opt: string): boolean {
     if (q.multi && Array.isArray(q.answer)) return q.answer.includes(opt)
@@ -45,10 +87,18 @@
         <textarea
           class="text-answer"
           rows="2"
-          value={typeof q.answer === 'string' ? q.answer : ''}
-          oninput={(e) => answer(q.id, (e.currentTarget as HTMLTextAreaElement).value)}
+          value={textDrafts[q.id] ?? textAnswer(q)}
+          oninput={(e) => (textDrafts[q.id] = (e.currentTarget as HTMLTextAreaElement).value)}
+          onfocus={(e) => { focusedQuestionID = q.id; answerEls.set(q.id, e.currentTarget as HTMLTextAreaElement) }}
+          onblur={() => { if (focusedQuestionID === q.id) focusedQuestionID = null }}
+          use:draftEdit={{ multiline: true, enterInsertsNewline: true, onCommit: () => commitText(q), onCancel: () => revertText(q), scope: editScope }}
           placeholder={t('block.survey.unanswered')}
         ></textarea>
+        {#if focusedQuestionID === q.id}
+          <div class="editor-actions">
+            <EditorDoneButton onDone={() => answerEls.get(q.id)?.blur()} />
+          </div>
+        {/if}
       {:else if q.type === 'rating'}
         {@const max = q.max ?? 5}
         {@const current = typeof q.answer === 'number' ? q.answer : 0}
@@ -118,6 +168,10 @@
   .text-answer:focus {
     outline: none;
     border-color: var(--accent);
+  }
+  .editor-actions {
+    display: flex;
+    justify-content: flex-end;
   }
   .stars {
     display: inline-flex;

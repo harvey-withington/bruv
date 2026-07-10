@@ -80,20 +80,6 @@ func loadCustomPricingFromDisk() (map[string]ModelPricing, error) {
 	return custom, nil
 }
 
-// LoadCustomPricing returns the merged pricing map (defaults + user overrides).
-func LoadCustomPricing() (map[string]ModelPricing, error) {
-	return mergedPricing(), nil
-}
-
-// SaveCustomPricing persists user pricing overrides to disk.
-func SaveCustomPricing(pricing map[string]ModelPricing) error {
-	fp, err := pricingFilePath()
-	if err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(pricing, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(fp, data, 0o644)
-}
+// The Get/SaveTokenPricing RPC surface was deleted 2026-07-10 (ruled:
+// no in-app pricing editor). Hand-edited overrides in
+// <configDir>/pricing.json are still merged by mergedPricing above.

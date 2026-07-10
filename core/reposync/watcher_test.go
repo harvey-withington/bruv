@@ -203,3 +203,47 @@ func TestBrandFileFiresBrandUpdated(t *testing.T) {
 		t.Fatalf("expected brand:updated for acme; got %v", r.snapshot())
 	}
 }
+
+func TestClassifyCategoryAndWorkspacePaths(t *testing.T) {
+	root := filepath.Join("r")
+	cases := []struct {
+		rel       string
+		wantTopic string
+		wantKeys  map[string]any
+	}{
+		{
+			// The category branch was dead code (len==7 condition on an
+			// 8-segment path) — external category edits refreshed nothing.
+			rel:       "brands/acme/streams/main/projects/site/categories/todo.json",
+			wantTopic: "category:updated",
+			wantKeys: map[string]any{
+				"brandSlug": "acme", "streamSlug": "main",
+				"projectSlug": "site", "categorySlug": "todo",
+			},
+		},
+		{
+			rel:       "brands/acme/streams/main/projects/site/workspace/workspace.json",
+			wantTopic: "workspace:updated",
+			wantKeys: map[string]any{
+				"brand_slug": "acme", "stream_slug": "main", "project_slug": "site",
+			},
+		},
+	}
+	for _, tc := range cases {
+		path := filepath.Join(root, filepath.FromSlash(tc.rel))
+		topic, payload, ok := classify(root, path)
+		if !ok {
+			t.Errorf("classify(%q): ok=false, want topic %q", tc.rel, tc.wantTopic)
+			continue
+		}
+		if topic != tc.wantTopic {
+			t.Errorf("classify(%q) topic = %q, want %q", tc.rel, topic, tc.wantTopic)
+		}
+		p, _ := payload.(map[string]any)
+		for k, want := range tc.wantKeys {
+			if p[k] != want {
+				t.Errorf("classify(%q) payload[%q] = %v, want %v", tc.rel, k, p[k], want)
+			}
+		}
+	}
+}

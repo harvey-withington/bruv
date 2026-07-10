@@ -108,7 +108,6 @@
         placeholder={t('block.checklist.placeholder')}
         onSave={(v) => commitText(item.id, v)}
         onEmpty={() => deleteItem(item.id)}
-        onEnter={addItem}
       />
       <button
         type="button"

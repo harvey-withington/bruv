@@ -683,8 +683,11 @@
 
   async function handleDeleteBrand(e: MouseEvent, slug: string) {
     e.stopPropagation()
-    const streams = streamsByBrand[slug] || []
-    if (streams.length > 0 && !await showConfirm(t('sidebar.confirm_delete_brand').replace('{name}', slug))) return
+    // Ruling 2026-07-10: delete buttons ALWAYS confirm — empty
+    // containers included. (The silent cleanup of an untouched
+    // just-created placeholder in cancelRename is an add-cancel and
+    // stays promptless.)
+    if (!await showConfirm(t('sidebar.confirm_delete_brand', { name: slug }))) return
     try {
       await DeleteBrand(slug)
       if (nav.brandSlug === slug) {
@@ -700,9 +703,9 @@
 
   async function handleDeleteStream(e: MouseEvent, brandSlug: string, streamSlug: string) {
     e.stopPropagation()
-    const key = `${brandSlug}/${streamSlug}`
-    const projects = projectsByStream[key] || []
-    if (projects.length > 0 && !await showConfirm(t('sidebar.confirm_delete_stream').replace('{name}', streamSlug))) return
+    // Ruling 2026-07-10: delete buttons always confirm (see
+    // handleDeleteBrand).
+    if (!await showConfirm(t('sidebar.confirm_delete_stream', { name: streamSlug }))) return
     try {
       await DeleteStream(brandSlug, streamSlug)
       if (nav.brandSlug === brandSlug && nav.streamSlug === streamSlug) {
@@ -717,7 +720,7 @@
 
   async function handleDeleteProject(e: MouseEvent, brandSlug: string, streamSlug: string, projectSlug: string) {
     e.stopPropagation()
-    if (!await showConfirm(t('sidebar.confirm_delete_project').replace('{name}', projectSlug))) return
+    if (!await showConfirm(t('sidebar.confirm_delete_project', { name: projectSlug }))) return
     try {
       await DeleteProject(brandSlug, streamSlug, projectSlug)
       if (nav.brandSlug === brandSlug && nav.streamSlug === streamSlug && nav.projectSlug === projectSlug) {
@@ -866,6 +869,24 @@
     } catch (err) {
       console.error('Drag/drop:', err)
       showToast(t('error.move_failed'), 'error')
+      // Roll back the optimistic splice by reloading the affected
+      // level from disk — otherwise the local order stays diverged
+      // from persisted order until the next full reload.
+      try {
+        if (d.type === 'brand') {
+          await loadBrands()
+        } else if (d.type === 'stream') {
+          streamsByBrand[d.brandSlug] = await ListStreams(d.brandSlug) || []
+          if (toParent !== d.brandSlug) streamsByBrand[toParent] = await ListStreams(toParent) || []
+        } else if (d.type === 'project') {
+          const fromKey = `${d.brandSlug}/${d.streamSlug}`
+          projectsByStream[fromKey] = await ListProjects(d.brandSlug, d.streamSlug) || []
+          if (toParent !== fromKey) {
+            const [toBrand, toStream] = toParent.split('/')
+            projectsByStream[toParent] = await ListProjects(toBrand, toStream) || []
+          }
+        }
+      } catch { /* reload is best-effort; the toast already fired */ }
     }
   }
 
@@ -904,7 +925,7 @@
           class="header-btn"
           class:remote={!isLocalActive()}
           onclick={onOpenConnections}
-          title={t('connection.indicator_title').replace('{name}', activeConnectionLabel())}
+          title={t('connection.indicator_title', { name: activeConnectionLabel() })}
         >
           {#if isLocalActive()}<Monitor size={16} />{:else}<Server size={16} />{/if}
         </button>
@@ -928,7 +949,7 @@
         class="connection-chip"
         class:remote={!isLocalActive()}
         onclick={onOpenConnections}
-        title={t('connection.indicator_title').replace('{name}', activeConnectionLabel())}
+        title={t('connection.indicator_title', { name: activeConnectionLabel() })}
       >
         {#if isLocalActive()}<Monitor size={14} />{:else}<Server size={14} />{/if}
         <span class="connection-chip-label">
@@ -944,8 +965,7 @@
           bind:value={repoDescDraft}
           placeholder={t('sidebar.repoDescriptionPlaceholder')}
           rows="2"
-          onblur={commitRepoDesc}
-          onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitRepoDesc() } if (e.key === 'Escape') cancelRepoDesc() }}
+          use:inlineEdit={{ multiline: true, onCommit: commitRepoDesc, onCancel: cancelRepoDesc }}
         ></textarea>
       {:else}
         <button class="repo-desc-display" onclick={startEditRepoDesc} title={t('sidebar.repoDescriptionEdit')}>
@@ -1020,8 +1040,7 @@
                   bind:value={renaming.description}
                   placeholder={t('sidebar.descriptionPlaceholder')}
                   rows="2"
-                  onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitRename() } if (e.key === 'Escape') cancelRename() }}
-                  onblur={(e) => { const related = (e as FocusEvent).relatedTarget as HTMLElement | null; if (!related || !related.closest('.rename-group')) commitRename() }}
+                  use:inlineEdit={{ multiline: true, onCommit: () => commitRename(), onCancel: () => cancelRename(), container: '.rename-group' }}
                 ></textarea>
               </div>
             {:else}

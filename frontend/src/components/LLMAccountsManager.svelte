@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { Plus, Trash2, Star, Eye, EyeOff, Zap, ChevronDown, ChevronRight } from 'lucide-svelte'
+  import { Plus, Trash2, Star, Eye, EyeOff, Zap, ChevronDown, ChevronRight, GripVertical } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
-  import { showToast } from '../lib/toast.svelte'
+  import { showConfirm } from '../lib/confirm.svelte'
   import { TestLLMAccountConnection, SaveLLMAccounts } from '@shared/api'
   import type { LLMAccount } from '@shared/types'
+  import { computeReorder, wouldReorder, DROP_END } from '../lib/reorder'
 
   let { accounts = $bindable([]), onchange }: {
     accounts: LLMAccount[]
@@ -44,8 +45,11 @@
     onchange?.()
   }
 
-  function removeAccount(id: string) {
-    const wasDefault = accounts.find(a => a.id === id)?.is_default
+  async function removeAccount(id: string) {
+    const acct = accounts.find(a => a.id === id)
+    if (!acct) return
+    if (!await showConfirm(t('llm.account_delete_confirm', { label: acct.label || acct.provider }))) return
+    const wasDefault = acct.is_default
     accounts = accounts.filter(a => a.id !== id)
     if (wasDefault && accounts.length > 0) {
       accounts[0].is_default = true
@@ -92,6 +96,58 @@
   function toggleExpand(id: string) {
     expandedId = expandedId === id ? null : id
   }
+
+  // --- Drag-to-reorder ---
+  // Staged like every other mutation here: the new order lands in the
+  // bindable `accounts` array and persists when SettingsDialog saves.
+  let draggingId = $state<string | null>(null)
+  let dropBeforeId = $state<string | typeof DROP_END | null>(null)
+
+  function handleDragStart(e: DragEvent, id: string) {
+    draggingId = id
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move'
+      e.dataTransfer.setData('text/plain', id)
+    }
+  }
+
+  function handleDragOver(e: DragEvent, overId: string, idx: number) {
+    if (draggingId === null) return
+    e.preventDefault()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const midY = rect.top + rect.height / 2
+    let candidate: string | typeof DROP_END
+    if (e.clientY < midY) {
+      candidate = overId
+    } else {
+      const next = accounts[idx + 1]
+      candidate = next ? next.id : DROP_END
+    }
+    dropBeforeId = wouldReorder(accounts, draggingId, candidate, 'move') ? candidate : null
+  }
+
+  function handleDragEnd() {
+    draggingId = null
+    dropBeforeId = null
+  }
+
+  function handleDrop(e: DragEvent) {
+    e.preventDefault()
+    if (draggingId === null || dropBeforeId === null) {
+      handleDragEnd()
+      return
+    }
+    const reordered = computeReorder(accounts, draggingId, dropBeforeId, { mode: 'move' })
+    handleDragEnd()
+    if (reordered === accounts) return
+    // Staged like every other mutation in this manager — the Settings
+    // dialog's Save persists the whole array. Persisting on drop would
+    // silently commit staged-but-unsaved edits/deletions to other
+    // accounts alongside the reorder.
+    accounts = reordered
+    onchange?.()
+  }
 </script>
 
 <div class="accounts-manager">
@@ -99,21 +155,51 @@
     <p class="accounts-empty">{t('llm.accounts_empty')}</p>
   {/if}
 
-  {#each accounts as acct (acct.id)}
-    <div class="account-row" class:expanded={expandedId === acct.id}>
-      <button class="account-header" onclick={() => toggleExpand(acct.id)}>
-        <span class="expand-icon">
-          {#if expandedId === acct.id}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
-        </span>
-        <span class="account-label">{acct.label || acct.provider}</span>
-        <span class="account-provider-badge">{acct.provider}</span>
-        {#if acct.is_default}
-          <span class="default-badge"><Star size={10} /> {t('llm.account_default_badge')}</span>
-        {/if}
-        {#if acct.model}
-          <span class="account-model-badge">{acct.model}</span>
-        {/if}
-      </button>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="accounts-list"
+    role="list"
+    ondrop={handleDrop}
+    ondragover={(e) => { if (draggingId !== null) e.preventDefault() }}
+  >
+  {#each accounts as acct, idx (acct.id)}
+    {#if draggingId !== null && dropBeforeId === acct.id}
+      <div class="account-drop-indicator"></div>
+    {/if}
+    <div
+      class="account-row action-reveal-parent"
+      class:expanded={expandedId === acct.id}
+      class:account-row-dragging={draggingId === acct.id}
+      data-account-id={acct.id}
+      role="listitem"
+      ondragover={(e) => handleDragOver(e, acct.id, idx)}
+    >
+      <div class="account-header-row">
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <span
+          class="account-drag-handle"
+          draggable={true}
+          ondragstart={(e) => handleDragStart(e, acct.id)}
+          ondragend={handleDragEnd}
+          role="button"
+          tabindex="-1"
+          aria-label={t('tooltip.drag_llm_account')}
+          title={t('tooltip.drag_llm_account')}
+        ><GripVertical size={14} /></span>
+        <button class="account-header" onclick={() => toggleExpand(acct.id)}>
+          <span class="expand-icon">
+            {#if expandedId === acct.id}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
+          </span>
+          <span class="account-label">{acct.label || acct.provider}</span>
+          <span class="account-provider-badge">{acct.provider}</span>
+          {#if acct.is_default}
+            <span class="default-badge"><Star size={10} /> {t('llm.account_default_badge')}</span>
+          {/if}
+          {#if acct.model}
+            <span class="account-model-badge">{acct.model}</span>
+          {/if}
+        </button>
+      </div>
 
       {#if expandedId === acct.id}
         <div class="account-detail">
@@ -178,6 +264,10 @@
       {/if}
     </div>
   {/each}
+  {#if draggingId !== null && dropBeforeId === DROP_END}
+    <div class="account-drop-indicator"></div>
+  {/if}
+  </div>
 
   {#if addingNew}
     <div class="account-row expanded new-account">
@@ -237,6 +327,19 @@
     margin: 0;
   }
 
+  .accounts-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .account-drop-indicator {
+    height: 2px;
+    background: var(--accent);
+    border-radius: 1px;
+    margin: 1px 0;
+  }
+
   .account-row {
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -246,6 +349,32 @@
   .account-row.expanded {
     border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
   }
+  .account-row-dragging { opacity: 0.4; }
+
+  .account-header-row {
+    display: flex;
+    align-items: stretch;
+  }
+
+  /* Drag handle: revealed on row hover, mirroring EditableChecklist's
+     .cl-drag-handle — kept in its own column so it doesn't fight the
+     toggle button's click target. */
+  .account-drag-handle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    flex-shrink: 0;
+    color: var(--text-faint);
+    cursor: grab;
+    opacity: 0;
+    transition: opacity var(--duration-fast) var(--ease-out);
+  }
+  .account-row:hover .account-drag-handle,
+  .account-drag-handle:focus-visible {
+    opacity: 1;
+  }
+  .account-drag-handle:active { cursor: grabbing; }
 
   .account-header {
     display: flex;

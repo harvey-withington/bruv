@@ -227,7 +227,11 @@ func (s *Service) Delete(id string) error {
 	if err := r.DeleteCard(id); err != nil {
 		return err
 	}
-	_ = config.DeleteChatFor(r.Manifest.ID, id)
+	if err := config.DeleteChatFor(r.Manifest.ID, id); err != nil {
+		// Non-fatal — the card is gone either way — but silently
+		// swallowing it leaves orphaned chat files accumulating.
+		slog.Warn("delete chat for removed card failed", "cardID", id, "err", err)
+	}
 	if idx := s.deps.Index(); idx != nil {
 		s.logIdxErr("RemoveCard", idx.RemoveCard(id))
 	}
@@ -358,9 +362,13 @@ func (s *Service) RemoveAttachment(cardID, attachmentID string) (*model.Card, er
 }
 
 func (s *Service) UpdateTags(id string, tags []string) (*model.Card, error) {
+	// Sanitize into a copy — mutating the caller's slice in place is a
+	// latent aliasing bug (the dispatcher may reuse the decoded args).
+	clean := make([]string, len(tags))
 	for i, t := range tags {
-		tags[i] = repo.SanitizeText(t)
+		clean[i] = repo.SanitizeText(t)
 	}
+	tags = clean
 	r := s.deps.Repo()
 	if r == nil {
 		return nil, fmt.Errorf("no repository open")

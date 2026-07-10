@@ -2,6 +2,8 @@
   import { onMount, tick } from 'svelte'
   import { Send, X, Trash2, MessageCircle, PencilLine, ListChecks } from 'lucide-svelte'
   import { repoRPC, machineRPC } from '../../lib/auth'
+  import { inlineEdit } from '@shared/inlineEdit'
+  import { EditScope } from '@shared/editScope'
   import { t } from '../../lib/i18n.svelte'
   import { navigate, cardURL } from '../../lib/router.svelte'
   import ChatMessage from './ChatMessage.svelte'
@@ -16,6 +18,37 @@
   } from './types'
 
   let { scope, onClose }: { scope: ChatScope; onClose: () => void } = $props()
+
+  // Keyboard entry contract. The composer registers while focused;
+  // Escape closes the sheet only when it isn't mid-entry. Named
+  // editScope because `scope` is already taken by the chat scope prop.
+  const editScope = new EditScope()
+  editScope.requestClose = () => onClose()
+
+  // Capture phase: the sheet overlays a page (CardPage) that listens
+  // for Escape/Ctrl+Enter on window bubble — the sheet must consume
+  // those keys before the page underneath reacts to them.
+  function onWindowKeydownCapture(e: KeyboardEvent) {
+    // The clear-history ConfirmDialog owns Escape while open.
+    if (confirmingClear) return
+    if (e.key === 'Escape') {
+      // An active entry's own handler cancels + consumes Escape (the
+      // event targets the focused field, whose listener runs after
+      // this capture handler and stops propagation).
+      if (editScope.hasActive()) return
+      e.preventDefault()
+      e.stopPropagation()
+      onClose()
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      // Chat exception: with the composer focused, Ctrl+Enter sends
+      // WITHOUT closing (the field's own handler consumes the chord).
+      if (editScope.hasActive()) return
+      e.preventDefault()
+      e.stopPropagation()
+      editScope.commitAll()
+      onClose()
+    }
+  }
 
   let messages = $state<ChatMsg[]>([])
   let inputText = $state('')
@@ -226,12 +259,15 @@
     }
   }
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      e.stopPropagation()
-      void send()
-    }
+  // Composer keyboard behaviour comes from the shared inlineEdit action,
+  // mobile multiline variant (WhatsApp-style: Enter inserts a newline,
+  // the Send button sends; hardware Ctrl+Enter still sends). Cancel
+  // (Escape / Back) only dismisses the keyboard — it must NOT destroy
+  // the draft: an accidental back-swipe mid-message would be data loss.
+  // closeOnCtrlEnter is off — the chat exception: Ctrl+Enter sends
+  // without closing the sheet (closing would hide the reply).
+  function cancelCompose() {
+    textareaEl?.blur()
   }
 
   // --- Swipe-to-dismiss on the header ---
@@ -279,8 +315,10 @@
     history.pushState({ chat: true }, '')
     const onPop = () => onClose()
     window.addEventListener('popstate', onPop)
+    window.addEventListener('keydown', onWindowKeydownCapture, true)
     return () => {
       window.removeEventListener('popstate', onPop)
+      window.removeEventListener('keydown', onWindowKeydownCapture, true)
       if (history.state?.chat) history.back()
     }
   })
@@ -391,7 +429,15 @@
     <textarea
       bind:this={textareaEl}
       bind:value={inputText}
-      onkeydown={handleKeydown}
+      use:inlineEdit={{
+        serial: true,
+        multiline: true,
+        enterInsertsNewline: true,
+        closeOnCtrlEnter: false,
+        onCommit: () => { void send() },
+        onCancel: cancelCompose,
+        scope: editScope,
+      }}
       oninput={autoGrow}
       placeholder={t('chat.placeholder')}
       disabled={sending}

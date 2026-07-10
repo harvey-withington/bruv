@@ -10,7 +10,7 @@
   import { getCardTypeColor, CARD_TYPE_ORDER } from '@shared/cardTypes'
   import { UpdateCategoryAcceptedTypes, UpdateCategoryDescription, UpdateCategoryIcon } from '@shared/api'
   import { Pencil as PencilSmall } from 'lucide-svelte'
-  import { inlineEdit, floatingDropdown } from '../lib/actions'
+  import { inlineEdit, floatingDropdown, clickOutside } from '../lib/actions'
 
   type CardData = {
     id: string
@@ -253,21 +253,6 @@
     }
   }
 
-  // Close settings popover on outside click
-  function handleSettingsClickOutside(e: MouseEvent) {
-    const target = e.target as HTMLElement
-    if (!target.closest('.settings-popover') && !target.closest('.col-settings-btn')) {
-      closeSettings()
-    }
-  }
-
-  $effect(() => {
-    if (showSettings) {
-      document.addEventListener('click', handleSettingsClickOutside)
-      return () => document.removeEventListener('click', handleSettingsClickOutside)
-    }
-  })
-
   function startEditDesc() {
     descDraft = category.description || ''
     editingDesc = true
@@ -370,8 +355,7 @@
           bind:value={descDraft}
           placeholder={t('column.descriptionPlaceholder')}
           rows="2"
-          onblur={commitDesc}
-          onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitDesc() } if (e.key === 'Escape') cancelDesc() }}
+          use:inlineEdit={{ multiline: true, onCommit: commitDesc, onCancel: cancelDesc }}
         ></textarea>
       {:else}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -409,7 +393,11 @@
   {/if}
 
   {#if showSettings && settingsBtnEl}
-    <div class="settings-popover" use:floatingDropdown={{ trigger: settingsBtnEl }}>
+    <div
+      class="settings-popover"
+      use:floatingDropdown={{ trigger: settingsBtnEl }}
+      use:clickOutside={{ onOutsideClick: closeSettings, exclude: [settingsBtnEl] }}
+    >
       <div class="popover-title">{t('column.accepted_types')}</div>
       <label class="type-option">
         <input type="checkbox" checked={allTypesAccepted()} onchange={toggleAllTypes} />

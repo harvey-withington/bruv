@@ -22,7 +22,10 @@
   import SaveIndicator from './SaveIndicator.svelte'
   import { draggable } from '../lib/draggable'
   import { fade } from 'svelte/transition'
+  import { setContext } from 'svelte'
   import { focusTrap } from '../lib/actions'
+  import { EditScope, EDIT_SCOPE_KEY } from '@shared/editScope'
+  import { optionsEditorState } from '../lib/optionsEditor.svelte'
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
   import type { Card, CardPin, ProjectMember } from '@shared/types'
@@ -149,6 +152,26 @@
   // access to its exported add/restore/commit helpers.
   let cardBlocksRef = $state<CardBlocks | null>(null)
 
+  // Keyboard entry contract (UI-CONVENTIONS "Keyboard entry"): every
+  // in-flight edit inside this dialog registers here. Escape closes
+  // the card only when the scope is empty; Ctrl+Enter commits all +
+  // closes. Children pick the scope up via context.
+  const editScope = new EditScope()
+  editScope.requestClose = () => onClose()
+  setContext(EDIT_SCOPE_KEY, editScope)
+
+  // Title + description edits are owned by this component (their save
+  // paths are entangled with tracked()/savingCount + the mention
+  // picker), so they register with the scope directly.
+  $effect(() => {
+    if (!editingTitle) return
+    return editScope.register({ commit: () => { void saveTitle() }, cancel: cancelTitle })
+  })
+  $effect(() => {
+    if (!editingDescription) return
+    return editScope.register({ commit: () => { void saveDescription() }, cancel: cancelDescription })
+  })
+
   // @ mention picker state (description only — block/checklist mentions
   // are handled by CardBlocks' own picker)
   let mentionVisible = $state(false)
@@ -170,7 +193,10 @@
     const watchedCardId = cardId
     const unsubscribe = onEvent<{ cardID?: string }>('card:updated', (data) => {
       if (!data || data.cardID !== watchedCardId) return
-      if (editingTitle || editingDescription || cardBlocksRef?.hasActiveEdit()) return
+      // The edit scope covers title, description, blocks, checklist
+      // items, tags, and comments — anything registered is an edit a
+      // silent reload would clobber.
+      if (editScope.hasActive()) return
       // Silent refresh — don't wipe the visible card with the loading
       // placeholder. Without this, the dialog flashes whenever the agent
       // writes an update to the card mid-run.
@@ -181,12 +207,22 @@
     }
   })
 
+  // Stale-response guard: this one instance is reused across cards
+  // (mention-link navigation swaps cardId mid-load), so a slow GetCard
+  // for card A must never render — or seed drafts — under card B.
+  let cardLoadSeq = 0
+
   async function loadCard(silent: boolean = false) {
+    const seq = ++cardLoadSeq
     if (!silent) loading = true
     try {
-      card = await GetCard(cardId) as Card
+      const loaded = await GetCard(cardId) as Card
+      if (seq !== cardLoadSeq) return
+      card = loaded
       notFound = false
-      pinBreadcrumbs = await GetCardPinBreadcrumbs(cardId) || []
+      const crumbs = await GetCardPinBreadcrumbs(cardId) || []
+      if (seq !== cardLoadSeq) return // check BEFORE the write — a stale assign can't be undone
+      pinBreadcrumbs = crumbs
       titleDraft = card.title
       descriptionDraft = card.description || ''
       // CardBlocks re-seeds its drafts on every reload. On non-silent
@@ -208,6 +244,7 @@
         try { projectMembers = await GetProjectMembers(nav.brandSlug, nav.streamSlug, nav.projectSlug) || [] } catch {}
       }
     } catch (e) {
+      if (seq !== cardLoadSeq) return
       // Backend returns "card %q not found" for missing cards (the
       // common case from a stale Inbox / Activity link). Treat any
       // failed load as not-found from the user's perspective —
@@ -217,7 +254,7 @@
       card = null
       notFound = true
     }
-    loading = false
+    if (seq === cardLoadSeq) loading = false
   }
 
   function openTypePicker() {
@@ -265,13 +302,25 @@
       return
     }
     try {
-      card = await tracked(UpdateCardTitle(cardId, titleDraft.trim())) as Card
+      // Guard against clobbering after a card switch: this dialog
+      // instance is reused, so a save whose response lands after the
+      // user navigated to another card must not overwrite it.
+      const savedFor = cardId
+      const updated = await tracked(UpdateCardTitle(cardId, titleDraft.trim())) as Card
+      if (savedFor !== cardId) return
+      card = updated
       editingTitle = false
     } catch (e) { showToast(t('error.save_failed'), 'error'); return }
     onUpdated?.()
   }
 
+  function cancelTitle() {
+    editingTitle = false
+    titleDraft = card?.title ?? titleDraft
+  }
+
   async function handleTitleKeydown(e: KeyboardEvent) {
+    if (e.isComposing) return
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()
       e.stopPropagation()  // prevent handleBackdropKeydown from also calling saveTitle
@@ -290,27 +339,50 @@
       // the description for the natural top-down editing flow.
       if (activeTab === 'details') editingDescription = true
     } else if (e.key === 'Escape') {
+      e.preventDefault()
       e.stopPropagation()
-      editingTitle = false
-      titleDraft = card?.title ?? titleDraft
+      cancelTitle()
     }
   }
 
   async function saveDescription() {
     if (!editingDescription) return
     try {
-      card = await tracked(UpdateCardDescription(cardId, descriptionDraft)) as Card
+      // Same card-switch guard as saveTitle.
+      const savedFor = cardId
+      const updated = await tracked(UpdateCardDescription(cardId, descriptionDraft)) as Card
+      if (savedFor !== cardId) return
+      card = updated
       editingDescription = false
     } catch (e) { showToast(t('error.save_failed'), 'error'); return }
     onUpdated?.()
   }
 
-  function handleDescKeydown(e: KeyboardEvent) {
-    if (mentionVisible) return
-    if (e.key === 'Escape') {
+  function cancelDescription() {
+    editingDescription = false
+    descriptionDraft = card?.description || ''
+  }
+
+  async function handleDescKeydown(e: KeyboardEvent) {
+    if (mentionVisible || e.isComposing) return
+    if (e.key === 'Enter') {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault()
+        e.stopPropagation()
+        // Await like handleTitleKeydown — closing mid-save let the late
+        // response clobber a freshly opened card on this reused instance.
+        await saveDescription()
+        onClose()
+        return
+      }
+      // Contract: Enter commits, Shift+Enter inserts the newline.
+      if (e.shiftKey) return
+      e.preventDefault()
+      void saveDescription()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
       e.stopPropagation()
-      editingDescription = false
-      descriptionDraft = card?.description || ''
+      cancelDescription()
     }
   }
 
@@ -371,8 +443,8 @@
       if (isPinnedHere && currentPin) {
         const name = currentCategoryName || currentPin.categoryName
         const msg = pinBreadcrumbs.length === 1
-          ? t('card.confirm_unpin_last').replace('{name}', name)
-          : t('card.confirm_unpin').replace('{name}', name)
+          ? t('card.confirm_unpin_last', { name })
+          : t('card.confirm_unpin', { name })
         if (!await showConfirm(msg)) { pinActionLoading = false; return }
         await UnpinCard(cardId, currentPin.categoryId)
       } else {
@@ -446,8 +518,8 @@
 
   async function handleUnpin(pin: CardPin) {
     const msg = pinBreadcrumbs.length === 1
-      ? t('card.confirm_unpin_last').replace('{name}', pin.categoryName)
-      : t('card.confirm_unpin').replace('{name}', pin.categoryName)
+      ? t('card.confirm_unpin_last', { name: pin.categoryName })
+      : t('card.confirm_unpin', { name: pin.categoryName })
     if (!await showConfirm(msg)) return
     pinActionLoading = true
     try {
@@ -475,17 +547,27 @@
     }
   }
 
-  async function handleBackdropKeydown(e: KeyboardEvent) {
+  function handleBackdropKeydown(e: KeyboardEvent) {
+    // OptionsEditorDialog is a singleton mounted at the App root (not a
+    // DOM child of this dialog), so it can't shield this handler from
+    // Escape/Ctrl+Enter via normal stopPropagation — both are separate
+    // `<svelte:window>` listeners on the same target, and stopPropagation
+    // doesn't stop sibling listeners on one node (only
+    // stopImmediatePropagation would, which isn't available from a
+    // `<svelte:window>` binding). Guard explicitly instead: while it's
+    // open, let it own Escape/Ctrl+Enter entirely — otherwise cancelling
+    // a block-options row edit there also closed the card underneath it.
+    if (optionsEditorState.visible) return
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()
-      if (editingTitle) await saveTitle()
-      if (editingDescription) await saveDescription()
-      await cardBlocksRef?.commitActiveEdit()
+      editScope.commitAll()
       onClose()
       return
     }
     if (e.key === 'Escape') {
-      if (editingTitle || editingDescription || cardBlocksRef?.hasActiveEdit()) return
+      // Active edits consume Escape themselves (cancel + stopPropagation);
+      // this is the backstop for edits whose events don't bubble here.
+      if (editScope.hasActive()) return
       onClose({ escaped: true })
     }
   }

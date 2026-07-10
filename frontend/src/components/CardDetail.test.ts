@@ -81,3 +81,72 @@ describe('CardDetail smoke', () => {
     expect(adapter.UpdateCardTitle).not.toHaveBeenCalled()
   })
 })
+
+// Escape layering: the dialog's own Escape closes it via onClose({ escaped:
+// true }), but an active inline edit (e.g. the title) must consume its own
+// Escape first — cancel-in-place, no close — so a second, "clean" Escape is
+// needed to actually leave the card. This is the EditScope contract
+// (shared/editScope.ts) exercised end-to-end through the real component tree.
+describe('CardDetail — Escape layering (EditScope)', () => {
+  const testCard = (overrides: Partial<Card> = {}): Card => ({
+    id: 'card-1',
+    title: 'Original Title',
+    description: '',
+    type: '',
+    tags: [],
+    due_date: null,
+    created_at: '2026-06-01T00:00:00Z',
+    blocks: [],
+    file_attachments: [],
+    ...overrides,
+  })
+
+  let adapter: ReturnType<typeof createMockAdapter>
+
+  beforeEach(() => {
+    adapter = createMockAdapter()
+    adapter.GetCard = vi.fn(async () => testCard())
+    adapter.UpdateCardTitle = vi.fn(async (_id: string, title: string) => testCard({ title }))
+    setBackend(adapter)
+    cardTypes.list = []
+  })
+
+  it('window-level Escape with no active edit closes via onClose({ escaped: true })', async () => {
+    const onClose = vi.fn()
+    render(CardDetail, { props: { cardId: 'card-1', onClose } })
+    await screen.findByText('Original Title')
+
+    await fireEvent.keyDown(window, { key: 'Escape' })
+
+    expect(onClose).toHaveBeenCalledWith({ escaped: true })
+  })
+
+  it('Escape on the title input cancels the edit without closing; a second window Escape then closes', async () => {
+    const onClose = vi.fn()
+    const { container } = render(CardDetail, { props: { cardId: 'card-1', onClose } })
+    await screen.findByText('Original Title')
+
+    await fireEvent.click(container.querySelector('.modal-title') as HTMLElement)
+    const input = await waitFor(() => {
+      const el = container.querySelector('input.title-input') as HTMLInputElement
+      expect(el).toBeTruthy()
+      return el
+    })
+    await fireEvent.input(input, { target: { value: 'Discarded edit' } })
+
+    await fireEvent.keyDown(input, { key: 'Escape' })
+
+    // The title edit is cancelled in place (input reverts to display mode)...
+    await waitFor(() => {
+      expect(container.querySelector('input.title-input')).toBeNull()
+    })
+    expect(screen.getByText('Original Title')).toBeInTheDocument()
+    // ...and the dialog itself must NOT have closed, nor the draft persisted.
+    expect(onClose).not.toHaveBeenCalled()
+    expect(adapter.UpdateCardTitle).not.toHaveBeenCalled()
+
+    // A second, window-level Escape — nothing left registered — closes it.
+    await fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledWith({ escaped: true })
+  })
+})

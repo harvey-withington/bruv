@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { getContext, onDestroy } from 'svelte'
   import { X, Plus } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import { repoMeta } from '../lib/repoMeta.svelte'
+  import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
 
   // Chip list with X-to-remove on each tag and an inline add input.
   // The parent owns the array; each mutation calls onChange with the
@@ -27,10 +29,33 @@
   let draft = $state('')
   let inputEl: HTMLInputElement | undefined = $state()
   let suggestionIdx = $state(-1)
+  // Layered Escape (keyboard entry contract): the first Escape closes
+  // the suggestion picker, the next cancels the tag entry itself. Only
+  // after that does Escape reach the containing page.
+  let suggestionsOpen = $state(true)
   // True for the brief window between blurring the input and applying
   // the click on a suggestion. Without this, blur fires first, the
   // dropdown unmounts, and the click never lands. Acts as a debounce.
   let suppressBlurCommit = $state(false)
+
+  // Edit-scope registration (keyboard entry contract). The tag input is
+  // serial-style entry: registered only while it's mounted and focused,
+  // so an idle card page can still Escape-close. Hand-rolled rather
+  // than the inlineEdit action because Enter here is overloaded by the
+  // suggestion picker (highlight selection vs literal add) — mirrors
+  // desktop CardTagsField.
+  const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
+  let unregisterEdit: (() => void) | null = null
+
+  function registerEdit() {
+    if (!editScope || unregisterEdit) return
+    unregisterEdit = editScope.register({ commit: () => commitAdd(), cancel: cancelAdd })
+  }
+  function deregisterEdit() {
+    unregisterEdit?.()
+    unregisterEdit = null
+  }
+  onDestroy(deregisterEdit)
 
   // Show every known tag (minus the ones already on this card) as soon
   // as the input opens, so a tap on "+ Add tag" reveals the picker
@@ -47,6 +72,7 @@
   function startAdd() {
     draft = ''
     suggestionIdx = -1
+    suggestionsOpen = true
     adding = true
     queueMicrotask(() => inputEl?.focus())
   }
@@ -55,6 +81,7 @@
     const tag = (value ?? draft).trim()
     adding = false
     suggestionIdx = -1
+    deregisterEdit()
     if (!tag) return
     if (tags.includes(tag)) return
     onChange([...tags, tag])
@@ -71,6 +98,7 @@
     adding = false
     draft = ''
     suggestionIdx = -1
+    deregisterEdit()
   }
 
   function remove(tag: string) {
@@ -80,6 +108,13 @@
   function onKey(e: KeyboardEvent) {
     if (e.key === 'Enter') {
       e.preventDefault()
+      if (e.ctrlKey || e.metaKey) {
+        // Contract: Ctrl+Enter commits and closes the containing page.
+        e.stopPropagation()
+        commitAdd()
+        editScope?.requestClose?.()
+        return
+      }
       // Enter with a highlighted suggestion picks it; otherwise commit
       // the literal draft.
       if (suggestionIdx >= 0 && suggestionIdx < suggestions.length) {
@@ -88,15 +123,27 @@
         commitAdd()
       }
     } else if (e.key === 'Escape') {
+      // Layered per the contract: first Escape closes the suggestion
+      // picker (a picker closes unchosen), the next clears the draft
+      // and ends the entry. Consumed either way — the page underneath
+      // must not close while the entry is active.
       e.preventDefault()
-      cancelAdd()
+      e.stopPropagation()
+      if (suggestionsOpen && suggestions.length > 0) {
+        suggestionsOpen = false
+        suggestionIdx = -1
+      } else {
+        cancelAdd()
+      }
     } else if (e.key === 'ArrowDown') {
       e.preventDefault()
       if (suggestions.length === 0) return
+      suggestionsOpen = true
       suggestionIdx = (suggestionIdx + 1) % suggestions.length
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       if (suggestions.length === 0) return
+      suggestionsOpen = true
       suggestionIdx = suggestionIdx <= 0 ? suggestions.length - 1 : suggestionIdx - 1
     }
   }
@@ -111,7 +158,7 @@
   {#each tags as tag (tag)}
     <span class="chip coloured" style:background={repoMeta.tagColor(tag, projectKey)}>
       <span class="chip-text">{tag}</span>
-      <button type="button" class="chip-remove" onclick={() => remove(tag)} aria-label={`Remove ${tag}`}>
+      <button type="button" class="chip-remove" onclick={() => remove(tag)} aria-label={t('tags.remove', { tag })}>
         <X size={10} />
       </button>
     </span>
@@ -122,7 +169,8 @@
       <input
         bind:this={inputEl}
         bind:value={draft}
-        oninput={() => (suggestionIdx = -1)}
+        oninput={() => { suggestionIdx = -1; suggestionsOpen = true }}
+        onfocus={registerEdit}
         onblur={onBlur}
         onkeydown={onKey}
         placeholder={t('tags.placeholder')}
@@ -130,8 +178,9 @@
         autocomplete="off"
         autocapitalize="off"
         spellcheck="false"
+        enterkeyhint="done"
       />
-      {#if suggestions.length > 0}
+      {#if suggestionsOpen && suggestions.length > 0}
         <ul class="suggest" role="listbox">
           {#each suggestions as name, i (name)}
             <!-- svelte-ignore a11y_no_static_element_interactions -->

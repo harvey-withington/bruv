@@ -69,6 +69,10 @@ export const board = $state({
     }>
   }>,
   loading: false,
+  // The last loadBoard for the current project failed — Board renders
+  // an error rail with retry instead of an empty board (a failed load
+  // used to be indistinguishable from "no categories").
+  loadError: false,
   // cardID → enabled. Present for every card with an agent
   // configuration on disk; absent for cards that have never been
   // configured. Lets the UI distinguish "no agent" from "agent
@@ -189,12 +193,24 @@ export const boardSearch = $state({
 // which is jarring for something as minor as a checklist toggle.
 // The loading state is still used on genuine project switches and
 // the first load where there's nothing to show yet.
+let boardLoadSeq = 0
+
 export async function loadBoard(brandSlug: string, streamSlug: string, projectSlug: string, opts: { silent?: boolean } = {}) {
+  // Stale-response guard: a fast A→B project switch used to let A's
+  // slower response land after B's and render A's board under B's nav
+  // — the next edit then hit the wrong board. Only the latest call may
+  // write shared state.
+  const seq = ++boardLoadSeq
   if (!opts.silent) {
     board.loading = true
   }
   try {
-    try { projectTags.list = await GetProjectLabels(brandSlug, streamSlug, projectSlug) || [] } catch { projectTags.list = [] }
+    try {
+      const tags = await GetProjectLabels(brandSlug, streamSlug, projectSlug) || []
+      if (seq === boardLoadSeq) projectTags.list = tags
+    } catch {
+      if (seq === boardLoadSeq) projectTags.list = []
+    }
 
     const cats = await ListCategories(brandSlug, streamSlug, projectSlug) || []
     const populated = await Promise.all(cats.map(async (cat) => {
@@ -230,15 +246,22 @@ export async function loadBoard(brandSlug: string, streamSlug: string, projectSl
         cards: cards.filter((c): c is NonNullable<typeof c> => c !== null),
       }
     }))
+    if (seq !== boardLoadSeq) return // stale — a newer load owns the board now
     // Load agent card states before setting categories so indicators are ready when cards render
     try {
       board.agentCardStates = (await ListAgentCardStates()) || {}
     } catch { board.agentCardStates = {} }
+    if (seq !== boardLoadSeq) return
     board.categories = populated
+    board.loadError = false
   } catch {
+    if (seq !== boardLoadSeq) return
     board.categories = []
+    board.loadError = true
   }
-  if (!opts.silent) {
+  // The latest call always clears the flag, even on silent refreshes —
+  // a stale non-silent load must not leave the spinner stuck.
+  if (seq === boardLoadSeq) {
     board.loading = false
   }
 }

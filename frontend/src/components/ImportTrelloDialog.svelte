@@ -51,6 +51,7 @@
       }
     } catch (e) {
       console.error('Failed to load preferences', e)
+      showToast(t('import.trello.prefs_load_failed'), 'error')
     }
   }
 
@@ -214,25 +215,25 @@
       </div>
 
       <div class="import-field">
-        <span class="import-label">Trello API Credentials (Optional)</span>
+        <span class="import-label">{t('import.trello.creds_label')}</span>
         <div class="import-creds-row">
           <input
             type="text"
-            placeholder="API Key"
+            placeholder={t('import.trello.creds_api_key_placeholder')}
             bind:value={apiKey}
             class="import-input"
             disabled={importing}
           />
           <input
             type="password"
-            placeholder="API Token"
+            placeholder={t('import.trello.creds_api_token_placeholder')}
             bind:value={apiToken}
             class="import-input"
             disabled={importing}
           />
         </div>
         <p class="import-help-text">
-          Required to download attachments from private boards. Get yours at <a href="https://trello.com/app-key" target="_blank" rel="noopener noreferrer">trello.com/app-key</a>.
+          {@html t('import.trello.creds_help')}
         </p>
       </div>
 
@@ -371,12 +372,12 @@
     color: var(--text-muted);
   }
 
-  .import-help-text a {
+  .import-help-text :global(a) {
     color: var(--accent);
     text-decoration: none;
   }
 
-  .import-help-text a:hover {
+  .import-help-text :global(a:hover) {
     text-decoration: underline;
   }
 

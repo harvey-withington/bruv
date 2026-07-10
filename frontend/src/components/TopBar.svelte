@@ -239,7 +239,7 @@
     bottom: 2px;
     right: 2px;
     display: flex;
-    color: #4caf7d;
+    color: var(--success);
     line-height: 1;
   }
 
@@ -313,7 +313,7 @@
     height: 16px;
     padding: 0 4px;
     border-radius: 999px;
-    background: #ef4444;
+    background: var(--danger);
     color: white;
     font-size: 0.6rem;
     font-weight: 700;

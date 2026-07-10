@@ -46,7 +46,7 @@
     if (!q) return
     let patch: Partial<SurveyQuestion> = { type }
     if (type === 'choice') {
-      patch = { type, options: q.options?.length ? q.options : ['Option 1', 'Option 2'], answer: q.multi ? [] : '' }
+      patch = { type, options: q.options?.length ? q.options : [t('block.default_option', { n: 1 }), t('block.default_option', { n: 2 })], answer: q.multi ? [] : '' }
     } else if (type === 'rating') {
       patch = { type, max: q.max ?? 5, answer: 0 }
     } else {
@@ -70,7 +70,7 @@
   function addOption(id: string) {
     const q = questions.find(x => x.id === id)
     if (!q) return
-    const next = [...(q.options ?? []), `Option ${(q.options?.length ?? 0) + 1}`]
+    const next = [...(q.options ?? []), t('block.default_option', { n: (q.options?.length ?? 0) + 1 })]
     updateQuestion(id, { options: next })
   }
 
@@ -398,7 +398,7 @@
   }
   .survey-star.filled,
   .survey-star:hover {
-    color: var(--accent-warn, #f2b01e);
+    color: var(--warning);
   }
 
   .survey-choices {

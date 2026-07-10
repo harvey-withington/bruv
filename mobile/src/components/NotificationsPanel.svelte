@@ -5,6 +5,7 @@
   import { navigate, cardURL } from '../lib/router.svelte'
   import { onEvent } from '../lib/events.svelte'
   import { t } from '../lib/i18n.svelte'
+  import { showToast } from '../lib/toast.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import type { AppNotification } from '@shared/types'
 
@@ -88,6 +89,20 @@
       items = []
     } catch (err) {
       errorMsg = err instanceof Error ? err.message : t('notifications.err_load')
+    }
+  }
+
+  async function dismissItem(e: MouseEvent, id: string) {
+    // Stop propagation so the tap doesn't also fire the parent item's
+    // onclick (mark-read/navigate) — the dismiss button is a sibling of
+    // the item button, not nested inside it (buttons can't nest), so
+    // this guards against the row's own handlers firing on bubbling.
+    e.stopPropagation()
+    try {
+      await repoRPC('DeleteNotification', [id])
+      items = items.filter((x) => x.id !== id)
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : t('notifications.dismiss_failed'), 'error')
     }
   }
 
@@ -186,7 +201,7 @@
     {:else}
       <ul class="list">
         {#each items as n (n.id)}
-          <li>
+          <li class="row">
             <button type="button" class="item" class:unread={!n.read} onclick={() => tapItem(n)}>
               <div class="item-text">
                 <span class="item-title">{n.title}</span>
@@ -194,6 +209,15 @@
                 {#if n.card_title}<span class="item-context">{n.card_title}</span>{/if}
               </div>
               <span class="time">{formatTime(n.created_at)}</span>
+            </button>
+            <button
+              type="button"
+              class="dismiss-btn"
+              onclick={(e) => dismissItem(e, n.id)}
+              aria-label={t('notifications.dismiss')}
+              title={t('notifications.dismiss')}
+            >
+              <X size={16} />
             </button>
           </li>
         {/each}
@@ -298,11 +322,17 @@
     flex-direction: column;
     gap: 0.4rem;
   }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
   .item {
     display: flex;
     align-items: flex-start;
     gap: 0.65rem;
-    width: 100%;
+    flex: 1;
+    min-width: 0;
     background: var(--bg-elev-1);
     border: 1px solid var(--border);
     border-radius: 10px;
@@ -321,6 +351,27 @@
   .item.unread {
     border-left: 3px solid var(--accent);
     padding-left: calc(0.85rem - 2px);
+  }
+  .dismiss-btn {
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    cursor: pointer;
+    padding: 0.4rem;
+    border-radius: 8px;
+    min-width: 36px;
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: manipulation;
+  }
+  .dismiss-btn:hover,
+  .dismiss-btn:focus-visible {
+    color: var(--danger-text);
+    background: var(--danger-bg);
+    outline: none;
   }
   .item-text {
     flex: 1;

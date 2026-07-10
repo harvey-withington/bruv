@@ -27,10 +27,12 @@
   import ErrorState from '../components/ErrorState.svelte'
   import { navigate, projectURL } from '../lib/router.svelte'
   import { readActiveRepoID, apiFetch, repoRPC, machineRPC } from '../lib/auth'
+  import { showToast } from '../lib/toast.svelte'
   import { onEvent } from '../lib/events.svelte'
   import { onReconnect } from '../lib/connectivity.svelte'
   import { t } from '../lib/i18n.svelte'
   import { renderInline } from '@shared/markdown'
+  import { inlineEdit } from '@shared/inlineEdit'
   import type { Brand, Stream } from '../lib/model'
   import type { AppNotification } from '@shared/types'
   import DynamicIcon from '../components/DynamicIcon.svelte'
@@ -128,7 +130,11 @@
       renaming = null
     } catch (err) {
       mutationError = `${t('browse.err_rename')} ${err instanceof Error ? err.message : ''}`.trim()
-      // Keep the input open so the user can correct and retry.
+      // Close the input — the inlineEdit action treats a commit as the
+      // end of the edit session, so "stay open and retry" isn't
+      // reachable from the keyboard any more. The inline error above
+      // explains; the user reopens rename from the row menu to retry.
+      renaming = null
     } finally {
       renameBusy = false
     }
@@ -169,15 +175,9 @@
     return cache?.items.find((p) => p.slug === target.projectSlug)?.name ?? ''
   }
 
-  function onRenameKey(e: KeyboardEvent) {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      void commitRename()
-    } else if (e.key === 'Escape') {
-      e.preventDefault()
-      cancelRename()
-    }
-  }
+  // Rename keyboard behaviour comes from the shared inlineEdit action
+  // (Enter/blur commit, Escape cancels — deleting a fresh-create row).
+  // BrowsePage isn't a closable container, so no EditScope is passed.
 
   // --- Add buttons ---------------------------------------------------
 
@@ -425,6 +425,7 @@
         await repoRPC('CopyBrand', [detail.cardID])
       } catch (err) {
         console.error('copy brand failed:', err)
+        showToast(err instanceof Error ? err.message : t('error.network'), 'error')
       }
       void loadBrands(true)
       return
@@ -457,6 +458,7 @@
         await repoRPC('CopyStream', [srcBrand.slug, detail.cardID, dstBrandSlug])
       } catch (err) {
         console.error('copy stream failed:', err)
+        showToast(err instanceof Error ? err.message : t('error.network'), 'error')
       }
       void loadStreams(srcBrand.slug, true)
       void loadStreams(dstBrandSlug, true)
@@ -477,6 +479,7 @@
         await repoRPC('MoveStream', [srcBrand.slug, detail.cardID, dstBrandSlug])
       } catch (err) {
         console.error('move stream failed:', err)
+        showToast(err instanceof Error ? err.message : t('error.network'), 'error')
       }
       void loadStreams(srcBrand.slug, true)
       void loadStreams(dstBrandSlug, true)
@@ -542,6 +545,7 @@
         ])
       } catch (err) {
         console.error('copy project failed:', err)
+        showToast(err instanceof Error ? err.message : t('error.network'), 'error')
       }
       void loadProjects(srcBrand.slug, srcStream.slug, true)
       void loadProjects(dstBrandSlug, dstStreamSlug, true)
@@ -566,6 +570,7 @@
         ])
       } catch (err) {
         console.error('move project failed:', err)
+        showToast(err instanceof Error ? err.message : t('error.network'), 'error')
       }
       void loadProjects(srcBrand.slug, srcStream.slug, true)
       void loadProjects(dstBrandSlug, dstStreamSlug, true)
@@ -703,11 +708,11 @@
               <input
                 bind:this={renameInputEl}
                 bind:value={renameDraft}
-                onblur={commitRename}
-                onkeydown={onRenameKey}
+                use:inlineEdit={{ onCommit: () => void commitRename(), onCancel: cancelRename }}
                 class="rename-input"
                 aria-label={t('browse.rename_brand')}
                 placeholder={t('browse.rename_brand')}
+                enterkeyhint="done"
                 disabled={renameBusy}
               />
             </div>
@@ -785,11 +790,11 @@
                         <input
                           bind:this={renameInputEl}
                           bind:value={renameDraft}
-                          onblur={commitRename}
-                          onkeydown={onRenameKey}
+                          use:inlineEdit={{ onCommit: () => void commitRename(), onCancel: cancelRename }}
                           class="rename-input"
                           aria-label={t('browse.rename_stream')}
                           placeholder={t('browse.rename_stream')}
+                          enterkeyhint="done"
                           disabled={renameBusy}
                         />
                       </div>
@@ -862,11 +867,11 @@
                                   <input
                                     bind:this={renameInputEl}
                                     bind:value={renameDraft}
-                                    onblur={commitRename}
-                                    onkeydown={onRenameKey}
+                                    use:inlineEdit={{ onCommit: () => void commitRename(), onCancel: cancelRename }}
                                     class="rename-input"
                                     aria-label={t('browse.rename_project')}
                                     placeholder={t('browse.rename_project')}
+                                    enterkeyhint="done"
                                     disabled={renameBusy}
                                   />
                                 </div>

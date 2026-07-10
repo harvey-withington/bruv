@@ -2,6 +2,9 @@
   import { Square, CheckSquare, Trash2, ArrowUpRight, GripVertical } from 'lucide-svelte'
   import EditableText from './EditableText.svelte'
   import { t } from '../lib/i18n.svelte'
+  import { getContext } from 'svelte'
+  import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
+  import { inlineEdit } from '../lib/actions'
   import { computeReorder, wouldReorder, DROP_END } from '../lib/reorder'
 
   type ChecklistItem = { id: string; text: string; done: boolean }
@@ -19,6 +22,9 @@
   } = $props()
 
   let newText = $state('')
+  let addInputEl = $state<HTMLInputElement | null>(null)
+
+  const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
 
   function emit(updated: ChecklistItem[]) {
     onUpdate?.(updated)
@@ -71,9 +77,12 @@
     }, 0)
   }
 
-  function handleAddKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter') addItem()
-    else if (e.key === 'Escape') { e.stopPropagation(); (e.target as HTMLElement)?.blur() }
+  // Serial add-input per the keyboard entry contract: Enter commits the
+  // item and re-arms, Escape discards the draft and ends the entry,
+  // blur keeps the draft uncommitted.
+  function cancelAdd() {
+    newText = ''
+    addInputEl?.blur()
   }
 
   // --- Drag-to-reorder ---
@@ -195,8 +204,9 @@
 <div class="cl-add">
   <input
     type="text"
+    bind:this={addInputEl}
     bind:value={newText}
-    onkeydown={handleAddKeydown}
+    use:inlineEdit={{ serial: true, onCommit: addItem, onCancel: cancelAdd, scope: editScope }}
     placeholder={placeholder || t('card.checklist_placeholder')}
     class="cl-add-input"
   />

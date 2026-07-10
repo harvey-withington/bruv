@@ -2,7 +2,7 @@
 
 import { getBackend } from './adapters'
 
-export type { UserProfile, AuthInfo, LLMConfig, LLMAccount, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard, AgentConfig, AgentRun, AgentFile, AgentStatus, AgentSummary, AgentRunEntry, AgentAnalytics, AppNotification, NotifyConfig, ModelPricing, BuildInfo, UpdateCheckResult, CardTypesImportMode, CardTypesImportResult, MCPServerSpec, MCPServerView, MCPServerHealth, MCPHealthStatus, MCPServerViewTool, Connection, ConnectionStore, ProjectMember } from './types'
+export type { UserProfile, AuthInfo, LLMConfig, LLMAccount, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard, AgentConfig, AgentRun, AgentFile, AgentStatus, AgentSummary, AgentRunEntry, AgentAnalytics, AppNotification, NotifyConfig, BuildInfo, UpdateCheckResult, CardTypesImportMode, CardTypesImportResult, MCPServerSpec, MCPServerView, MCPServerHealth, MCPHealthStatus, MCPServerViewTool, Connection, ConnectionStore, ProjectMember } from './types'
 
 // Capabilities
 export const getCapabilities = () => getBackend().getCapabilities()
@@ -190,6 +190,7 @@ export const GenerateWorkspaceFromTemplate = (...args: Parameters<ReturnType<typ
 export const InspectWorkspaceTemplateFolder = (...args: Parameters<ReturnType<typeof getBackend>['InspectWorkspaceTemplateFolder']>) => getBackend().InspectWorkspaceTemplateFolder(...args)
 export const ImportWorkspaceTemplate = (...args: Parameters<ReturnType<typeof getBackend>['ImportWorkspaceTemplate']>) => getBackend().ImportWorkspaceTemplate(...args)
 export const SaveWorkspaceTemplate = (...args: Parameters<ReturnType<typeof getBackend>['SaveWorkspaceTemplate']>) => getBackend().SaveWorkspaceTemplate(...args)
+export const DeleteWorkspaceTemplate = (...args: Parameters<ReturnType<typeof getBackend>['DeleteWorkspaceTemplate']>) => getBackend().DeleteWorkspaceTemplate(...args)
 export const ListProjectTemplates = (...args: Parameters<ReturnType<typeof getBackend>['ListProjectTemplates']>) => getBackend().ListProjectTemplates(...args)
 export const GenerateCardFolder = (...args: Parameters<ReturnType<typeof getBackend>['GenerateCardFolder']>) => getBackend().GenerateCardFolder(...args)
 export const ClearCardFolder = (...args: Parameters<ReturnType<typeof getBackend>['ClearCardFolder']>) => getBackend().ClearCardFolder(...args)
@@ -215,6 +216,7 @@ export const GetNotifications = () => getBackend().GetNotifications()
 export const MarkNotificationRead = (...args: Parameters<ReturnType<typeof getBackend>['MarkNotificationRead']>) => getBackend().MarkNotificationRead(...args)
 export const MarkAllNotificationsRead = () => getBackend().MarkAllNotificationsRead()
 export const ClearAllNotifications = () => getBackend().ClearAllNotifications()
+export const DeleteNotification = (...args: Parameters<ReturnType<typeof getBackend>['DeleteNotification']>) => getBackend().DeleteNotification(...args)
 
 // Category details
 export const GetCategoryAcceptedTypes = (...args: Parameters<ReturnType<typeof getBackend>['GetCategoryAcceptedTypes']>) => getBackend().GetCategoryAcceptedTypes(...args)
@@ -229,6 +231,7 @@ export const GetAgentRuns = (...args: Parameters<ReturnType<typeof getBackend>['
 export const TriggerAgent = (...args: Parameters<ReturnType<typeof getBackend>['TriggerAgent']>) => getBackend().TriggerAgent(...args)
 export const CancelAgent = (...args: Parameters<ReturnType<typeof getBackend>['CancelAgent']>) => getBackend().CancelAgent(...args)
 export const ClearAgentRuns = (...args: Parameters<ReturnType<typeof getBackend>['ClearAgentRuns']>) => getBackend().ClearAgentRuns(...args)
+export const DeleteAgent = (...args: Parameters<ReturnType<typeof getBackend>['DeleteAgent']>) => getBackend().DeleteAgent(...args)
 export const PauseAllAgents = () => getBackend().PauseAllAgents()
 export const ResumeAllAgents = () => getBackend().ResumeAllAgents()
 export const GetAgentSchedulerStatus = () => getBackend().GetAgentSchedulerStatus()
@@ -238,8 +241,6 @@ export const GetAgentAnalytics = () => getBackend().GetAgentAnalytics()
 export const ForceQuit = () => getBackend().ForceQuit()
 
 // Token pricing
-export const GetTokenPricing = () => getBackend().GetTokenPricing()
-export const SaveTokenPricing = (...args: Parameters<ReturnType<typeof getBackend>['SaveTokenPricing']>) => getBackend().SaveTokenPricing(...args)
 
 // Chat
 export const LoadChatHistory = (...args: Parameters<ReturnType<typeof getBackend>['LoadChatHistory']>) => getBackend().LoadChatHistory(...args)

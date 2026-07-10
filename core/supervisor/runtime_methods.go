@@ -553,12 +553,6 @@ func (r *Runtime) TestLLMAccountConnection(id string) (string, error) {
 }
 func (r *Runtime) IsLLMConfigured() bool              { return r.LLM.IsConfigured() }
 func (r *Runtime) TestLLMConnection() (string, error) { return r.LLM.TestConnection() }
-func (r *Runtime) GetTokenPricing() (map[string]config.ModelPricing, error) {
-	return r.LLM.GetPricing()
-}
-func (r *Runtime) SaveTokenPricing(p map[string]config.ModelPricing) error {
-	return r.LLM.SavePricing(p)
-}
 
 // TestSystemNotification is wired here because the button that calls
 // it sits in the LLM settings panel. It belongs in NotifyService

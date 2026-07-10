@@ -11,8 +11,10 @@
   // Schema-drift fallback: unknown block.type values render with a
   // small placeholder rather than crashing.
 
-  import { tick, untrack } from 'svelte'
+  import { tick, untrack, getContext } from 'svelte'
   import { Trash2, Pencil, Eye, PencilLine, ChevronDown, ChevronRight } from 'lucide-svelte'
+  import { inlineEdit } from '@shared/inlineEdit'
+  import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import type { Block } from '@shared/types'
   import { t } from '../../lib/i18n.svelte'
   import ConfirmDialog from '../ConfirmDialog.svelte'
@@ -73,6 +75,8 @@
   let labelDraft = $state(untrack(() => block.label ?? ''))
   let labelInputEl: HTMLInputElement | null = $state(null)
 
+  const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
+
   async function startLabelEdit() {
     labelDraft = block.label ?? ''
     labelEditing = true
@@ -131,19 +135,10 @@
           bind:this={labelInputEl}
           class="label-input"
           type="text"
-          value={labelDraft}
-          oninput={(e) => (labelDraft = (e.currentTarget as HTMLInputElement).value)}
-          onblur={commitLabel}
-          onkeydown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault()
-              ;(e.currentTarget as HTMLInputElement).blur()
-            } else if (e.key === 'Escape') {
-              e.preventDefault()
-              cancelLabel()
-            }
-          }}
+          bind:value={labelDraft}
+          use:inlineEdit={{ onCommit: commitLabel, onCancel: cancelLabel, scope: editScope }}
           placeholder={t('block.label_placeholder')}
+          enterkeyhint="done"
         />
       {:else}
         <button type="button" class="label-btn" onclick={startLabelEdit}>

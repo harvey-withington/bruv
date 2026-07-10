@@ -23,14 +23,20 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 )
+
+// chatsMu serializes chat read-modify-write cycles. AppendChatMessage
+// is load → append → save; two concurrent appends (user send racing
+// an agent reply) would otherwise drop one message.
+var chatsMu sync.Mutex
 
 // chatsDirForRepo returns the directory where a repo's chat files live,
 // creating it if necessary. All reads and writes funnel through here so
 // the path construction stays in one place.
 func chatsDirForRepo(repoID string) (string, error) {
-	if repoID == "" {
-		return "", fmt.Errorf("chat storage: repoID is required")
+	if err := validPathSegment(repoID); err != nil {
+		return "", fmt.Errorf("chat storage: %w", err)
 	}
 	dir, err := configDir()
 	if err != nil {
@@ -45,6 +51,9 @@ func chatsDirForRepo(repoID string) (string, error) {
 
 // chatFilePathFor returns the on-disk location for one chat file.
 func chatFilePathFor(repoID, chatID string) (string, error) {
+	if err := validPathSegment(chatID); err != nil {
+		return "", fmt.Errorf("chat storage: %w", err)
+	}
 	dir, err := chatsDirForRepo(repoID)
 	if err != nil {
 		return "", err
@@ -88,12 +97,15 @@ func SaveChatFor(repoID string, cf *model.ChatFile) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return atomicWriteFile(path, data, 0o644)
 }
 
 // AppendChatMessage loads, appends, and saves in one step — the same
-// convenience method the old repo.AppendMessage provided.
+// convenience method the old repo.AppendMessage provided. The lock
+// makes the load-append-save atomic with respect to other appends.
 func AppendChatMessage(repoID, chatID string, msg model.ChatMessage) (*model.ChatFile, error) {
+	chatsMu.Lock()
+	defer chatsMu.Unlock()
 	cf, err := LoadChatFor(repoID, chatID)
 	if err != nil {
 		return nil, err

@@ -34,6 +34,12 @@
     // is intentionally NOT auto-focused so an accidental Enter doesn't
     // delete anything. Users explicitly tab/click to confirm.
     queueMicrotask(() => confirmBtn?.focus())
+    // Escape closes the dialog and ONLY the dialog. Capture phase +
+    // stopPropagation so containers listening on window (CardPage,
+    // ChatSheet — keyboard entry contract) never see the same Escape
+    // and close/navigate underneath the dialog.
+    window.addEventListener('keydown', onKeyCapture, true)
+    return () => window.removeEventListener('keydown', onKeyCapture, true)
   })
 
   async function handleConfirm() {
@@ -49,9 +55,10 @@
     }
   }
 
-  function onKey(e: KeyboardEvent) {
+  function onKeyCapture(e: KeyboardEvent) {
     if (e.key === 'Escape') {
       e.preventDefault()
+      e.stopPropagation()
       onCancel()
     }
   }
@@ -60,8 +67,6 @@
     if (e.target === e.currentTarget) onCancel()
   }
 </script>
-
-<svelte:window onkeydown={onKey} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div

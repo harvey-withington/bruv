@@ -2,97 +2,166 @@
   import { optionsEditorState, resolveOptionsEditor } from '../lib/optionsEditor.svelte'
   import { fade } from 'svelte/transition'
   import { t } from '../lib/i18n.svelte'
-  import { focusTrap, focusOnMount } from '../lib/actions'
+  import { focusTrap, focusOnMount, inlineEdit } from '../lib/actions'
+  import { setContext } from 'svelte'
+  import { EditScope, EDIT_SCOPE_KEY } from '@shared/editScope'
   import { GripVertical, Trash2, Plus, Pencil, Check, X } from 'lucide-svelte'
   import type { BlockMeta } from '@shared/types'
+  import { computeReorder, wouldReorder, DROP_END } from '../lib/reorder'
 
-  // Local working copies
-  let options = $state<string[]>([])
+  // This dialog can be opened from inside CardDetail (editing a select /
+  // radio / checkbox_group block's options) while CardDetail's own
+  // EditScope is live — it's a singleton mounted once at the App root
+  // (see App.svelte), not a child of CardDetail, so its Escape handling
+  // can't rely on DOM-ancestor stopPropagation to shield CardDetail's
+  // window keydown listener (two separate `<svelte:window>` listeners on
+  // the same target don't stop each other via stopPropagation, only
+  // stopImmediatePropagation would — see CardDetail.svelte's guard on
+  // optionsEditorState.visible for the other half of this fix). This
+  // dialog gets its own EditScope so cancelling a row edit no longer also
+  // closes the whole card dialog underneath it.
+  const editScope = new EditScope()
+  // The dialog's affirmative "commit + close" action is Save (there's no
+  // per-field auto-save here — everything is staged in local `options` /
+  // `meta` until Save is clicked), so Ctrl+Enter from any registered field
+  // commits then saves-and-closes via requestClose.
+  editScope.requestClose = () => save()
+  setContext(EDIT_SCOPE_KEY, editScope)
+
+  // Local working copy. Options are plain strings with no natural
+  // stable key, so each row gets an ephemeral drag/edit-scoped id on
+  // dialog open (CLAUDE.md: never key mutable state by array index —
+  // deleting or reordering a different row while one is mid-edit must
+  // not drop or misassign the draft). Unwrapped back to string[] on
+  // save.
+  type OptionRow = { id: string; value: string }
+  let rows = $state<OptionRow[]>([])
   let meta = $state<BlockMeta>({})
   let newOption = $state('')
-  let editingIdx = $state<number | null>(null)
+  let newOptionInputEl = $state<HTMLInputElement | null>(null)
+  let editingId = $state<string | null>(null)
   let editDraft = $state('')
 
-  // Drag state
-  let dragIdx = $state<number | null>(null)
-  let dropIdx = $state<number | null>(null)
+  // Drag state — id-keyed, mirroring EditableChecklist's reference DnD.
+  let draggingId = $state<string | null>(null)
+  let dropBeforeId = $state<string | typeof DROP_END | null>(null)
 
   // Sync from global state when dialog opens
   $effect(() => {
     if (optionsEditorState.visible) {
-      options = [...optionsEditorState.options]
+      rows = optionsEditorState.options.map(value => ({ id: crypto.randomUUID(), value }))
       meta = { ...optionsEditorState.meta }
       newOption = ''
-      editingIdx = null
+      editingId = null
     }
   })
 
   function addOption() {
     const val = newOption.trim()
-    if (!val || options.includes(val)) return
-    options = [...options, val]
+    if (!val || rows.some(r => r.value === val)) return
+    rows = [...rows, { id: crypto.randomUUID(), value: val }]
     newOption = ''
   }
 
-  function removeOption(idx: number) {
-    options = options.filter((_, i) => i !== idx)
+  // Serial add-input per the keyboard entry contract: Enter commits and
+  // re-arms, Escape discards the draft and ends the entry, blur keeps
+  // the draft uncommitted.
+  function cancelAddOption() {
+    newOption = ''
+    newOptionInputEl?.blur()
   }
 
-  function startEdit(idx: number) {
-    editingIdx = idx
-    editDraft = options[idx]
+  function removeOption(id: string) {
+    rows = rows.filter(r => r.id !== id)
+  }
+
+  function startEdit(id: string) {
+    const row = rows.find(r => r.id === id)
+    if (!row) return
+    editingId = id
+    editDraft = row.value
   }
 
   function commitEdit() {
-    if (editingIdx === null) return
+    if (editingId === null) return
     const val = editDraft.trim()
-    if (val && !options.some((o, i) => o === val && i !== editingIdx)) {
-      options = options.map((o, i) => i === editingIdx ? val : o)
+    if (val && !rows.some(r => r.value === val && r.id !== editingId)) {
+      rows = rows.map(r => r.id === editingId ? { ...r, value: val } : r)
     }
-    editingIdx = null
+    editingId = null
   }
 
   function cancelEdit() {
-    editingIdx = null
+    editingId = null
   }
 
-  function handleDragStart(idx: number) {
-    dragIdx = idx
-  }
-
-  function handleDragOver(e: DragEvent, idx: number) {
-    e.preventDefault()
-    dropIdx = idx
-  }
-
-  function handleDrop() {
-    if (dragIdx !== null && dropIdx !== null && dragIdx !== dropIdx) {
-      const reordered = [...options]
-      const [moved] = reordered.splice(dragIdx, 1)
-      reordered.splice(dropIdx, 0, moved)
-      options = reordered
+  function handleDragStart(e: DragEvent, id: string) {
+    draggingId = id
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move'
+      e.dataTransfer.setData('text/plain', id)
     }
-    dragIdx = null
-    dropIdx = null
+  }
+
+  function handleDragOver(e: DragEvent, overId: string, idx: number) {
+    if (draggingId === null) return
+    e.preventDefault()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const midY = rect.top + rect.height / 2
+    let candidate: string | typeof DROP_END
+    if (e.clientY < midY) {
+      candidate = overId
+    } else {
+      const next = rows[idx + 1]
+      candidate = next ? next.id : DROP_END
+    }
+    dropBeforeId = wouldReorder(rows, draggingId, candidate, 'move') ? candidate : null
   }
 
   function handleDragEnd() {
-    dragIdx = null
-    dropIdx = null
+    draggingId = null
+    dropBeforeId = null
+  }
+
+  function handleDrop(e: DragEvent) {
+    e.preventDefault()
+    if (draggingId === null || dropBeforeId === null) {
+      handleDragEnd()
+      return
+    }
+    const reordered = computeReorder(rows, draggingId, dropBeforeId, { mode: 'move' })
+    handleDragEnd()
+    if (reordered !== rows) rows = reordered
   }
 
   function save() {
-    resolveOptionsEditor({ options, meta })
+    resolveOptionsEditor({ options: rows.map(r => r.value), meta })
   }
 
   function cancel() {
     resolveOptionsEditor(null)
   }
 
+  // Container side of the keyboard entry contract. Escape closes
+  // (cancels) only when nothing is being edited — an active row edit or
+  // the add-option input consumes Escape itself via the inlineEdit
+  // action (preventDefault + stopPropagation), so this is the backstop
+  // for Escape presses that land while no field is focused. Ctrl+Enter
+  // commits any in-flight edit then saves-and-closes.
   function handleKeydown(e: KeyboardEvent) {
     if (!optionsEditorState.visible) return
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel() }
-    if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); e.stopPropagation(); save() }
+    if (e.key === 'Escape') {
+      if (editScope.hasActive()) return
+      e.preventDefault()
+      e.stopPropagation()
+      cancel()
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault()
+      e.stopPropagation()
+      editScope.commitAll()
+      save()
+    }
   }
 
   // Derived: which toolbar options to show
@@ -130,45 +199,58 @@
       </div>
 
       <!-- Options list -->
-      <div class="oe-list" role="list">
-        {#each options as opt, i}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="oe-list"
+        role="list"
+        ondrop={handleDrop}
+        ondragover={(e) => { if (draggingId !== null) e.preventDefault() }}
+      >
+        {#each rows as row, i (row.id)}
+          {#if draggingId !== null && dropBeforeId === row.id}
+            <div class="oe-drop-indicator"></div>
+          {/if}
           <div
             class="oe-item"
-            class:dragging={dragIdx === i}
-            class:drop-target={dropIdx === i && dragIdx !== i}
+            class:dragging={draggingId === row.id}
             role="listitem"
-            ondragover={(e) => handleDragOver(e, i)}
-            ondrop={handleDrop}
+            ondragover={(e) => handleDragOver(e, row.id, i)}
           >
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <span
               class="oe-drag-handle"
               draggable={true}
-              ondragstart={() => handleDragStart(i)}
+              ondragstart={(e) => handleDragStart(e, row.id)}
               ondragend={handleDragEnd}
+              role="button"
+              tabindex="-1"
+              aria-label={t('tooltip.drag_option')}
+              title={t('tooltip.drag_option')}
             >
               <GripVertical size={14} />
             </span>
-            {#if editingIdx === i}
+            {#if editingId === row.id}
               <input
                 class="oe-edit-input"
                 use:focusOnMount={true}
                 bind:value={editDraft}
-                onkeydown={(e) => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') cancelEdit() }}
-                onblur={commitEdit}
+                use:inlineEdit={{ onCommit: commitEdit, onCancel: cancelEdit, scope: editScope }}
               />
               <button class="oe-item-btn" onclick={commitEdit}><Check size={14} /></button>
             {:else}
               <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <span class="oe-item-text" role="button" tabindex="-1" ondblclick={() => startEdit(i)}>{opt}</span>
+              <span class="oe-item-text" role="button" tabindex="-1" ondblclick={() => startEdit(row.id)}>{row.value}</span>
               <span class="oe-item-actions">
-                <button class="oe-item-btn oe-edit" onclick={() => startEdit(i)}><Pencil size={12} /></button>
-                <button class="oe-item-btn oe-delete" onclick={() => removeOption(i)}><Trash2 size={12} /></button>
+                <button class="oe-item-btn oe-edit" onclick={() => startEdit(row.id)}><Pencil size={12} /></button>
+                <button class="oe-item-btn oe-delete" onclick={() => removeOption(row.id)}><Trash2 size={12} /></button>
               </span>
             {/if}
           </div>
         {/each}
-        {#if options.length === 0}
+        {#if draggingId !== null && dropBeforeId === DROP_END}
+          <div class="oe-drop-indicator"></div>
+        {/if}
+        {#if rows.length === 0}
           <div class="oe-empty">{t('options_editor.empty')}</div>
         {/if}
       </div>
@@ -179,8 +261,9 @@
           class="oe-add-input"
           type="text"
           placeholder={t('options_editor.add_placeholder')}
+          bind:this={newOptionInputEl}
           bind:value={newOption}
-          onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addOption() } }}
+          use:inlineEdit={{ serial: true, onCommit: addOption, onCancel: cancelAddOption, scope: editScope }}
         />
         <button class="oe-add-btn" onclick={addOption} disabled={!newOption.trim()}>
           <Plus size={14} />
@@ -190,7 +273,7 @@
 
       <!-- Footer -->
       <div class="oe-footer">
-        <span class="oe-count">{options.length} {options.length === 1 ? t('options_editor.item') : t('options_editor.items')}</span>
+        <span class="oe-count">{rows.length} {rows.length === 1 ? t('options_editor.item') : t('options_editor.items')}</span>
         <div class="oe-footer-actions">
           <button class="oe-btn-cancel" onclick={cancel}>{t('common.cancel')}</button>
           <button class="oe-btn-save" onclick={save}>{t('common.save')}</button>
@@ -246,7 +329,12 @@
   }
   .oe-item:hover { background: var(--bg-hover); }
   .oe-item.dragging { opacity: 0.4; }
-  .oe-item.drop-target { border-top: 2px solid var(--accent); }
+  .oe-drop-indicator {
+    height: 2px;
+    background: var(--accent);
+    border-radius: 1px;
+    margin: 1px 0;
+  }
   .oe-drag-handle { color: var(--text-faint); cursor: grab; flex-shrink: 0; display: flex; }
   .oe-drag-handle:active { cursor: grabbing; }
   .oe-item-text { flex: 1; font-size: 0.9rem; color: var(--text-primary); cursor: default; user-select: none; }

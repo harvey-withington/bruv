@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte'
+  import { onMount, onDestroy, setContext } from 'svelte'
+  import { EditScope, EDIT_SCOPE_KEY } from '@shared/editScope'
   import { repoRPC, NetworkError } from '../lib/auth'
   import { onReconnect } from '../lib/connectivity.svelte'
   import { navigate, projectURL } from '../lib/router.svelte'
@@ -40,6 +41,122 @@
   // all later passes. Mobile-first, but mobile-not-everything.
 
   let { id }: { id: string } = $props()
+
+  // Keyboard entry contract (see UI-CONVENTIONS "Keyboard entry"):
+  // every in-flight edit on this page registers here via context.
+  // Escape closes the page only when nothing is being edited;
+  // Ctrl+Enter commits every active edit and closes.
+  const editScope = new EditScope()
+  editScope.requestClose = () => closePage()
+  setContext(EDIT_SCOPE_KEY, editScope)
+
+  /** Pop back to wherever the user came from; fall back to home for
+   *  deep links with no history (same pattern as deleteCard). */
+  function closePage() {
+    if (window.history.length > 1) history.back()
+    else navigate('/')
+  }
+
+  // --- Back = Escape layering (UI-CONVENTIONS §8 mobile variant) ---
+  //
+  // While any edit is active, a Back activation cancels it and the card
+  // STAYS open; a second Back navigates. Two entry points:
+  //
+  //  • The ← button. Intercepted on pointerdown — it fires BEFORE the
+  //    tap moves focus (a blur would commit, not cancel). The follow-up
+  //    click is swallowed once via backTapConsumed.
+  //
+  //  • System/gesture/hardware back (popstate). By the time popstate
+  //    fires the entry is already popped, so we cancel the edits and
+  //    push the card's own URL straight back — stateless: no guard
+  //    entries to leak, and the stack ends up exactly as before the
+  //    back press. The router re-reads location inside its (async)
+  //    view-transition callback, so it never sees the intermediate
+  //    URL; the synthetic popstate covers browsers without the View
+  //    Transitions API, where the router's route state flipped
+  //    synchronously and needs correcting.
+  //
+  // Overlays (sheets/pickers) push their own history entries and own
+  // the Back that closes them — while one is open we don't interfere
+  // (mirrors handleWindowKeydown; no CardPage edit can be active then
+  // anyway, since opening an overlay blurs it).
+
+  // Captured at init — the card page's own URL (/m/c/<id>), used to
+  // restore the just-popped entry.
+  const pageURL = window.location.pathname
+  let suppressPopstate = false
+  let backTapConsumed = false
+
+  function cancelActiveEdits() {
+    editScope.cancelAll()
+    // Always-mounted fields (draftEdit) stay focused through a scope
+    // cancel; blur so the keyboard dismisses and the next focus starts
+    // a fresh session. After cancelAll, the fields' settled latches
+    // make this blur's commit a no-op.
+    ;(document.activeElement as HTMLElement | null)?.blur()
+  }
+
+  function onBackPointerDown() {
+    if (!editScope.hasActive()) return
+    cancelActiveEdits()
+    backTapConsumed = true
+  }
+
+  function onBackPointerUp() {
+    // The click (when the tap completes) fires before timers run; this
+    // clears a consumed flag left behind by a tap that never became a
+    // click (drag-away), so the next ← tap isn't swallowed.
+    setTimeout(() => (backTapConsumed = false), 0)
+  }
+
+  function onBackClick() {
+    if (backTapConsumed) {
+      backTapConsumed = false
+      return
+    }
+    history.back()
+  }
+
+  function handlePopstate() {
+    if (suppressPopstate) {
+      suppressPopstate = false
+      return
+    }
+    if (
+      searchOpen ||
+      pinPickerOpen ||
+      typePickerOpen ||
+      blockPickerOpen ||
+      confirmingDelete ||
+      confirmingRefresh
+    ) return
+    if (!editScope.hasActive()) return
+    cancelActiveEdits()
+    // Restore the just-popped card entry so the user stays put; the
+    // next Back (nothing active any more) navigates for real. Scroll
+    // stays put too: the router sets history.scrollRestoration =
+    // 'manual', so the traversal we're undoing never re-applies the
+    // underlying entry's saved scroll offset.
+    suppressPopstate = true
+    window.history.pushState({}, '', pageURL)
+    window.dispatchEvent(new PopStateEvent('popstate'))
+  }
+
+  function handleWindowKeydown(e: KeyboardEvent) {
+    // Child overlays own their keyboard handling while open (ConfirmDialog
+    // consumes Escape itself; SearchSheet runs its own scope; the pickers
+    // are tap-to-choose). Escape/Ctrl+Enter must not also close the page
+    // underneath them.
+    if (
+      searchOpen ||
+      pinPickerOpen ||
+      typePickerOpen ||
+      blockPickerOpen ||
+      confirmingDelete ||
+      confirmingRefresh
+    ) return
+    editScope.handleWindowKeydown(e)
+  }
 
   let card = $state<Card | null>(null)
   let projectKey = $state<string | undefined>(undefined)
@@ -214,12 +331,17 @@
 
   onMount(() => {
     void loadCard()
+    window.addEventListener('popstate', handlePopstate)
     // On reconnect: if the card never loaded, fetch it; otherwise keep the
     // on-screen edit session and flush any saves that failed while offline.
-    return onReconnect(() => {
+    const offReconnect = onReconnect(() => {
       if (!card) void loadCard()
       else void flushPendingSaves()
     })
+    return () => {
+      window.removeEventListener('popstate', handlePopstate)
+      offReconnect()
+    }
   })
 
   // --- Pin / unpin ---
@@ -547,6 +669,10 @@
       // LLM-suggestion-accept (or any cross-device pin change) too.
       void refreshPins()
     } else if (ev.topic === 'card:deleted') {
+      // Cancel any in-flight edit first — the Back = Escape popstate
+      // layer would otherwise treat this programmatic back() as a
+      // cancel-and-stay and strand the user on a deleted card.
+      cancelActiveEdits()
       if (window.history.length > 1) history.back()
       else navigate('/')
     }
@@ -616,8 +742,19 @@
   }
 </script>
 
+<svelte:window onkeydown={handleWindowKeydown} />
+
 <header class="topbar">
-  <button type="button" class="back" onclick={() => history.back()}>
+  <!-- Back = Escape: pointerdown runs before the tap blurs an active
+       edit (blur would commit), so an edit-cancelling ← works. -->
+  <button
+    type="button"
+    class="back"
+    onpointerdown={onBackPointerDown}
+    onpointerup={onBackPointerUp}
+    onpointercancel={() => (backTapConsumed = false)}
+    onclick={onBackClick}
+  >
     <span aria-hidden="true">‹</span> {t('common.back')}
   </button>
   <span class="topbar-title" title={card?.title ?? ''}>
@@ -997,6 +1134,9 @@
     padding: 0.4rem 0.6rem;
     border-radius: 6px;
     justify-self: start;
+    /* No double-tap-zoom click delay — the pointerdown edit-cancel and
+       its follow-up click must land in one predictable sequence. */
+    touch-action: manipulation;
   }
 
   .back:hover,

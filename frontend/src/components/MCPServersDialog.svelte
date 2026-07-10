@@ -3,7 +3,7 @@
   import { fade } from 'svelte/transition'
   import { showToast } from '../lib/toast.svelte'
   import { showConfirm } from '../lib/confirm.svelte'
-  import { Plus, Pencil, Trash2, X, RefreshCw, Check, CircleAlert, Power, PowerOff } from 'lucide-svelte'
+  import { Plus, Pencil, Trash2, X, RefreshCw, Check, CircleAlert, Power, PowerOff, GripVertical } from 'lucide-svelte'
   import {
     ListMCPServers, AddMCPServer, UpdateMCPServer, DeleteMCPServer,
     SetMCPServerSecret, GetMCPServerSecretStatus, RestartMCPServer,
@@ -11,6 +11,7 @@
   import type { MCPServerView, MCPServerSpec, MCPHealthStatus } from '@shared/types'
   import { draggable } from '../lib/draggable'
   import { focusTrap, portal } from '../lib/actions'
+  import { computeReorder, wouldReorder, DROP_END } from '../lib/reorder'
 
   let { onClose }: { onClose: () => void } = $props()
 
@@ -64,6 +65,7 @@
     editingIsNew = true
     secretStatus = {}
     secretDrafts = {}
+    argRows = []
   }
 
   async function startEdit(view: MCPServerView) {
@@ -78,6 +80,7 @@
     }
     editingIsNew = false
     secretDrafts = {}
+    argRows = (view.spec.args ?? []).map(value => ({ id: crypto.randomUUID(), value }))
     try {
       secretStatus = await GetMCPServerSecretStatus(view.spec.name) ?? {}
     } catch {
@@ -89,11 +92,15 @@
     editingSpec = null
     secretStatus = {}
     secretDrafts = {}
+    argRows = []
   }
 
   async function saveEdit() {
     if (!editingSpec) return
     const spec = editingSpec
+    // argRows is the drag-reorderable working copy of the CLI args;
+    // fold it back into the plain string[] the spec is saved with.
+    spec.args = argRows.map(row => row.value)
     if (!spec.name.trim()) {
       showToast(t('mcp.error_name_required'), 'error')
       return
@@ -170,21 +177,68 @@
 
   // --- Args list editing helpers ---
   // Args are rendered as one-input-per-arg so users don't have to
-  // think about shell quoting. Add/remove buttons keep the list
-  // simple.
+  // think about shell quoting. CLI argument order matters (it's
+  // positional), so rows carry ephemeral drag-reorder ids — args
+  // themselves are plain strings with no natural stable key, and the
+  // spec.args array is rebuilt from argRows on save (see saveEdit).
+  let argRows = $state<{ id: string; value: string }[]>([])
+
   function addArg() {
     if (!editingSpec) return
-    editingSpec.args = [...(editingSpec.args ?? []), '']
+    argRows = [...argRows, { id: crypto.randomUUID(), value: '' }]
   }
-  function removeArg(index: number) {
-    if (!editingSpec) return
-    editingSpec.args = (editingSpec.args ?? []).filter((_, i) => i !== index)
+  function removeArg(id: string) {
+    argRows = argRows.filter(row => row.id !== id)
   }
-  function updateArg(index: number, value: string) {
-    if (!editingSpec) return
-    const args = [...(editingSpec.args ?? [])]
-    args[index] = value
-    editingSpec.args = args
+  function updateArg(id: string, value: string) {
+    argRows = argRows.map(row => row.id === id ? { ...row, value } : row)
+  }
+
+  // --- Args drag-to-reorder ---
+  // Local form state only — order is folded into editingSpec.args at
+  // save time, so there's no RPC per drop, just a reorder.ts move over
+  // argRows.
+  let draggingArgId = $state<string | null>(null)
+  let dropBeforeArgId = $state<string | typeof DROP_END | null>(null)
+
+  function handleArgDragStart(e: DragEvent, id: string) {
+    draggingArgId = id
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move'
+      e.dataTransfer.setData('text/plain', id)
+    }
+  }
+
+  function handleArgDragOver(e: DragEvent, overId: string, idx: number) {
+    if (draggingArgId === null) return
+    e.preventDefault()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const midY = rect.top + rect.height / 2
+    let candidate: string | typeof DROP_END
+    if (e.clientY < midY) {
+      candidate = overId
+    } else {
+      const next = argRows[idx + 1]
+      candidate = next ? next.id : DROP_END
+    }
+    dropBeforeArgId = wouldReorder(argRows, draggingArgId, candidate, 'move') ? candidate : null
+  }
+
+  function handleArgDragEnd() {
+    draggingArgId = null
+    dropBeforeArgId = null
+  }
+
+  function handleArgDrop(e: DragEvent) {
+    e.preventDefault()
+    if (draggingArgId === null || dropBeforeArgId === null) {
+      handleArgDragEnd()
+      return
+    }
+    const reordered = computeReorder(argRows, draggingArgId, dropBeforeArgId, { mode: 'move' })
+    handleArgDragEnd()
+    if (reordered !== argRows) argRows = reordered
   }
 
   // --- Env var list editing helpers ---
@@ -388,20 +442,48 @@
 
           <div class="field-row">
             <span class="field-label">{t('mcp.field_args')}</span>
-            <div class="args-list">
-              {#each editingSpec.args ?? [] as arg, i}
-                <div class="arg-row">
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="args-list"
+              role="list"
+              ondrop={handleArgDrop}
+              ondragover={(e) => { if (draggingArgId !== null) e.preventDefault() }}
+            >
+              {#each argRows as row, i (row.id)}
+                {#if draggingArgId !== null && dropBeforeArgId === row.id}
+                  <div class="arg-drop-indicator"></div>
+                {/if}
+                <div
+                  class="arg-row"
+                  class:arg-row-dragging={draggingArgId === row.id}
+                  role="listitem"
+                  ondragover={(e) => handleArgDragOver(e, row.id, i)}
+                >
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <span
+                    class="arg-drag-handle"
+                    draggable={true}
+                    ondragstart={(e) => handleArgDragStart(e, row.id)}
+                    ondragend={handleArgDragEnd}
+                    role="button"
+                    tabindex="-1"
+                    aria-label={t('tooltip.drag_mcp_arg')}
+                    title={t('tooltip.drag_mcp_arg')}
+                  ><GripVertical size={14} /></span>
                   <input
                     class="field-input mono"
-                    value={arg}
-                    oninput={(e) => updateArg(i, (e.target as HTMLInputElement).value)}
+                    value={row.value}
+                    oninput={(e) => updateArg(row.id, (e.target as HTMLInputElement).value)}
                     placeholder={t('mcp.field_arg_placeholder')}
                   />
-                  <button class="icon-btn danger" onclick={() => removeArg(i)} aria-label={t('mcp.remove_arg')}>
+                  <button class="icon-btn danger" onclick={() => removeArg(row.id)} aria-label={t('mcp.remove_arg')}>
                     <X size={12} />
                   </button>
                 </div>
               {/each}
+              {#if draggingArgId !== null && dropBeforeArgId === DROP_END}
+                <div class="arg-drop-indicator"></div>
+              {/if}
               <button class="btn btn-ghost btn-sm" onclick={addArg}>
                 <Plus size={12} /> {t('mcp.add_arg')}
               </button>
@@ -670,6 +752,30 @@
   .args-list, .env-list { display: flex; flex-direction: column; gap: 6px; }
   .arg-row { display: flex; gap: 6px; align-items: center; }
   .arg-row .field-input { flex: 1; }
+  .arg-row-dragging { opacity: 0.4; }
+  .arg-drop-indicator {
+    height: 2px;
+    background: var(--accent);
+    border-radius: 1px;
+    margin: 1px 0;
+  }
+  /* Drag handle: revealed on row hover, mirroring EditableChecklist's
+     .cl-drag-handle. */
+  .arg-drag-handle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-faint);
+    cursor: grab;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity var(--duration-fast) var(--ease-out);
+  }
+  .arg-row:hover .arg-drag-handle,
+  .arg-drag-handle:focus-visible {
+    opacity: 1;
+  }
+  .arg-drag-handle:active { cursor: grabbing; }
 
   .env-row {
     display: flex;
@@ -702,7 +808,7 @@
   }
   .secret-status.set { color: var(--text-primary); background: color-mix(in srgb, var(--accent) 20%, transparent); }
   .secret-status.unset { color: var(--text-muted); background: var(--bg-elevated); }
-  .secret-status.pending { color: #fff; background: #f59e0b; }
+  .secret-status.pending { color: var(--on-color); background: var(--warning); }
   .secret-input { width: 100%; }
 
   .toggle-row {

@@ -141,9 +141,9 @@
     color: var(--accent);
   }
   .pin-toggle.pinned:hover:not(:disabled) {
-    border-color: #eb5a46;
-    color: #eb5a46;
-    background: color-mix(in srgb, #eb5a46 8%, transparent);
+    border-color: var(--danger);
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
   }
   .pin-toggle:disabled { opacity: 0.5; cursor: default; }
 
@@ -240,5 +240,5 @@
     line-height: 1;
   }
   .btn-pin-action:hover { color: var(--text-primary); }
-  .btn-unpin:hover { color: #eb5a46; }
+  .btn-unpin:hover { color: var(--danger); }
 </style>

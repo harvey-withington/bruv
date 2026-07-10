@@ -116,6 +116,11 @@ func (r *Runtime) SaveWorkspaceTemplate(ref string, tpl ft.Template) error {
 	return r.Workspace.SaveTemplate(ref, tpl)
 }
 
+// DeleteWorkspaceTemplate removes a vault-resident template folder.
+func (r *Runtime) DeleteWorkspaceTemplate(ref string) error {
+	return r.Workspace.DeleteTemplate(ref)
+}
+
 // --- Card Folders (plan/2026-07-05 card folders design.md) -------------------
 
 // ListProjectTemplates merges workspace-resident templates (first) with the

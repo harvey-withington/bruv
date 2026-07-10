@@ -3,8 +3,10 @@
   // swaps to a text input on tap. Mobile's analog of desktop's EditableText
   // (inlineMarkdown mode) so checklist/list items render markdown the same
   // way on both surfaces. Owns its own draft + edit state; the parent only
-  // sees committed text via onSave (or onEmpty when blurred blank).
+  // sees committed text via onSave (or onEmpty when the row ends up blank).
+  import { getContext } from 'svelte'
   import { renderInline } from '@shared/markdown'
+  import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
 
   let {
     text = '',
@@ -13,7 +15,6 @@
     autoEdit = false,
     onSave,
     onEmpty,
-    onEnter,
   }: {
     text?: string
     /** Strike through the rendered text (checklist done state). */
@@ -23,10 +24,9 @@
     autoEdit?: boolean
     /** Commit non-empty, changed text. */
     onSave?: (text: string) => void
-    /** Blurred while blank — the parent drops the row. */
+    /** Row ended up blank (blank commit, or cancel of a never-committed
+     *  fresh row) — the parent drops the row. */
     onEmpty?: () => void
-    /** Enter pressed — the parent adds the next row. */
-    onEnter?: () => void
   } = $props()
 
   // Initial-value capture is intended: autoEdit/text seed the starting
@@ -43,6 +43,17 @@
 
   $effect(() => { if (editing && inputEl) inputEl.focus() })
 
+  // Keyboard entry contract: count as an active edit while editing so
+  // the containing page's Escape doesn't close underneath us and
+  // Ctrl+Enter commits this row too. Handlers stay hand-rolled because
+  // plain Enter must commit WITHOUT closing the containing page, and
+  // Escape must be consumed here (cancel this row only, not the card).
+  const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
+  $effect(() => {
+    if (!editing || !editScope) return
+    return editScope.register({ commit: save, cancel })
+  })
+
   function startEdit() {
     draft = text
     editing = true
@@ -57,15 +68,32 @@
   }
 
   function cancel() {
+    if (!editing) return
     editing = false
     draft = text
+    // A row with no committed text is a just-added placeholder (the +
+    // button's auto-edit spawn). Per the add-cancel ruling
+    // (UI-CONVENTIONS §12.5) cancelling an add-flow leaves nothing
+    // behind — hand it to the parent to drop, mirroring save()'s
+    // blank-commit path.
+    if (text.trim() === '') onEmpty?.()
   }
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') {
+      if (e.ctrlKey || e.metaKey) {
+        // Contract: Ctrl+Enter commits and closes the containing page.
+        e.preventDefault()
+        e.stopPropagation()
+        save()
+        editScope?.requestClose?.()
+        return
+      }
+      // Plain Enter (the mobile keyboard's ✓/Done tick) JUST commits —
+      // no next-row advance. Adding rows is the + button's job; rapid-
+      // entry chaining on tick surprised users (ruling 2026-07-10).
       e.preventDefault()
       save()
-      onEnter?.()
     } else if (e.key === 'Escape') {
       // Revert, and never let Escape bubble up to close the card.
       e.preventDefault()
@@ -83,6 +111,7 @@
     bind:value={draft}
     onblur={save}
     onkeydown={handleKeydown}
+    enterkeyhint="done"
   />
 {:else}
   <!-- svelte-ignore a11y_no_static_element_interactions -->

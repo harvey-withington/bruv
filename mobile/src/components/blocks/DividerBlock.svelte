@@ -1,9 +1,13 @@
 <script lang="ts">
-  import { tick } from 'svelte'
+  import { tick, getContext } from 'svelte'
   import { t } from '../../lib/i18n.svelte'
+  import { inlineEdit } from '@shared/inlineEdit'
+  import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import type { Block } from '@shared/types'
 
   let { block, onChange }: { block: Block; onChange: (next: Block) => void } = $props()
+
+  const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
 
   // svelte-ignore state_referenced_locally
   let editing = $state(false)
@@ -31,6 +35,11 @@
     if (draft === block.label) return
     onChange({ ...block, label: draft })
   }
+
+  function cancel() {
+    draft = block.label ?? ''
+    editing = false
+  }
 </script>
 
 {#if editing}
@@ -38,20 +47,10 @@
     bind:this={inputEl}
     class="edit"
     type="text"
-    value={draft}
+    bind:value={draft}
     placeholder={t('block.divider.label_placeholder')}
-    oninput={(e) => (draft = (e.currentTarget as HTMLInputElement).value)}
-    onblur={commit}
-    onkeydown={(e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault()
-        ;(e.currentTarget as HTMLInputElement).blur()
-      }
-      if (e.key === 'Escape') {
-        draft = block.label ?? ''
-        editing = false
-      }
-    }}
+    enterkeyhint="done"
+    use:inlineEdit={{ onCommit: commit, onCancel: cancel, scope: editScope }}
   />
 {:else if block.label}
   <button type="button" class="div-with-label" onclick={startEdit}>

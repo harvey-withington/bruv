@@ -1,6 +1,7 @@
 <script lang="ts">
   import { GetAllAgents, GetAllAgentRuns, GetAgentAnalytics, TriggerAgent, CancelAgent, PauseAllAgents, ResumeAllAgents, GetAgentSchedulerStatus } from '@shared/api'
   import type { AgentSummary, AgentRunEntry, AgentAnalytics } from '@shared/types'
+  import { formatRelativeTime } from '@shared/relativeTime'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
   import { Timer, Play, Square, Pause, CirclePlay, CircleCheck, CircleX, TriangleAlert, Clock } from 'lucide-svelte'
@@ -14,6 +15,7 @@
   let analytics = $state<AgentAnalytics>({ total_agents: 0, enabled_agents: 0, total_runs: 0, success_runs: 0, failed_runs: 0, total_tokens: 0, total_cost: 0, cost_today: 0, cost_7d: 0, cost_by_model: {} })
   let schedulerPaused = $state(false)
   let loading = $state(true)
+  let loadError = $state(false)
   let activeSection = $state<'overview' | 'history'>('overview')
 
   // Splitter: top pane (overview table) vs bottom pane (analytics)
@@ -69,8 +71,11 @@
       runs = allRuns || []
       analytics = stats
       schedulerPaused = status.paused
+      loadError = false
     } catch (e) {
       console.error('Failed to load agents page:', e)
+      loadError = true
+      showToast(t('agents_page.load_failed'), 'error')
     } finally {
       loading = false
     }
@@ -108,10 +113,10 @@
 
   function statusColor(s: string): string {
     switch (s) {
-      case 'idle': return 'var(--color-success, #22c55e)'
-      case 'running': return 'var(--color-info, #3b82f6)'
-      case 'failed': return 'var(--color-error, #ef4444)'
-      default: return 'var(--color-muted, #94a3b8)'
+      case 'idle': return 'var(--success)'
+      case 'running': return 'var(--info)'
+      case 'failed': return 'var(--danger)'
+      default: return 'var(--text-muted)'
     }
   }
 
@@ -126,16 +131,7 @@
 
   function formatRelative(iso: string | null): string {
     if (!iso) return '-'
-    const d = new Date(iso)
-    const diff = Date.now() - d.getTime()
-    const mins = Math.floor(Math.abs(diff) / 60000)
-    const future = diff < 0
-    if (mins < 1) return future ? 'soon' : 'just now'
-    if (mins < 60) return future ? `in ${mins}m` : `${mins}m ago`
-    const hours = Math.floor(mins / 60)
-    if (hours < 24) return future ? `in ${hours}h` : `${hours}h ago`
-    const days = Math.floor(hours / 24)
-    return future ? `in ${days}d` : `${days}d ago`
+    return formatRelativeTime(iso, t)
   }
 
   function truncate(s: string | null, len: number): string {
@@ -214,6 +210,11 @@
     <div class="page-loading">
       <Timer size={24} strokeWidth={1.5} />
       <span>{t('app.loading')}</span>
+    </div>
+  {:else if loadError}
+    <div class="page-loading page-load-error">
+      <span class="load-error-text">{t('agents_page.load_failed')}</span>
+      <button class="retry-btn" onclick={load}>{t('agent.load_retry')}</button>
     </div>
   {:else}
     <!-- Stats bar -->
@@ -357,7 +358,7 @@
               <h3 class="chart-title">{t('agents_page.chart_daily_runs')}</h3>
               <div class="bar-chart">
                 {#each dailyRuns() as day}
-                  <div class="bar-col" title="{day.date}: {day.success} ok, {day.failed} failed">
+                  <div class="bar-col" title={t('agents_page.chart_daily_runs_tooltip', { date: day.date, success: day.success, failed: day.failed })}>
                     <div class="bar-stack">
                       {#if day.failed > 0}
                         <div class="bar bar-failed" style="height: {(day.failed / maxDailyRuns) * 100}%"></div>
@@ -381,7 +382,7 @@
               <h3 class="chart-title">{t('agents_page.chart_daily_tokens')}</h3>
               <div class="bar-chart">
                 {#each dailyRuns() as day}
-                  <div class="bar-col" title="{day.date}: {day.tokens.toLocaleString()} tokens">
+                  <div class="bar-col" title={t('agents_page.chart_daily_tokens_tooltip', { date: day.date, tokens: day.tokens.toLocaleString() })}>
                     <div class="bar-stack">
                       {#if day.tokens > 0}
                         <div class="bar bar-tokens" style="height: {(day.tokens / maxDailyTokens) * 100}%"></div>
@@ -406,7 +407,7 @@
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                     <div class="breakdown-row" onclick={() => onCardClick(agent.id)}>
                       <span class="breakdown-title">{agent.title}</span>
-                      <span class="breakdown-runs">{agent.runs} runs</span>
+                      <span class="breakdown-runs">{t('agents_page.breakdown_runs', { n: agent.runs })}</span>
                       <div class="breakdown-bar-wrap">
                         <div class="breakdown-bar" style="width: {(agent.tokens / maxTokens) * 100}%"></div>
                       </div>
@@ -503,6 +504,26 @@
     height: 100%;
     color: var(--text-muted);
   }
+  .page-load-error {
+    flex-direction: column;
+  }
+  .load-error-text {
+    color: var(--danger);
+  }
+  .retry-btn {
+    padding: 0.3rem 0.75rem;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-muted);
+    border-radius: 5px;
+    color: var(--text-body);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .retry-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
 
   /* Stats bar */
   .stats-bar {
@@ -557,17 +578,17 @@
     font-size: 0.68rem;
     padding: 0.1rem 0.4rem;
     border-radius: 999px;
-    background: color-mix(in srgb, var(--color-info, #3b82f6) 15%, var(--bg-elevated));
-    color: var(--color-info, #3b82f6);
-    border: 1px solid var(--color-info, #3b82f6);
+    background: color-mix(in srgb, var(--info) 15%, var(--bg-elevated));
+    color: var(--info);
+    border: 1px solid var(--info);
   }
   .failed-badge {
     font-size: 0.68rem;
     padding: 0.1rem 0.4rem;
     border-radius: 999px;
-    background: color-mix(in srgb, var(--color-error, #ef4444) 15%, var(--bg-elevated));
-    color: var(--color-error, #ef4444);
-    border: 1px solid var(--color-error, #ef4444);
+    background: var(--danger-bg);
+    color: var(--danger-text);
+    border: 1px solid var(--danger-border);
   }
   .pause-btn {
     display: flex;
@@ -699,10 +720,10 @@
   .status-text { font-size: 0.7rem; text-transform: capitalize; }
 
   .table-row.running .status-dot {
-    background: linear-gradient(135deg, #6366f1, #06b6d4, #a855f7, #6366f1) !important;
+    background: var(--agent-running-gradient) !important;
     background-size: 300% 300%;
     animation: agent-neon 2s ease infinite;
-    box-shadow: 0 0 4px rgba(99, 102, 241, 0.6), 0 0 8px rgba(168, 85, 247, 0.3);
+    box-shadow: var(--agent-running-glow-sm);
   }
 
   .col-title { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
@@ -723,9 +744,9 @@
     border: 1px solid var(--accent);
   }
   .badge-dated {
-    background: color-mix(in srgb, var(--color-success, #22c55e) 12%, var(--bg-elevated));
-    color: var(--color-success, #22c55e);
-    border: 1px solid var(--color-success, #22c55e);
+    background: var(--success-bg);
+    color: var(--success-text);
+    border: 1px solid var(--success-border);
     font-size: 0.6rem;
   }
   .col-last-run, .col-next-run { display: flex; align-items: center; gap: 0.25rem; font-size: 0.72rem; color: var(--text-muted); }
@@ -746,18 +767,18 @@
   }
   .action-run { background: var(--accent); color: white; }
   .action-cancel {
-    background: linear-gradient(135deg, #6366f1, #06b6d4, #a855f7, #6366f1);
+    background: var(--agent-running-gradient);
     background-size: 300% 300%;
     animation: agent-neon 2s ease infinite;
     color: white;
-    box-shadow: 0 0 6px rgba(99, 102, 241, 0.5), 0 0 12px rgba(168, 85, 247, 0.3);
+    box-shadow: var(--agent-running-glow);
   }
   .action-btn:hover { filter: brightness(1.15); }
 
   .row-error {
     padding: 0.15rem 0.5rem 0.4rem 0.5rem;
     font-size: 0.68rem;
-    color: var(--color-error, #ef4444);
+    color: var(--danger);
     border-bottom: 1px solid var(--border-muted);
     padding-left: calc(0.5rem + 100px + 0.5rem);
   }
@@ -867,8 +888,8 @@
     min-height: 1px;
     transition: height 0.3s ease;
   }
-  .bar-success { background: var(--color-success, #22c55e); }
-  .bar-failed { background: var(--color-error, #ef4444); }
+  .bar-success { background: var(--success); }
+  .bar-failed { background: var(--danger); }
   .bar-tokens { background: var(--accent); opacity: 0.7; }
   .bar-label {
     position: absolute;
@@ -895,8 +916,8 @@
     height: 8px;
     border-radius: 2px;
   }
-  .legend-success { background: var(--color-success, #22c55e); }
-  .legend-failed { background: var(--color-error, #ef4444); }
+  .legend-success { background: var(--success); }
+  .legend-failed { background: var(--danger); }
 
   /* Token breakdown */
   .breakdown-list {
@@ -941,7 +962,7 @@
     transition: width 0.3s ease;
   }
   .breakdown-bar-cost {
-    background: var(--color-success, #22c55e);
+    background: var(--success);
   }
   .breakdown-tokens {
     font-size: 0.75rem;

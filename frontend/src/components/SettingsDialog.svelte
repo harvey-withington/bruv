@@ -30,7 +30,7 @@
     confirm_before_delete: true,
     sidebar_width: 260,
     type_badge_display: 'color' as 'text' | 'color' | 'hidden',
-    default_category_name: 'Ideas',
+    default_category_name: t('prefs.default_category_placeholder'),
     inbox_recent_cards_limit: 21,
     inbox_activity_limit: 25,
     sidebar_collapse_default: false,
@@ -95,7 +95,7 @@
       ])
       llmAccounts = accts || []
       if (p) {
-        prefs.default_category_name = p.default_category_name || 'Ideas'
+        prefs.default_category_name = p.default_category_name || t('prefs.default_category_placeholder')
       }
       if (ui) {
         prefs.reopen_last_repo = ui.reopen_last_repo ?? false

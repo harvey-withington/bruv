@@ -1,5 +1,7 @@
-import { GetNotifications, MarkNotificationRead, MarkAllNotificationsRead, ClearAllNotifications } from '@shared/api'
+import { GetNotifications, MarkNotificationRead, MarkAllNotificationsRead, ClearAllNotifications, DeleteNotification } from '@shared/api'
+import { formatRelativeTime } from '@shared/relativeTime'
 import { showToast } from './toast.svelte'
+import { t } from './i18n.svelte'
 
 export type AppNotification = {
   id: string
@@ -57,7 +59,26 @@ export async function clearAll() {
   } catch { /* ignore */ }
 }
 
-export function handleNewNotification(data: any) {
+export async function dismissNotification(id: string) {
+  try {
+    await DeleteNotification(id)
+    notifications.list = notifications.list.filter(n => n.id !== id)
+    updateUnreadCount()
+  } catch {
+    showToast(t('notifications.dismiss_failed'), 'error')
+  }
+}
+
+// Event payloads arrive as loose JSON whose field casing has drifted
+// between Go publishers (snake_case vs PascalCase) — read both until
+// the per-topic payload union lands.
+export type NotificationPayload = Partial<Record<
+  'id' | 'title' | 'Title' | 'body' | 'Body' | 'source' | 'Source' |
+  'card_id' | 'CardID' | 'card_title' | 'CardTitle' | 'created_at' | 'CreatedAt',
+  string
+>>
+
+export function handleNewNotification(data: NotificationPayload) {
   const n: AppNotification = {
     id: data.id || crypto.randomUUID().slice(0, 8),
     title: data.title || data.Title || '',
@@ -74,12 +95,5 @@ export function handleNewNotification(data: any) {
 }
 
 export function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
+  return formatRelativeTime(iso, t)
 }

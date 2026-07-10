@@ -461,8 +461,9 @@ func (d chatDeps) Repo() *repo.Repository { return d.r.repo }
 
 type agentDeps struct{ r *Runtime }
 
-func (d agentDeps) Repo() *repo.Repository { return d.r.repo }
-func (d agentDeps) Index() *index.Index    { return d.r.idx }
+func (d agentDeps) Repo() *repo.Repository            { return d.r.repo }
+func (d agentDeps) Index() *index.Index               { return d.r.idx }
+func (d agentDeps) Publish(topic string, payload any) { d.r.bus.Publish(topic, payload) }
 
 type repoDeps struct{ r *Runtime }
 

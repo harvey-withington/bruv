@@ -1,16 +1,22 @@
 <script lang="ts">
   // Tap-to-edit multi-line markdown. Used for Card.description on
   // mobile. Renders markdown when displayed; swaps to an autosizing
-  // textarea when the user taps in. Blur commits. Escape cancels.
+  // textarea when the user taps in. Keyboard behaviour comes from the
+  // shared inlineEdit action (mobile multiline variant per the keyboard
+  // entry contract: Enter inserts a newline, blur or the ✓ Done button
+  // commits, Escape cancels, Ctrl+Enter commits + closes the page).
   //
   // Same value-rendering shape as the desktop's DescriptionSection,
   // sized for thumb input — bigger tap target, larger initial textarea
   // height, no preview/edit toggle (the rendered markdown IS the
   // preview, and tapping it is the edit affordance).
 
-  import { tick } from 'svelte'
+  import { tick, getContext } from 'svelte'
   import { renderMarkdown } from '@shared/markdown'
+  import { inlineEdit } from '@shared/inlineEdit'
+  import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import { t } from '../lib/i18n.svelte'
+  import EditorDoneButton from './EditorDoneButton.svelte'
 
   let {
     value,
@@ -26,6 +32,8 @@
   let draft = $state('')
   let textareaEl: HTMLTextAreaElement | undefined = $state()
 
+  const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
+
   async function startEdit() {
     draft = value
     editing = true
@@ -35,6 +43,9 @@
   }
 
   function commit() {
+    // Guarded: the ✓ Done tap and the action's blur-commit can both
+    // land in one gesture — only the first may fire onSave.
+    if (!editing) return
     editing = false
     if (draft !== value) onSave(draft)
   }
@@ -51,19 +62,6 @@
     const cap = window.innerHeight * 0.6
     textareaEl.style.height = `${Math.min(textareaEl.scrollHeight, cap)}px`
   }
-
-  function onKey(e: KeyboardEvent) {
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      cancel()
-    }
-    // Ctrl/Cmd+Enter commits — mirrors desktop convention. Plain
-    // Enter inserts a newline (markdown line breaks need them).
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault()
-      commit()
-    }
-  }
 </script>
 
 {#if editing}
@@ -71,12 +69,14 @@
     bind:this={textareaEl}
     bind:value={draft}
     oninput={autoGrow}
-    onblur={commit}
-    onkeydown={onKey}
+    use:inlineEdit={{ multiline: true, enterInsertsNewline: true, onCommit: commit, onCancel: cancel, scope: editScope }}
     placeholder={placeholder}
     class="editor"
     rows="4"
   ></textarea>
+  <div class="editor-actions">
+    <EditorDoneButton onDone={commit} />
+  </div>
 {:else if value}
   <button type="button" class="display" onclick={startEdit} aria-label={t('card.edit_description')}>
     <div class="prose">{@html renderMarkdown(value)}</div>
@@ -111,6 +111,12 @@
     border-color: var(--border);
     border-style: dashed;
     padding: 0.65rem;
+  }
+
+  .editor-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 0.35rem;
   }
 
   .editor {

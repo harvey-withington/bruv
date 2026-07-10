@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ICON_MAP } from '@shared/icons'
   import { parseIconValue, isRasterInner } from '@shared/imageIcon'
+  import { t } from '../lib/i18n.svelte'
 
   let { name, size = 16, className = '' }: { name: string; size?: number; className?: string } = $props()
 
@@ -40,8 +41,8 @@
   <span
     class="dynamic-icon dynamic-icon-unknown {className}"
     style="--icon-size:{size}px; {colorStyle}"
-    title={`Unknown icon: ${inner}`}
-    aria-label={`Unknown icon: ${inner}`}
+    title={t('icon.unknown', { name: inner })}
+    aria-label={t('icon.unknown', { name: inner })}
   >?</span>
 {/if}
 

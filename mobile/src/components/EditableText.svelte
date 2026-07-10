@@ -1,8 +1,14 @@
 <script lang="ts">
   // Tap-to-edit single-line text. Mobile-friendly: tapping the
-  // displayed value swaps in an autofocused input. Enter or blur
-  // commits, Escape cancels. Used for the card title; reusable for
-  // other inline-editable fields as they appear.
+  // displayed value swaps in an autofocused input. Keyboard behaviour
+  // comes from the shared inlineEdit action (Enter/blur commit, Escape
+  // cancels, Ctrl+Enter commits + closes the containing page). Used
+  // for the card title; reusable for other inline-editable fields.
+
+  import { getContext } from 'svelte'
+  import { inlineEdit } from '@shared/inlineEdit'
+  import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
+  import { t } from '../lib/i18n.svelte'
 
   let {
     value,
@@ -22,6 +28,8 @@
   let draft = $state('')
   let inputEl: HTMLInputElement | undefined = $state()
 
+  const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
+
   function startEdit() {
     draft = value
     editing = true
@@ -39,33 +47,23 @@
   function cancel() {
     editing = false
   }
-
-  function onKey(e: KeyboardEvent) {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      commit()
-    } else if (e.key === 'Escape') {
-      e.preventDefault()
-      cancel()
-    }
-  }
 </script>
 
 {#if editing}
   <input
     bind:this={inputEl}
     bind:value={draft}
-    onblur={commit}
-    onkeydown={onKey}
+    use:inlineEdit={{ onCommit: commit, onCancel: cancel, scope: editScope }}
     aria-label={ariaLabel}
     placeholder={placeholder}
+    enterkeyhint="done"
     class="editable-input {className}"
   />
 {:else}
   <button
     type="button"
     onclick={startEdit}
-    aria-label={ariaLabel || `Edit ${value || placeholder}`}
+    aria-label={ariaLabel || t('editable.edit_label', { value: value || placeholder })}
     class="editable-display {className}"
     class:placeholder={!value}
   >

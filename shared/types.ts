@@ -504,11 +504,6 @@ export type AgentAnalytics = {
   cost_by_model: Record<string, number>
 }
 
-export type ModelPricing = {
-  InputPerMTok: number
-  OutputPerMTok: number
-}
-
 // --- Notifications ---
 
 export type AppNotification = {
@@ -912,6 +907,8 @@ export interface BackendAdapter {
   InspectWorkspaceTemplateFolder(dir: string): Promise<WorkspaceTemplateInspection>
   ImportWorkspaceTemplate(srcDir: string, brandSlug: string): Promise<WorkspaceTemplateEntry>
   SaveWorkspaceTemplate(ref: string, tpl: WorkspaceTemplateDescriptor): Promise<void>
+  // Delete a vault-resident template folder (vault-relative id only).
+  DeleteWorkspaceTemplate(ref: string): Promise<void>
 
   // Card Folders: bind a card to a subfolder of its project's workspace,
   // generated from a template. Workspace-resident templates list first.
@@ -941,13 +938,10 @@ export interface BackendAdapter {
   MarkNotificationRead(id: string): Promise<void>
   MarkAllNotificationsRead(): Promise<void>
   ClearAllNotifications(): Promise<void>
+  DeleteNotification(id: string): Promise<void>
 
   // Category details
   GetCategoryAcceptedTypes(categoryID: string): Promise<string[] | null>
-
-  // Token pricing
-  GetTokenPricing(): Promise<Record<string, ModelPricing>>
-  SaveTokenPricing(pricing: Record<string, ModelPricing>): Promise<void>
 
   // Agent
   ValidateSchedulePreview(schedule: string, startDate: string, endDate: string, timezone: string, count: number): Promise<string[]>
@@ -957,6 +951,9 @@ export interface BackendAdapter {
   TriggerAgent(cardID: string): Promise<void>
   CancelAgent(cardID: string): Promise<void>
   ClearAgentRuns(cardID: string): Promise<void>
+  // Remove a card's agent entirely: config, run history, and index
+  // state. Fails while the agent is executing — cancel it first.
+  DeleteAgent(cardID: string): Promise<void>
   PauseAllAgents(): Promise<void>
   ResumeAllAgents(): Promise<void>
   GetAgentSchedulerStatus(): Promise<{ active: boolean; paused: boolean; runningCount: number }>

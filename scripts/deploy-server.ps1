@@ -123,9 +123,23 @@ Stop-Service -Name $svc -Force
 (Get-Service $svc).WaitForStatus('Stopped', '00:00:45')
 Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe } | Stop-Process -Force -ErrorAction SilentlyContinue
 
+# File handles can outlive SERVICE_STOPPED by a moment (process teardown,
+# AV re-scan, a desktop instance closing). A locked target fails the copy
+# BEFORE writing, so retrying is safe and the on-disk exe stays valid.
+function Copy-WithRetry([string]$src, [string]$dst) {
+  for ($i = 1; $i -le 6; $i++) {
+    try { Copy-Item -LiteralPath $src -Destination $dst -Force; return }
+    catch {
+      if ($i -eq 6) { throw }
+      Write-Output "copy locked (attempt $i/6) - retrying in 2s..."
+      Start-Sleep -Seconds 2
+    }
+  }
+}
+
 try {
-  if ($DoBackup) { Copy-Item -LiteralPath $exe -Destination $bak -Force; Write-Output "backed up -> $bak" }
-  Copy-Item -LiteralPath $staged -Destination $exe -Force
+  if ($DoBackup) { Copy-WithRetry $exe $bak; Write-Output "backed up -> $bak" }
+  Copy-WithRetry $staged $exe
   Write-Output "binary replaced"
   Start-Service -Name $svc
   (Get-Service $svc).WaitForStatus('Running', '00:00:45')
@@ -134,9 +148,19 @@ try {
 catch {
   Write-Output "FAILED: $($_.Exception.Message)"
   if ($DoBackup -and (Test-Path $bak)) {
-    Copy-Item -LiteralPath $bak -Destination $exe -Force
-    try { Start-Service -Name $svc; (Get-Service $svc).WaitForStatus('Running', '00:00:30') } catch { }
-    Write-Output "rolled back to previous binary"
+    try { Copy-WithRetry $bak $exe; Write-Output "rolled back to previous binary" }
+    catch { Write-Output "rollback copy failed - on-disk binary left as-is (a locked copy never modifies the target)" }
+  }
+  # Never leave the box headless: whatever happened above, the on-disk
+  # exe is a runnable binary, so always try to bring the service back.
+  # (A 2026-07-11 deploy hit a transient lock and left the service
+  # stopped until a manual restart - this is the fix.)
+  try {
+    Start-Service -Name $svc
+    (Get-Service $svc).WaitForStatus('Running', '00:00:30')
+    Write-Output "service restarted on previous binary"
+  } catch {
+    Write-Output "WARNING: service could not be restarted - start it manually: sc start $svc"
   }
   throw
 }

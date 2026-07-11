@@ -183,10 +183,22 @@ describe('cardToMarkdown — blocks', () => {
     expect(md).toContain('- [ ]')
   })
 
-  it('still skips rating 0 (unrated)', () => {
+  it('renders rating 0 (0 is data, not empty)', () => {
     const md = cardToMarkdown(baseCard({
       blocks: [block({ type: 'rating', label: 'Score', value: 0, meta: { max: 5 } })],
     }))
+    expect(md).toContain('## Score')
+    expect(md).toContain('0 / 5')
+  })
+
+  it('still skips null/undefined-valued zero-meaningful blocks', () => {
+    const md = cardToMarkdown(baseCard({
+      blocks: [
+        block({ type: 'number', label: 'Count', value: null }),
+        block({ type: 'rating', label: 'Score', value: null }),
+      ],
+    }))
+    expect(md).not.toContain('## Count')
     expect(md).not.toContain('## Score')
   })
 })

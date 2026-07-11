@@ -53,16 +53,8 @@ describe('parseCardImport — validation', () => {
       .toEqual({ ok: false, error: 'invalid_title' })
   })
 
-  it('drops malformed blocks, attachments, and comments while keeping valid ones', () => {
+  it('drops malformed attachments and comments while keeping valid ones', () => {
     const result = parseCardImport(envelope({
-      card: {
-        title: 'Hello',
-        blocks: [
-          { id: 'b1', type: 'text', label: '', key: '', value: 'keep' },
-          { id: 'b2' },          // no type — dropped
-          'garbage',             // not an object — dropped
-        ],
-      },
       attachments: [
         { name: 'a.png', mime: 'image/png', size: 1, data: 'AA==' },
         { name: 'broken.png' },  // missing fields — dropped
@@ -74,8 +66,46 @@ describe('parseCardImport — validation', () => {
     }))
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.value.card.blocks).toHaveLength(1)
     expect(result.value.attachments).toHaveLength(1)
     expect(result.value.comments).toHaveLength(1)
+  })
+
+  // Blocks are validated strictly (unlike attachments/comments, which
+  // degrade): a malformed block means the file is corrupt or hand-edited,
+  // and silently dropping it would import a card that looks complete but
+  // lost data — so the whole parse fails with 'invalid_blocks'.
+  it('fails the parse when a block has an unknown type', () => {
+    expect(parseCardImport(envelope({
+      card: { title: 'Hello', blocks: [{ id: 'b1', type: 'wormhole', label: '', key: '', value: null }] },
+    }))).toEqual({ ok: false, error: 'invalid_blocks' })
+  })
+
+  it('fails the parse when a block is missing id/type or is not an object', () => {
+    for (const blocks of [
+      [{ type: 'text', label: '', key: '', value: 'x' }],       // no id
+      [{ id: 'b1', label: '', key: '', value: 'x' }],           // no type
+      [{ id: 42, type: 'text', label: '', key: '', value: 'x' }], // id not a string
+      ['garbage'],                                              // not an object
+      'not-an-array',                                           // blocks not an array
+    ]) {
+      expect(parseCardImport(envelope({ card: { title: 'Hello', blocks } })))
+        .toEqual({ ok: false, error: 'invalid_blocks' })
+    }
+  })
+
+  it('accepts every known block type and keeps valid blocks intact', () => {
+    const result = parseCardImport(envelope({
+      card: {
+        title: 'Hello',
+        blocks: [
+          { id: 'b1', type: 'text', label: 'Notes', key: '', value: 'keep' },
+          { id: 'b2', type: 'checklist', label: '', key: 'todo', value: [] },
+        ],
+      },
+    }))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.card.blocks).toHaveLength(2)
+    expect(result.value.card.blocks[0].value).toBe('keep')
   })
 })

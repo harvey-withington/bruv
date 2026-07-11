@@ -1,3 +1,4 @@
+import { BLOCK_TYPES } from './types'
 import type { Card, CardComment } from './types'
 
 // --- Card ⇄ JSON envelope (lossless, round-trippable) ---
@@ -87,6 +88,7 @@ export type CardImportError =
   | 'unsupported_version'
   | 'missing_card'
   | 'invalid_title'
+  | 'invalid_blocks'
 
 export type CardImportResult =
   | { ok: true; value: BruvCardExport }
@@ -112,6 +114,19 @@ export function parseCardImport(text: string): CardImportResult {
 
   // Normalise: tolerate missing optional fields rather than failing.
   const card = parsed.card as Partial<ExportedCard> & { title: string }
+
+  // Blocks are the one field we validate strictly instead of dropping:
+  // silently discarding a corrupt or unknown block would import a card
+  // that LOOKS complete but lost data. A missing/absent field still
+  // normalises to [], but a present-and-malformed one fails the parse.
+  let blocks: Card['blocks'] = []
+  if (card.blocks !== undefined && card.blocks !== null) {
+    if (!Array.isArray(card.blocks) || !card.blocks.every(isValidBlock)) {
+      return { ok: false, error: 'invalid_blocks' }
+    }
+    blocks = card.blocks
+  }
+
   const value: BruvCardExport = {
     format: CARD_JSON_FORMAT,
     version: parsed.version,
@@ -122,9 +137,7 @@ export function parseCardImport(text: string): CardImportResult {
       type: typeof card.type === 'string' ? card.type : '',
       tags: Array.isArray(card.tags) ? card.tags.filter(t => typeof t === 'string') : [],
       due_date: typeof card.due_date === 'string' ? card.due_date : null,
-      blocks: Array.isArray(card.blocks)
-        ? card.blocks.filter(isBlockLike) as Card['blocks']
-        : [],
+      blocks,
       members: Array.isArray(card.members) ? card.members.filter(m => typeof m === 'string') : undefined,
     },
     attachments: Array.isArray(parsed.attachments)
@@ -141,10 +154,18 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
-// Cheap shape gate, not full schema validation — keeps a corrupt or
-// hand-edited file from injecting arbitrary JSON as a block.
-function isBlockLike(v: unknown): boolean {
-  return isObject(v) && typeof v.type === 'string'
+const KNOWN_BLOCK_TYPES = new Set<string>(BLOCK_TYPES)
+
+// Shape gate for imported blocks: id/type must be strings and the type
+// must be one the model knows — anything else fails the parse with
+// 'invalid_blocks' rather than injecting arbitrary JSON as a block.
+// Values stay untyped (the Block value union is too broad to validate
+// cheaply); renderers already treat block values defensively.
+function isValidBlock(v: unknown): v is Card['blocks'][number] {
+  return isObject(v)
+    && typeof v.id === 'string'
+    && typeof v.type === 'string'
+    && KNOWN_BLOCK_TYPES.has(v.type)
 }
 
 function isEmbeddedAttachment(v: unknown): v is EmbeddedAttachment {

@@ -6,7 +6,7 @@
   import { navigate, projectURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
   import { renderInline } from '@shared/markdown'
-  import { Trash2, MapPin, Plus, X, RefreshCw, Search, Paperclip, MessageSquare, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Copy, FileJson } from 'lucide-svelte'
+  import { Trash2, MapPin, Plus, X, RefreshCw, Search, Paperclip, MessageSquare, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Copy, Download, FileJson } from 'lucide-svelte'
   import { cardToMarkdown } from '@shared/cardMarkdown'
   import { downloadBlob, sanitizeFilenameStem } from '@shared/download'
   import type { CardComment } from '@shared/types'
@@ -532,12 +532,17 @@
     }
   })
 
-  async function copyCardAsMarkdown() {
-    if (!card) return
+  async function buildMarkdown(): Promise<string> {
+    if (!card) return ''
     let comments: CardComment[] = []
     try { comments = (await repoRPC<CardComment[]>('ListCardComments', [card.id])) ?? [] }
     catch { /* optional — degrade to no comments */ }
-    const md = cardToMarkdown(card, { comments, untitledLabel: t('card.untitled'), labels: cardMarkdownLabels() })
+    return cardToMarkdown(card, { comments, untitledLabel: t('card.untitled'), labels: cardMarkdownLabels() })
+  }
+
+  async function copyCardAsMarkdown() {
+    if (!card) return
+    const md = await buildMarkdown()
     try {
       await navigator.clipboard.writeText(md)
       showToast(t('card.copy_markdown_done'), 'success')
@@ -546,8 +551,23 @@
     }
   }
 
+  // Save-as-Markdown-file exists on mobile too (desktop parity): the
+  // shared downloadBlob anchor-download works in mobile browsers exactly
+  // like the JSON export below, so there's no reason to asymmetrise.
+  async function exportCardAsMarkdown() {
+    if (!card) return
+    const md = await buildMarkdown()
+    downloadBlob(md, `${sanitizeFilenameStem(card.title)}.md`, 'text/markdown;charset=utf-8')
+    showToast(t('card.export_markdown_done'), 'success')
+  }
+
+  // JSON export fetches + base64-encodes every attachment — seconds on
+  // big cards, so the footer button shows a busy state meanwhile.
+  let exportingJson = $state(false)
+
   async function exportCardAsJson() {
     if (!card) return
+    exportingJson = true
     try {
       const payload = await buildCardExportPayload(card)
       const json = JSON.stringify(payload, null, 2)
@@ -555,6 +575,8 @@
       showToast(t('card.export_json_done'), 'success')
     } catch {
       showToast(t('card.export_json_error'), 'error')
+    } finally {
+      exportingJson = false
     }
   }
 
@@ -1002,9 +1024,13 @@
         <Copy size={14} />
         {t('card.copy_markdown')}
       </button>
-      <button type="button" class="action-link" onclick={exportCardAsJson}>
+      <button type="button" class="action-link" onclick={exportCardAsMarkdown}>
+        <Download size={14} />
+        {t('card.export_markdown')}
+      </button>
+      <button type="button" class="action-link" onclick={exportCardAsJson} disabled={exportingJson}>
         <FileJson size={14} />
-        {t('card.export_json')}
+        {exportingJson ? t('common.working') : t('card.export_json')}
       </button>
       <button type="button" class="danger-link" onclick={() => (confirmingDelete = true)}>
         <Trash2 size={14} />
@@ -1487,6 +1513,11 @@
     color: var(--text-primary);
     background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
     outline: none;
+  }
+
+  .action-link:disabled {
+    opacity: 0.55;
+    cursor: default;
   }
 
   .danger-link {

@@ -250,9 +250,9 @@ function renderSurveyQuestion(q: SurveyQuestion, noAnswer: string): string {
 // ---------------------------------------------------------------------
 
 // Block types where 0/false is real data, not an unset field: a number
-// or progress at 0 and an unchecked checkbox all carry meaning. Rating
-// 0 stays excluded — it reads as "unrated", not "rated zero".
-const ZERO_MEANINGFUL_TYPES = new Set<string>(['number', 'progress', 'checkbox'])
+// or progress at 0, a rating at 0, and an unchecked checkbox all carry
+// meaning — a card that has the block at all should export its state.
+const ZERO_MEANINGFUL_TYPES = new Set<string>(['number', 'progress', 'checkbox', 'rating'])
 
 function isEmpty(v: Block['value'], type: Block['type']): boolean {
   if (v === null || v === undefined || v === '') return true

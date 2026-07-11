@@ -22,8 +22,9 @@
     uniqueName,
   } from '../lib/browse.svelte'
   import type { Category, CardSummary } from '../lib/model'
-  import { importCardFromJson, ImportError } from '../lib/cardExport'
+  import { importCardFromJson, ImportError, type TypeConflictResolution } from '../lib/cardExport'
   import { showToast } from '../lib/toast.svelte'
+  import ImportConfirmSheet from '../components/ImportConfirmSheet.svelte'
   import DynamicIcon from '../components/DynamicIcon.svelte'
   import CardRow from '../components/CardRow.svelte'
   import SearchSheet from '../components/SearchSheet.svelte'
@@ -354,24 +355,44 @@
   // category triggered the picker so the import targets the right one.
 
   let importInputEl = $state<HTMLInputElement | null>(null)
-  let importTargetCatId = $state<string | null>(null)
+  let importTarget = $state<{ id: string; name: string } | null>(null)
+  // Import replay in flight — shows a blocking overlay spinner (the
+  // triggering menu has already closed, so nothing else can host the
+  // busy state) while attachments are decoded and RPCs replay.
+  let importing = $state(false)
+  // Type-conflict sheet state: set when the export's card type isn't
+  // accepted by the target category; the shared replay awaits `resolve`.
+  let importConflict = $state<{
+    cardType: string
+    categoryName: string
+    acceptedTypes: string[]
+    resolve: (resolution: TypeConflictResolution | null) => void
+  } | null>(null)
 
   function triggerImportCard(cat: CategoryWithCards) {
     closeMenu()
-    importTargetCatId = cat.id
+    importTarget = { id: cat.id, name: cat.name }
     importInputEl?.click()
   }
 
   async function handleImportFileSelected(e: Event) {
     const input = e.currentTarget as HTMLInputElement
     const file = input.files?.[0]
-    const targetId = importTargetCatId
+    const target = importTarget
     input.value = ''
-    importTargetCatId = null
-    if (!file || !targetId) return
+    importTarget = null
+    if (!file || !target) return
+    importing = true
     try {
       const text = await file.text()
-      const result = await importCardFromJson(text, targetId)
+      const result = await importCardFromJson(text, target.id, {
+        categoryName: target.name,
+        resolveTypeConflict: (cardType, catName, acceptedTypes) =>
+          new Promise((resolve) => {
+            importConflict = { cardType, categoryName: catName, acceptedTypes, resolve }
+          }),
+      })
+      if (result === null) return // user cancelled the type-conflict sheet — nothing created
       // Toasts survive navigation, so we can open the imported card
       // immediately and still show the partial-restore warning.
       if (result.failedAttachments.length || result.failedComments.length) {
@@ -384,6 +405,8 @@
       } else {
         showToast(`${t('card.import_err_generic')} ${err instanceof Error ? err.message : ''}`.trim(), 'error')
       }
+    } finally {
+      importing = false
     }
   }
 
@@ -683,7 +706,52 @@
   />
 {/if}
 
+{#if importConflict}
+  <ImportConfirmSheet
+    cardType={importConflict.cardType}
+    categoryName={importConflict.categoryName}
+    acceptedTypes={importConflict.acceptedTypes}
+    onResolve={(resolution) => {
+      importConflict?.resolve(resolution)
+      importConflict = null
+    }}
+  />
+{/if}
+
+{#if importing && !importConflict}
+  <div class="import-busy" role="status" aria-live="polite">
+    <span class="import-spinner" aria-hidden="true"></span>
+    <span>{t('card.importing')}</span>
+  </div>
+{/if}
+
 <style>
+  /* Blocking busy pill while an import replay is in flight. */
+  .import-busy {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.55rem;
+    background: rgba(0, 0, 0, 0.35);
+    color: #fff;
+    font-size: 0.9rem;
+    font-weight: 500;
+  }
+  .import-spinner {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    border-top-color: #fff;
+    animation: import-spin 0.8s linear infinite;
+  }
+  @keyframes import-spin {
+    to { transform: rotate(360deg); }
+  }
+
   .topbar {
     display: grid;
     grid-template-columns: 1fr auto 1fr;

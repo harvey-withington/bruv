@@ -84,7 +84,12 @@ export type ListItem = {
   text: string
 }
 
-export type BlockType = 'text' | 'checklist' | 'list' | 'media' | 'url' | 'divider' | 'select' | 'number' | 'date' | 'rating' | 'checkbox' | 'radio' | 'checkbox_group' | 'image' | 'progress' | 'alarm' | 'survey'
+// Runtime list of every block type the model knows. `BlockType` derives
+// from it so the union and the list can never drift — import validation
+// (cardJson.ts) checks incoming blocks against this.
+export const BLOCK_TYPES = ['text', 'checklist', 'list', 'media', 'url', 'divider', 'select', 'number', 'date', 'rating', 'checkbox', 'radio', 'checkbox_group', 'image', 'progress', 'alarm', 'survey'] as const
+
+export type BlockType = (typeof BLOCK_TYPES)[number]
 
 export type SurveyQuestionType = 'text' | 'rating' | 'choice'
 

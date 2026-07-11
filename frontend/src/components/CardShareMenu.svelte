@@ -1,6 +1,6 @@
 <script lang="ts">
   import { ListCardComments } from '@shared/api'
-  import { Share2, Copy, Download, FileJson } from 'lucide-svelte'
+  import { Share2, Copy, Download, FileJson, Loader2 } from 'lucide-svelte'
   import { cardToMarkdown } from '@shared/cardMarkdown'
   import { downloadBlob, sanitizeFilenameStem } from '@shared/download'
   import { buildCardExportPayload, cardMarkdownLabels } from '../lib/cardExport'
@@ -17,6 +17,9 @@
 
   let open = $state(false)
   let btnEl = $state<HTMLButtonElement | null>(null)
+  // JSON export fetches + base64-encodes every attachment — seconds on
+  // big cards. The trigger doubles as the busy indicator meanwhile.
+  let exporting = $state(false)
 
   function handleKeydown(e: KeyboardEvent) {
     if (!open) return
@@ -56,6 +59,7 @@
 
   async function exportCardAsJson() {
     open = false
+    exporting = true
     try {
       const payload = await buildCardExportPayload(card)
       const json = JSON.stringify(payload, null, 2)
@@ -63,6 +67,8 @@
       showToast(t('card.export_json_done'), 'success')
     } catch {
       showToast(t('card.export_json_error'), 'error')
+    } finally {
+      exporting = false
     }
   }
 </script>
@@ -73,9 +79,15 @@
   class="btn-share"
   bind:this={btnEl}
   onclick={() => open = !open}
-  title={t('tooltip.share_card')}
+  disabled={exporting}
+  title={exporting ? t('card.exporting') : t('tooltip.share_card')}
 >
-  <Share2 size={14} /> {t('card.share')}
+  {#if exporting}
+    <Loader2 size={14} class="spin" />
+  {:else}
+    <Share2 size={14} />
+  {/if}
+  {t('card.share')}
 </button>
 {#if open && btnEl}
   <div
@@ -115,6 +127,16 @@
   .btn-share:focus-visible {
     color: var(--text-primary);
     background: var(--bg-elevated);
+  }
+  .btn-share:disabled {
+    cursor: default;
+    background: transparent;
+  }
+  .btn-share :global(.spin) {
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
   }
 
   /* Menu chrome lives in the shared .dropdown-menu / .dropdown-menu-item

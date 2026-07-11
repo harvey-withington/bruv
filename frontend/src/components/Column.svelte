@@ -2,7 +2,7 @@
   import CardItem from './CardItem.svelte'
   import DynamicIcon from './DynamicIcon.svelte'
   import IconPicker from './IconPicker.svelte'
-  import { Trash2, Layers, Smile, Upload } from 'lucide-svelte'
+  import { Trash2, Layers, Smile, Upload, Loader2 } from 'lucide-svelte'
   import { dnd, prefs, columnSettings, cardTypes } from '../lib/store.svelte'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
@@ -34,7 +34,7 @@
     cards: CardData[]
   }
 
-  let { category = $bindable(), brandSlug, streamSlug, projectSlug, onCardClick, onAddCard, onImportCard, onCardDrop, onDeleteCategory, onStartRename, renaming, renamingName, onRenamingNameChange, onCommitRename, onCancelRename, isReadonly, onCategoryUpdated, onAcceptedTypesChanged }: {
+  let { category = $bindable(), brandSlug, streamSlug, projectSlug, onCardClick, onAddCard, onImportCard, importing, onCardDrop, onDeleteCategory, onStartRename, renaming, renamingName, onRenamingNameChange, onCommitRename, onCancelRename, isReadonly, onCategoryUpdated, onAcceptedTypesChanged }: {
     category: CategoryData
     brandSlug?: string
     streamSlug?: string
@@ -42,6 +42,8 @@
     onCardClick?: (cardId: string, categoryId: string) => void
     onAddCard?: (categoryId: string) => void
     onImportCard?: (categoryId: string, file: File) => void
+    /** An import replay targeting this column is in flight. */
+    importing?: boolean
     onCardDrop?: (cardId: string, fromCategoryId: string, toCategoryId: string, toIndex: number, copy?: boolean) => void
     onDeleteCategory?: (categoryId: string, categorySlug: string, categoryName: string, cardCount: number) => void
     onStartRename?: (categorySlug: string, categoryName: string) => void
@@ -438,8 +440,12 @@
       <button class="add-card-btn" onclick={() => onAddCard?.(category.id)} title={t('tooltip.add_card')}>
         {t('column.add_card_long')}
       </button>
-      <button class="import-card-btn" onclick={handleImportClick} title={t('tooltip.import_card')} aria-label={t('tooltip.import_card')}>
-        <Upload size={14} />
+      <button class="import-card-btn" onclick={handleImportClick} disabled={importing} title={importing ? t('card.importing') : t('tooltip.import_card')} aria-label={importing ? t('card.importing') : t('tooltip.import_card')}>
+        {#if importing}
+          <Loader2 size={14} class="spin" />
+        {:else}
+          <Upload size={14} />
+        {/if}
       </button>
       <input
         type="file"
@@ -769,6 +775,18 @@
   .import-card-btn:hover {
     background: var(--bg-elevated);
     color: var(--text-body);
+  }
+
+  .import-card-btn:disabled {
+    cursor: default;
+    background: none;
+  }
+
+  .import-card-btn :global(.spin) {
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
   }
 
   .add-card-btn:hover {

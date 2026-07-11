@@ -12,7 +12,8 @@
   import { focusTrap } from '../lib/actions'
   import { showToast } from '../lib/toast.svelte'
   import { showConfirm } from '../lib/confirm.svelte'
-  import { importCardFromJson, ImportError } from '../lib/cardExport'
+  import { importCardFromJson, ImportError, type TypeConflictResolution } from '../lib/cardExport'
+  import ImportConfirmDialog from './ImportConfirmDialog.svelte'
 
   let renamingCategorySlug = $state<string | null>(null)
   let renamingCategoryName = $state('')
@@ -69,10 +70,32 @@
     }
   }
 
+  // Type-conflict dialog state: set when an import's card type isn't
+  // accepted by the target category. The shared replay awaits the
+  // stored `resolve` — the dialog's onResolve settles it.
+  let importConflict = $state<{
+    cardType: string
+    categoryName: string
+    acceptedTypes: string[]
+    resolve: (resolution: TypeConflictResolution | null) => void
+  } | null>(null)
+  // Category with an import replay in flight — its column button shows
+  // a spinner while attachments are decoded and RPCs replay.
+  let importingCategoryId = $state<string | null>(null)
+
   async function handleImportCard(categoryId: string, file: File) {
+    const categoryName = board.categories.find(c => c.id === categoryId)?.name || ''
+    importingCategoryId = categoryId
     try {
       const text = await file.text()
-      const result = await importCardFromJson(text, categoryId)
+      const result = await importCardFromJson(text, categoryId, {
+        categoryName,
+        resolveTypeConflict: (cardType, catName, acceptedTypes) =>
+          new Promise((resolve) => {
+            importConflict = { cardType, categoryName: catName, acceptedTypes, resolve }
+          }),
+      })
+      if (result === null) return // user cancelled the type-conflict dialog — nothing created
       await refreshBoard()
 
       const cat = board.categories.find(c => c.id === categoryId)
@@ -90,6 +113,8 @@
         ? `card.import_err_${e.code}`
         : 'card.import_err_generic'
       showToast(t(key), 'error')
+    } finally {
+      importingCategoryId = null
     }
   }
 
@@ -497,6 +522,7 @@
             onCardClick={handleCardClick}
             onAddCard={handleAddCard}
             onImportCard={handleImportCard}
+            importing={importingCategoryId === category.id}
             onCardDrop={handleCardDrop}
             onDeleteCategory={handleDeleteCategoryRequest}
             onStartRename={startRenameCategory}
@@ -565,6 +591,18 @@
       {/if}
     </div>
   </div>
+{/if}
+
+{#if importConflict}
+  <ImportConfirmDialog
+    cardType={importConflict.cardType}
+    categoryName={importConflict.categoryName}
+    acceptedTypes={importConflict.acceptedTypes}
+    onResolve={(resolution) => {
+      importConflict?.resolve(resolution)
+      importConflict = null
+    }}
+  />
 {/if}
 
 {#if selectedCardId}

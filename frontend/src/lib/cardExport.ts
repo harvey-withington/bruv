@@ -3,6 +3,7 @@ import {
   AddCardComment,
   CreateCard,
   DeleteCard,
+  GetCategoryAcceptedTypes,
   ListCardComments,
   PinCard,
   SignAttachmentURL,
@@ -16,6 +17,7 @@ import {
   buildCardExportPayload as buildPayload,
   importCardFromJson as importFromJson,
   type CardTransferApi,
+  type ImportOptions,
   type ImportOutcome,
 } from '@shared/cardTransfer'
 import type { BruvCardExport } from '@shared/cardJson'
@@ -31,6 +33,7 @@ const api: CardTransferApi = {
   createCard: (cardType, title) => CreateCard(cardType, title),
   deleteCard: async (cardId) => { await DeleteCard(cardId) },
   pinCard: async (cardId, categoryId) => { await PinCard(cardId, categoryId) },
+  getCategoryAcceptedTypes: (categoryId) => GetCategoryAcceptedTypes(categoryId),
   updateCardType: (cardId, cardType) => UpdateCardType(cardId, cardType),
   updateCardDescription: (cardId, description) => UpdateCardDescription(cardId, description),
   updateCardBlocks: (cardId, blocks) => UpdateCardBlocks(cardId, blocks),
@@ -46,8 +49,12 @@ export function buildCardExportPayload(card: Card): Promise<BruvCardExport> {
   return buildPayload(api, card)
 }
 
-export function importCardFromJson(text: string, categoryId: string): Promise<ImportOutcome> {
-  return importFromJson(api, text, categoryId, { fallbackTitle: t('card.import_fallback_title') })
+export function importCardFromJson(
+  text: string,
+  categoryId: string,
+  opts: Omit<ImportOptions, 'fallbackTitle'> = {},
+): Promise<ImportOutcome | null> {
+  return importFromJson(api, text, categoryId, { fallbackTitle: t('card.import_fallback_title'), ...opts })
 }
 
 /** Localized section labels for cardToMarkdown. */
@@ -63,4 +70,4 @@ export function cardMarkdownLabels(): CardMarkdownLabels {
 }
 
 export { ImportError } from '@shared/cardTransfer'
-export type { ImportOutcome } from '@shared/cardTransfer'
+export type { ImportOutcome, TypeConflictResolution } from '@shared/cardTransfer'

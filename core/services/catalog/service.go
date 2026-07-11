@@ -417,10 +417,35 @@ func (s *Service) mergeTemplateBlocks(cardID string, templateBlocks []model.Bloc
 
 	intrinsicKeys := map[string]bool{"description": true}
 
+	// A block's key is only meaningful RELATIVE to the template being
+	// applied. Blocks whose key appears in the template are claimed by
+	// their own field (exact key match, never stolen by a label
+	// coincidence). Everything else — empty keys (hand-added blocks) and
+	// orphan keys (residue of another type's schema, or of a relabelled
+	// field like the "content" block renamed 'Related links' that
+	// surfaced this) — is claimable by a template field with the same
+	// label (case-insensitive) and same block type: from the user's view
+	// a same-named block IS the field, and duplicating it is the bug.
+	// Claimed blocks keep their value and adopt the template's key so
+	// future refreshes reconcile by key.
+	templateKeys := make(map[string]bool, len(templateBlocks))
+	for _, tb := range templateBlocks {
+		if tb.Key != "" {
+			templateKeys[tb.Key] = true
+		}
+	}
+
 	existingByKey := make(map[string]int)
+	claimableByLabel := make(map[string]int)
 	for i, b := range existingCard.Blocks {
-		if b.Key != "" {
+		if b.Key != "" && templateKeys[b.Key] {
 			existingByKey[b.Key] = i
+			continue
+		}
+		if lk := freeformLabelKey(b.Label, b.Type); lk != "" {
+			if _, dup := claimableByLabel[lk]; !dup { // first occurrence wins
+				claimableByLabel[lk] = i
+			}
 		}
 	}
 
@@ -437,10 +462,31 @@ func (s *Service) mergeTemplateBlocks(cardID string, templateBlocks []model.Bloc
 			}
 			continue
 		}
+		if lk := freeformLabelKey(tb.Label, tb.Type); lk != "" {
+			if idx, ok := claimableByLabel[lk]; ok {
+				delete(claimableByLabel, lk) // each block is claimable once
+				merged[idx].Key = tb.Key     // adopt the schema identity
+				if isBlockValueEmpty(merged[idx].Value) && !isBlockValueEmpty(tb.Value) {
+					merged[idx].Value = tb.Value
+				}
+				continue
+			}
+		}
 		merged = append(merged, tb)
 	}
 
 	_, _ = s.deps.UpdateCardBlocks(cardID, merged)
+}
+
+// freeformLabelKey builds the case-insensitive (label, type) match key
+// used to reconcile keyless hand-added blocks against template fields.
+// Empty labels never match — an unlabelled block is not identifiable.
+func freeformLabelKey(label, blockType string) string {
+	l := strings.ToLower(strings.TrimSpace(label))
+	if l == "" {
+		return ""
+	}
+	return l + "\x00" + blockType
 }
 
 // RefreshTypeBlocks re-merges the current card type's template.

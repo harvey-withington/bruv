@@ -28,6 +28,8 @@
   import DynamicIcon from '../components/DynamicIcon.svelte'
   import CardRow from '../components/CardRow.svelte'
   import SearchSheet from '../components/SearchSheet.svelte'
+  import CaptureButton from '../components/CaptureButton.svelte'
+  import ChatButton from '../components/chat/ChatButton.svelte'
   import ConfirmDialog from '../components/ConfirmDialog.svelte'
   import ErrorState from '../components/ErrorState.svelte'
   import { dragSortable, type DragMoveDetail } from '../lib/actions/dnd.svelte'
@@ -526,9 +528,13 @@
     <span aria-hidden="true">‹</span> {t('common.back')}
   </button>
   <h1 title={projectName}>{@html renderInline(projectName)}</h1>
-  <button type="button" class="topbar-search" onclick={() => (searchOpen = true)} aria-label={t('browse.search')} title={t('browse.search')}>
-    <Search size={18} />
-  </button>
+  <div class="topbar-actions">
+    <ChatButton scope={{ kind: 'project', brand, stream, project }} />
+    <CaptureButton />
+    <button type="button" class="topbar-search" onclick={() => (searchOpen = true)} aria-label={t('browse.search')} title={t('browse.search')}>
+      <Search size={18} />
+    </button>
+  </div>
 </header>
 
 {#if searchOpen}
@@ -773,7 +779,10 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 60vw;
+    /* Three icon buttons on the right + back on the left: cap the
+       title lower than the old 60vw so the row can't overflow on
+       narrow phones. */
+    max-width: 45vw;
   }
 
   .back {
@@ -794,6 +803,12 @@
     background: var(--bg-elev-1);
     outline: none;
   }
+  .topbar-actions {
+    justify-self: end;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.15rem;
+  }
   .topbar-search {
     background: transparent;
     border: none;
@@ -801,7 +816,6 @@
     cursor: pointer;
     padding: 0.5rem;
     border-radius: 8px;
-    justify-self: end;
     min-width: 40px;
     min-height: 40px;
     display: inline-flex;
@@ -816,7 +830,7 @@
   }
 
   main {
-    padding: 0.75rem 0.85rem 4rem;
+    padding: 0.75rem 0.85rem 2rem;
     max-width: 600px;
     margin: 0 auto;
   }

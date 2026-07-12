@@ -14,6 +14,8 @@
   import { tick, getContext } from 'svelte'
   import { renderMarkdown } from '@shared/markdown'
   import { inlineEdit } from '@shared/inlineEdit'
+  import { autoGrow } from '../lib/actions/autoGrow'
+  import { tapGuardActive } from '../lib/tapGuard'
   import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import { t } from '../lib/i18n.svelte'
   import EditorDoneButton from './EditorDoneButton.svelte'
@@ -35,11 +37,11 @@
   const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
 
   async function startEdit() {
+    if (tapGuardActive()) return // tail of the ✓ tap retargeted here — not a real tap
     draft = value
     editing = true
     await tick()
-    textareaEl?.focus()
-    autoGrow()
+    textareaEl?.focus() // the autoGrow action sizes on focus/input/viewport
   }
 
   function commit() {
@@ -54,21 +56,13 @@
     editing = false
   }
 
-  function autoGrow() {
-    if (!textareaEl) return
-    textareaEl.style.height = 'auto'
-    // Cap at 60vh so a wall of text doesn't push the rest of the
-    // page off-screen on a phone.
-    const cap = window.innerHeight * 0.6
-    textareaEl.style.height = `${Math.min(textareaEl.scrollHeight, cap)}px`
-  }
 </script>
 
 {#if editing}
   <textarea
     bind:this={textareaEl}
     bind:value={draft}
-    oninput={autoGrow}
+    use:autoGrow
     use:inlineEdit={{ multiline: true, enterInsertsNewline: true, onCommit: commit, onCancel: cancel, scope: editScope }}
     placeholder={placeholder}
     class="editor"

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { X, Github, Bug, FolderOpen, FileText, Heart, RefreshCw, CircleCheck, CircleAlert, Download, DatabaseBackup } from 'lucide-svelte'
+  import { X, Github, Globe, Bug, FolderOpen, FileText, Heart, RefreshCw, CircleCheck, CircleAlert, Download, DatabaseBackup } from 'lucide-svelte'
   import { onMount } from 'svelte'
   import { fade } from 'svelte/transition'
   import { t } from '../lib/i18n.svelte'
@@ -82,6 +82,10 @@
     window.open('https://github.com/harvey-withington/bruv', '_blank', 'noopener')
   }
 
+  function openWebsite() {
+    window.open('https://bruv-ai.app', '_blank', 'noopener')
+  }
+
   function handleOverlayClick(e: MouseEvent) {
     if (e.target === e.currentTarget) onClose()
   }
@@ -140,6 +144,10 @@
         <button type="button" class="action-btn" onclick={checkForUpdates} disabled={checkingUpdates}>
           <RefreshCw size={16} class={checkingUpdates ? 'spinning' : ''} />
           <span>{checkingUpdates ? t('about.checking_updates') : t('about.check_updates')}</span>
+        </button>
+        <button type="button" class="action-btn" onclick={openWebsite}>
+          <Globe size={16} />
+          <span>{t('about.website')}</span>
         </button>
         <button type="button" class="action-btn" onclick={openRepo}>
           <Github size={16} />

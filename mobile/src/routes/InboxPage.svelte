@@ -13,6 +13,7 @@
   import PinPicker from '../components/PinPicker.svelte'
   import ConfirmDialog from '../components/ConfirmDialog.svelte'
   import SearchSheet from '../components/SearchSheet.svelte'
+  import CaptureButton from '../components/CaptureButton.svelte'
   import ErrorState from '../components/ErrorState.svelte'
   import type { CardSummary } from '../lib/model'
   import type { RecentCard } from '@shared/types'
@@ -195,9 +196,12 @@
       <span aria-hidden="true">‹</span> {t('common.back')}
     </button>
     <h1>{t('inbox.title')}</h1>
-    <button type="button" class="topbar-search" onclick={() => (searchOpen = true)} aria-label={t('browse.search')} title={t('browse.search')}>
-      <Search size={18} />
-    </button>
+    <div class="topbar-actions">
+      <CaptureButton />
+      <button type="button" class="topbar-search" onclick={() => (searchOpen = true)} aria-label={t('browse.search')} title={t('browse.search')}>
+        <Search size={18} />
+      </button>
+    </div>
   {/if}
 </header>
 
@@ -413,6 +417,12 @@
     background: var(--bg-elev-1);
     outline: none;
   }
+  .topbar-actions {
+    justify-self: end;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.15rem;
+  }
   .topbar-search {
     background: transparent;
     border: none;
@@ -420,7 +430,6 @@
     cursor: pointer;
     padding: 0.5rem;
     border-radius: 8px;
-    justify-self: end;
     min-width: 40px;
     min-height: 40px;
     display: inline-flex;
@@ -435,7 +444,7 @@
   }
 
   main {
-    padding: 0.75rem 0.85rem 4rem;
+    padding: 0.75rem 0.85rem 2rem;
     max-width: 600px;
     margin: 0 auto;
   }

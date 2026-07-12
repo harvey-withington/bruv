@@ -11,6 +11,7 @@
 
   import { Check } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
+  import { armTapGuard } from '../lib/tapGuard'
 
   let { onDone }: { onDone: () => void } = $props()
 
@@ -19,6 +20,10 @@
   function handlePointerDown(e: PointerEvent) {
     e.preventDefault() // keep focus in the field — no blur-commit race
     handledByPointer = true
+    // The commit collapses the editor under the still-down finger; arm
+    // the tap-through guard so the gesture's tail can't re-enter edit
+    // mode on whatever reflows into this spot (see lib/tapGuard.ts).
+    armTapGuard()
     onDone()
   }
 

@@ -38,10 +38,11 @@
   import DynamicIcon from '../components/DynamicIcon.svelte'
   import NotificationsPanel from '../components/NotificationsPanel.svelte'
   import SearchSheet from '../components/SearchSheet.svelte'
+  import CaptureButton from '../components/CaptureButton.svelte'
   import { dragSortable, type DragMoveDetail } from '../lib/actions/dnd.svelte'
 
-  // Top-level mobile entry: vault switcher + global search + notification
-  // bell + settings gear in the topbar. Body has the Inbox tile, a
+  // Top-level mobile entry: vault switcher + quick capture + global
+  // search + notification bell + settings gear in the topbar. Body has the Inbox tile, a
   // recently-updated cards shelf, and the Brand → Stream → Project tree
   // (with full DnD reordering / cross-parent moves / two-finger copy).
 
@@ -605,6 +606,7 @@
     <span class="vault-arrow">›</span>
   </button>
   <div class="topbar-actions">
+    <CaptureButton />
     <button type="button" class="icon-btn" onclick={() => (searchOpen = true)} aria-label={t('browse.search')} title={t('browse.search')}>
       <Search size={18} />
     </button>
@@ -1056,7 +1058,7 @@
   }
 
   main {
-    padding: 1rem 0.85rem 4rem;
+    padding: 1rem 0.85rem 2rem;
     max-width: 600px;
     margin: 0 auto;
   }

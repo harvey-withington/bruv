@@ -1,7 +1,7 @@
 <script lang="ts">
   // CardRow — the visual representation of a single card in a list
   // (project view, category view, inbox). Extracted so the DnD action
-  // and chat-FAB-affordance code don't have to be re-written per page.
+  // and row-affordance code don't have to be re-written per page.
   //
   // Props are deliberately minimal: the card summary plus a click
   // handler. DnD is layered on by the parent via a Svelte action wrapping

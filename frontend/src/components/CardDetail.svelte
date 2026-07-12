@@ -710,12 +710,12 @@
 
       <div class="modal-footer">
         <span class="modal-footer-left">
-          <button class="btn-delete" onclick={handleDelete} title={t('tooltip.delete_card')}><Trash2 size={14} /> {t('card.delete')}</button>
-          <CardShareMenu {card} />
+          <span class="meta">{t('card.created')} {card.created_at?.slice(0, 10) || '—'}</span>
         </span>
         <span class="modal-footer-right">
           <SaveIndicator {saving} />
-          <span class="meta">{t('card.created')} {card.created_at?.slice(0, 10) || '—'}</span>
+          <CardShareMenu {card} />
+          <button class="btn-delete" onclick={handleDelete} title={t('tooltip.delete_card')}><Trash2 size={14} /> {t('card.delete')}</button>
         </span>
       </div>
     {/if}
@@ -1088,14 +1088,13 @@
   .modal-footer-left {
     display: flex;
     align-items: center;
-    gap: 0.25rem;
-    position: relative;
   }
 
   .modal-footer-right {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.5rem;
+    position: relative;
   }
 
   .meta {

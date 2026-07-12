@@ -8,10 +8,10 @@
   import type { Block, Card } from '@shared/types'
 
   // The attachments/comments strip pinned between the card body and
-  // footer. Owns its tab + collapse state (collapse persists across
-  // sessions) and the comment-count badge. The add-block button rides
-  // on this header row, so BlockPicker renders here; what "add" means
-  // stays with the parent via onAddBlock.
+  // footer. Owns its tab + collapse state (always starts collapsed on
+  // every card open — nothing persists) and the comment-count badge.
+  // The add-block button rides on this header row, so BlockPicker
+  // renders here; what "add" means stays with the parent via onAddBlock.
 
   let { cardId, card, onAttachmentsUpdated, onAddBlock }: {
     cardId: string
@@ -21,9 +21,13 @@
     onAddBlock: (type: Block['type'], label: string) => void
   } = $props()
 
-  const META_PANEL_COLLAPSED_KEY = 'bruv:metaPanelCollapsed'
-  let collapsed = $state(localStorage.getItem(META_PANEL_COLLAPSED_KEY) === 'true')
-  $effect(() => { localStorage.setItem(META_PANEL_COLLAPSED_KEY, String(collapsed)) })
+  let collapsed = $state(true)
+  // Re-collapse when the dialog instance is reused for another card —
+  // switching cards counts as a fresh open.
+  $effect(() => {
+    void cardId
+    collapsed = true
+  })
 
   let activeTab = $state<'attachments' | 'comments'>('attachments')
 

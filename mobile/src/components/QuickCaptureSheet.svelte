@@ -8,7 +8,8 @@
   import { t } from '../lib/i18n.svelte'
   import type { Card } from '@shared/types'
 
-  // Quick capture: tap FAB → slide-up sheet → type → Save creates an
+  // Quick capture: tap the topbar + button → slide-up sheet → type →
+  // Save creates an
   // Inbox card (no pin) → sheet closes. Designed for the "have an
   // idea, want to dump it before I forget" flow. Elaboration happens
   // later from the Inbox.

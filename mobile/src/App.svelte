@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { route, replace, navigate, cardURL } from './lib/router.svelte'
+  import { route, replace } from './lib/router.svelte'
   import { isEnrolled, hasActiveRepo } from './lib/auth'
   import { startEvents, stopEvents } from './lib/events.svelte'
   import { t } from './lib/i18n.svelte'
@@ -12,8 +12,6 @@
   import SharePage from './routes/SharePage.svelte'
   import SettingsPage from './routes/SettingsPage.svelte'
   import ActivityPage from './routes/ActivityPage.svelte'
-  import CaptureFAB from './components/CaptureFAB.svelte'
-  import ChatFAB from './components/ChatFAB.svelte'
   import Toast from './components/Toast.svelte'
   import ConnectionOverlay from './components/ConnectionOverlay.svelte'
 
@@ -46,35 +44,10 @@
     }
   })
 
-  // The capture FAB is for *capturing while browsing* — show it on home,
-  // inbox, and project pages. Hide on the auth/picker flows
-  // (pre-enrolment-meaningless) and on Card detail (the user is already
-  // editing a specific card; a "create new" button there is noise).
-  const showCaptureFAB = $derived(
-    route.current.name === 'home' ||
-      route.current.name === 'inbox' ||
-      route.current.name === 'project',
-  )
-
-  // The chat FAB needs a scope. Show on Card (per-card chat) and Project
-  // (project chat) pages — wherever an existing desktop chat surface is
-  // available. Hide on Home / Inbox where there's no scope available
-  // (vault-level chat doesn't exist on desktop, so it doesn't ship on
-  // mobile).
-  const chatScope = $derived.by(() => {
-    const r = route.current
-    if (r.name === 'card') return { kind: 'card' as const, cardID: r.id }
-    if (r.name === 'project') return { kind: 'project' as const, brand: r.brand, stream: r.stream, project: r.project }
-    return null
-  })
-
-  function handleCaptureSaved(cardID: string) {
-    // After a quick capture, drop the user into the new card so they
-    // can elaborate or move on — same intent as desktop's Inbox auto-
-    // open after card creation. They can hit Back to return to where
-    // they were capturing from.
-    navigate(cardURL(cardID))
-  }
+  // Quick capture and AI chat entry points live in each page's topbar
+  // (CaptureButton / ChatButton) — Browse/Inbox/Project get capture,
+  // Card/Project get chat. No app-level floating buttons: they don't
+  // suit small screens and overlaid page content.
 </script>
 
 {#if route.current.name === 'enrol'}
@@ -105,14 +78,6 @@
     <p>{t('not_found.body')}</p>
     <a href="/m/">{t('not_found.home')}</a>
   </main>
-{/if}
-
-{#if showCaptureFAB}
-  <CaptureFAB onSaved={handleCaptureSaved} />
-{/if}
-
-{#if chatScope}
-  <ChatFAB scope={chatScope} solo={!showCaptureFAB} />
 {/if}
 
 <Toast />

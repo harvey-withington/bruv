@@ -6,6 +6,7 @@
   import type { Block } from '@shared/types'
   import { asString, withValue } from './narrow'
   import { draftEdit } from '../../lib/actions/draftEdit'
+  import { autoGrow } from '../../lib/actions/autoGrow'
   import EditorDoneButton from '../EditorDoneButton.svelte'
 
   // `mode` is owned by the parent BlockEditor so the edit/preview toggle
@@ -31,13 +32,6 @@
 
   const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
 
-  function autoGrow() {
-    if (!textareaEl) return
-    textareaEl.style.height = 'auto'
-    // Cap at 60vh so a wall of text doesn't push the composer off screen.
-    const cap = window.innerHeight * 0.6
-    textareaEl.style.height = `${Math.min(textareaEl.scrollHeight, cap)}px`
-  }
 
   // Keyboard entry contract, mobile multiline variant (draftEdit
   // action): Enter inserts a newline; the draft is committed on blur /
@@ -85,10 +79,10 @@
       class="text-input"
       placeholder={t('block.text.placeholder')}
       bind:value={draft}
-      oninput={autoGrow}
+      use:autoGrow
       use:draftEdit={{ multiline: true, enterInsertsNewline: true, onCommit: commitDraft, onCancel: revertDraft, scope: editScope }}
       rows="3"
-      onfocus={() => { editorActive = true; autoGrow() }}
+      onfocus={() => (editorActive = true)}
       onblur={() => (editorActive = false)}
     ></textarea>
     {#if editorActive}

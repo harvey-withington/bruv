@@ -6,12 +6,7 @@
   import { navigate, projectURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
   import { renderInline } from '@shared/markdown'
-  import { Trash2, MapPin, Plus, X, RefreshCw, Search, Paperclip, MessageSquare, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Copy, Download, FileJson } from 'lucide-svelte'
-  import { cardToMarkdown } from '@shared/cardMarkdown'
-  import { downloadBlob, sanitizeFilenameStem } from '@shared/download'
-  import type { CardComment } from '@shared/types'
-  import { buildCardExportPayload, cardMarkdownLabels } from '../lib/cardExport'
-  import { showToast } from '../lib/toast.svelte'
+  import { Trash2, MapPin, Plus, X, RefreshCw, Search, Paperclip, MessageSquare, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree } from 'lucide-svelte'
   import EditableText from '../components/EditableText.svelte'
   import EditableDescription from '../components/EditableDescription.svelte'
   import TagsEditor from '../components/TagsEditor.svelte'
@@ -24,6 +19,8 @@
   import CommentsSection from '../components/CommentsSection.svelte'
   import AttachmentsSection from '../components/AttachmentsSection.svelte'
   import SearchSheet from '../components/SearchSheet.svelte'
+  import CardShareMenu from '../components/CardShareMenu.svelte'
+  import ChatButton from '../components/chat/ChatButton.svelte'
   import { getCardTypeColor, getCardTypeTextColor, getCardTypeLabel } from '@shared/cardTypes'
   import { repoMeta, loadProjectTags, projectKey as makeProjectKey } from '../lib/repoMeta.svelte'
   import { onEvent } from '../lib/events.svelte'
@@ -124,9 +121,11 @@
     }
     if (
       searchOpen ||
+      chatOpen ||
       pinPickerOpen ||
       typePickerOpen ||
       blockPickerOpen ||
+      shareMenuOpen ||
       confirmingDelete ||
       confirmingRefresh
     ) return
@@ -149,9 +148,11 @@
     // underneath them.
     if (
       searchOpen ||
+      chatOpen ||
       pinPickerOpen ||
       typePickerOpen ||
       blockPickerOpen ||
+      shareMenuOpen ||
       confirmingDelete ||
       confirmingRefresh
     ) return
@@ -532,52 +533,17 @@
     }
   })
 
-  async function buildMarkdown(): Promise<string> {
-    if (!card) return ''
-    let comments: CardComment[] = []
-    try { comments = (await repoRPC<CardComment[]>('ListCardComments', [card.id])) ?? [] }
-    catch { /* optional — degrade to no comments */ }
-    return cardToMarkdown(card, { comments, untitledLabel: t('card.untitled'), labels: cardMarkdownLabels() })
-  }
+  // Share/export lives in CardShareMenu (desktop-parity dropdown). The
+  // open flag is hoisted here so the Back/Escape guards below can treat
+  // it like every other overlay.
+  let shareMenuOpen = $state(false)
 
-  async function copyCardAsMarkdown() {
-    if (!card) return
-    const md = await buildMarkdown()
-    try {
-      await navigator.clipboard.writeText(md)
-      showToast(t('card.copy_markdown_done'), 'success')
-    } catch {
-      showToast(t('card.copy_markdown_error'), 'error')
-    }
-  }
-
-  // Save-as-Markdown-file exists on mobile too (desktop parity): the
-  // shared downloadBlob anchor-download works in mobile browsers exactly
-  // like the JSON export below, so there's no reason to asymmetrise.
-  async function exportCardAsMarkdown() {
-    if (!card) return
-    const md = await buildMarkdown()
-    downloadBlob(md, `${sanitizeFilenameStem(card.title)}.md`, 'text/markdown;charset=utf-8')
-    showToast(t('card.export_markdown_done'), 'success')
-  }
-
-  // JSON export fetches + base64-encodes every attachment — seconds on
-  // big cards, so the footer button shows a busy state meanwhile.
-  let exportingJson = $state(false)
-
-  async function exportCardAsJson() {
-    if (!card) return
-    exportingJson = true
-    try {
-      const payload = await buildCardExportPayload(card)
-      const json = JSON.stringify(payload, null, 2)
-      downloadBlob(json, `${sanitizeFilenameStem(card.title)}.bruv-card.json`, 'application/json;charset=utf-8')
-      showToast(t('card.export_json_done'), 'success')
-    } catch {
-      showToast(t('card.export_json_error'), 'error')
-    } finally {
-      exportingJson = false
-    }
+  /** Footer "Created" date, formatted like the rest of the mobile
+   *  surface (toLocaleDateString — see ActivityPage). */
+  function createdDate(raw: string | null | undefined): string {
+    if (!raw) return '—'
+    const d = new Date(raw)
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString()
   }
 
   // --- Add block ---
@@ -708,6 +674,11 @@
   let confirmingRefresh = $state(false)
   let refreshing = $state(false)
   let searchOpen = $state(false)
+  // AI chat sheet, opened from the header ChatButton. Tracked here so
+  // the Back/Escape overlay guards above treat it like every other
+  // overlay (the sheet also owns its own capture-phase keys + history
+  // entry — see ChatSheet).
+  let chatOpen = $state(false)
 
   function pickType(typeID: string) {
     typePickerOpen = false
@@ -790,6 +761,7 @@
         <span class="chip saved">{t('card.saved')}</span>
       {/if}
     </span>
+    <ChatButton scope={{ kind: 'card', cardID: id }} bind:open={chatOpen} />
     <button type="button" class="topbar-search" onclick={() => (searchOpen = true)} aria-label={t('browse.search')} title={t('browse.search')}>
       <Search size={18} />
     </button>
@@ -1020,22 +992,14 @@
     </div>
 
     <footer class="actions">
-      <button type="button" class="action-link" onclick={copyCardAsMarkdown}>
-        <Copy size={14} />
-        {t('card.copy_markdown')}
-      </button>
-      <button type="button" class="action-link" onclick={exportCardAsMarkdown}>
-        <Download size={14} />
-        {t('card.export_markdown')}
-      </button>
-      <button type="button" class="action-link" onclick={exportCardAsJson} disabled={exportingJson}>
-        <FileJson size={14} />
-        {exportingJson ? t('common.working') : t('card.export_json')}
-      </button>
-      <button type="button" class="danger-link" onclick={() => (confirmingDelete = true)}>
-        <Trash2 size={14} />
-        {t('card.delete')}
-      </button>
+      <span class="created">{t('card.created')} {createdDate(card.created_at)}</span>
+      <span class="actions-right">
+        <CardShareMenu {card} bind:open={shareMenuOpen} />
+        <button type="button" class="danger-link" onclick={() => (confirmingDelete = true)}>
+          <Trash2 size={14} />
+          {t('card.delete')}
+        </button>
+      </span>
     </footer>
   {/if}
 </main>
@@ -1095,7 +1059,10 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 60vw;
+    /* Chat + search buttons (plus the transient save chip) sit on the
+       right: cap the title lower than the old 60vw so the row can't
+       overflow on narrow phones. */
+    max-width: 45vw;
   }
 
   .topbar-right {
@@ -1173,7 +1140,7 @@
   }
 
   main {
-    padding: 1rem 0.85rem 4rem;
+    padding: 1rem 0.85rem 2rem;
     max-width: 600px;
     margin: 0 auto;
   }
@@ -1488,36 +1455,22 @@
 
   .actions {
     display: flex;
-    justify-content: flex-start;
+    justify-content: space-between;
     align-items: center;
     gap: 0.5rem;
     margin-top: 1.5rem;
     flex-wrap: wrap;
   }
 
-  .action-link {
-    background: transparent;
-    border: none;
-    color: var(--text-muted);
-    font: inherit;
-    font-size: 0.85rem;
-    cursor: pointer;
-    padding: 0.55rem 0.75rem;
-    border-radius: 6px;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-  }
-  .action-link:hover,
-  .action-link:focus-visible {
-    color: var(--text-primary);
-    background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
-    outline: none;
+  .created {
+    font-size: 0.75rem;
+    color: var(--text-faint);
   }
 
-  .action-link:disabled {
-    opacity: 0.55;
-    cursor: default;
+  .actions-right {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
   }
 
   .danger-link {
@@ -1532,6 +1485,8 @@
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
+    min-height: 40px;
+    touch-action: manipulation;
   }
 
   .danger-link:hover,

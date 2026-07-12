@@ -11,6 +11,7 @@
   "about.build_date": "Build date",
   "about.platform": "Platform",
   "about.go_version": "Go version",
+  "about.website": "Visit bruv-ai.app",
   "about.view_source": "View source on GitHub",
   "about.open_config_folder": "Open config folder",
   "about.open_logs_folder": "Open logs folder",

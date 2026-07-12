@@ -144,6 +144,8 @@
   "card.no_blocks": "This card has no blocks yet.",
   "card.back_to_browse": "Back to browse",
   "card.delete": "Delete",
+  "card.share": "Share",
+  "card.created": "Created",
   "card.copy_markdown": "Copy as Markdown",
   "card.copy_markdown_done": "Card copied as Markdown.",
   "card.copy_markdown_error": "Could not copy to clipboard.",
@@ -200,7 +202,7 @@
   "tags.remove": "Remove {tag}",
   "tags.placeholder": "Type and press Enter",
 
-  "capture.fab_label": "Quick capture",
+  "capture.button_label": "Quick capture",
   "capture.title": "Quick capture",
   "capture.placeholder": "What's on your mind?",
   "capture.save": "Save to inbox",
@@ -304,7 +306,7 @@
   "repo_picker.err_load": "Could not load vaults from the server.",
   "repo_picker.duplicate_ids": "Two vaults below share the same internal ID. The server can't tell them apart, so picking either lands on the same vault. Fix repos.json (change one entry's id) or remove the duplicate.",
 
-  "chat.fab_label": "AI chat",
+  "chat.button_label": "AI chat",
   "chat.title": "Chat",
   "chat.project_title": "Project chat",
   "chat.dismiss": "Close chat",

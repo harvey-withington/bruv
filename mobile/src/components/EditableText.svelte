@@ -8,6 +8,7 @@
   import { getContext } from 'svelte'
   import { inlineEdit } from '@shared/inlineEdit'
   import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
+  import { tapGuardActive } from '../lib/tapGuard'
   import { t } from '../lib/i18n.svelte'
 
   let {
@@ -31,6 +32,7 @@
   const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
 
   function startEdit() {
+    if (tapGuardActive()) return // tail of a ✓ tap retargeted here after an editor collapsed
     draft = value
     editing = true
     queueMicrotask(() => inputEl?.focus())

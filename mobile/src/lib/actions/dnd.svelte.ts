@@ -99,6 +99,44 @@ type Options = {
    *  drag picks-up don't fight. Without a handle, any press on the
    *  row arms the drag after LONG_PRESS_MS. */
   handleSelector?: string
+  /** Per-target drop validity, evaluated live during the drag (mirrors
+   *  the desktop board's accepted-types check). When it returns false
+   *  for the target under the finger, that target gets the
+   *  `dnd-target-invalid` class instead of `dnd-target-active`, the
+   *  row is never reordered into it, hover-expand is suppressed, and
+   *  releasing over it rejects the drop: the row snaps back to its
+   *  origin, onMove does NOT fire, and onRejected fires instead.
+   *  Omitted = every target accepts every row. */
+  canDrop?: (row: HTMLElement, target: HTMLElement) => boolean
+  /** Called instead of onMove when the drop was released over a target
+   *  that canDrop vetoed. The host typically shows a brief toast —
+   *  touch has no hover affordance to explain the red state. */
+  onRejected?: (row: HTMLElement, target: HTMLElement) => void
+  /** Fired once when a drag actually arms (long-press converts to a
+   *  pickup), with the source drop-target's category id. Hosts use it
+   *  to seed per-drag accordion bookkeeping. */
+  onDragStart?: (detail: { fromCategoryID: string }) => void
+  /** Fired once when a drag ends — drop, cancel, reject, or teardown.
+   *  Hosts use it to reconcile transient drag state (e.g. collapse the
+   *  accordion back down). Always fires after onMove/onDropCreate. */
+  onDragEnd?: () => void
+  /** Called when the row is released over a "create" target — a drop
+   *  target marked `data-new-category` (e.g. an "add category" button).
+   *  The row is snapped back to its origin first; the host spins up a
+   *  new container and moves the card into it. Skips onMove entirely. */
+  onDropCreate?: (detail: {
+    cardID: string
+    fromCategoryID: string
+    fromProjectID: string
+    toTarget: HTMLElement
+  }) => void | Promise<void>
+  /** Reports the categories that must stay expanded right now — the
+   *  drag source, wherever the row currently lives, and the target
+   *  under the finger. Fired only when that set changes. The host
+   *  collapses every OTHER expanded category so at most the source and
+   *  the current target stay open during a drag. `keepCategoryIDs` are
+   *  the `data-category-id`s to keep. */
+  onReconcileExpanded?: (keepCategoryIDs: string[]) => void
 }
 
 const LONG_PRESS_MS = 250
@@ -168,6 +206,17 @@ export function dragSortable(node: HTMLElement, options: Options) {
   // un-engage copy.
   let isCopyMode = false
   let activeDropTarget: HTMLElement | null = null
+  // The drop target currently under the finger when canDrop vetoed it.
+  // Non-null means "releasing right now rejects the drop". Cleared on
+  // every pointermove that lands on a valid (or no) target.
+  let invalidTarget: HTMLElement | null = null
+  // The "create" drop-target (e.g. add-category button) under the finger,
+  // when present. Non-null means releasing now routes to onDropCreate
+  // instead of onMove. The row is never parked inside it during the drag.
+  let createTargetUnderFinger: HTMLElement | null = null
+  // Signature of the last reported "keep expanded" set, so we notify the
+  // host only when it actually changes rather than on every pointermove.
+  let lastReconcileKey = ''
   let autoScrollHandle: number | null = null
   // Hover-expand: when a drag stalls over a collapsed drop target,
   // fire opts.onHoverExpand so the host can reveal the contents.
@@ -242,12 +291,13 @@ export function dragSortable(node: HTMLElement, options: Options) {
     return el.closest(rowSel()) as HTMLElement | null
   }
 
-  function highlightTarget(target: HTMLElement | null) {
+  function highlightTarget(target: HTMLElement | null, valid = true) {
     if (activeDropTarget && activeDropTarget !== target) {
-      activeDropTarget.classList.remove('dnd-target-active')
+      activeDropTarget.classList.remove('dnd-target-active', 'dnd-target-invalid')
     }
-    if (target && target !== activeDropTarget) {
-      target.classList.add('dnd-target-active')
+    if (target) {
+      target.classList.toggle('dnd-target-active', valid)
+      target.classList.toggle('dnd-target-invalid', !valid)
     }
     activeDropTarget = target
   }
@@ -322,7 +372,33 @@ export function dragSortable(node: HTMLElement, options: Options) {
       hoverExpandTarget = null
       hoverExpandTimer = null
       if (t) opts.onHoverExpand?.(t)
+      // Deliberately do NOT relocate the dragged row into `t` here.
+      // Auto-moving the row into a category the finger merely paused over
+      // hijacks in-category reordering near a boundary (the row gets
+      // yanked into the adjacent category). The row moves only when the
+      // finger actually enters the target's list, via the normal reorder
+      // path; stale targets collapse through reconcileOpen once the row
+      // has genuinely left them.
     }, HOVER_EXPAND_MS)
+  }
+
+  // Tell the host which categories should stay expanded right now: the
+  // drag source, wherever the dragged row currently lives, and the
+  // target under the finger. Deduped by a key so the host only hears
+  // about real changes. The host collapses everything else.
+  function reconcileOpen() {
+    if (!opts.onReconcileExpanded) return
+    const keep: string[] = []
+    const add = (id: string | null | undefined) => {
+      if (id && !keep.includes(id)) keep.push(id)
+    }
+    add(originalCategoryID)
+    add(dragRow ? findDropTarget(dragRow.parentElement)?.getAttribute('data-category-id') : null)
+    add(activeDropTarget?.getAttribute('data-category-id'))
+    const key = [...keep].sort().join(',')
+    if (key === lastReconcileKey) return
+    lastReconcileKey = key
+    opts.onReconcileExpanded(keep)
   }
 
   function startAutoScroll() {
@@ -350,6 +426,7 @@ export function dragSortable(node: HTMLElement, options: Options) {
   }
 
   function teardown() {
+    const wasArmed = armed
     if (pressTimer) {
       clearTimeout(pressTimer)
       pressTimer = null
@@ -383,6 +460,13 @@ export function dragSortable(node: HTMLElement, options: Options) {
     originalProjectID = ''
     originalTarget = null
     isCopyMode = false
+    invalidTarget = null
+    createTargetUnderFinger = null
+    lastReconcileKey = ''
+    // Fire last, after the DOM is restored, so the host reconciles its
+    // accordion state against a settled tree. Only for real drags —
+    // short taps that never armed shouldn't emit a drag-end.
+    if (wasArmed) opts.onDragEnd?.()
   }
 
   function arm(row: HTMLElement, ev: PointerEvent) {
@@ -429,6 +513,7 @@ export function dragSortable(node: HTMLElement, options: Options) {
       /* not all browsers support vibrate */
     }
     startAutoScroll()
+    opts.onDragStart?.({ fromCategoryID: originalCategoryID })
   }
 
   function onPointerDown(ev: PointerEvent) {
@@ -523,7 +608,26 @@ export function dragSortable(node: HTMLElement, options: Options) {
 
     const under = findElementUnder(ev.clientX, ev.clientY)
     const target = findDropTarget(under)
-    highlightTarget(target)
+    // Live accepted-types (or any host) veto: an invalid target paints
+    // red, never receives the row, never hover-expands, and arms the
+    // reject-on-release path in commit(). Mirrors desktop Column.svelte's
+    // dropRejected state during dragover.
+    const allowed = !target || !dragRow || !opts.canDrop || opts.canDrop(dragRow, target)
+    highlightTarget(target, allowed)
+    invalidTarget = allowed ? null : target
+    if (!allowed) {
+      clearHoverExpand()
+      return
+    }
+    // Create-target (e.g. the "add category" affordance): highlight it
+    // like any drop target but never park the row inside it — there's no
+    // card list to reorder into, and releasing here routes to
+    // onDropCreate rather than a normal move.
+    createTargetUnderFinger = target?.hasAttribute('data-new-category') ? target : null
+    if (createTargetUnderFinger) {
+      clearHoverExpand()
+      return
+    }
     maybeStartHoverExpand(findExpandTarget(under, target))
 
     if (!target) return
@@ -547,10 +651,60 @@ export function dragSortable(node: HTMLElement, options: Options) {
     } else if (!target.contains(dragRow)) {
       reorderInDOM(null, target)
     }
+
+    // The row may have just changed categories — keep the open set down
+    // to source + wherever it is + the current target.
+    reconcileOpen()
+  }
+
+  /** Put dragRow back where the drag started (or detach it if the
+   *  source container unmounted mid-drag). Shared by the normal
+   *  commit path (restoreDOM) and the rejected-drop path. */
+  function restoreToOrigin() {
+    if (!dragRow) return
+    if (originalParent && originalParent.isConnected) {
+      if (originalNext && originalNext.parentNode === originalParent) {
+        originalParent.insertBefore(dragRow, originalNext)
+      } else {
+        originalParent.appendChild(dragRow)
+      }
+    } else {
+      // Source unmounted mid-drag (e.g. single-expand collapsed it).
+      // Detach dragRow rather than leaving it in the destination —
+      // Svelte will re-create it cleanly when its state update for
+      // the destination renders.
+      dragRow.remove()
+    }
   }
 
   function commit(ev: PointerEvent) {
     if (!armed || !dragRow) return
+
+    // Released over a canDrop-vetoed target: the drop is rejected.
+    // Snap the row back to its origin (it may have been visually
+    // parked in an earlier valid target), tell the host, and skip
+    // onMove entirely — no RPC fires. Matches desktop's refusal in
+    // Column.handleCardDropOnList, plus a callback for a toast.
+    if (invalidTarget) {
+      restoreToOrigin()
+      opts.onRejected?.(dragRow, invalidTarget)
+      return
+    }
+
+    // Released over a create-target: snap the row home and let the host
+    // spin up a new container for it. No normal onMove — the card isn't
+    // pinned anywhere new until the host creates the destination.
+    if (createTargetUnderFinger) {
+      restoreToOrigin()
+      void opts.onDropCreate?.({
+        cardID: dragRow.getAttribute(idAttr()) ?? '',
+        fromCategoryID: originalCategoryID,
+        fromProjectID: originalProjectID,
+        toTarget: createTargetUnderFinger,
+      })
+      return
+    }
+
     const target = findDropTarget(dragRow.parentElement)
     if (!target) return
 
@@ -580,19 +734,7 @@ export function dragSortable(node: HTMLElement, options: Options) {
     // Svelte a clean baseline (source has dragRow, destination doesn't)
     // and the upcoming state update remaps cleanly.
     if (opts.restoreDOM !== false) {
-      if (originalParent && originalParent.isConnected) {
-        if (originalNext && originalNext.parentNode === originalParent) {
-          originalParent.insertBefore(dragRow, originalNext)
-        } else {
-          originalParent.appendChild(dragRow)
-        }
-      } else {
-        // Source unmounted mid-drag (e.g. single-expand collapsed it).
-        // Detach dragRow rather than leaving it in the destination —
-        // Svelte will re-create it cleanly when its state update for
-        // the destination renders.
-        dragRow.remove()
-      }
+      restoreToOrigin()
     }
 
     void ev

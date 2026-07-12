@@ -163,6 +163,35 @@ export function toggleCategoryExpansion(
   }
 }
 
+/** Force-expand a single category without collapsing its siblings,
+ *  regardless of accordion mode. Used by drag-hover auto-expand: a
+ *  drop in flight must reveal a collapsed target WITHOUT collapsing the
+ *  source category — single-mode's collapse-all would unmount the
+ *  dragged row and the browser would cancel the drag. No-op if already
+ *  open. */
+export function expandCategory(projectID: string, categoryID: string): void {
+  const map = browse.categoryExpansionFor(projectID)
+  if (map[categoryID] !== true) map[categoryID] = true
+}
+
+/** Collapse a single category without touching its siblings. Used
+ *  during a drag to retire a previously auto-expanded target so only
+ *  the source and the current target stay open. No-op if already
+ *  collapsed. */
+export function collapseCategory(projectID: string, categoryID: string): void {
+  const map = browse.categoryExpansionFor(projectID)
+  if (map[categoryID] === true) map[categoryID] = false
+}
+
+/** Collapse every category in a project except one. The single-expand
+ *  end state after a drag settles: keep the category the card landed in
+ *  open, close the rest. */
+export function collapseAllExcept(projectID: string, categoryIDs: string[], keepID: string): void {
+  const next: Record<string, boolean> = {}
+  for (const id of categoryIDs) next[id] = id === keepID
+  _expandedCategories[projectID] = next
+}
+
 /** Force-expand every category in a project. */
 export function expandAllCategories(projectID: string, categoryIDs: string[]): void {
   const next: Record<string, boolean> = {}

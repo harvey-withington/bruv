@@ -1,18 +1,22 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte'
-  import { ChevronRight, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Search, Plus, MoreVertical, Pencil, Trash2, Upload } from 'lucide-svelte'
+  import { ChevronRight, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Search, Plus, MoreVertical, Pencil, Trash2, Upload, Layers } from 'lucide-svelte'
   import { repoRPC } from '../lib/auth'
   import { onReconnect } from '../lib/connectivity.svelte'
   import { navigate, cardURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
   import { renderInline } from '@shared/markdown'
   import { inlineEdit } from '@shared/inlineEdit'
-  import { loadProjectTags, projectKey as makeProjectKey } from '../lib/repoMeta.svelte'
+  import { getCardTypeColor, getCardTypeLabel } from '@shared/cardTypes'
+  import { repoMeta, loadProjectTags, projectKey as makeProjectKey } from '../lib/repoMeta.svelte'
   import {
     browse,
     setAccordionMode,
     applySingleModeToCategories,
     toggleCategoryExpansion,
+    expandCategory,
+    collapseCategory,
+    collapseAllExcept,
     expandAllCategories,
     collapseAllCategories,
     ensureInitialExpansion,
@@ -25,6 +29,7 @@
   import { importCardFromJson, ImportError, type TypeConflictResolution } from '../lib/cardExport'
   import { showToast } from '../lib/toast.svelte'
   import ImportConfirmSheet from '../components/ImportConfirmSheet.svelte'
+  import CategoryTypesSheet from '../components/CategoryTypesSheet.svelte'
   import DynamicIcon from '../components/DynamicIcon.svelte'
   import CardRow from '../components/CardRow.svelte'
   import SearchSheet from '../components/SearchSheet.svelte'
@@ -199,8 +204,16 @@
   }
 
   function handleHoverExpand(target: HTMLElement) {
+    if (!projectID) return
     const catID = target.getAttribute('data-category-id')
-    if (catID && !isExpanded(catID)) toggleCategory(catID)
+    // Expand ONLY the hovered target — never route through
+    // toggleCategory, whose single-mode path collapses every other
+    // category (including the drag source). Collapsing the source
+    // mid-drag unmounts the dragged row and the browser cancels the
+    // drag, so the drop can never land. See expandCategory's doc.
+    // Collapsing stale targets is handled by handleReconcileExpanded as
+    // the finger moves, once the row has left them.
+    if (catID && !isExpanded(catID)) expandCategory(projectID, catID)
   }
 
   // --- Category create / rename / delete -----------------------------
@@ -331,18 +344,51 @@
     }
   }
 
+  // --- Accepted card types per category ------------------------------
+  //
+  // Mobile counterpart of desktop Column.svelte's Layers popover.
+  // Persists via the same per-repo RPC (UpdateCategoryAcceptedTypes,
+  // slug-addressed). An empty list = unrestricted. Restricting a
+  // category with existing cards of other types is allowed — the
+  // backend only gates NEW pins/moves (CategoryAcceptsType), existing
+  // pins stay put, matching desktop.
+
+  let typesSheetCat = $state<{ slug: string; name: string; accepted_types?: string[] } | null>(null)
+
+  function openTypesSheet(cat: CategoryWithCards) {
+    closeMenu()
+    typesSheetCat = { slug: cat.slug, name: cat.name, accepted_types: cat.accepted_types }
+  }
+
+  async function saveAcceptedTypes(types: string[]) {
+    const target = typesSheetCat
+    if (!target) return
+    try {
+      await repoRPC('UpdateCategoryAcceptedTypes', [brand, stream, project, target.slug, types])
+      // Optimistic local update — the backend doesn't emit a
+      // category event for this change, so there's no SSE reload.
+      const cat = categories.find((c) => c.slug === target.slug)
+      if (cat) cat.accepted_types = types.length ? types : undefined
+    } catch (err) {
+      showToast(`${t('project.err_save_types')} ${err instanceof Error ? err.message : ''}`.trim(), 'error')
+      throw err // keep the sheet open for a retry
+    }
+  }
+
   // --- Add card directly into a category -----------------------------
   //
-  // Mirrors desktop Board.svelte: CreateCard with the empty-string type
-  // (None — user can pick later), then PinCard to this category.
-  // Navigates to the new card so the user can fill in the title and
-  // body without an extra hop.
+  // Mirrors desktop Board.svelte handleAddCard: a category restricted
+  // to exactly one accepted type creates the card AS that type; any
+  // other case creates untyped ('' — user can pick later). Then PinCard
+  // to this category and navigate to the new card so the user can fill
+  // in the title and body without an extra hop.
 
   async function handleAddCard(cat: CategoryWithCards) {
     if (renaming) await commitRename()
     closeMenu()
     try {
-      const card = await repoRPC<{ id: string }>('CreateCard', ['', t('project.default_card_name')])
+      const cardType = cat.accepted_types?.length === 1 ? cat.accepted_types[0] : ''
+      const card = await repoRPC<{ id: string }>('CreateCard', [cardType, t('project.default_card_name')])
       await repoRPC('PinCard', [card.id, cat.id])
       mutationError = null
       navigate(cardURL(card.id))
@@ -470,12 +516,124 @@
   // the right RPC. Copy mode (engaged by a second pointer during drag)
   // routes to DuplicateCard. On failure, the UI re-loads the project
   // so it returns to the server-truth ordering.
+  // Accepted-types gate for an in-flight drag, evaluated per target as
+  // the finger moves (desktop parity: Column.svelte cardTypeAllowed).
+  // Untyped cards and unrestricted categories always pass — same
+  // semantics as the backend's CategoryAcceptsType.
+  // Accordion bookkeeping for an in-flight drag. While dragging we keep
+  // the source category and the current hover-target open and collapse
+  // anything we auto-expanded on the way; when the drag settles we fall
+  // back to single-expand (only the category the card landed in).
+  let dragKeepOpenCatID: string | null = null
+
+  function handleDragStart(detail: { fromCategoryID: string }) {
+    dragKeepOpenCatID = detail.fromCategoryID
+    // Start from a clean single-expand baseline: only the source open,
+    // so the drag stays compact from the off. Collapsing here is safe —
+    // the dragged row lives in the source, which we keep open.
+    if (projectID && browse.accordionMode === 'single') {
+      collapseAllExcept(projectID, categories.map((c) => c.id), detail.fromCategoryID)
+    }
+  }
+
+  // The action reports which categories must stay open (source + where
+  // the row is + the target under the finger); collapse every other
+  // expanded one so only the source and current target remain open
+  // mid-drag. Single mode only — multi-expand keeps the user's open set.
+  // The dnd-source guard is belt-and-braces: never collapse a category
+  // the live row is inside (that would unmount it and cancel the drag).
+  function handleReconcileExpanded(keepCatIDs: string[]) {
+    if (!projectID || browse.accordionMode !== 'single') return
+    const keep = new Set(keepCatIDs)
+    const liveRow = document.querySelector('.dnd-source')
+    for (const cat of categories) {
+      if (keep.has(cat.id) || !isExpanded(cat.id)) continue
+      const el = document.querySelector(`[data-category-id="${cat.id}"]`)
+      if (el && liveRow && el.contains(liveRow)) continue
+      collapseCategory(projectID, cat.id)
+    }
+  }
+
+  function handleDragEnd() {
+    // Single-expand parity: once the drag settles, keep only the
+    // category the card ended up in open (the source, if nothing moved).
+    // Multi-expand leaves the user's open set alone.
+    if (projectID && browse.accordionMode === 'single' && dragKeepOpenCatID) {
+      collapseAllExcept(projectID, categories.map((c) => c.id), dragKeepOpenCatID)
+    }
+    dragKeepOpenCatID = null
+  }
+
+  // Dropped onto the "add category" affordance: create a fresh category
+  // and move the card into it. The card was snapped back to its source
+  // by the action, so this is a normal cross-category move into a
+  // brand-new destination — then drop straight into rename, matching the
+  // "+" button so the user can name it without an extra hop.
+  async function handleDropCreate(detail: { cardID: string; fromCategoryID: string }) {
+    try {
+      const name = uniqueName(t('project.default_category_name'), categories.map((c) => c.name))
+      const created = await createCategory(brand, stream, project, name, categories.length)
+      await repoRPC('MoveCardToCategory', [detail.cardID, detail.fromCategoryID, created.id, 0])
+      mutationError = null
+      // Optimistically add the new category so its header (and the rename
+      // input) renders now; the SSE reload from the card move fills in
+      // the real card list shortly after.
+      categories = [...categories, { ...created, cards: [] }]
+      // Keep the new category open; in single mode collapse the rest so
+      // the board doesn't sprawl. Overrides handleDragEnd's earlier
+      // collapse (which ran before this async work resolved).
+      if (browse.accordionMode === 'single') {
+        collapseAllExcept(created.project_id, categories.map((c) => c.id), created.id)
+      } else {
+        expandCategory(created.project_id, created.id)
+      }
+      startRename(created.slug, created.name, true)
+    } catch (err) {
+      showToast(`${t('project.err_create_category')} ${err instanceof Error ? err.message : ''}`.trim(), 'error')
+      void reloadProject()
+    }
+  }
+
+  function findDraggedCard(row: HTMLElement): CardSummary | undefined {
+    const cardID = row.getAttribute('data-card-id')
+    if (!cardID) return undefined
+    return categories.flatMap((c) => c.cards).find((c) => c.id === cardID)
+  }
+
+  function canDropCard(row: HTMLElement, target: HTMLElement): boolean {
+    const cat = categories.find((c) => c.id === target.getAttribute('data-category-id'))
+    if (!cat?.accepted_types?.length) return true
+    const card = findDraggedCard(row)
+    if (!card?.type) return true // untyped cards are always allowed
+    return cat.accepted_types.includes(card.type)
+  }
+
+  // Desktop silently refuses (console.warn) because the red column is
+  // explanation enough under a hovering cursor; touch has no hover
+  // affordance, so a brief toast says why the card snapped back.
+  function handleDropRejected(row: HTMLElement, target: HTMLElement) {
+    const cat = categories.find((c) => c.id === target.getAttribute('data-category-id'))
+    const card = findDraggedCard(row)
+    showToast(
+      t('project.drop_type_rejected', {
+        category: cat?.name ?? '',
+        type: getCardTypeLabel(card?.type, repoMeta.cardTypes),
+      }),
+      'warning',
+    )
+  }
+
   async function handleDnDMove(detail: DragMoveDetail) {
     const fromCat = categories.find((c) => c.id === detail.fromCategoryID)
     const toCat = categories.find((c) => c.id === detail.toCategoryID)
     if (!fromCat || !toCat) return
     const card = fromCat.cards.find((c) => c.id === detail.cardID)
     if (!card) return
+
+    // The card lands in the destination — keep that category open once
+    // the drag settles (handleDragEnd reads this). Set before any await
+    // so it's in place by the time the action fires onDragEnd.
+    dragKeepOpenCatID = detail.toCategoryID
 
     // Copy mode: duplicate the card into the destination category.
     // Don't mutate the source — the original stays put. Refetch on
@@ -484,11 +642,11 @@
       try {
         await repoRPC('DuplicateCard', [detail.cardID, detail.toCategoryID])
       } catch (err) {
-        console.error('duplicate card failed:', err)
-        errorMsg = err instanceof Error ? err.message : t('project.err_load')
+        showToast(`${t('project.err_copy_card')} ${err instanceof Error ? err.message : ''}`.trim(), 'error')
       }
       // SSE will refresh the destination's card list shortly. No
       // optimistic update — we don't have a real card ID for the dupe.
+      void reloadProject()
       return
     }
 
@@ -500,24 +658,41 @@
 
     try {
       if (detail.fromCategoryID === detail.toCategoryID) {
-        await repoRPC('MoveCardInCategory', [
-          detail.cardID,
-          detail.toCategoryID,
-          detail.toPosition,
-        ])
+        // Same category: re-persist EVERY card's position, not just the
+        // moved one. The backend stores an absolute position on each
+        // card's own pin and never shifts siblings (repo.MoveCardInCategory),
+        // so writing only the moved card leaves stale, colliding positions
+        // that the next reload sorts back into the wrong order. Desktop
+        // Board.svelte does the same full re-persist.
+        await persistCategoryOrder(toCat)
       } else {
+        // Cross category: change the moved card's membership first, then
+        // re-persist positions in BOTH source and destination so neither
+        // is left with gaps or collisions.
         await repoRPC('MoveCardToCategory', [
           detail.cardID,
           detail.fromCategoryID,
           detail.toCategoryID,
-          detail.toPosition,
+          toIdx,
         ])
+        await Promise.all([persistCategoryOrder(fromCat), persistCategoryOrder(toCat)])
       }
     } catch (err) {
-      // Hard revert: refetch the project so we converge on server truth.
-      console.error('drag move failed:', err)
-      errorMsg = err instanceof Error ? err.message : t('project.err_load')
+      // Surface the failure and converge on server truth by reloading —
+      // a transient reorder hiccup shouldn't blow the whole board away
+      // with a full-page ErrorState.
+      showToast(`${t('project.err_move_card')} ${err instanceof Error ? err.message : ''}`.trim(), 'error')
+      void reloadProject()
     }
+  }
+
+  // Rewrite every card's stored position in a category to its new
+  // contiguous index. Positions are absolute per-pin and the backend
+  // never shifts siblings, so any reorder must re-persist the whole
+  // list or stale positions collide. Each card owns a separate pin
+  // file, so these writes are independent and safe to parallelize.
+  async function persistCategoryOrder(cat: CategoryWithCards) {
+    await Promise.all(cat.cards.map((c, i) => repoRPC('MoveCardInCategory', [c.id, cat.id, i])))
   }
 </script>
 
@@ -579,7 +754,19 @@
         {/if}
       </button>
     </div>
-    <div class="categories" use:dragSortable={{ onMove: handleDnDMove, onHoverExpand: handleHoverExpand }}>
+    <div
+      class="categories"
+      use:dragSortable={{
+        onMove: handleDnDMove,
+        onHoverExpand: handleHoverExpand,
+        canDrop: canDropCard,
+        onRejected: handleDropRejected,
+        onDragStart: handleDragStart,
+        onDragEnd: handleDragEnd,
+        onDropCreate: handleDropCreate,
+        onReconcileExpanded: handleReconcileExpanded,
+      }}
+    >
       {#each categories as cat (cat.id)}
         {@const open = isExpanded(cat.id)}
         <section
@@ -649,10 +836,24 @@
               </button>
             {/if}
           </header>
+          {#if cat.accepted_types?.length}
+            <!-- Accepted-types indicator: one colored segment per type,
+                 mirroring desktop Column.svelte's type-color-bar. Sits
+                 under the header so it shows in BOTH collapsed and
+                 expanded states; absent = category accepts everything. -->
+            <div class="type-line" aria-hidden="true">
+              {#each cat.accepted_types as typeId (typeId)}
+                <span class="type-line-seg" style:background={getCardTypeColor(typeId, repoMeta.cardTypes)}></span>
+              {/each}
+            </div>
+          {/if}
           {#if openMenuKey === targetKey(cat.slug)}
             <div class="row-menu" role="menu">
               <button type="button" role="menuitem" class="row-menu-item" onclick={() => startRename(cat.slug, cat.name)}>
                 <Pencil size={14} /> {t('project.action_rename')}
+              </button>
+              <button type="button" role="menuitem" class="row-menu-item" onclick={() => openTypesSheet(cat)}>
+                <Layers size={14} /> {t('project.action_accepted_types')}
               </button>
               <button type="button" role="menuitem" class="row-menu-item" onclick={() => triggerImportCard(cat)}>
                 <Upload size={14} /> {t('project.action_import_card')}
@@ -672,20 +873,33 @@
           {#if open}
             <div class="cat-body">
               <ul class="cards" data-card-list>
-                {#if cat.cards.length === 0}
-                  <li class="empty-hint cat-empty">{t('project.category_empty')}</li>
-                {/if}
                 {#each cat.cards as card (card.id)}
                   <li data-card-id={card.id}>
                     <CardRow {card} projectKey={pkey} onClick={() => navigate(cardURL(card.id))} />
                   </li>
                 {/each}
+                <!-- Always rendered; CSS hides it whenever the list holds
+                     a card row. This keeps the "empty" placeholder visible
+                     the instant a category's only card is physically
+                     dragged out into another category (the dnd action
+                     moves the <li>, so Svelte's card count is still 1). -->
+                <li class="empty-hint cat-empty">{t('project.category_empty')}</li>
               </ul>
             </div>
           {/if}
         </section>
       {/each}
-      <button type="button" class="add-category-btn" onclick={handleAddCategory} aria-label={t('project.add_category')}>
+      <!-- Doubles as a drop target: releasing a dragged card here spins
+           up a new category and moves the card into it (data-new-category
+           tells the dnd action to highlight but never park the row). -->
+      <button
+        type="button"
+        class="add-category-btn"
+        onclick={handleAddCategory}
+        aria-label={t('project.add_category')}
+        data-drop-target="category"
+        data-new-category="true"
+      >
         <Plus size={14} />
         <span>{t('project.add_category')}</span>
       </button>
@@ -709,6 +923,15 @@
     destructive
     onConfirm={confirmDelete}
     onCancel={() => (pendingDelete = null)}
+  />
+{/if}
+
+{#if typesSheetCat}
+  <CategoryTypesSheet
+    categoryName={typesSheetCat.name}
+    current={typesSheetCat.accepted_types}
+    onSave={saveAcceptedTypes}
+    onClose={() => (typesSheetCat = null)}
   />
 {/if}
 
@@ -959,6 +1182,20 @@
     margin-right: 0.25rem;
   }
 
+  /* Accepted-types indicator line (desktop Column.svelte type-color-bar
+     equivalent): equal-width segments, one per accepted type. Rendered
+     only when the category restricts types — no line = accepts all. */
+  .type-line {
+    display: flex;
+    height: 3px;
+    margin: 0 0.6rem 0.35rem;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .type-line-seg {
+    flex: 1;
+  }
+
   .cat-body {
     padding: 0.25rem 0.6rem 0.65rem;
   }
@@ -986,6 +1223,14 @@
   .empty-hint {
     pointer-events: none;
   }
+  /* The hint is always in the DOM; hide it whenever the list actually
+     holds a card row. Because the dnd action physically moves the <li>
+     out during a drag, a source category whose only card is dragged
+     away has no card rows left, so the placeholder reappears — the
+     category reads as emptied, matching where the card now is. */
+  .cards:has([data-card-id]) .empty-hint {
+    display: none;
+  }
 
   /* DnD visual states (driven by dnd.svelte.ts adding/removing classes) */
   .categories :global(.dnd-source) {
@@ -998,6 +1243,17 @@
     outline-offset: 4px;
     border-radius: 8px;
     transition: outline-color 120ms ease;
+  }
+
+  /* Invalid drop target during a card drag: the dragged card's type
+     isn't in this category's accepted_types. Mirrors desktop
+     Column.svelte's .drop-rejected (danger outline + dimming). */
+  .categories :global([data-drop-target='category'].dnd-target-invalid) {
+    outline: 2px solid var(--danger-border);
+    outline-offset: 4px;
+    border-radius: 8px;
+    opacity: 0.6;
+    transition: outline-color 120ms ease, opacity 120ms ease;
   }
 
   .add-category-btn {

@@ -10,6 +10,10 @@
   An AI-native, local-first productivity app that pairs a kanban-style board with an LLM assistant and autonomous agents — all running on your machine, with your data, under your control.
 </p>
 
+<p align="center">
+  <a href="https://bruv-ai.app"><strong>bruv-ai.app</strong></a>
+</p>
+
 > **Status:** public alpha (v1.0a). Windows only for now. No telemetry, no account, no cloud. Built with ❤ by Harvey and 🤖 Claude.
 
 ---
@@ -27,7 +31,7 @@
 
 ## Download
 
-**Windows:** Grab the latest installer from the [Releases page](https://github.com/harvey-withington/bruv/releases).
+**Windows:** Grab the latest installer from [bruv-ai.app](https://bruv-ai.app) or the [Releases page](https://github.com/harvey-withington/bruv/releases).
 
 > ⚠️ **SmartScreen warning during the alpha.** BRUV is not yet code-signed, so Windows SmartScreen will warn you when you run the installer for the first time. This is expected. Click **More info → Run anyway**. The warning will go away in the v1.0 final release once we're code-signed via [SignPath Foundation](https://signpath.org/) (their free OSS sponsorship — no ongoing cost to BRUV, so it stays free for you). See [SmartScreen and signing](#smartscreen-and-signing) below for why.
 

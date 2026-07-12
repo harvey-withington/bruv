@@ -208,6 +208,8 @@ jobs:
           body: |
             ## BRUV ${{ needs.build-windows.outputs.version }}
 
+            🌐 [bruv-ai.app](https://bruv-ai.app)
+
             <!-- Release notes go here. See plan/backlog.md for the change log. -->
 
             ### Install

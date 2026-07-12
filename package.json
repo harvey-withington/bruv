@@ -9,6 +9,7 @@
     "postinstall": "node -e \"if (process.env.CI) { process.exit(0) } require('child_process').execSync('npm install --prefix frontend && npm install --prefix mobile', { stdio: 'inherit' })\""
   },
   "dependencies": {
+    "bruv-frontend": "file:frontend",
     "lucide-svelte": "^0.577.0",
     "marked": "^17.0.4"
   }

@@ -38,14 +38,16 @@
       "type": "node-terminal",
       "request": "launch",
       "command": "npm run dev",
-      "cwd": "${workspaceFolder}/mobile"
+      "cwd": "${workspaceFolder}/mobile",
+      "preLaunchTask": "bootstrap: mobile deps"
     },
     {
       "name": "Debug: Client with internal server",
       "type": "node-terminal",
       "request": "launch",
       "command": "wails dev",
-      "cwd": "${workspaceFolder}"
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "bootstrap: frontend deps"
     }
   ],
   "compounds": [

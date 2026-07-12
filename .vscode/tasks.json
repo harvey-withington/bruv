@@ -126,6 +126,32 @@
       }
     },
     {
+      "label": "bootstrap: frontend deps",
+      "type": "shell",
+      "command": "node",
+      "args": ["${workspaceFolder}/scripts/ensure-deps.mjs", "frontend"],
+      "problemMatcher": [],
+      "detail": "Installs frontend/ deps only if node_modules is missing (fresh worktree). No-op once installed. Wired as a preLaunchTask so a new worktree runs on first F5.",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "bootstrap: mobile deps",
+      "type": "shell",
+      "command": "node",
+      "args": ["${workspaceFolder}/scripts/ensure-deps.mjs", "mobile"],
+      "problemMatcher": [],
+      "detail": "Installs mobile/ deps only if node_modules is missing (fresh worktree). No-op once installed. Wired as a preLaunchTask so a new worktree runs on first F5.",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
       "label": "deploy: server to home",
       "type": "shell",
       "command": "powershell",

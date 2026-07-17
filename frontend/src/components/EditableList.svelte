@@ -159,7 +159,7 @@
     placeholder={placeholder || t('block.list_placeholder')}
     class="li-add-input"
   />
-  <button class="li-add-btn" onclick={addItem}>{t('block.list_add')}</button>
+  <button class="li-add-btn" onclick={addItem}>{t('common.add')}</button>
 </div>
 
 <style>

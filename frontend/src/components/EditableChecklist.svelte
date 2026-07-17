@@ -210,7 +210,7 @@
     placeholder={placeholder || t('card.checklist_placeholder')}
     class="cl-add-input"
   />
-  <button class="cl-add-btn" onclick={addItem}>{t('card.checklist_add')}</button>
+  <button class="cl-add-btn" onclick={addItem}>{t('common.add')}</button>
 </div>
 
 <style>

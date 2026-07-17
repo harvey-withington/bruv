@@ -101,7 +101,7 @@
           />
           <div class="media-actions">
             <a href={item.url} target="_blank" rel="noopener" class="media-action-btn" title={t('block.media_open')}><ExternalLink size={12} /></a>
-            <button class="media-action-btn action-reveal action-reveal--danger" onclick={() => removeMedia(item.id)} title={t('block.media_remove')}><Trash2 size={12} /></button>
+            <button class="media-action-btn action-reveal action-reveal--danger" onclick={() => removeMedia(item.id)} title={t('common.remove')}><Trash2 size={12} /></button>
           </div>
         </div>
       </div>
@@ -118,7 +118,7 @@
     placeholder={t('block.add_media')}
     class="media-add-input"
   />
-  <button class="media-add-btn" onclick={addMedia}>{t('block.add_media_btn')}</button>
+  <button class="media-add-btn" onclick={addMedia}>{t('common.add')}</button>
 </div>
 
 <style>

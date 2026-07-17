@@ -715,7 +715,7 @@
         <span class="modal-footer-right">
           <SaveIndicator {saving} />
           <CardShareMenu {card} />
-          <button class="btn-delete" onclick={handleDelete} title={t('tooltip.delete_card')}><Trash2 size={14} /> {t('card.delete')}</button>
+          <button class="btn-delete" onclick={handleDelete} title={t('tooltip.delete_card')}><Trash2 size={14} /> {t('common.delete')}</button>
         </span>
       </div>
     {/if}

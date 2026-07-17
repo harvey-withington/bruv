@@ -563,7 +563,7 @@
         <p class="delete-msg">{t('board.delete_category_empty')}</p>
         <div class="delete-actions">
           <button class="btn-ghost" onclick={cancelDeleteCategory}>{t('common.cancel')}</button>
-          <button class="btn-danger" onclick={confirmDeleteCategory}>{t('board.delete_only')}</button>
+          <button class="btn-danger" onclick={confirmDeleteCategory}>{t('common.delete')}</button>
         </div>
       {:else}
         <p class="delete-msg">{t('board.delete_category_has_cards', { count: deletingCategory.cardCount })}</p>

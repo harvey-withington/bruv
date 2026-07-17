@@ -384,8 +384,8 @@
                 <button
                   class="icon-btn danger"
                   onclick={() => deleteServer(view)}
-                  title={t('mcp.delete')}
-                  aria-label={t('mcp.delete')}
+                  title={t('common.delete')}
+                  aria-label={t('common.delete')}
                 >
                   <Trash2 size={13} />
                 </button>
@@ -524,7 +524,7 @@
                   onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addEnvName() } }}
                 />
                 <button class="btn btn-ghost btn-sm" onclick={addEnvName}>
-                  <Plus size={12} /> {t('mcp.add_env')}
+                  <Plus size={12} /> {t('common.add')}
                 </button>
               </div>
             </div>

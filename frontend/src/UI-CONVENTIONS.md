@@ -374,6 +374,14 @@ The boundary (Harvey, 2026-07-10): confirmation applies to deleting an **object*
 
 ---
 
+## 12.7 Action-Button Labels
+
+**Short verb labels; tooltips carry the explanation (ruling, 2026-07-17).** Action buttons are labelled with the bare verb — "Delete", "Share", "Promote" — not verb + object ("Delete Card"). The surrounding context already names the object; the `title` tooltip holds the longer explanatory text (e.g. the card footer's delete button: `common.delete` label + `tooltip.delete_card` = "Delete this card permanently").
+
+Bare-verb labels use the shared keys `common.add` / `common.delete` / `common.remove` / `common.save` (both surfaces) — don't mint per-context keys for a value that is just the verb. A per-context key is only warranted when the label genuinely differs (e.g. "Delete All").
+
+---
+
 ## 13. SidePanel, Workspace Panel & WorkspaceFileTree
 
 **`SidePanel.svelte`** is the single right-hand panel host: one resizable, slide-animated container with a VS Code-style bottom tab bar, rendered as a sibling of `<Board/>` in App's `.board-row`. It owns ALL geometry (width persistence, drag-to-resize, slide in/out via width-not-transform animation — transforms break WebView2 scroll containers). Content components fill 100% and own zero geometry: `ChatSection` runs in `hosted` mode (its own shell/resize/animation disabled; card chat keeps `hosted=false`), `WorkspacePanel` is geometry-less by construction. Both tab panes stay mounted — inactive ones hide via CSS (`.sp-tab-pane.pane-hidden`) so chat drafts/scroll survive tab flips. TopBar buttons open-and-focus their tab, or close the panel when their tab is already frontmost; keyboard `p` = chat tab, `w` = workspace tab.

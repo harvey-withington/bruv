@@ -139,7 +139,7 @@
                 <button class="comment-action-btn" title={t('comments.edit')} onclick={() => startEdit(c)}>
                   <Pencil size={12} />
                 </button>
-                <button class="comment-action-btn action-reveal--danger" title={t('comments.delete')} onclick={() => remove(c)}>
+                <button class="comment-action-btn action-reveal--danger" title={t('common.delete')} onclick={() => remove(c)}>
                   <Trash2 size={12} />
                 </button>
               </div>

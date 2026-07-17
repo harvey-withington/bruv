@@ -354,7 +354,7 @@
     </button>
     <button type="button" class="bar-btn danger" onclick={() => (confirmingDelete = true)} disabled={busy}>
       <Trash2 size={16} />
-      {t('inbox.bulk_delete')}
+      {t('common.delete')}
     </button>
   </div>
 {/if}
@@ -367,7 +367,7 @@
   <ConfirmDialog
     title={t('inbox.bulk_delete_title', { n: selectedCount })}
     body={t('inbox.bulk_delete_body')}
-    confirmLabel={t('inbox.bulk_delete')}
+    confirmLabel={t('common.delete')}
     destructive
     onConfirm={performBulkDelete}
     onCancel={() => (confirmingDelete = false)}

@@ -866,7 +866,7 @@
                 title={categories.length <= 1 ? t('project.cant_delete_last') : ''}
                 onclick={() => requestDelete(cat.slug, cat.name)}
               >
-                <Trash2 size={14} /> {t('project.action_delete')}
+                <Trash2 size={14} /> {t('common.delete')}
               </button>
             </div>
           {/if}
@@ -919,7 +919,7 @@
   <ConfirmDialog
     title={t('project.delete_category_title', { name: pendingDelete.name })}
     body={t('project.delete_category_body')}
-    confirmLabel={t('project.action_delete')}
+    confirmLabel={t('common.delete')}
     destructive
     onConfirm={confirmDelete}
     onCancel={() => (pendingDelete = null)}

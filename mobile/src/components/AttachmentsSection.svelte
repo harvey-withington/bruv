@@ -116,7 +116,7 @@
             <button type="button" class="ghost-btn" onclick={() => previewAttachment(att)} aria-label={t('attachment.preview')}>
               <Eye size={14} />
             </button>
-            <button type="button" class="ghost-btn danger" onclick={() => (confirmingDelete = att)} aria-label={t('attachment.delete')}>
+            <button type="button" class="ghost-btn danger" onclick={() => (confirmingDelete = att)} aria-label={t('common.remove')}>
               <Trash2 size={14} />
             </button>
           </div>
@@ -146,7 +146,7 @@
   <ConfirmDialog
     title={t('comments.delete_title')}
     body={t('attachment.remove_confirm', { name: confirmingDelete.name })}
-    confirmLabel={t('attachment.remove')}
+    confirmLabel={t('common.remove')}
     destructive
     onConfirm={() => removeAttachment(confirmingDelete!)}
     onCancel={() => (confirmingDelete = null)}

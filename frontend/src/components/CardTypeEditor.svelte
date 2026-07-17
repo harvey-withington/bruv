@@ -281,7 +281,7 @@
     <div class="dialog-footer">
       <button class="btn-secondary" onclick={onClose}>{t('common.cancel')}</button>
       <button class="btn-primary" onclick={save} disabled={saving}>
-        {saving ? t('common.saving') : t('card_type_editor.save')}
+        {saving ? t('common.saving') : t('common.save')}
       </button>
     </div>
   </div>

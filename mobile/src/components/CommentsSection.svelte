@@ -174,7 +174,7 @@
               <button type="button" class="ghost-btn" onclick={() => startEdit(c)} aria-label={t('comments.edit')}>
                 <Pencil size={12} />
               </button>
-              <button type="button" class="ghost-btn danger" onclick={() => (confirmingDelete = c.id)} aria-label={t('comments.delete')}>
+              <button type="button" class="ghost-btn danger" onclick={() => (confirmingDelete = c.id)} aria-label={t('common.delete')}>
                 <Trash2 size={12} />
               </button>
             </div>
@@ -224,7 +224,7 @@
   <ConfirmDialog
     title={t('comments.delete_title')}
     body={t('comments.delete_body')}
-    confirmLabel={t('comments.delete')}
+    confirmLabel={t('common.delete')}
     destructive
     onConfirm={() => performDelete(confirmingDelete!)}
     onCancel={() => (confirmingDelete = null)}

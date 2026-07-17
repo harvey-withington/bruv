@@ -744,7 +744,7 @@
                   <Pencil size={14} /> {t('browse.action_rename')}
                 </button>
                 <button type="button" role="menuitem" class="row-menu-item danger" onclick={() => requestDelete({ kind: 'brand', brandSlug: brand.slug })}>
-                  <Trash2 size={14} /> {t('browse.action_delete')}
+                  <Trash2 size={14} /> {t('common.delete')}
                 </button>
               </div>
             {/if}
@@ -826,7 +826,7 @@
                             <Pencil size={14} /> {t('browse.action_rename')}
                           </button>
                           <button type="button" role="menuitem" class="row-menu-item danger" onclick={() => requestDelete({ kind: 'stream', brandSlug: brand.slug, streamSlug: stream.slug })}>
-                            <Trash2 size={14} /> {t('browse.action_delete')}
+                            <Trash2 size={14} /> {t('common.delete')}
                           </button>
                         </div>
                       {/if}
@@ -907,7 +907,7 @@
                                       <Pencil size={14} /> {t('browse.action_rename')}
                                     </button>
                                     <button type="button" role="menuitem" class="row-menu-item danger" onclick={() => requestDelete({ kind: 'project', brandSlug: brand.slug, streamSlug: stream.slug, projectSlug: project.slug })}>
-                                      <Trash2 size={14} /> {t('browse.action_delete')}
+                                      <Trash2 size={14} /> {t('common.delete')}
                                     </button>
                                   </div>
                                 {/if}
@@ -962,7 +962,7 @@
   <ConfirmDialog
     title={deleteDialogTitle(pendingDelete)}
     body={deleteDialogBody(pendingDelete)}
-    confirmLabel={t('browse.action_delete')}
+    confirmLabel={t('common.delete')}
     destructive
     onConfirm={confirmDelete}
     onCancel={() => (pendingDelete = null)}

@@ -290,7 +290,7 @@
                   <button class="icon-btn" onclick={() => openEdit(type)} title={t('card_types.edit')}>
                     <Pencil size={13} />
                   </button>
-                  <button class="icon-btn danger" onclick={() => handleDelete(type)} title={t('card_types.delete')}>
+                  <button class="icon-btn danger" onclick={() => handleDelete(type)} title={t('common.delete')}>
                     <Trash2 size={13} />
                   </button>
                 </div>
@@ -345,7 +345,7 @@
                   <button class="icon-btn" onclick={() => openEditTemplate(tmpl)} title={t('card_types.edit')}>
                     <Pencil size={13} />
                   </button>
-                  <button class="icon-btn danger" onclick={() => handleDeleteTemplate(tmpl)} title={t('card_types.delete')}>
+                  <button class="icon-btn danger" onclick={() => handleDeleteTemplate(tmpl)} title={t('common.delete')}>
                     <Trash2 size={13} />
                   </button>
                 </div>

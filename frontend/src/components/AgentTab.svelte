@@ -744,10 +744,10 @@
           class="remove-btn"
           onclick={removeAgent}
           disabled={removing || status === 'running'}
-          title={status === 'running' ? t('agent.remove_while_running') : ''}
+          title={status === 'running' ? t('agent.remove_while_running') : t('agent.remove_tooltip')}
         >
           <Trash2 size={13} />
-          {removing ? '…' : t('agent.remove')}
+          {removing ? '…' : t('common.remove')}
         </button>
       </div>
     {/if}

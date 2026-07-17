@@ -267,7 +267,7 @@
         />
         <button class="oe-add-btn" onclick={addOption} disabled={!newOption.trim()}>
           <Plus size={14} />
-          <span>{t('options_editor.add')}</span>
+          <span>{t('common.add')}</span>
         </button>
       </div>
 

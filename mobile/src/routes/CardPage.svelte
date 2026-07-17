@@ -997,7 +997,7 @@
         <CardShareMenu {card} bind:open={shareMenuOpen} />
         <button type="button" class="danger-link" onclick={() => (confirmingDelete = true)}>
           <Trash2 size={14} />
-          {t('card.delete')}
+          {t('common.delete')}
         </button>
       </span>
     </footer>
@@ -1008,7 +1008,7 @@
   <ConfirmDialog
     title={t('card.delete_confirm_title')}
     body={t('card.delete_confirm_body', { title: card.title || t('card.untitled') })}
-    confirmLabel={t('card.delete')}
+    confirmLabel={t('common.delete')}
     destructive
     onConfirm={deleteCard}
     onCancel={() => (confirmingDelete = false)}

@@ -183,7 +183,7 @@
             <span class="attachment-size">{formatSize(att.size)}</span>
             <button class="action-reveal attachment-action" onclick={() => previewAtt(att)} title={t('attachment.preview')}><Eye size={11} /></button>
             <button class="action-reveal attachment-action" onclick={() => downloadAttachment(att)} title={t('attachment.download')}><Download size={11} /></button>
-            <button class="action-reveal action-reveal--danger attachment-remove" onclick={() => removeAttachment(att)} title={t('attachment.remove')}><Trash2 size={11} /></button>
+            <button class="action-reveal action-reveal--danger attachment-remove" onclick={() => removeAttachment(att)} title={t('common.remove')}><Trash2 size={11} /></button>
           </div>
         {/each}
       </div>

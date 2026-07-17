@@ -256,7 +256,7 @@
                 </button>
               {/if}
               <button class="btn btn-sm btn-danger" onclick={() => removeAccount(acct.id)}>
-                <Trash2 size={12} /> {t('llm.account_delete')}
+                <Trash2 size={12} /> {t('common.delete')}
               </button>
             </div>
           </div>
@@ -300,7 +300,7 @@
         </label>
         <div class="account-actions">
           <button class="btn btn-sm btn-primary" onclick={addAccount} disabled={!draft.label && !draft.provider}>
-            {t('llm.account_add')}
+            {t('common.add')}
           </button>
           <button class="btn btn-sm btn-ghost" onclick={resetDraft}>{t('common.cancel')}</button>
         </div>
@@ -309,7 +309,7 @@
   {/if}
 
   <button class="add-btn" onclick={() => { addingNew = true }}>
-    <Plus size={14} /> {t('llm.account_add')}
+    <Plus size={14} /> {t('common.add')}
   </button>
 </div>
 

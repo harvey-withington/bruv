@@ -16,18 +16,61 @@
 
 > **Status:** public alpha (v1.0a). Windows only for now. No telemetry, no account, no cloud. Built with ❤ by Harvey and 🤖 Claude.
 
+<p align="center">
+  <a href="website/images/screenshots/ss-project-details-1.png">
+    <img src="website/images/screenshots/ss-project-details-1.png" alt="The BRUV board — Claude's existential questions filed into Pondering, Resolved, and Won't Fix" width="840" />
+  </a>
+</p>
+
 ---
 
 ## What BRUV does
 
 - **Organise work as cards on boards.** Brands → streams → projects → categories → cards. Drag to reorder, pin to multiple places, keep everything sortable and searchable.
-- **16 built-in block types.** Text, checklists, selects, numbers, dates, ratings, checkboxes, radios, groups, images, progress bars, alarms, and more. Build your own card schemas without writing a line of code.
+- **17 built-in block types.** Text, checklists, selects, numbers, dates, ratings, checkboxes, radios, groups, images, progress bars, alarms, and more. Build your own card schemas without writing a line of code.
 - **AI chat on every card, every project.** Three modes: **chat** (ask questions), **suggest** (review AI-proposed edits before they land), **edit** (let the AI mutate cards directly, scoped to the current project).
 - **Autonomous agents attached to cards.** Any card can become an agent — schedule it, give it tools (web search, URL fetching, HTTP, notifications, card reads/writes), set a token budget, and let it run. Full run history, cost tracking, safety rails (rate limits, retries, budget caps).
 - **Pluggable external tools via MCP.** Beyond the built-in tools, agents can use any [Model Context Protocol](https://modelcontextprotocol.io/) server you install — filesystem access, GitHub integration, Playwright scraping, flight/hotel APIs, database queries, the full ecosystem. Configuration is per-repo and travels with the project when shared; API keys stay in your OS keychain and never leak. See [docs/mcp-servers.md](docs/mcp-servers.md).
 - **Multi-provider LLM support.** Bring your own Anthropic, OpenAI, or Ollama key. Fully local if you use Ollama.
 - **Local-first, file-based storage.** All your data is plain JSON in your OS config directory. No database server, no cloud, no account. Back it up with a file copy.
 - **System-tray resident.** Minimise to tray, pause all agents from the tray menu, click a notification to jump to the relevant card.
+
+## A quick look
+
+<table>
+  <tr>
+    <td width="50%">
+      <a href="website/images/screenshots/ss-card-chat-1.png"><img src="website/images/screenshots/ss-card-chat-1.png" alt="Chatting with a card — the AI populates it with ideas" /></a>
+      <p align="center"><sub><b>Chat with a card</b> — ask, and the AI fills it in.</sub></p>
+    </td>
+    <td width="50%">
+      <a href="website/images/screenshots/ss-card-chat-3.png"><img src="website/images/screenshots/ss-card-chat-3.png" alt="Suggested edits from the AI shown before applying" /></a>
+      <p align="center"><sub><b>Suggest mode</b> — review the AI's edits before they land.</sub></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <a href="website/images/screenshots/ss-card-details-1.png"><img src="website/images/screenshots/ss-card-details-1.png" alt="A card composed of typed blocks" /></a>
+      <p align="center"><sub><b>Typed blocks</b> — compose cards from 17 block types.</sub></p>
+    </td>
+    <td width="50%">
+      <a href="website/images/screenshots/ss-card-agent-3.png"><img src="website/images/screenshots/ss-card-agent-3.png" alt="Agent setup on a card — plain-English goal and model choice" /></a>
+      <p align="center"><sub><b>Any card can be an agent</b> — a plain-English goal, a model, a schedule.</sub></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <a href="website/images/screenshots/ss-agents-overview-3.png"><img src="website/images/screenshots/ss-agents-overview-3.png" alt="Agent run history with durations, token counts, and cost per run" /></a>
+      <p align="center"><sub><b>Run history</b> — every agent run logged with tokens, cost, and a summary.</sub></p>
+    </td>
+    <td width="50%">
+      <a href="website/images/screenshots/ss-inbox-light-1.png"><img src="website/images/screenshots/ss-inbox-light-1.png" alt="The Inbox in light theme with recently updated cards and an activity feed" /></a>
+      <p align="center"><sub><b>Light theme</b> — the Inbox with recent updates and activity.</sub></p>
+    </td>
+  </tr>
+</table>
+
+<p align="center"><sub>Screens from <a href="https://bruv-ai.app">the demo vault</a> — the inner life of a helpful AI, neatly filed.</sub></p>
 
 ## Download
 

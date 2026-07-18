@@ -375,7 +375,11 @@
       expandedStreams.add(streamKey)
       expandedStreams = new Set(expandedStreams)
     }
-    if (!projectsByStream[streamKey]) projectsByStream[streamKey] = await ListProjects(brandSlug, streamSlug) || []
+    // Refetch when the target project is missing from the cache — it may
+    // have just been created elsewhere (e.g. a card promoted to a project).
+    if (!projectsByStream[streamKey] || !projectsByStream[streamKey].some(p => p.slug === projectSlug)) {
+      projectsByStream[streamKey] = await ListProjects(brandSlug, streamSlug) || []
+    }
     // Resolve display names from cached sidebar data
     nav.brandName = brands.find(b => b.slug === brandSlug)?.name || brandSlug
     nav.streamName = (streamsByBrand[brandSlug] || []).find(s => s.slug === streamSlug)?.name || streamSlug

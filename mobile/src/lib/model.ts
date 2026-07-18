@@ -78,3 +78,10 @@ export type ProjectTag = {
   color: string
   icon?: string
 }
+
+// Result of PromoteCardToProject — the newly created project (with its
+// default category) that the card was pinned into.
+export type PromotedProject = {
+  project: Project
+  category: Category
+}

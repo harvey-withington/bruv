@@ -89,6 +89,7 @@ export const UpdateProjectDescription = (...args: Parameters<ReturnType<typeof g
 export const UpdateProjectIcon = (...args: Parameters<ReturnType<typeof getBackend>['UpdateProjectIcon']>) => getBackend().UpdateProjectIcon(...args)
 export const DeleteProject = (...args: Parameters<ReturnType<typeof getBackend>['DeleteProject']>) => getBackend().DeleteProject(...args)
 export const GetProjectMembers = (...args: Parameters<ReturnType<typeof getBackend>['GetProjectMembers']>) => getBackend().GetProjectMembers(...args)
+export const PromoteCardToProject = (...args: Parameters<ReturnType<typeof getBackend>['PromoteCardToProject']>) => getBackend().PromoteCardToProject(...args)
 
 // Category CRUD
 export const CreateCategory = (...args: Parameters<ReturnType<typeof getBackend>['CreateCategory']>) => getBackend().CreateCategory(...args)

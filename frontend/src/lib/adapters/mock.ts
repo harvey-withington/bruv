@@ -162,6 +162,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     UpdateProjectIcon: async () => mockProject(),
     DeleteProject: async () => {},
     GetProjectMembers: async () => [],
+    PromoteCardToProject: async () => ({ project: mockProject(), category: mockCategory() }),
 
     CreateCategory: async () => mockCategory(),
     ListCategories: async () => [],

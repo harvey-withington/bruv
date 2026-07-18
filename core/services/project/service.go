@@ -233,23 +233,33 @@ func (s *Service) DeleteStream(brandSlug, streamSlug string) error {
 // --- Project ---
 
 func (s *Service) CreateProject(brandSlug, streamSlug, name string) (*model.Project, error) {
+	project, _, err := s.CreateProjectWithDefaultCategory(brandSlug, streamSlug, name)
+	return project, err
+}
+
+// CreateProjectWithDefaultCategory creates a project plus its default
+// category ("Ideas" or the configured default name) and returns both. The
+// returned error covers project creation only; a failed default-category
+// create yields a nil category (the project still exists) — callers that
+// require the category must check for nil.
+func (s *Service) CreateProjectWithDefaultCategory(brandSlug, streamSlug, name string) (*model.Project, *model.Category, error) {
 	name = repo.SanitizeText(name)
 	r := s.deps.Repo()
 	if r == nil {
-		return nil, fmt.Errorf("no repository open")
+		return nil, nil, fmt.Errorf("no repository open")
 	}
 	project, err := r.CreateProject(brandSlug, streamSlug, name)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	prefs, _ := config.LoadPreferences()
 	catName := prefs.DefaultCategoryName
 	if catName == "" {
 		catName = "Ideas"
 	}
-	r.CreateCategory(brandSlug, streamSlug, project.Slug, catName, 0)
+	category, _ := r.CreateCategory(brandSlug, streamSlug, project.Slug, catName, 0)
 	s.emit("project:updated", project)
-	return project, nil
+	return project, category, nil
 }
 
 func (s *Service) ListProjects(brandSlug, streamSlug string) ([]model.Project, error) {

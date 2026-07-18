@@ -3,7 +3,7 @@
     DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, GetProjectLabels, GetCategoryAcceptedTypes, GetAgentConfig, GetProjectMembers, CreateCardTypeFromCard } from '@shared/api'
   import { onEvent } from '../lib/events'
   import { projectTags, nav, cardTypes, loadCardTypes } from '../lib/store.svelte'
-  import { X, Trash2, BotMessageSquare, ClipboardList, History, Timer } from 'lucide-svelte'
+  import { X, Trash2, BotMessageSquare, ClipboardList, History, Timer, ArrowUpRight } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import MentionPicker from './MentionPicker.svelte'
   import PinPicker from './PinPicker.svelte'
@@ -19,6 +19,7 @@
   import CardFolderChip from './workspace/CardFolderChip.svelte'
   import CardBlocks from './CardBlocks.svelte'
   import CreateTypeFromCardDialog from './CreateTypeFromCardDialog.svelte'
+  import PromoteCardDialog from './PromoteCardDialog.svelte'
   import SaveIndicator from './SaveIndicator.svelte'
   import { draggable } from '../lib/draggable'
   import { fade } from 'svelte/transition'
@@ -280,6 +281,9 @@
 
   // Create a reusable card type from this card's layout.
   let showCreateTypeDialog = $state(false)
+
+  // Promote this card into its own project.
+  let showPromoteDialog = $state(false)
 
   function openCreateTypeFromCard() {
     showTypePicker = false
@@ -558,6 +562,10 @@
     // open, let it own Escape/Ctrl+Enter entirely — otherwise cancelling
     // a block-options row edit there also closed the card underneath it.
     if (optionsEditorState.visible) return
+    // Same shielding for this dialog's own portaled child dialogs — they
+    // listen on <svelte:window> too, so Escape there would otherwise also
+    // close the card underneath.
+    if (showCreateTypeDialog || showPromoteDialog) return
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()
       editScope.commitAll()
@@ -714,6 +722,7 @@
         </span>
         <span class="modal-footer-right">
           <SaveIndicator {saving} />
+          <button class="btn-promote" onclick={() => showPromoteDialog = true} title={t('tooltip.promote_card')}><ArrowUpRight size={14} /> {t('promote.action')}</button>
           <CardShareMenu {card} />
           <button class="btn-delete" onclick={handleDelete} title={t('tooltip.delete_card')}><Trash2 size={14} /> {t('common.delete')}</button>
         </span>
@@ -759,6 +768,16 @@
     blocks={card.blocks}
     onCreate={handleCreateTypeFromCard}
     onClose={() => showCreateTypeDialog = false}
+  />
+{/if}
+
+{#if showPromoteDialog && card}
+  <PromoteCardDialog
+    cardId={card.id}
+    cardTitle={card.title}
+    hasDescription={!!card.description?.trim()}
+    onClose={() => showPromoteDialog = false}
+    onPromoted={() => { showPromoteDialog = false; onClose() }}
   />
 {/if}
 
@@ -1102,7 +1121,11 @@
     color: var(--text-faint);
   }
 
-  .btn-delete {
+  .btn-delete,
+  .btn-promote {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
     padding: 0.3rem 0.7rem;
     border: none;
     border-radius: 4px;
@@ -1111,5 +1134,6 @@
     font-size: 0.8rem;
     cursor: pointer;
   }
-  .btn-delete:hover { color: var(--danger-light); background: rgba(248, 113, 113, 0.1); }
+  .btn-delete:hover, .btn-delete:focus-visible { color: var(--danger-light); background: rgba(248, 113, 113, 0.1); }
+  .btn-promote:hover, .btn-promote:focus-visible { color: var(--accent); background: var(--bg-hover); }
 </style>

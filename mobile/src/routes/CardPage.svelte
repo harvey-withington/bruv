@@ -6,7 +6,7 @@
   import { navigate, projectURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
   import { renderInline } from '@shared/markdown'
-  import { Trash2, MapPin, Plus, X, RefreshCw, Search, Paperclip, MessageSquare, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree } from 'lucide-svelte'
+  import { Trash2, MapPin, Plus, X, RefreshCw, Search, Paperclip, MessageSquare, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, ArrowUpRight } from 'lucide-svelte'
   import EditableText from '../components/EditableText.svelte'
   import EditableDescription from '../components/EditableDescription.svelte'
   import TagsEditor from '../components/TagsEditor.svelte'
@@ -20,6 +20,7 @@
   import AttachmentsSection from '../components/AttachmentsSection.svelte'
   import SearchSheet from '../components/SearchSheet.svelte'
   import CardShareMenu from '../components/CardShareMenu.svelte'
+  import PromoteCardSheet from '../components/PromoteCardSheet.svelte'
   import ChatButton from '../components/chat/ChatButton.svelte'
   import { getCardTypeColor, getCardTypeTextColor, getCardTypeLabel } from '@shared/cardTypes'
   import { repoMeta, loadProjectTags, projectKey as makeProjectKey } from '../lib/repoMeta.svelte'
@@ -127,7 +128,8 @@
       blockPickerOpen ||
       shareMenuOpen ||
       confirmingDelete ||
-      confirmingRefresh
+      confirmingRefresh ||
+      promoteOpen
     ) return
     if (!editScope.hasActive()) return
     cancelActiveEdits()
@@ -154,7 +156,8 @@
       blockPickerOpen ||
       shareMenuOpen ||
       confirmingDelete ||
-      confirmingRefresh
+      confirmingRefresh ||
+      promoteOpen
     ) return
     editScope.handleWindowKeydown(e)
   }
@@ -679,6 +682,8 @@
   // overlay (the sheet also owns its own capture-phase keys + history
   // entry — see ChatSheet).
   let chatOpen = $state(false)
+  // Promote-to-project sheet, opened from the footer action.
+  let promoteOpen = $state(false)
 
   function pickType(typeID: string) {
     typePickerOpen = false
@@ -994,6 +999,10 @@
     <footer class="actions">
       <span class="created">{t('card.created')} {createdDate(card.created_at)}</span>
       <span class="actions-right">
+        <button type="button" class="promote-link" onclick={() => (promoteOpen = true)} title={t('tooltip.promote_card')}>
+          <ArrowUpRight size={14} />
+          {t('promote.action')}
+        </button>
         <CardShareMenu {card} bind:open={shareMenuOpen} />
         <button type="button" class="danger-link" onclick={() => (confirmingDelete = true)}>
           <Trash2 size={14} />
@@ -1034,6 +1043,15 @@
     confirmLabel={t('card.refresh_blocks_confirm')}
     onConfirm={performRefresh}
     onCancel={() => (confirmingRefresh = false)}
+  />
+{/if}
+
+{#if promoteOpen && card}
+  <PromoteCardSheet
+    cardId={card.id}
+    cardTitle={card.title}
+    hasDescription={!!card.description?.trim()}
+    onClose={() => (promoteOpen = false)}
   />
 {/if}
 
@@ -1493,6 +1511,29 @@
   .danger-link:focus-visible {
     color: #ef4444;
     background: rgba(239, 68, 68, 0.08);
+    outline: none;
+  }
+
+  .promote-link {
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    font: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+    padding: 0.55rem 0.75rem;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: 40px;
+    touch-action: manipulation;
+  }
+
+  .promote-link:hover,
+  .promote-link:focus-visible {
+    color: var(--accent);
+    background: var(--bg-elev-1);
     outline: none;
   }
 

@@ -52,6 +52,13 @@ export type Category = {
   updated_at: string
 }
 
+// PromotedProject is the result of promoting a card into its own project:
+// the new project plus its default category (where the card is pinned).
+export type PromotedProject = {
+  project: Project
+  category: Category
+}
+
 // Label is a project-scoped label that can be assigned to cards.
 // (Presented as "tags" in some user-facing surfaces.)
 export type Label = {
@@ -800,6 +807,11 @@ export interface BackendAdapter {
   UpdateProjectIcon(brandSlug: string, streamSlug: string, projectSlug: string, icon: string): Promise<Project>
   DeleteProject(brandSlug: string, streamSlug: string, projectSlug: string): Promise<void>
   GetProjectMembers(brandSlug: string, streamSlug: string, projectSlug: string): Promise<ProjectMember[]>
+  // Promote a card into its own project: creates the project (with its
+  // default category), pins the card there (existing pins untouched; tags
+  // sync into the new project's palette), and optionally copies the card's
+  // description onto the project.
+  PromoteCardToProject(cardID: string, brandSlug: string, streamSlug: string, name: string, copyDescription: boolean): Promise<PromotedProject>
 
   // Category CRUD
   CreateCategory(brandSlug: string, streamSlug: string, projectSlug: string, name: string, position: number): Promise<Category>

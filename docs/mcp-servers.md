@@ -75,6 +75,7 @@ MCP servers are **third-party code running on your machine**. BRUV treats them t
 
 Things to keep in mind:
 
+- **Review servers in repos you didn't create before enabling them.** A repo's `.bruv/mcp_servers.json` travels with it, so a shared repo can arrive carrying server definitions its author chose. Secrets never travel — but **enabling a server runs its command as a local subprocess on your machine, as you**. Servers always arrive disabled, and enabling one from the list shows you the exact command first and asks you to confirm. Read that command before you accept it.
 - **Install only servers you trust.** Prefer official servers from `@modelcontextprotocol/` or well-known authors. Check the source before running unfamiliar packages.
 - **Scope filesystem servers narrowly.** If you use the filesystem server, pass it the specific directory you want it to access — not your home directory or C:\.
 - **Audit env var names.** A malicious server spec could declare an env var name that, combined with a credential you happen to paste, gives it access to something you didn't intend. Review the env var names in any shared repo before pasting secrets.

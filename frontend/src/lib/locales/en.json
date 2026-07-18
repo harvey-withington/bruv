@@ -660,6 +660,7 @@
   "mcp.edit_title": "Edit MCP server",
   "mcp.edit": "Edit",
   "mcp.enable": "Enable",
+  "mcp.enable_confirm": "Enabling “{name}” runs this command on your machine: {command} — it runs as you, with access to your files and network. Only enable servers from a repo you trust.",
   "mcp.disable": "Disable",
   "mcp.restart": "Restart",
   "mcp.show_tools": "Show tools",

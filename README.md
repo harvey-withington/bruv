@@ -14,7 +14,7 @@
   <a href="https://bruv-ai.app"><strong>bruv-ai.app</strong></a>
 </p>
 
-> **Status:** public alpha (v1.0a). Windows only for now. No telemetry, no account, no cloud. Built with ❤ by Harvey and 🤖 Claude.
+> **Status:** public alpha (`v0.1.0-alpha`). Windows only for now. No telemetry, no account, no cloud. Built with ❤ by Harvey and 🤖 Claude.
 
 <p align="center">
   <a href="website/images/screenshots/ss-project-details-1.png">
@@ -102,6 +102,8 @@ BRUV repos are self-contained and portable. To share a project with someone else
 
 Your personal data stays on your machine and does **not** travel with a shared repo: AI chat history, LLM API keys, notification history, profile, and window state all live in your local config folder keyed per-repo. When a collaborator opens your shared repo, they get their own fresh chat history — your conversations stay private.
 
+> ⚠️ **Opening a repo you didn't create? Review its MCP servers before enabling them.** A repo's MCP server definitions travel inside it. API keys and secrets never do — they stay in your OS keychain — but enabling a server **runs the author's chosen command as a local subprocess on your machine**. Servers always arrive disabled, and BRUV shows you the exact command in an enable-confirmation prompt, so you stay in control. Only enable servers from repos you trust. See [docs/mcp-servers.md](docs/mcp-servers.md#security-posture).
+
 BRUV's **Import card types from another repo** button (Card Types dialog) lets you pull a type vocabulary from another local repo without an intermediate export file — useful when you maintain several repos and want to keep a shared set of types across them.
 
 ## Self-hosting (one server, multiple devices)
@@ -132,7 +134,7 @@ Until then: alpha builds ship unsigned. If you'd rather not click through a Smar
 
 This isn't a workaround — it's the honest cost of running an unfunded OSS project. Thanks for your patience.
 
-The alpha releases use the `v1.0a` tag family; betas will become `v1.0b` once we're signed and ready for a wider audience.
+Alpha releases use `v0.1.0-alpha`-style tags; the first signed, wider-audience build will be tagged `v0.1.0-beta`.
 
 ## Platform status
 

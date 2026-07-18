@@ -156,8 +156,18 @@
   }
 
   async function toggleEnabled(view: MCPServerView) {
+    const enabling = !view.spec.enabled
+    // Enabling spawns the author's chosen subprocess locally — a real
+    // execution-of-someone-else's-command moment for a shared repo. Show
+    // the exact command and make the user opt in. Disabling is harmless,
+    // so it stays a one-click toggle.
+    if (enabling) {
+      const command = [view.spec.command, ...(view.spec.args ?? [])].join(' ').trim()
+      const ok = await showConfirm(t('mcp.enable_confirm', { name: view.spec.name, command }))
+      if (!ok) return
+    }
     try {
-      const next = { ...view.spec, enabled: !view.spec.enabled }
+      const next = { ...view.spec, enabled: enabling }
       await UpdateMCPServer(next)
       await refresh()
     } catch (e) {

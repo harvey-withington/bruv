@@ -62,6 +62,12 @@ type Watcher struct {
 
 	stopCh  chan struct{}
 	stopped bool
+	// done is closed by run() when the event loop exits, so Stop() can
+	// block until the goroutine is truly gone. Closing stopCh only signals
+	// it; without waiting, run() may still be mid-handleEvent (or a
+	// debounced publish may still fire) after the caller has torn down the
+	// repo — racing t.TempDir cleanup in tests and repo deletion in prod.
+	done chan struct{}
 }
 
 // debounce is intentionally brief — long enough to collapse bursts
@@ -85,6 +91,7 @@ func Start(root string, publisher Publisher) (*Watcher, error) {
 		timers:    make(map[string]*time.Timer),
 		watched:   make(map[string]bool),
 		stopCh:    make(chan struct{}),
+		done:      make(chan struct{}),
 	}
 	if err := w.walkAndAdd(root); err != nil {
 		slog.Warn("reposync: initial walk had errors", "err", err)
@@ -144,6 +151,10 @@ func (w *Watcher) Stop() {
 
 	close(w.stopCh)
 	_ = w.watcher.Close()
+	// Block until run() has actually returned. Closing stopCh only signals
+	// it; without this wait an in-flight handleEvent or debounced publish
+	// can still touch the repo after Stop() returns.
+	<-w.done
 }
 
 // walkAndAdd recursively adds every directory under root to the
@@ -204,6 +215,7 @@ func shouldIgnoreDir(path, root string) bool {
 // run is the main event loop — drain fsnotify events, classify,
 // debounce, publish. Exits when the watcher is closed.
 func (w *Watcher) run() {
+	defer close(w.done)
 	for {
 		select {
 		case <-w.stopCh:
@@ -264,7 +276,13 @@ func (w *Watcher) handleEvent(ev fsnotify.Event) {
 	w.timers[ev.Name] = time.AfterFunc(debounce, func() {
 		w.mu.Lock()
 		delete(w.timers, ev.Name)
+		stopped := w.stopped
 		w.mu.Unlock()
+		// Don't emit after Stop(): a late publish can trigger downstream
+		// writes into a repo the caller is already tearing down.
+		if stopped {
+			return
+		}
 		w.publisher.Publish(topic, payload)
 	})
 	w.mu.Unlock()

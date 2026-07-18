@@ -76,7 +76,7 @@
 
 **Windows:** Grab the latest installer from [bruv-ai.app](https://bruv-ai.app) or the [Releases page](https://github.com/harvey-withington/bruv/releases).
 
-> ⚠️ **SmartScreen warning during the alpha.** BRUV is not yet code-signed, so Windows SmartScreen will warn you when you run the installer for the first time. This is expected. Click **More info → Run anyway**. The warning will go away in the v1.0 final release once we're code-signed via [SignPath Foundation](https://signpath.org/) (their free OSS sponsorship — no ongoing cost to BRUV, so it stays free for you). See [SmartScreen and signing](#smartscreen-and-signing) below for why.
+> ⚠️ **SmartScreen warning during the alpha.** BRUV is not yet code-signed, so Windows SmartScreen will warn you when you run the installer for the first time. This is expected. Click **More info → Run anyway**. The warning will go away once BRUV is code-signed. See [SmartScreen and signing](#smartscreen-and-signing) below for why.
 
 **macOS / Linux:** not supported yet. See [Platform status](#platform-status).
 
@@ -124,9 +124,9 @@ Full details, including what files live where, what agents can access, and how t
 
 ## SmartScreen and signing
 
-BRUV is fully open source and free. Windows code-signing certificates cost real money every year, which doesn't fit a free OSS project maintained by one person. Instead, we're applying to the [SignPath Foundation](https://signpath.org/) — a service that provides free code signing to qualifying open-source projects. Once approved, releases will be signed and SmartScreen will stop warning.
+BRUV is fully open source and free. Getting a Windows build code-signed is something we're still sorting out — code-signing certificates carry an ongoing cost that doesn't obviously fit a free project maintained by one person. Until BRUV is signed, alpha builds ship unsigned and SmartScreen will warn on first run.
 
-Until then: alpha builds ship unsigned. If you'd rather not click through a SmartScreen warning, you can:
+If you'd rather not click through a SmartScreen warning, you can:
 
 - **Verify the binary yourself** against the source — everything here is MIT-licensed and buildable from a clean checkout (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 - **Build from source** — clone the repo and run `wails build`.

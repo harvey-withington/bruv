@@ -2,14 +2,9 @@
 #
 # Triggered by pushing a tag that matches v*. Builds the Windows executable
 # and NSIS installer via Wails, stamps the version and build date into the
-# binary via ldflags, (optionally) submits it to SignPath Foundation for
-# code signing, then creates a GitHub Release with the artifact attached.
-#
-# SignPath signing is gated behind a repository secret — the workflow runs
-# signed or unsigned depending on whether SIGNPATH_API_TOKEN is available.
-# This lets us ship unsigned betas today and flip the signing switch when
-# our SignPath Foundation application is approved, with no workflow
-# rewrite required.
+# binary via ldflags, then creates a draft GitHub Release with the installer
+# attached. Publish the draft (after pasting the release notes) to make it
+# the latest release. Builds ship unsigned.
 
 name: Release
 
@@ -65,17 +60,25 @@ jobs:
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1
 
       # NSIS is required by `wails build -nsis` to generate the Windows
-      # installer. GitHub's windows-latest runners ship with Chocolatey
-      # pre-installed, so this is a one-line install. The choco package does
-      # NOT reliably expose makensis on PATH for subsequent steps — add the
-      # install dir explicitly, or the -nsis flag silently produces nothing
-      # (v0.1.0-alpha shipped without its installer exactly this way).
+      # installer. `wails` is a native process that reads the WINDOWS PATH, so
+      # the NSIS dir must be added in Windows form (C:\...). The previous
+      # MSYS-style entry (/c/Program Files (x86)/NSIS) was invalid for native
+      # processes, so -nsis silently skipped the installer and the release
+      # shipped exe-only (v0.1.0-alpha, and the first v0.2.0-alpha attempt).
+      # Resolve makensis, add its real dir, and verify — fail loudly if absent.
       - name: Install NSIS
-        shell: bash
+        shell: pwsh
         run: |
           choco install nsis -y --no-progress
-          echo "/c/Program Files (x86)/NSIS" >> "$GITHUB_PATH"
-          echo "/c/Program Files (x86)/NSIS/Bin" >> "$GITHUB_PATH"
+          $mk = "C:\Program Files (x86)\NSIS\makensis.exe"
+          if (-not (Test-Path $mk)) {
+            $found = Get-ChildItem "C:\Program Files*" -Recurse -Filter makensis.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) { $mk = $found.FullName } else { Write-Error "makensis.exe not found after 'choco install nsis'"; exit 1 }
+          }
+          $nsisDir = Split-Path $mk
+          Add-Content -Path $env:GITHUB_PATH -Value $nsisDir
+          Write-Host "NSIS at $nsisDir"
+          & $mk /VERSION
 
       # Root package.json carries deps that `shared/*.ts` imports (marked,
       # lucide-svelte). Vite resolves those by walking up from shared/ to
@@ -127,71 +130,26 @@ jobs:
             exit 1
           }
 
-      - name: Upload unsigned artifacts
+      - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: bruv-${{ steps.version.outputs.value }}-windows-unsigned
+          name: bruv-${{ steps.version.outputs.value }}-windows
           # Catches both the portable .exe and the NSIS installer .exe
           path: build/bin/*.exe
           retention-days: 7
 
-  sign-windows:
-    name: Sign via SignPath Foundation
-    needs: build-windows
-    runs-on: windows-latest
-    # Only run if the SignPath token is configured as a repo secret.
-    # Until our SignPath Foundation application is approved, this job
-    # is skipped automatically and the release ships unsigned.
-    if: ${{ vars.SIGNPATH_ENABLED == 'true' }}
-
-    steps:
-      - name: Download unsigned artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: bruv-${{ needs.build-windows.outputs.version }}-windows-unsigned
-          path: unsigned
-
-      - name: Submit to SignPath
-        uses: signpath/github-action-submit-signing-request@v1
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORG_ID }}
-          project-slug: bruv
-          signing-policy-slug: release-signing
-          artifact-configuration-slug: exe
-          github-artifact-id: bruv-${{ needs.build-windows.outputs.version }}-windows-unsigned
-          wait-for-completion: true
-          output-artifact-directory: signed
-
-      - name: Upload signed artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: bruv-${{ needs.build-windows.outputs.version }}-windows-signed
-          path: signed/*.exe
-          retention-days: 30
-
   release:
     name: Publish GitHub Release
-    needs: [build-windows, sign-windows]
-    # Always run, even if the signing job was skipped.
-    if: always() && needs.build-windows.result == 'success'
+    needs: build-windows
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download signed artifact
-        if: needs.sign-windows.result == 'success'
+      - name: Download Windows artifact
         uses: actions/download-artifact@v4
         with:
-          name: bruv-${{ needs.build-windows.outputs.version }}-windows-signed
-          path: dist
-
-      - name: Download unsigned artifact (fallback)
-        if: needs.sign-windows.result != 'success'
-        uses: actions/download-artifact@v4
-        with:
-          name: bruv-${{ needs.build-windows.outputs.version }}-windows-unsigned
+          name: bruv-${{ needs.build-windows.outputs.version }}-windows
           path: dist
 
       - name: Publish release

@@ -94,7 +94,7 @@ export type ListItem = {
 // Runtime list of every block type the model knows. `BlockType` derives
 // from it so the union and the list can never drift — import validation
 // (cardJson.ts) checks incoming blocks against this.
-export const BLOCK_TYPES = ['text', 'checklist', 'list', 'media', 'url', 'divider', 'select', 'number', 'date', 'rating', 'checkbox', 'radio', 'checkbox_group', 'image', 'progress', 'alarm', 'survey'] as const
+export const BLOCK_TYPES = ['text', 'checklist', 'list', 'media', 'url', 'divider', 'select', 'number', 'date', 'rating', 'checkbox', 'radio', 'checkbox_group', 'image', 'progress', 'alarm', 'survey', 'slide_deck'] as const
 
 export type BlockType = (typeof BLOCK_TYPES)[number]
 
@@ -115,6 +115,92 @@ export type MediaItem = {
   url: string
   caption?: string
   mime?: string
+}
+
+// --- Slide Deck block ---
+// A deck lives inside a card as block data, so it stays pinnable, taggable,
+// searchable, and AI-authorable. `currentIndex` is the live presentation
+// pointer that drives the /present output page over SSE.
+
+// The slide model mirrors BRUV's Card Type ↔ Card pattern:
+//   - SlideContentType  = the schema (a named set of typed fields)
+//   - SlideTemplate      = a data-only renderer that declares which content
+//                          types it renders and maps each type's fields to
+//                          display roles. Serialisable so templates can be
+//                          user-authored / shared via a registry later.
+//   - Slide              = an instance: a content type + a template + values
+//                          (each literal, or bound live to a card block).
+
+export type SlideFieldType = 'text' | 'longtext' | 'image' | 'video'
+
+export type SlideFieldDef = {
+  key: string
+  label: string
+  type: SlideFieldType
+}
+
+export type SlideContentType = {
+  id: string
+  name: string
+  fields: SlideFieldDef[]
+}
+
+// Display roles a template assigns a content-type field to. The generic
+// renderer maps role → visual treatment; the field's type informs media
+// handling (image vs video). New roles extend the format, not the code.
+export type SlideDisplayRole =
+  | 'heading' | 'subheading' | 'body' | 'quote' | 'attribution' | 'media' | 'caption'
+
+export type SlideFieldMapping = {
+  field: string          // content-type field key
+  role: SlideDisplayRole
+}
+
+export type SlideAnimation = 'fadeIn' | 'zoomIn' | 'slideInLeft' | 'slideInRight' | 'slideInUp' | 'none'
+
+export type TemplateStyles = {
+  backgroundColor?: string
+  textColor?: string
+  accentColor?: string
+  fontFamily?: string
+  // Extension point for user-authored templates (borders, padding, …).
+}
+
+// SlideTemplate is data, not code — a single generic renderer interprets it.
+export type SlideTemplate = {
+  id: string
+  name: string
+  supportedContentTypes: string[]                 // content-type ids it can render
+  fieldMap: Record<string, SlideFieldMapping[]>   // contentTypeId → field→role mappings
+  entrance: SlideAnimation
+  durationMs: number
+  styles?: TemplateStyles
+}
+
+export type Slide = {
+  id: string
+  contentTypeId: string
+  templateId?: string                  // falls back to the first template supporting the type
+  cardId?: string                      // optional linked card, for field bindings
+  values: Record<string, string>       // field key → literal value
+  bindings?: Record<string, string>    // field key → card block id (resolved live)
+  durationSec?: number                 // 0 / undefined = manual advance
+  notes?: string                       // presenter notes — control surface only
+  thumbnail?: string                   // small data-URI preview for the compact row
+}
+
+export type DeckTheme = {
+  backgroundColor?: string
+  textColor?: string
+  accentColor?: string
+  fontFamily?: string
+  transparent?: boolean  // OBS overlay mode: transparent output background
+}
+
+export type SlideDeckValue = {
+  slides: Slide[]
+  currentIndex: number
+  theme?: DeckTheme
 }
 
 export type BlockMeta = {
@@ -140,7 +226,7 @@ export type Block = {
   type: BlockType
   label: string
   key: string
-  value: string | number | boolean | string[] | ChecklistItem[] | ListItem[] | MediaItem[] | SurveyQuestion[] | { url: string; caption?: string } | null
+  value: string | number | boolean | string[] | ChecklistItem[] | ListItem[] | MediaItem[] | SurveyQuestion[] | SlideDeckValue | { url: string; caption?: string } | null
   meta?: BlockMeta
 }
 

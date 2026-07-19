@@ -3,7 +3,7 @@
 // shapes | null), so each editor component runtime-checks before
 // reading. Keeping these in one place avoids drift between blocks.
 
-import type { Block, ChecklistItem, ListItem, MediaItem, SurveyQuestion } from '@shared/types'
+import type { Block, ChecklistItem, ListItem, MediaItem, SurveyQuestion, Slide, SlideDeckValue } from '@shared/types'
 
 export function asString(v: unknown): string {
   return typeof v === 'string' ? v : ''
@@ -47,6 +47,17 @@ export function asSurveyQuestions(v: unknown): SurveyQuestion[] {
   return v.filter((x): x is SurveyQuestion =>
     !!x && typeof x === 'object' && typeof (x as SurveyQuestion).id === 'string',
   )
+}
+
+export function asSlideDeck(v: unknown): SlideDeckValue {
+  if (v && typeof v === 'object' && !Array.isArray(v) && 'slides' in v) {
+    const obj = v as { slides?: unknown; currentIndex?: unknown }
+    const slides = Array.isArray(obj.slides)
+      ? obj.slides.filter((s): s is Slide => !!s && typeof s === 'object' && typeof (s as Slide).id === 'string')
+      : []
+    return { slides, currentIndex: typeof obj.currentIndex === 'number' ? obj.currentIndex : 0 }
+  }
+  return { slides: [], currentIndex: 0 }
 }
 
 export function asUrlValue(v: unknown): { url: string; caption?: string } {

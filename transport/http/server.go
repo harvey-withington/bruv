@@ -52,6 +52,12 @@ type Config struct {
 	// embed, leave nil to skip the mount. The mobile bundle is its own
 	// Svelte app under /mobile/ in the source tree.
 	MobileAssets fs.FS
+	// Present optionally wires the read-only slide-deck output surface at
+	// /present/* + /present-data/*, gated by HMAC-signed URLs (for OBS
+	// Browser Sources, which can't send an Authorization header). Leave nil
+	// to skip the mount. Set from the host with the same secret as
+	// AttachmentConfig plus a card-JSON resolver.
+	Present *PresentConfig
 	// Repos is the per-repo backend. Required.
 	Repos RepoBackend
 	// MachineTarget is the dispatcher target for /server/rpc — the
@@ -350,6 +356,15 @@ func (s *Server) buildMux() *nethttp.ServeMux {
 		mux.HandleFunc("/m", func(w nethttp.ResponseWriter, r *nethttp.Request) {
 			nethttp.Redirect(w, r, "/m/", nethttp.StatusMovedPermanently)
 		})
+	}
+
+	// Present output surface — the signed, read-only slide-deck page for OBS
+	// Browser Sources / displays. Mounted only when the host wired a
+	// PresentConfig (HMAC secret + card resolver). The page shell is public
+	// like /m/*; /present-data enforces the signed URL.
+	if s.cfg.Present != nil {
+		mux.Handle("/present/", presentPageHandler())
+		mux.Handle("/present-data/", presentDataHandler(s.cfg.Present))
 	}
 
 	return mux

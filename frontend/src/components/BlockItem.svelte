@@ -21,7 +21,7 @@
   import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import { showToast } from '../lib/toast.svelte'
   import { UpdateCardBlocks, CreateCard, PinCard } from '@shared/api'
-  import type { Block, BlockMeta, Card, ChecklistItem, ListItem, MediaItem, SurveyQuestion } from '@shared/types'
+  import type { Block, BlockMeta, Card, ChecklistItem, ListItem, MediaItem, SurveyQuestion, SlideDeckValue } from '@shared/types'
   import EditableChecklist from './EditableChecklist.svelte'
   import EditableList from './EditableList.svelte'
   import MediaBlock from './MediaBlock.svelte'
@@ -36,6 +36,7 @@
   import ProgressBlock from './ProgressBlock.svelte'
   import AlarmBlock from './AlarmBlock.svelte'
   import SurveyBlock from './SurveyBlock.svelte'
+  import SlideDeckBlock from './SlideDeckBlock.svelte'
 
   let {
     block,
@@ -413,6 +414,12 @@
         {:else if block.type === 'survey'}
           <SurveyBlock
             value={(block.value as SurveyQuestion[]) || []}
+            onUpdate={(val) => commitBlock(block, val)}
+          />
+        {:else if block.type === 'slide_deck'}
+          <SlideDeckBlock
+            value={block.value && typeof block.value === 'object' && !Array.isArray(block.value) && 'slides' in block.value ? (block.value as SlideDeckValue) : { slides: [], currentIndex: 0 }}
+            cardId={cardId}
             onUpdate={(val) => commitBlock(block, val)}
           />
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Plus, Type, ListChecks, List, Film, Link, Minus, ChevronDown, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell, ClipboardList } from 'lucide-svelte'
+  import { Plus, Type, ListChecks, List, Film, Link, Minus, ChevronDown, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell, ClipboardList, Presentation } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import { floatingDropdown, clickOutside } from '../lib/actions'
   import type { Block } from '@shared/types'
@@ -41,6 +41,7 @@
     { type: 'progress',       label: t('block.progress'),       icon: ChartColumn },
     { type: 'alarm',          label: t('block.alarm'),          icon: Bell },
     { type: 'survey',         label: t('block.survey'),         icon: ClipboardList },
+    { type: 'slide_deck',     label: t('block.slide_deck'),     icon: Presentation },
   ]
 </script>
 

@@ -45,6 +45,89 @@ func TestCoerceNumber(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// coerceSlideDeck
+// ---------------------------------------------------------------------------
+
+func TestCoerceSlideDeck_FullObject(t *testing.T) {
+	got := coerceBlockValue(model.BlockSlideDeck, map[string]any{
+		"slides": []any{
+			map[string]any{"id": "s1", "contentTypeId": "title", "values": map[string]any{"title": "Intro", "subtitle": "Hi"}},
+			map[string]any{"contentTypeId": "quote", "values": map[string]any{"quote": "Be bold", "author": "X"}, "durationSec": float64(8)},
+		},
+		"currentIndex": float64(1),
+	})
+	deck, ok := got.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map, got %T", got)
+	}
+	slides, ok := deck["slides"].([]map[string]any)
+	if !ok || len(slides) != 2 {
+		t.Fatalf("expected 2 slides, got %v", deck["slides"])
+	}
+	if slides[0]["id"] != "s1" || slides[0]["contentTypeId"] != "title" {
+		t.Errorf("slide 0 wrong: %v", slides[0])
+	}
+	v0, _ := slides[0]["values"].(map[string]any)
+	if v0["title"] != "Intro" || v0["subtitle"] != "Hi" {
+		t.Errorf("slide 0 values wrong: %v", v0)
+	}
+	if slides[1]["durationSec"] != 8 {
+		t.Errorf("slide 1 duration wrong: %v", slides[1])
+	}
+	if deck["currentIndex"] != 1 {
+		t.Errorf("currentIndex = %v, want 1", deck["currentIndex"])
+	}
+}
+
+func TestCoerceSlideDeck_StampsIDAndDefaultsContentType(t *testing.T) {
+	deck := coerceBlockValue(model.BlockSlideDeck, map[string]any{
+		"slides": []any{map[string]any{"values": map[string]any{"title": "no id"}}},
+	}).(map[string]any)
+	slides := deck["slides"].([]map[string]any)
+	if id, _ := slides[0]["id"].(string); len(id) < 4 || id[:4] != "sld-" {
+		t.Errorf("expected stamped sld- id, got %q", id)
+	}
+	if slides[0]["contentTypeId"] != "title" {
+		t.Errorf("missing content type should default to title, got %v", slides[0]["contentTypeId"])
+	}
+}
+
+func TestCoerceSlideDeck_FiltersUnknownFields(t *testing.T) {
+	deck := coerceBlockValue(model.BlockSlideDeck, map[string]any{
+		"slides": []any{map[string]any{"contentTypeId": "quote", "values": map[string]any{"quote": "Q", "bogus": "drop me"}}},
+	}).(map[string]any)
+	v := deck["slides"].([]map[string]any)[0]["values"].(map[string]any)
+	if v["quote"] != "Q" {
+		t.Errorf("known field lost: %v", v)
+	}
+	if _, present := v["bogus"]; present {
+		t.Errorf("unknown field should be dropped: %v", v)
+	}
+}
+
+func TestCoerceSlideDeck_BareStrings(t *testing.T) {
+	deck := coerceBlockValue(model.BlockSlideDeck, []any{"One", "  ", "Two"}).(map[string]any)
+	slides := deck["slides"].([]map[string]any)
+	if len(slides) != 2 { // blank string dropped
+		t.Fatalf("expected 2 slides (blank dropped), got %d", len(slides))
+	}
+	v0 := slides[0]["values"].(map[string]any)
+	if v0["title"] != "One" || slides[0]["contentTypeId"] != "title" {
+		t.Errorf("bare string slide wrong: %v", slides[0])
+	}
+}
+
+func TestCoerceSlideDeck_ClampsCurrentIndex(t *testing.T) {
+	deck := coerceBlockValue(model.BlockSlideDeck, map[string]any{
+		"slides":       []any{map[string]any{"values": map[string]any{"title": "only"}}},
+		"currentIndex": float64(9),
+	}).(map[string]any)
+	if deck["currentIndex"] != 0 {
+		t.Errorf("out-of-range currentIndex should clamp to 0, got %v", deck["currentIndex"])
+	}
+}
+
+// ---------------------------------------------------------------------------
 // coerceCheckbox
 // ---------------------------------------------------------------------------
 

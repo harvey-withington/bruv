@@ -161,6 +161,7 @@ const (
 	BlockProgress      = "progress"
 	BlockAlarm         = "alarm"
 	BlockSurvey        = "survey"
+	BlockSlideDeck     = "slide_deck"
 
 	// Legacy block types — kept for migration compatibility.
 	BlockVideo = "video"

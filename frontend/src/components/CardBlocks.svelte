@@ -68,6 +68,7 @@
       case 'number': case 'rating': case 'progress': return 0
       case 'checkbox': return false
       case 'divider': return null
+      case 'slide_deck': return { slides: [], currentIndex: 0 }
       default: return ''
     }
   }
@@ -77,6 +78,11 @@
     if (v === null || v === undefined) return true
     if (v === '' || v === 0 || v === false) return true
     if (Array.isArray(v) && v.length === 0) return true
+    // A slide_deck with no slides is empty.
+    if (typeof v === 'object' && v !== null && 'slides' in v) {
+      const slides = (v as { slides?: unknown[] }).slides
+      return !Array.isArray(slides) || slides.length === 0
+    }
     return false
   }
 
@@ -409,6 +415,7 @@
     else if (blockType === 'progress') value = 0
     else if (blockType === 'alarm') { value = null; meta = { alarm_channels: 'in-app,system' } }
     else if (blockType === 'survey') value = []
+    else if (blockType === 'slide_deck') value = { slides: [], currentIndex: 0 }
 
     // User-added blocks have no schema key — `key` identifies a card-type
     // field, and a freeform block isn't one. A derived key would collide

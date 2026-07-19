@@ -59,6 +59,8 @@ func coerceBlockValue(blockType string, val any) any {
 		return coerceCheckbox(val)
 	case model.BlockNumber:
 		return coerceNumber(val)
+	case model.BlockSlideDeck:
+		return coerceSlideDeck(val)
 	default:
 		// text, select, radio, date, url, image, video — all string, pass through
 		return val
@@ -319,6 +321,118 @@ func coerceList(val any) []map[string]any {
 		}
 	}
 	return items
+}
+
+// slideContentTypeFields lists the allowed field keys per built-in content
+// type, mirroring shared/slideContentTypes.ts, so AI-authored slides keep only
+// recognised fields. An unknown content type passes its values through as-is.
+var slideContentTypeFields = map[string][]string{
+	"title":       {"title", "subtitle"},
+	"statement":   {"statement"},
+	"quote":       {"quote", "author"},
+	"image":       {"image", "caption"},
+	"video":       {"video", "caption"},
+	"lower_third": {"name", "subtitle"},
+}
+
+func sliceContains(ss []string, s string) bool {
+	for _, x := range ss {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+// coerceSlideDeck normalises an AI/MCP-authored slide_deck value into the
+// {slides:[{id,contentTypeId,values,...}], currentIndex} shape the frontend
+// expects. Accepts the full object, a bare array of slides, or bare strings
+// (each becomes a title slide), and stamps a stable id on any slide missing one.
+func coerceSlideDeck(val any) map[string]any {
+	var rawSlides []any
+	currentIndex := 0
+	var theme any
+	switch v := val.(type) {
+	case map[string]any:
+		rawSlides, _ = v["slides"].([]any)
+		currentIndex = int(coerceNumber(v["currentIndex"]))
+		theme = v["theme"]
+	case []any:
+		rawSlides = v
+	}
+	slides := make([]map[string]any, 0, len(rawSlides))
+	for _, item := range rawSlides {
+		m, ok := item.(map[string]any)
+		if !ok {
+			// A bare string becomes a title slide carrying that text.
+			s, isStr := item.(string)
+			if !isStr || strings.TrimSpace(s) == "" {
+				continue
+			}
+			m = map[string]any{"contentTypeId": "title", "values": map[string]any{"title": s}}
+		}
+		slides = append(slides, coerceSlide(m))
+	}
+	if currentIndex < 0 || currentIndex >= len(slides) {
+		currentIndex = 0
+	}
+	out := map[string]any{"slides": slides, "currentIndex": currentIndex}
+	if t, ok := theme.(map[string]any); ok {
+		out["theme"] = t
+	}
+	return out
+}
+
+// coerceSlide normalises one slide map: stable id, a content type (default
+// "title"), a string→string values map filtered to the content type's known
+// fields, and pass-through of the optional reference/meta fields.
+func coerceSlide(m map[string]any) map[string]any {
+	id, _ := m["id"].(string)
+	if strings.TrimSpace(id) == "" {
+		id = fmt.Sprintf("sld-%s", uuid.New().String()[:8])
+	}
+	contentTypeID, _ := m["contentTypeId"].(string)
+	contentTypeID = strings.TrimSpace(contentTypeID)
+	if contentTypeID == "" {
+		contentTypeID = "title"
+	}
+	values := map[string]any{}
+	if rawVals, ok := m["values"].(map[string]any); ok {
+		allowed := slideContentTypeFields[contentTypeID]
+		for k, v := range rawVals {
+			if allowed != nil && !sliceContains(allowed, k) {
+				continue
+			}
+			if s, ok := v.(string); ok {
+				values[k] = s
+			}
+		}
+	}
+	slide := map[string]any{
+		"id":            id,
+		"contentTypeId": contentTypeID,
+		"values":        values,
+	}
+	for _, k := range []string{"templateId", "cardId", "notes", "thumbnail"} {
+		if s, ok := m[k].(string); ok && strings.TrimSpace(s) != "" {
+			slide[k] = s
+		}
+	}
+	if raw, ok := m["bindings"].(map[string]any); ok {
+		bindings := map[string]any{}
+		for k, v := range raw {
+			if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+				bindings[k] = s
+			}
+		}
+		if len(bindings) > 0 {
+			slide["bindings"] = bindings
+		}
+	}
+	if d := int(coerceNumber(m["durationSec"])); d > 0 {
+		slide["durationSec"] = d
+	}
+	return slide
 }
 
 // stripListPrefix normalises a single line by trimming whitespace and

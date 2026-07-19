@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BRUV — Present</title>
+    <style>
+      /* Self-contained output page for OBS Browser Sources / fullscreen
+         displays. No build step — embedded and served as-is. Visual language
+         mirrors frontend/src/lib/slides/SlideRenderer.svelte; the content-type
+         and template registries below mirror shared/slide*.ts. */
+      :root {
+        --slide-bg: #0b0b12;
+        --slide-fg: #ffffff;
+        --slide-accent: #8b5cf6;
+        --slide-font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      body {
+        background: var(--slide-bg);
+        color: var(--slide-fg);
+        font-family: var(--slide-font);
+        overflow: hidden;
+      }
+      body.transparent { background: transparent; }
+      #stage {
+        width: 100vw;
+        height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 4vmin;
+      }
+      .frame { max-width: 60rem; width: 100%; text-align: center; }
+      .title {
+        font-size: clamp(1.5rem, 4vw, 3.2rem);
+        font-weight: 300;
+        line-height: 1.25;
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+      blockquote.title { margin: 0; font-style: italic; }
+      .subtitle {
+        font-size: clamp(1rem, 2.2vw, 1.7rem);
+        font-weight: 300;
+        opacity: 0.7;
+        margin: 0.6rem 0 0;
+        overflow-wrap: anywhere;
+      }
+      .body {
+        font-size: clamp(1rem, 2vw, 1.5rem);
+        opacity: 0.85;
+        margin: 1rem 0 0;
+        line-height: 1.5;
+        overflow-wrap: anywhere;
+      }
+      .quotemark {
+        font-size: clamp(3rem, 8vw, 5rem);
+        line-height: 0.5;
+        opacity: 0.3;
+        margin-bottom: 1.5rem;
+        color: var(--slide-accent);
+      }
+      .attribution {
+        font-size: clamp(1rem, 1.6vw, 1.3rem);
+        opacity: 0.7;
+        margin: 1.5rem 0 0;
+        overflow-wrap: anywhere;
+      }
+      .media {
+        max-height: 70vh;
+        max-width: 100%;
+        border-radius: 8px;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+      }
+      .placeholder {
+        font-size: 1.2rem;
+        opacity: 0.5;
+        padding: 3rem;
+        border: 1px dashed rgba(255, 255, 255, 0.3);
+        border-radius: 8px;
+      }
+      .status { opacity: 0.5; font-size: 1rem; }
+
+      .anim-fadeIn { animation: fadeIn var(--anim-ms, 500ms) ease-out; }
+      .anim-zoomIn { animation: zoomIn var(--anim-ms, 500ms) ease-out; }
+      .anim-slideInLeft { animation: inLeft var(--anim-ms, 500ms) ease-out; }
+      .anim-slideInRight { animation: inRight var(--anim-ms, 500ms) ease-out; }
+      .anim-slideInUp { animation: inUp var(--anim-ms, 500ms) ease-out; }
+      @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes zoomIn { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
+      @keyframes inLeft { from { opacity: 0; transform: translateX(-40px); } to { opacity: 1; transform: translateX(0); } }
+      @keyframes inRight { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: translateX(0); } }
+      @keyframes inUp { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: translateY(0); } }
+      @media (prefers-reduced-motion: reduce) { .frame { animation: none !important; } }
+    </style>
+  </head>
+  <body>
+    <div id="stage"><div class="frame"><p class="status">Loading…</p></div></div>
+    <script>
+      'use strict'
+
+      // --- URL: /present/<repo>/<cardId>?exp=&sig=&bg= ---
+      const parts = location.pathname.replace(/^\/present\//, '').split('/')
+      const repoId = parts[0] || ''
+      const cardId = parts[1] || ''
+      const q = new URLSearchParams(location.search)
+      const exp = q.get('exp') || ''
+      const sig = q.get('sig') || ''
+      if (q.get('bg') === 'transparent') document.body.classList.add('transparent')
+
+      // --- registries (mirror shared/slideContentTypes.ts + slideTemplates.ts) ---
+      const CONTENT_TYPES = {
+        title: { title: 'text', subtitle: 'text' },
+        statement: { statement: 'longtext' },
+        quote: { quote: 'longtext', author: 'text' },
+        image: { image: 'image', caption: 'text' },
+        video: { video: 'video', caption: 'text' },
+        lower_third: { name: 'text', subtitle: 'text' },
+      }
+      const TEMPLATES = {
+        clean: {
+          entrance: 'fadeIn', durationMs: 500,
+          fieldMap: {
+            title: [['title', 'heading'], ['subtitle', 'subheading']],
+            statement: [['statement', 'heading']],
+            lower_third: [['name', 'heading'], ['subtitle', 'subheading']],
+          },
+        },
+        'elegant-quote': {
+          entrance: 'zoomIn', durationMs: 600,
+          fieldMap: { quote: [['quote', 'quote'], ['author', 'attribution']] },
+        },
+        showcase: {
+          entrance: 'zoomIn', durationMs: 700,
+          fieldMap: {
+            image: [['image', 'media'], ['caption', 'caption']],
+            video: [['video', 'media'], ['caption', 'caption']],
+          },
+        },
+      }
+      const SUPPORTS = {
+        title: ['clean'], statement: ['clean'], lower_third: ['clean'],
+        quote: ['elegant-quote'], image: ['showcase'], video: ['showcase'],
+      }
+      function resolveTemplate(slide) {
+        const own = slide.templateId && TEMPLATES[slide.templateId]
+        if (own && own.fieldMap[slide.contentTypeId]) return { id: slide.templateId, ...own }
+        const id = (SUPPORTS[slide.contentTypeId] || ['clean'])[0]
+        return { id, ...TEMPLATES[id] }
+      }
+
+      const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+
+      const stage = document.getElementById('stage')
+      function renderStatus(msg) {
+        stage.innerHTML = '<div class="frame"><p class="status">' + esc(msg) + '</p></div>'
+      }
+
+      function renderRole(role, type, value) {
+        const v = esc(value)
+        switch (role) {
+          case 'heading': return '<h1 class="title">' + v + '</h1>'
+          case 'subheading': return '<p class="subtitle">' + v + '</p>'
+          case 'body': return '<p class="body">' + v + '</p>'
+          case 'caption': return '<p class="body">' + v + '</p>'
+          case 'quote': return '<div class="quotemark">&ldquo;</div><blockquote class="title">' + v + '</blockquote>'
+          case 'attribution': return '<p class="attribution">— ' + v + '</p>'
+          case 'media': {
+            if (!/^(https?:|data:|blob:)/.test(value)) return '<div class="placeholder">' + v + '</div>'
+            if (type === 'video') return '<video class="media" src="' + v + '" autoplay muted loop playsinline></video>'
+            return '<img class="media" src="' + v + '" alt="">'
+          }
+          default: return ''
+        }
+      }
+
+      function slideInnerHTML(slide, tpl) {
+        const mappings = tpl.fieldMap[slide.contentTypeId] || []
+        const fieldTypes = CONTENT_TYPES[slide.contentTypeId] || {}
+        const values = slide.values || {}
+        let html = ''
+        for (const [field, role] of mappings) {
+          const value = values[field]
+          if (!value) continue
+          html += renderRole(role, fieldTypes[field] || 'text', value)
+        }
+        return html || '<p class="status">—</p>'
+      }
+
+      let lastKey = null
+      function render(deck) {
+        if (!deck || !Array.isArray(deck.slides) || deck.slides.length === 0) {
+          if (lastKey !== 'empty') { lastKey = 'empty'; renderStatus('No slides') }
+          return
+        }
+        let idx = deck.currentIndex | 0
+        if (idx < 0 || idx >= deck.slides.length) idx = 0
+        const slide = deck.slides[idx]
+        const key = [idx, slide.id, slide.contentTypeId, slide.templateId, JSON.stringify(slide.values || {})].join('')
+        if (key === lastKey) return
+        lastKey = key
+
+        const theme = deck.theme || {}
+        const root = document.documentElement.style
+        if (theme.backgroundColor && q.get('bg') !== 'transparent') root.setProperty('--slide-bg', theme.backgroundColor)
+        if (theme.textColor) root.setProperty('--slide-fg', theme.textColor)
+        if (theme.accentColor) root.setProperty('--slide-accent', theme.accentColor)
+        if (theme.fontFamily) root.setProperty('--slide-font', theme.fontFamily)
+
+        const tpl = resolveTemplate(slide)
+        stage.innerHTML = '<div class="frame anim-' + tpl.entrance + '" style="--anim-ms:' + tpl.durationMs + 'ms">' +
+          slideInnerHTML(slide, tpl) + '</div>'
+      }
+
+      function findDeck(card) {
+        const blocks = (card && Array.isArray(card.blocks)) ? card.blocks : []
+        for (const b of blocks) {
+          if (b && b.type === 'slide_deck' && b.value && Array.isArray(b.value.slides)) return b.value
+        }
+        return null
+      }
+
+      async function poll() {
+        try {
+          const url = '/present-data/' + encodeURIComponent(repoId) + '/' + encodeURIComponent(cardId) +
+            '?exp=' + encodeURIComponent(exp) + '&sig=' + encodeURIComponent(sig)
+          const res = await fetch(url, { cache: 'no-store' })
+          if (!res.ok) { renderStatus(res.status === 401 ? 'Link expired' : 'Unavailable (' + res.status + ')'); return }
+          render(findDeck(await res.json()))
+        } catch (e) {
+          // Transient network error — keep the current slide, retry.
+        }
+      }
+
+      if (!repoId || !cardId || !exp || !sig) {
+        renderStatus('Invalid present link')
+      } else {
+        poll()
+        setInterval(poll, 1500)
+      }
+    </script>
+  </body>
+</html>

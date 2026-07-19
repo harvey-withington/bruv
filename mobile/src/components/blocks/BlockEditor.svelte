@@ -35,6 +35,7 @@
   import ProgressBlock from './ProgressBlock.svelte'
   import AlarmBlock from './AlarmBlock.svelte'
   import SurveyBlock from './SurveyBlock.svelte'
+  import SlideDeckBlock from './SlideDeckBlock.svelte'
 
   let {
     block,
@@ -210,6 +211,8 @@
       <AlarmBlock {block} {onChange} />
     {:else if block.type === 'survey'}
       <SurveyBlock {block} {onChange} />
+    {:else if block.type === 'slide_deck'}
+      <SlideDeckBlock {block} />
     {:else}
       <p class="placeholder">
         {t('block.unsupported_on_mobile', { type: block.type })}

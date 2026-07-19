@@ -16,6 +16,7 @@
    * the modal-level Escape / Ctrl+Enter behaviour.
    */
   import { UpdateCardBlocks } from '@shared/api'
+  import { promoteBlockValue } from '@shared/promote'
   import { ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree } from 'lucide-svelte'
   import { getContext } from 'svelte'
   import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
@@ -458,6 +459,21 @@
     onCardUpdated(updated)
   }
 
+  // Promote a multi-item block in place (list → checklist → slide_deck),
+  // preserving item text via the shared transform.
+  async function promoteBlock(block: Block, target: Block['type']) {
+    const newValue = promoteBlockValue(block, target)
+    if (newValue === null) return
+    const blocks = card.blocks.map((b: Block) =>
+      b.id === block.id ? { ...b, type: target, value: newValue } : b,
+    )
+    let updated: Card
+    try {
+      updated = await track(UpdateCardBlocks(cardId, blocks))
+    } catch (e) { showToast(t('error.save_failed'), 'error'); return }
+    onCardUpdated(updated)
+  }
+
   async function renameBlockLabel(blockId: string) {
     if (editingBlockLabelId !== blockId) return
     const label = blockLabelDraft.trim()
@@ -702,6 +718,7 @@
         onOpenOptionsEditor={openOptionsEditor}
         onClearValue={clearBlockValue}
         onDelete={deleteBlock}
+        onPromote={promoteBlock}
         onTextKeydown={handleTextBlockKeydown}
         onTextInput={handleTextBlockInput}
         onSaveText={saveTextBlock}

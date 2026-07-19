@@ -161,6 +161,16 @@ func Run(opts Options) error {
 		Repos:         supervisor.NewHTTPAdapter(sup),
 		MachineTarget: machineSvc,
 		MCPHandler:    mcpserver.New(sup, opts.Version),
+		Present: &transporthttp.PresentConfig{
+			Secret: sup.Secret(),
+			ResolveCardJSON: func(repoID, cardID string) ([]byte, bool) {
+				rt, err := sup.Load(repoID)
+				if err != nil || rt == nil {
+					return nil, false
+				}
+				return rt.PresentCardJSON(cardID)
+			},
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("http transport construct: %w", err)

@@ -270,6 +270,16 @@ func (a *App) startHTTPTransport() {
 		Repos:         supervisor.NewHTTPAdapter(a.sup),
 		MachineTarget: supervisor.NewMachineService(),
 		MCPHandler:    mcpserver.New(a.sup, AppVersion),
+		Present: &transporthttp.PresentConfig{
+			Secret: a.sup.Secret(),
+			ResolveCardJSON: func(repoID, cardID string) ([]byte, bool) {
+				rt, err := a.sup.Load(repoID)
+				if err != nil || rt == nil {
+					return nil, false
+				}
+				return rt.PresentCardJSON(cardID)
+			},
+		},
 	})
 	if err != nil {
 		slog.Warn("http transport: construct failed", "err", err)

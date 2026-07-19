@@ -821,6 +821,10 @@ export interface BackendAdapter {
   // (or embedding in <img src>) the attachment's bytes.
   SignAttachmentURL(cardID: string, attachmentID: string): Promise<string>
 
+  // Present — returns a long-lived signed URL for the card's read-only
+  // slide-deck output page (OBS Browser Source / fullscreen display).
+  SignPresentURL(cardID: string): Promise<string>
+
   // SetActiveRepo persists the user's repo choice for the active
   // connection. The frontend reloads after calling it so the cloud
   // adapter re-resolves the URL prefix to /repos/<id>/.
@@ -1023,6 +1027,9 @@ export interface BackendAdapter {
   // Index / search
   SearchCards(query: string, limit: number): Promise<SearchResult[]>
   SearchOrphanedCards(query: string, limit: number): Promise<SearchResult[]>
+  // Most recently updated cards, newest first — pre-populates pickers
+  // before the user types a query. Same shape as SearchCards.
+  RecentCards(limit: number): Promise<SearchResult[]>
   GetCardProjectContext(cardID: string): Promise<string>
   RebuildIndex(): Promise<IndexStats>
   RefreshIndex(): Promise<IndexStats>

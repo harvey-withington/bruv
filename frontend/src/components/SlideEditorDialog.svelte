@@ -1,19 +1,20 @@
 <script lang="ts">
-  import type { Slide, SlideFieldDef, SlideFieldType, Card, SearchResult, Block } from '@shared/types'
+  import type { Slide, SlideFieldDef, SlideFieldType, Card, SearchResult, Block, Attachment } from '@shared/types'
   import { untrack } from 'svelte'
   import { t } from '../lib/i18n.svelte'
-  import { X, Link2 } from 'lucide-svelte'
-  import { portal, focusTrap } from '../lib/actions'
-  import { GetCard, SearchCards } from '@shared/api'
+  import { X } from 'lucide-svelte'
+  import { portal, focusTrap, clickOutside } from '../lib/actions'
+  import { GetCard, SearchCards, RecentCards, SignAttachmentURL } from '@shared/api'
   import { showToast } from '../lib/toast.svelte'
   import { SLIDE_CONTENT_TYPES, resolveContentType } from '@shared/slideContentTypes'
   import { templatesForContentType, resolveSlideTemplate } from '@shared/slideTemplates'
   import { isBlockCompatible, resolveBlockValueForField } from '@shared/slideBindings'
   import SlideRenderer from '../lib/slides/SlideRenderer.svelte'
+  import BoundField from './BoundField.svelte'
 
   let {
     slide,
-    cardId: _cardId,
+    cardId,
     onSave,
     onClose,
   }: {
@@ -33,9 +34,13 @@
   let notes = $state<string>(initial.notes ?? '')
 
   let linkedCard = $state<Card | null>(null)
+  let hostCard = $state<Card | null>(null)
   let cardQuery = $state('')
   let cardResults = $state<SearchResult[]>([])
-  let openPickerField = $state<string | null>(null)
+
+  // Signed preview URLs for "attachment:<cardID>/<attID>" media refs, keyed
+  // by the ref string. Filled lazily by the effect below.
+  let signedRefUrls = $state<Record<string, string>>({})
 
   const contentType = $derived(resolveContentType(contentTypeId))
   const fields = $derived<SlideFieldDef[]>(contentType?.fields ?? [])
@@ -63,17 +68,68 @@
       })
   })
 
+  // Load the host card once — its attachments feed the media-field picker.
+  $effect(() => {
+    let alive = true
+    GetCard(cardId)
+      .then((c) => {
+        if (alive) hostCard = c
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  })
+
+  // Media attachments available to pick: host card's first, then the linked
+  // card's. The stored value is "attachment:<ownerCardID>/<attID>" so the
+  // present resolver can sign it server-side.
+  type AttachOption = { ref: string; name: string; fromLinked: boolean }
+  function attachmentOptions(fieldType: SlideFieldType): AttachOption[] {
+    const wantVideo = fieldType === 'video'
+    const collect = (c: Card | null, fromLinked: boolean): AttachOption[] =>
+      (c?.file_attachments ?? [])
+        .filter((a: Attachment) => (wantVideo ? a.mime.startsWith('video/') : a.mime.startsWith('image/')))
+        .map((a: Attachment) => ({ ref: `attachment:${c!.id}/${a.id}`, name: a.name, fromLinked }))
+    return [...collect(hostCard, false), ...collect(linkedCard, true)]
+  }
+  function pickAttachment(fieldKey: string, ref: string): void {
+    values[fieldKey] = ref
+  }
+  function refDisplayName(ref: string): string {
+    const all = [...(hostCard?.file_attachments ?? []), ...(linkedCard?.file_attachments ?? [])]
+    const attID = ref.split('/').pop() ?? ''
+    return all.find((a) => a.id === attID)?.name ?? ref
+  }
+
+  // Sign preview URLs for any attachment refs in the current values.
+  $effect(() => {
+    const refs = Object.values(values).filter((v) => v.startsWith('attachment:') && !(v in signedRefUrls))
+    for (const ref of refs) {
+      const rest = ref.slice('attachment:'.length)
+      const slash = rest.indexOf('/')
+      if (slash <= 0) continue
+      SignAttachmentURL(rest.slice(0, slash), rest.slice(slash + 1))
+        .then((url) => {
+          signedRefUrls = { ...signedRefUrls, [ref]: url }
+        })
+        .catch(() => {})
+    }
+  })
+  function resolveMediaUrl(value: string): string | undefined {
+    return value.startsWith('attachment:') ? signedRefUrls[value] : undefined
+  }
+
   let searchSeq = 0
   async function onCardSearch(): Promise<void> {
     const query = cardQuery.trim()
-    if (query.length < 2) {
-      cardResults = []
-      return
-    }
     const seq = ++searchSeq
+    // Empty/short query → recent cards, so the picker is never a blank box.
+    // The card being edited is excluded — linking a slide to its own card
+    // is a no-op the picker shouldn't offer.
     try {
-      const res = await SearchCards(query, 8)
-      if (seq === searchSeq) cardResults = res
+      const res = query.length < 2 ? await RecentCards(8) : await SearchCards(query, 8)
+      if (seq === searchSeq) cardResults = (res ?? []).filter((r) => r.CardID !== cardId)
     } catch {
       if (seq === searchSeq) cardResults = []
     }
@@ -95,7 +151,6 @@
   }
   function bindField(key: string, blockId: string): void {
     bindings = { ...bindings, [key]: blockId }
-    openPickerField = null
   }
   function unbindField(key: string): void {
     const next = { ...bindings }
@@ -150,19 +205,39 @@
     onSave(d)
   }
 
-  function handleKeydown(e: KeyboardEvent): void {
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      onClose()
-    }
-  }
-</script>
+  // Escape handling uses a CAPTURE-phase window listener (registered before
+  // CardDetail's bubble-phase one fires) so Esc in this second-level dialog
+  // never falls through and closes the card underneath — the exact data-loss
+  // path Harvey hit. stopPropagation() shields the bubble phase; layering is
+  // dropdown-first: an open dropdown consumes the Esc, the dialog only closes
+  // on a "bare" one. (Same capture-shield pattern as mobile's ChatSheet; the
+  // deferred overlay-stack refactor in TODO would replace all of these.)
+  let dialogEl = $state<HTMLElement | null>(null)
 
-<svelte:window onkeydown={handleKeydown} />
+  function handleCaptureKeydown(e: KeyboardEvent): void {
+    if (e.key !== 'Escape') return
+    e.preventDefault()
+    e.stopPropagation()
+    if (cardResults.length > 0) {
+      cardResults = []
+      return
+    }
+    // A BoundField dropdown is open — its own capture listener (registered
+    // later, so it runs after this one) closes it. Just don't close the
+    // dialog on this press.
+    if (dialogEl?.querySelector('.block-picker')) return
+    onClose()
+  }
+
+  $effect(() => {
+    window.addEventListener('keydown', handleCaptureKeydown, true)
+    return () => window.removeEventListener('keydown', handleCaptureKeydown, true)
+  })
+</script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div class="overlay" role="presentation" use:portal onclick={(e) => { if (e.target === e.currentTarget) onClose() }}>
-  <div class="dialog" role="dialog" aria-modal="true" tabindex="-1" aria-label={t('slide.editor_title')} use:focusTrap>
+  <div class="dialog" role="dialog" aria-modal="true" tabindex="-1" aria-label={t('slide.editor_title')} use:focusTrap bind:this={dialogEl}>
     <div class="dialog-header">
       <h2>{t('slide.editor_title')}</h2>
       <button class="close-btn" onclick={onClose} title={t('common.close')} aria-label={t('common.close')}><X size={18} /></button>
@@ -175,7 +250,7 @@
             <span class="field-label">{t('slide.content_type')}</span>
             <div class="seg-picker">
               {#each SLIDE_CONTENT_TYPES as ct (ct.id)}
-                <button class="seg-btn" class:active={contentTypeId === ct.id} type="button" onclick={() => setContentType(ct.id)}>{ct.name}</button>
+                <button class="seg-btn" class:active={contentTypeId === ct.id} type="button" onclick={() => setContentType(ct.id)}>{t('slide.ct.' + ct.id)}</button>
               {/each}
             </div>
           </div>
@@ -189,63 +264,36 @@
               </div>
               <span class="field-hint">{t('slide.linked_card_hint')}</span>
             {:else}
-              <input class="field-input" bind:value={cardQuery} oninput={onCardSearch} placeholder={t('slide.link_card_search')} />
-              {#if cardResults.length > 0}
-                <ul class="card-results">
-                  {#each cardResults as r (r.CardID)}
-                    <li><button type="button" onclick={() => linkCard(r)}>{r.Title || t('card.untitled')}</button></li>
-                  {/each}
-                </ul>
-              {/if}
+              <div class="card-search" use:clickOutside={{ onOutsideClick: () => (cardResults = []) }}>
+                <input class="field-input" bind:value={cardQuery} oninput={onCardSearch} onfocus={onCardSearch} placeholder={t('slide.link_card_search')} />
+                {#if cardResults.length > 0}
+                  <ul class="card-results">
+                    {#each cardResults as r (r.CardID)}
+                      <li><button type="button" onclick={() => linkCard(r)}>{r.Title || t('card.untitled')}</button></li>
+                    {/each}
+                  </ul>
+                {/if}
+              </div>
             {/if}
           </div>
 
           {#each fields as field (field.key)}
-            <div class="field">
-              <div class="field-head">
-                <span class="field-label">{field.label}</span>
-                {#if linkedCardId}
-                  {#if bindings[field.key]}
-                    <button class="link-btn active" type="button" onclick={() => unbindField(field.key)} title={t('slide.unbind')}>
-                      <Link2 size={11} /> {boundBlockLabel(field.key)} <X size={10} />
-                    </button>
-                  {:else}
-                    <button class="link-btn" type="button" onclick={() => (openPickerField = openPickerField === field.key ? null : field.key)} title={t('slide.bind')} aria-label={t('slide.bind')}>
-                      <Link2 size={11} />
-                    </button>
-                  {/if}
-                {/if}
-              </div>
-
-              {#if bindings[field.key]}
-                <div class="bound-value">{resolveField(previewSlide, field.key) || '—'}</div>
-              {:else}
-                {#if openPickerField === field.key}
-                  <div class="block-picker">
-                    {#each compatibleBlocks(field.type) as b (b.id)}
-                      <button type="button" onclick={() => bindField(field.key, b.id)}>{b.label || b.type}</button>
-                    {/each}
-                    {#if compatibleBlocks(field.type).length === 0}
-                      <span class="picker-empty">{t('slide.no_compatible_blocks')}</span>
-                    {/if}
-                  </div>
-                {/if}
-                {#if field.type === 'longtext'}
-                  <textarea class="field-input" rows="3" value={values[field.key] ?? ''} oninput={(e) => (values[field.key] = e.currentTarget.value)} placeholder={field.label}></textarea>
-                {:else}
-                  <input
-                    class="field-input"
-                    class:mono={field.type === 'image' || field.type === 'video'}
-                    value={values[field.key] ?? ''}
-                    oninput={(e) => (values[field.key] = e.currentTarget.value)}
-                    placeholder={field.type === 'image' || field.type === 'video' ? t('slide.media_placeholder') : field.label}
-                  />
-                {/if}
-                {#if field.type === 'image' || field.type === 'video'}
-                  <span class="field-hint">{t('slide.media_hint')}</span>
-                {/if}
-              {/if}
-            </div>
+            <BoundField
+              {field}
+              value={values[field.key] ?? ''}
+              isLinked={!!linkedCardId}
+              binding={bindings[field.key]}
+              boundLabel={boundBlockLabel(field.key)}
+              boundPreview={resolveField(previewSlide, field.key) || '—'}
+              compatibleBlocks={compatibleBlocks(field.type)}
+              attachmentOptions={attachmentOptions(field.type)}
+              {refDisplayName}
+              onInput={(v) => (values[field.key] = v)}
+              onBind={(blockId) => bindField(field.key, blockId)}
+              onUnbind={() => unbindField(field.key)}
+              onPickAttachment={(ref) => pickAttachment(field.key, ref)}
+              onClearAttachment={() => (values[field.key] = '')}
+            />
           {/each}
 
           {#if templates.length > 1}
@@ -274,7 +322,7 @@
         <div class="preview-col">
           <span class="field-label">{t('slide.preview')}</span>
           <div class="preview-frame">
-            <SlideRenderer slide={previewSlide} {resolveField} />
+            <SlideRenderer slide={previewSlide} {resolveField} {resolveMediaUrl} />
           </div>
           <p class="field-hint">{t('slide.preview_hint')}</p>
         </div>
@@ -360,12 +408,6 @@
     flex-direction: column;
     gap: 4px;
   }
-  .field-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-  }
   .field-label {
     font-size: 11px;
     font-weight: 600;
@@ -387,10 +429,6 @@
   .field-input:focus {
     outline: none;
     border-color: var(--accent);
-  }
-  .field-input.mono {
-    font-family: ui-monospace, Consolas, monospace;
-    font-size: 12px;
   }
   .field-hint {
     font-size: 10px;
@@ -420,69 +458,6 @@
     color: white;
     border-color: var(--accent);
   }
-  .link-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    padding: 2px 6px;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    background: var(--bg);
-    color: var(--text-muted);
-    font-size: 10px;
-    cursor: pointer;
-    max-width: 60%;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-  }
-  .link-btn:hover {
-    color: var(--text-primary);
-    border-color: var(--border-muted);
-  }
-  .link-btn.active {
-    color: var(--accent);
-    border-color: var(--accent);
-  }
-  .bound-value {
-    padding: 6px 10px;
-    border: 1px dashed var(--accent);
-    border-radius: var(--radius);
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
-    color: var(--text-primary);
-    font-size: 13px;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    max-height: 5rem;
-    overflow-y: auto;
-  }
-  .block-picker {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 4px;
-    background: var(--bg-elevated);
-  }
-  .block-picker button {
-    text-align: left;
-    background: none;
-    border: none;
-    color: var(--text-primary);
-    font-size: 12px;
-    padding: 4px 6px;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-  .block-picker button:hover {
-    background: var(--bg-hover);
-  }
-  .picker-empty {
-    font-size: 11px;
-    color: var(--text-muted);
-    padding: 4px 6px;
-  }
   .linked-chip {
     display: flex;
     align-items: center;
@@ -510,6 +485,11 @@
   }
   .chip-x:hover {
     color: var(--danger);
+  }
+  .card-search {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
   }
   .card-results {
     list-style: none;

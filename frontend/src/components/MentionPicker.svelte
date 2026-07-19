@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { SearchCards, ListBrands, ListStreams, ListProjects } from '@shared/api'
+  import { SearchCards, RecentCards, ListBrands, ListStreams, ListProjects } from '@shared/api'
+  import type { SearchResult } from '@shared/types'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
   import { getCardTypeColor } from '@shared/cardTypes'
@@ -35,9 +36,36 @@
       items = []
       selectedIndex = 0
       if (!projectsLoaded) loadProjects()
+      // Pre-populate with recent cards so the picker is never an empty
+      // box — the user often can't think of what to search for.
+      showRecents()
       setTimeout(() => inputEl?.focus(), 0)
     }
   })
+
+  function toCardItem(r: SearchResult): PickerItem {
+    return {
+      type: 'card',
+      label: r.Title,
+      subtitle: (r.ProjectContext || '').trim(),
+      badge: r.Type,
+      badgeColor: getCardTypeColor(r.Type, cardTypes.list),
+      link: `bruv:card:${r.CardID}`,
+    }
+  }
+
+  let recentsSeq = 0
+  async function showRecents() {
+    const seq = ++recentsSeq
+    try {
+      const recents = await RecentCards(8) || []
+      // Only apply if the user still hasn't typed anything.
+      if (seq === recentsSeq && !query.trim()) {
+        items = recents.map(toCardItem)
+        selectedIndex = 0
+      }
+    } catch { /* empty state is the graceful fallback */ }
+  }
 
   async function loadProjects() {
     try {
@@ -75,27 +103,18 @@
     clearTimeout(debounceTimer)
     const q = query.trim()
     if (!q) {
-      items = []
-      selectedIndex = 0
+      // Cleared back to empty — return to the recents pre-population.
+      showRecents()
       return
     }
+    recentsSeq++ // invalidate any in-flight recents load
     debounceTimer = setTimeout(async () => {
       const merged: PickerItem[] = []
 
       // Search cards
       try {
         const cardResults = await SearchCards(q, 8) || []
-        for (const r of cardResults) {
-          const ctx = (r.ProjectContext || '').trim()
-          merged.push({
-            type: 'card',
-            label: r.Title,
-            subtitle: ctx,
-            badge: r.Type,
-            badgeColor: getCardTypeColor(r.Type, cardTypes.list),
-            link: `bruv:card:${r.CardID}`,
-          })
-        }
+        merged.push(...cardResults.map(toCardItem))
       } catch { /* ignore */ }
 
       // Filter cached projects

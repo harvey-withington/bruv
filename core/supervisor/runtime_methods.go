@@ -411,6 +411,34 @@ func (r *Runtime) SearchOrphanedCards(query string, limit int) ([]index.SearchRe
 	return r.Search.SearchOrphanedCards(query, limit)
 }
 
+// RecentCards returns the most recently updated cards, newest first, in the
+// same shape as SearchCards so pickers can pre-populate before the user has
+// typed a query ("I can't always think of what to search for" — the empty
+// picker is a capture-friction bug, not a neutral state).
+func (r *Runtime) RecentCards(limit int) ([]index.SearchResult, error) {
+	if limit <= 0 {
+		limit = 8
+	}
+	cards, err := r.Card.List()
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(cards, func(i, j int) bool { return cards[i].UpdatedAt.After(cards[j].UpdatedAt) })
+	if len(cards) > limit {
+		cards = cards[:limit]
+	}
+	out := make([]index.SearchResult, 0, len(cards))
+	for _, c := range cards {
+		out = append(out, index.SearchResult{
+			CardID:         c.ID,
+			Title:          c.Title,
+			Type:           c.Type,
+			ProjectContext: r.Search.GetCardProjectContext(c.ID),
+		})
+	}
+	return out, nil
+}
+
 // RebuildIndex drops and rebuilds the entire SQLite index from disk.
 func (r *Runtime) RebuildIndex() (*index.RebuildStats, error) {
 	return r.Search.RebuildIndex()

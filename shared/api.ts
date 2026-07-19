@@ -27,6 +27,7 @@ export const SetActiveConnection = (...args: Parameters<ReturnType<typeof getBac
 
 // Attachments — short-lived signed URL for browser download/embed
 export const SignAttachmentURL = (...args: Parameters<ReturnType<typeof getBackend>['SignAttachmentURL']>) => getBackend().SignAttachmentURL(...args)
+export const SignPresentURL = (...args: Parameters<ReturnType<typeof getBackend>['SignPresentURL']>) => getBackend().SignPresentURL(...args)
 
 // Per-connection repo selection
 export const SetActiveRepo = (...args: Parameters<ReturnType<typeof getBackend>['SetActiveRepo']>) => getBackend().SetActiveRepo(...args)
@@ -200,6 +201,7 @@ export const LinkCardFolder = (...args: Parameters<ReturnType<typeof getBackend>
 // Index / search
 export const SearchCards = (...args: Parameters<ReturnType<typeof getBackend>['SearchCards']>) => getBackend().SearchCards(...args)
 export const SearchOrphanedCards = (...args: Parameters<ReturnType<typeof getBackend>['SearchOrphanedCards']>) => getBackend().SearchOrphanedCards(...args)
+export const RecentCards = (...args: Parameters<ReturnType<typeof getBackend>['RecentCards']>) => getBackend().RecentCards(...args)
 export const GetCardProjectContext = (...args: Parameters<ReturnType<typeof getBackend>['GetCardProjectContext']>) => getBackend().GetCardProjectContext(...args)
 export const RebuildIndex = () => getBackend().RebuildIndex()
 export const RefreshIndex = () => getBackend().RefreshIndex()

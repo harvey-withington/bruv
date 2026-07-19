@@ -39,11 +39,23 @@
     }
   })
 
+  // Pre-populate with a short alphabetical list before any query is typed —
+  // categories have no recency signal, so alphabetical is the tiebreak.
+  function defaultItems(): CategoryPath[] {
+    return [...allCategories]
+      .sort((a, b) => a.breadcrumb.localeCompare(b.breadcrumb))
+      .slice(0, 12)
+  }
+
   async function loadCategories() {
     loading = true
     try {
       allCategories = await ListAllCategories() || []
       loadError = false
+      if (!query.trim()) {
+        items = defaultItems()
+        selectedIndex = 0
+      }
     } catch (e) {
       console.error('PinPicker: failed to load categories', e)
       loadError = true
@@ -55,7 +67,7 @@
   function handleInput() {
     clearTimeout(debounceTimer)
     const q = query.trim().toLowerCase()
-    if (!q) { items = []; selectedIndex = 0; return }
+    if (!q) { items = defaultItems(); selectedIndex = 0; return }
     debounceTimer = setTimeout(() => {
       items = allCategories.filter(c => c.breadcrumb.toLowerCase().includes(q)).slice(0, 12)
       selectedIndex = 0

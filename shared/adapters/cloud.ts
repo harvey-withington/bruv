@@ -542,6 +542,15 @@ async function signAttachmentURLFull(cardID: string, attachmentID: string): Prom
   return `${httpBase(info)}${path}`
 }
 
+// signPresentURLFull — same URL-completing contract as signAttachmentURLFull,
+// for the present page. The result is what gets pasted into OBS, so it must
+// be absolute.
+async function signPresentURLFull(cardID: string): Promise<string> {
+  const info = await resolveTransportInfo()
+  const path = (await rpcClient!.call('SignPresentURL', [cardID])) as string
+  return `${httpBase(info)}${path}`
+}
+
 function buildAdapter(): BackendAdapter {
   const base = {
     getCapabilities: capabilities,
@@ -554,8 +563,9 @@ function buildAdapter(): BackendAdapter {
     // Hot-path override — caches briefly to avoid RPC storms on
     // markdown documents with many inline bruv:card links.
     GetCardProjectContext: getCardProjectContextCached,
-    // URL-completing wrapper — see signAttachmentURLFull for why.
+    // URL-completing wrappers — see signAttachmentURLFull for why.
     SignAttachmentURL: signAttachmentURLFull,
+    SignPresentURL: signPresentURLFull,
     // Per-device prefs — local shell or localStorage, never RPC.
     GetUIPreferences: getUIPreferences,
     SetUIPreferences: setUIPreferences,
@@ -572,7 +582,7 @@ function buildAdapter(): BackendAdapter {
   const handler: ProxyHandler<typeof base> = {
     get(target: typeof base, prop: string | symbol) {
       if (typeof prop === 'symbol') return Reflect.get(target, prop)
-      if (nonRPCMembers.has(prop) || prop === 'GetCardProjectContext' || prop === 'SignAttachmentURL') {
+      if (nonRPCMembers.has(prop) || prop === 'GetCardProjectContext' || prop === 'SignAttachmentURL' || prop === 'SignPresentURL') {
         return Reflect.get(target, prop)
       }
       if (shellMethods[prop]) return shellMethods[prop]

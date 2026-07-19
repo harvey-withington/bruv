@@ -1,10 +1,12 @@
 <script lang="ts">
-  import type { SlideDeckValue, Slide } from '@shared/types'
+  import type { SlideDeckValue, Slide, WailsWindow } from '@shared/types'
   import { t } from '../lib/i18n.svelte'
-  import { Plus, GripVertical, Pencil, Copy, Trash2, Presentation, Clock } from 'lucide-svelte'
+  import { Plus, GripVertical, Pencil, Copy, Trash2, Presentation, Clock, Play, ChevronLeft, ChevronRight } from 'lucide-svelte'
   import { computeReorder, wouldReorder, DROP_END } from '../lib/reorder'
   import { resolveContentType, DEFAULT_CONTENT_TYPE_ID } from '@shared/slideContentTypes'
   import { showConfirm } from '../lib/confirm.svelte'
+  import { showToast } from '../lib/toast.svelte'
+  import { SignPresentURL } from '@shared/api'
   import SlideEditorDialog from './SlideEditorDialog.svelte'
 
   let {
@@ -33,13 +35,13 @@
         const v = slide.values?.[f.key]
         if (v && v.trim()) return v.trim()
       }
-      return ct.name
+      return t('slide.ct.' + slide.contentTypeId)
     }
     return t('slide.untitled')
   }
 
   function contentTypeName(slide: Slide): string {
-    return resolveContentType(slide.contentTypeId)?.name ?? slide.contentTypeId
+    return resolveContentType(slide.contentTypeId) ? t('slide.ct.' + slide.contentTypeId) : slide.contentTypeId
   }
 
   function newSlideId(): string {
@@ -75,6 +77,45 @@
   function saveSlide(updated: Slide): void {
     commit(slides.map((s) => (s.id === updated.id ? updated : s)))
     editingSlideId = null
+  }
+
+  // --- live position (the v1 presenter control surface is this block) ---
+  // Bumping currentIndex rides the normal UpdateCardBlocks save path; the
+  // /present output page polls the resolved card and follows within ~1.5s.
+  const currentIndex = $derived(
+    Math.min(Math.max(value?.currentIndex ?? 0, 0), Math.max(slides.length - 1, 0)),
+  )
+  function goTo(idx: number): void {
+    if (idx < 0 || idx >= slides.length || idx === currentIndex) return
+    onUpdate({ ...value, slides, currentIndex: idx })
+  }
+
+  // Present: mint the signed output-page URL, copy it (that's what gets
+  // pasted into an OBS Browser Source), and open it for a quick look.
+  let presenting = $state(false)
+  async function present(): Promise<void> {
+    if (presenting) return
+    presenting = true
+    try {
+      const url = await SignPresentURL(cardId)
+      try {
+        await navigator.clipboard.writeText(url)
+        showToast(t('slide.present_copied'), 'success')
+      } catch {
+        // Clipboard can be denied — opening still works.
+        showToast(t('slide.present_opened'), 'success')
+      }
+      const w = window as WailsWindow
+      if (w.runtime?.BrowserOpenURL) {
+        w.runtime.BrowserOpenURL(url)
+      } else {
+        window.open(url, '_blank', 'noopener')
+      }
+    } catch {
+      showToast(t('slide.present_failed'), 'error')
+    } finally {
+      presenting = false
+    }
   }
 
   // --- reorder (grip DnD) ---
@@ -135,6 +176,7 @@
         <li
           class="slide-row"
           class:dragging={draggingId === slide.id}
+          class:current={i === currentIndex}
           role="listitem"
           ondragover={(e) => handleDragOver(e, slide.id, i)}
         >
@@ -183,9 +225,25 @@
     </ul>
   {/if}
 
-  <button class="add-slide" type="button" onclick={addSlide}>
-    <Plus size={14} /> {t('slide.add')}
-  </button>
+  <div class="deck-actions">
+    <button class="add-slide" type="button" onclick={addSlide}>
+      <Plus size={14} /> {t('slide.add')}
+    </button>
+    {#if slides.length > 0}
+      <button class="present-btn" type="button" onclick={present} disabled={presenting} title={t('slide.present_tip')}>
+        <Play size={13} /> {t('slide.present')}
+      </button>
+      <div class="nav-group" title={t('slide.nav_tip')}>
+        <button class="icon-btn" type="button" onclick={() => goTo(currentIndex - 1)} disabled={currentIndex === 0} aria-label={t('slide.prev')}>
+          <ChevronLeft size={14} />
+        </button>
+        <span class="nav-pos">{currentIndex + 1} / {slides.length}</span>
+        <button class="icon-btn" type="button" onclick={() => goTo(currentIndex + 1)} disabled={currentIndex >= slides.length - 1} aria-label={t('slide.next')}>
+          <ChevronRight size={14} />
+        </button>
+      </div>
+    {/if}
+  </div>
 </div>
 
 {#if editingSlide}
@@ -230,6 +288,10 @@
   }
   .slide-row.dragging {
     opacity: 0.4;
+  }
+  .slide-row.current {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 6%, var(--bg));
   }
   .drop-indicator {
     height: 2px;
@@ -338,11 +400,16 @@
   .icon-btn.danger:hover {
     color: var(--danger);
   }
-  .add-slide {
+  .deck-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .add-slide,
+  .present-btn {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    align-self: flex-start;
     background: transparent;
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -354,5 +421,33 @@
   .add-slide:hover {
     color: var(--text-primary);
     background: var(--bg-hover);
+  }
+  .present-btn {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  .present-btn:hover {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .present-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+  .nav-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: auto;
+  }
+  .nav-group .icon-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+  .nav-pos {
+    font-size: 11px;
+    color: var(--text-muted);
+    min-width: 3.2em;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
   }
 </style>

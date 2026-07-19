@@ -13,10 +13,11 @@
    * Extracted from CardDetail to get the 2600-line god-component under
    * the 300-line limit — this file is the biggest single win in that split.
    */
-  import { X, Trash2, GripVertical, Pencil, ChevronDown, ChevronRight, Maximize2, Minimize2, ListTree } from 'lucide-svelte'
+  import { X, Trash2, GripVertical, Pencil, ChevronDown, ChevronRight, Maximize2, Minimize2, ListTree, ChevronsUp } from 'lucide-svelte'
   import { renderMarkdown } from '@shared/markdown'
   import { t } from '../lib/i18n.svelte'
-  import { focusOnMount, inlineEdit } from '../lib/actions'
+  import { focusOnMount, inlineEdit, clickOutside } from '../lib/actions'
+  import { promoteTargets } from '@shared/promote'
   import { getContext } from 'svelte'
   import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import { showToast } from '../lib/toast.svelte'
@@ -73,6 +74,7 @@
     onOpenOptionsEditor,
     onClearValue,
     onDelete,
+    onPromote,
     onTextKeydown,
     onTextInput,
     onSaveText,
@@ -107,6 +109,7 @@
     onOpenOptionsEditor: (block: Block) => void
     onClearValue: (block: Block) => void
     onDelete: (blockId: string) => void
+    onPromote?: (block: Block, target: Block['type']) => void
     onTextKeydown: (e: KeyboardEvent, blockId: string) => void
     onTextInput: (e: Event, blockId: string) => void
     onSaveText: (blockId: string) => void
@@ -119,6 +122,11 @@
   // in-flight edits here (Escape layering, Ctrl+Enter commit+close,
   // silent-reload guard). Text blocks register in CardBlocks instead.
   const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
+
+  // "Promote to…" menu — offered for multi-item blocks (list → checklist →
+  // slide_deck). Targets + value transform live in shared/promote.ts.
+  let promoteOpen = $state(false)
+  const promoteableTargets = $derived(onPromote ? promoteTargets(block.type) : [])
 
   // One guarded save for every widget-style block (select, number,
   // date, rating, checkbox, radio, checkbox_group, image, progress,
@@ -207,6 +215,18 @@
           {/if}
         {/if}
         <span class="block-actions">
+          {#if promoteableTargets.length > 0}
+            <span class="promote-wrap">
+              <button class="block-action-btn action-reveal" onclick={(e) => { e.stopPropagation(); promoteOpen = !promoteOpen }} title={t('block.promote_to')} aria-label={t('block.promote_to')}><ChevronsUp size={11} /></button>
+              {#if promoteOpen}
+                <div class="promote-menu" use:clickOutside={{ onOutsideClick: () => (promoteOpen = false) }}>
+                  {#each promoteableTargets as target}
+                    <button type="button" onclick={(e) => { e.stopPropagation(); promoteOpen = false; onPromote?.(block, target) }}>{t('block.' + target)}</button>
+                  {/each}
+                </div>
+              {/if}
+            </span>
+          {/if}
           {#if block.type === 'select' || block.type === 'radio' || block.type === 'checkbox_group'}
             <button class="block-action-btn action-reveal action-reveal--edit" onclick={(e) => { e.stopPropagation(); onOpenOptionsEditor(block) }} title={t('block.edit_options')}><ListTree size={11} /></button>
           {/if}
@@ -523,6 +543,40 @@
   }
   .block-wrapper:hover .block-actions {
     opacity: 1;
+  }
+
+  .promote-wrap {
+    position: relative;
+    display: inline-flex;
+  }
+  .promote-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 2px;
+    z-index: 20;
+    min-width: 8rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 3px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 4px 16px var(--shadow-lg);
+  }
+  .promote-menu button {
+    text-align: left;
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-size: 12px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .promote-menu button:hover {
+    background: var(--bg-hover);
   }
 
   .block-action-btn {

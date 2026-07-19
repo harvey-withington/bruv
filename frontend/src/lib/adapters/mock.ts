@@ -114,6 +114,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     SetActiveConnection: async () => {},
 
     SignAttachmentURL: async (cardID: string, attachmentID: string) => `mock://${cardID}/${attachmentID}`,
+    SignPresentURL: async (cardID: string) => `mock://present/${cardID}`,
     SetActiveRepo: async () => {},
 
     subscribe: (_cb: EventCallback) => {},
@@ -260,6 +261,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
 
     SearchCards: async () => [],
     SearchOrphanedCards: async () => [],
+    RecentCards: async () => [],
     GetCardProjectContext: async () => '',
     RebuildIndex: async () => emptyIndexStats(),
     RefreshIndex: async () => emptyIndexStats(),

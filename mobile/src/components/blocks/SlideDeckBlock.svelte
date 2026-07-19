@@ -21,13 +21,13 @@
         const v = slide.values?.[f.key]
         if (v && v.trim()) return v.trim()
       }
-      return ct.name
+      return t('slide.ct.' + slide.contentTypeId)
     }
     return t('slide.untitled')
   }
 
   function contentTypeName(slide: Slide): string {
-    return resolveContentType(slide.contentTypeId)?.name ?? slide.contentTypeId
+    return resolveContentType(slide.contentTypeId) ? t('slide.ct.' + slide.contentTypeId) : slide.contentTypeId
   }
 </script>
 

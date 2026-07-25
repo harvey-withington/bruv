@@ -1,15 +1,11 @@
 package supervisor
 
 import (
+	"strings"
 	"testing"
-	"time"
 )
 
-func TestPresentWatch_ActiveAndIdle(t *testing.T) {
-	old := presentIdleTimeout
-	presentIdleTimeout = 150 * time.Millisecond
-	t.Cleanup(func() { presentIdleTimeout = old })
-
+func TestPresentGate(t *testing.T) {
 	rt := newTestRuntime(t)
 	card, err := rt.CreateCard("", "Deck")
 	if err != nil {
@@ -29,32 +25,51 @@ func TestPresentWatch_ActiveAndIdle(t *testing.T) {
 		return false
 	}
 
+	// Gate closed: /present-data serves the not-presenting payload — for
+	// existing AND unknown cards identically (no existence probing).
+	raw, ok := rt.PresentCardJSON(card.ID)
+	if !ok || !strings.Contains(string(raw), `"presenting":false`) {
+		t.Fatalf("closed gate should serve not-presenting payload, got ok=%v %s", ok, raw)
+	}
+	rawUnknown, okUnknown := rt.PresentCardJSON("nope")
+	if !okUnknown || string(rawUnknown) != string(raw) {
+		t.Fatalf("closed gate must not distinguish unknown cards: ok=%v %s", okUnknown, rawUnknown)
+	}
 	if listed() {
-		t.Fatal("card should not be presenting before any poll")
+		t.Fatal("card should not be listed before starting")
 	}
 
-	// A resolve counts as a poll → active.
-	if _, ok := rt.PresentCardJSON(card.ID); !ok {
-		t.Fatal("PresentCardJSON failed")
+	// Start → listed, content served.
+	if err := rt.SetPresenting(card.ID, true); err != nil {
+		t.Fatalf("SetPresenting(true): %v", err)
 	}
 	if !listed() {
-		t.Fatal("card should be presenting after a poll")
+		t.Fatal("card should be listed while presenting")
+	}
+	raw, ok = rt.PresentCardJSON(card.ID)
+	if !ok || strings.Contains(string(raw), `"presenting":false`) {
+		t.Fatalf("open gate should serve the card, got ok=%v %s", ok, raw)
 	}
 
-	// Repeated polls keep it active past the first timeout window.
-	time.Sleep(100 * time.Millisecond)
-	rt.notePresentPoll(card.ID)
-	time.Sleep(100 * time.Millisecond)
-	if !listed() {
-		t.Fatal("repolling should keep the card presenting")
+	// Idempotent start, then stop → gated again.
+	if err := rt.SetPresenting(card.ID, true); err != nil {
+		t.Fatalf("idempotent start: %v", err)
+	}
+	if err := rt.SetPresenting(card.ID, false); err != nil {
+		t.Fatalf("SetPresenting(false): %v", err)
+	}
+	if listed() {
+		t.Fatal("card should not be listed after stopping")
+	}
+	if raw, ok = rt.PresentCardJSON(card.ID); !ok || !strings.Contains(string(raw), `"presenting":false`) {
+		t.Fatalf("stopped gate should serve not-presenting payload, got ok=%v %s", ok, raw)
 	}
 
-	// Quiet → idle after the timeout.
-	deadline := time.Now().Add(2 * time.Second)
-	for listed() {
-		if time.Now().After(deadline) {
-			t.Fatal("card never went idle after polls stopped")
-		}
-		time.Sleep(25 * time.Millisecond)
+	// Starting an unknown card errors; stopping one is a no-op.
+	if err := rt.SetPresenting("nope", true); err == nil {
+		t.Error("starting an unknown card should error")
+	}
+	if err := rt.SetPresenting("nope", false); err != nil {
+		t.Errorf("stopping an unknown card should be a no-op, got %v", err)
 	}
 }

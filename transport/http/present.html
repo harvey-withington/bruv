@@ -555,7 +555,21 @@
             '?exp=' + encodeURIComponent(exp) + '&sig=' + encodeURIComponent(sig)
           const res = await fetch(url, { cache: 'no-store' })
           if (!res.ok) { renderStatus(res.status === 401 ? 'Link expired' : 'Unavailable (' + res.status + ')'); return }
-          const deck = findDeck(await res.json())
+          const payload = await res.json()
+          // Presentation gate closed: idle on a waiting state (blank in
+          // transparent/OBS-overlay mode — no text on stream) and keep
+          // polling; content resumes the moment the presenter starts.
+          if (payload && payload.presenting === false) {
+            if (lastKey !== 'waiting') {
+              lastKey = 'waiting'
+              lastDeck = null
+              document.body.classList.remove('video-full')
+              if (q.get('bg') === 'transparent') stage.innerHTML = ''
+              else renderStatus('Waiting for the presentation to start…')
+            }
+            return
+          }
+          const deck = findDeck(payload)
           lastDeck = deck
           if (deck && (await maybeGate(deck))) return
           if (gateActive) return

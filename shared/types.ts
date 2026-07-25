@@ -879,9 +879,12 @@ export interface BackendAdapter {
   // field filtering) before saving.
   AppendDeckSlide(cardID: string, blockID: string, slide: Partial<Slide>): Promise<Card>
 
-  // Cards whose /present output page is being actively polled right now
-  // (OBS or a browser tab). Live transitions arrive as present:active /
-  // present:idle events; this serves the initial state.
+  // Presentation gate — presenting is explicit start/stop, not inferred.
+  // While closed, /present-data serves a waiting payload (the signed URL
+  // stays valid; output pages resume when reopened). Transitions publish
+  // present:active / present:idle; ListPresentingCards serves initial
+  // state. In-memory: a server restart closes every gate.
+  SetPresenting(cardID: string, active: boolean): Promise<void>
   ListPresentingCards(): Promise<string[]>
 
   // SetActiveRepo persists the user's repo choice for the active

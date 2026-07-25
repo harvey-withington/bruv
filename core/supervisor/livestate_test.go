@@ -90,6 +90,10 @@ func TestPresentCardJSON_OverlaysLiveIndex(t *testing.T) {
 		t.Fatalf("UpdateCardBlocks: %v", err)
 	}
 
+	if err := rt.SetPresenting(card.ID, true); err != nil {
+		t.Fatalf("SetPresenting: %v", err)
+	}
+
 	deckValue := func() map[string]any {
 		raw, ok := rt.PresentCardJSON(card.ID)
 		if !ok {

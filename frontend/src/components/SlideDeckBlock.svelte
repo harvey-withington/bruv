@@ -1,12 +1,12 @@
 <script lang="ts">
   import type { SlideDeckValue, Slide, BlockLiveState, WailsWindow } from '@shared/types'
   import { t } from '../lib/i18n.svelte'
-  import { Plus, GripVertical, Pencil, Copy, Trash2, Presentation, Clock, Play, Pause, MonitorPlay, ChevronLeft, ChevronRight, Link2, Maximize2, Minimize2 } from 'lucide-svelte'
+  import { Plus, GripVertical, Pencil, Copy, Trash2, Presentation, Clock, Play, Pause, Square, MonitorPlay, ChevronLeft, ChevronRight, Link2, ExternalLink, Maximize2, Minimize2 } from 'lucide-svelte'
   import { computeReorder, wouldReorder, DROP_END } from '../lib/reorder'
   import { resolveContentType, DEFAULT_CONTENT_TYPE_ID } from '@shared/slideContentTypes'
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
-  import { SignPresentURL, SetBlockLiveState, GetBlockLiveState, ListPresentingCards } from '@shared/api'
+  import { SignPresentURL, SetBlockLiveState, GetBlockLiveState, ListPresentingCards, SetPresenting } from '@shared/api'
   import { onEvent } from '../lib/events'
   import SlideEditorDialog from './SlideEditorDialog.svelte'
 
@@ -206,12 +206,31 @@
     }
   })
 
-  // Present opens the output page; copying the URL for an OBS Browser
-  // Source is its own toolbar action (each button does one thing).
-  let presenting = $state(false)
-  async function present(): Promise<void> {
-    if (presenting) return
-    presenting = true
+  // Present is a START/STOP toggle on the server-side presentation gate:
+  // output pages only receive deck content while it's open, so stopping
+  // genuinely stops broadcasting even though the signed URL stays valid
+  // (pages show a waiting state and resume on restart — OBS scenes can be
+  // set up before going live). Opening the page is its own button.
+  let toggling = $state(false)
+  async function togglePresent(): Promise<void> {
+    if (toggling) return
+    toggling = true
+    const next = !presentingLive
+    presentingLive = next // optimistic; the present:active/idle echo confirms
+    try {
+      await SetPresenting(cardId, next)
+    } catch {
+      presentingLive = !next
+      showToast(t('slide.present_toggle_failed'), 'error')
+    } finally {
+      toggling = false
+    }
+  }
+
+  let opening = $state(false)
+  async function openPresent(): Promise<void> {
+    if (opening) return
+    opening = true
     try {
       const url = await SignPresentURL(cardId)
       const w = window as WailsWindow
@@ -223,7 +242,7 @@
     } catch {
       showToast(t('slide.present_failed'), 'error')
     } finally {
-      presenting = false
+      opening = false
     }
   }
 
@@ -363,11 +382,11 @@
           class="present-btn"
           class:live={presentingLive}
           type="button"
-          onclick={present}
-          disabled={presenting}
+          onclick={togglePresent}
+          disabled={toggling}
           title={presentingLive ? t('slide.presenting_tip') : t('slide.present_tip')}
         >
-          {#if presentingLive}<Presentation size={13} /> {t('slide.presenting')}{:else}<Play size={13} /> {t('slide.present')}{/if}
+          {#if presentingLive}<Square size={12} /> {t('slide.stop_presenting')}{:else}<Play size={13} /> {t('slide.present')}{/if}
         </button>
       {/if}
     </div>
@@ -404,6 +423,9 @@
             {#if videoFull}<Minimize2 size={13} />{:else}<Maximize2 size={13} />{/if}
           </button>
         {/if}
+        <button class="icon-btn" type="button" onclick={openPresent} disabled={opening} title={t('slide.open_present_tip')} aria-label={t('slide.open_present_tip')}>
+          <ExternalLink size={14} />
+        </button>
         <button class="icon-btn" type="button" onclick={copyObsUrl} disabled={copying} title={t('slide.copy_obs_tip')} aria-label={t('slide.copy_obs_tip')}>
           <Link2 size={14} />
         </button>

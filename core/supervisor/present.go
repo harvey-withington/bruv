@@ -63,13 +63,17 @@ var slideFieldTypes = map[string]map[string]string{
 // attachment references resolved for the present page. ok=false when the
 // card doesn't exist. Plugged into transport/http.PresentConfig by the hosts.
 func (r *Runtime) PresentCardJSON(cardID string) ([]byte, bool) {
+	// Gate first, and before the card lookup: a closed gate serves the
+	// same "not presenting" payload whether or not the card exists, so a
+	// leaked-but-gated URL can't even probe card existence. The output
+	// page renders a waiting state and resumes when the gate reopens.
+	if !r.isPresenting(cardID) {
+		return []byte(`{"presenting":false}`), true
+	}
 	card, err := r.Card.Get(cardID)
 	if err != nil || card == nil {
 		return nil, false
 	}
-	// Every successful resolve = one output-page poll — feeds the
-	// "presenting" indicators (see presentwatch.go).
-	r.notePresentPoll(cardID)
 	// JSON round-trip = deep copy. The card may be shared/cached state; the
 	// resolver must never mutate the live model.
 	raw, err := json.Marshal(card)

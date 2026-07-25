@@ -120,6 +120,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     GetBlockLiveState: async () => null,
     AppendDeckSlide: async () => mockCard(),
     ListPresentingCards: async () => [],
+    SetPresenting: async () => {},
     SetActiveRepo: async () => {},
 
     subscribe: (_cb: EventCallback) => {},

@@ -71,6 +71,9 @@ func TestPresentCardJSON_ResolvesBindingsAndAttachments(t *testing.T) {
 		t.Fatalf("UpdateCardBlocks deck: %v", err)
 	}
 
+	if err := rt.SetPresenting(deckCard.ID, true); err != nil {
+		t.Fatalf("SetPresenting: %v", err)
+	}
 	raw, ok := rt.PresentCardJSON(deckCard.ID)
 	if !ok {
 		t.Fatal("PresentCardJSON returned ok=false")
@@ -122,8 +125,9 @@ func TestPresentCardJSON_ResolvesBindingsAndAttachments(t *testing.T) {
 		t.Error("live card mutated: bound value written back to store")
 	}
 
-	// Unknown card → ok=false.
-	if _, ok := rt.PresentCardJSON("nope"); ok {
-		t.Error("unknown card should return ok=false")
+	// Unknown card: the gate is closed for it, so it gets the same
+	// not-presenting payload as any gated card — no existence probing.
+	if raw, ok := rt.PresentCardJSON("nope"); !ok || !strings.Contains(string(raw), `"presenting":false`) {
+		t.Errorf("unknown card should look identical to a gated one, got ok=%v %s", ok, raw)
 	}
 }

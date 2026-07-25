@@ -879,6 +879,11 @@ export interface BackendAdapter {
   // field filtering) before saving.
   AppendDeckSlide(cardID: string, blockID: string, slide: Partial<Slide>): Promise<Card>
 
+  // Cards whose /present output page is being actively polled right now
+  // (OBS or a browser tab). Live transitions arrive as present:active /
+  // present:idle events; this serves the initial state.
+  ListPresentingCards(): Promise<string[]>
+
   // SetActiveRepo persists the user's repo choice for the active
   // connection. The frontend reloads after calling it so the cloud
   // adapter re-resolves the URL prefix to /repos/<id>/.

@@ -1,5 +1,5 @@
 // Reactive app state using Svelte 5 module-level $state
-import { ListCategories, GetCard, GetCardPins, ListCardIDsInCategory, GetProjectLabels, ListCardTypes, GetTagColors, ListAgentCardStates } from '@shared/api'
+import { ListCategories, GetCard, GetCardPins, ListCardIDsInCategory, GetProjectLabels, ListCardTypes, GetTagColors, ListAgentCardStates, ListPresentingCards } from '@shared/api'
 import { onEvent } from './events'
 import type { Card, CardTypeInfo, ChecklistItem } from '@shared/types'
 
@@ -79,6 +79,9 @@ export const board = $state({
   // configured but disabled".
   agentCardStates: {} as Record<string, boolean>,
   runningAgentIds: {} as Record<string, boolean>,
+  // Cards whose /present output page is being polled right now — feeds the
+  // board tile "presenting" indicator (present:active/idle keep it live).
+  presentingCardIds: {} as Record<string, boolean>,
 })
 
 // Global card types (built-in + user-defined), loaded once at startup
@@ -251,6 +254,10 @@ export async function loadBoard(brandSlug: string, streamSlug: string, projectSl
     try {
       board.agentCardStates = (await ListAgentCardStates()) || {}
     } catch { board.agentCardStates = {} }
+    try {
+      const presenting = (await ListPresentingCards()) || []
+      board.presentingCardIds = Object.fromEntries(presenting.map((id) => [id, true]))
+    } catch { board.presentingCardIds = {} }
     if (seq !== boardLoadSeq) return
     board.categories = populated
     board.loadError = false
@@ -312,7 +319,16 @@ export function setupAgentEventListeners(): () => void {
   const unsub5 = onEvent<{ cardID?: string }>('card:created', (data) => {
     if (data?.cardID) void refreshBoardCard(data.cardID)
   })
-  return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5() }
+  const unsub6 = onEvent<{ cardID?: string }>('present:active', (data) => {
+    if (data?.cardID) board.presentingCardIds = { ...board.presentingCardIds, [data.cardID]: true }
+  })
+  const unsub7 = onEvent<{ cardID?: string }>('present:idle', (data) => {
+    if (data?.cardID) {
+      const { [data.cardID]: _, ...rest } = board.presentingCardIds
+      board.presentingCardIds = rest
+    }
+  })
+  return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsub7() }
 }
 
 // refreshBoardSilently reloads the active project's board without the

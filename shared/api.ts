@@ -35,6 +35,7 @@ export const GetBlockLiveState = (...args: Parameters<ReturnType<typeof getBacke
 
 // Deck mutations — atomic server-side slide append
 export const AppendDeckSlide = (...args: Parameters<ReturnType<typeof getBackend>['AppendDeckSlide']>) => getBackend().AppendDeckSlide(...args)
+export const ListPresentingCards = () => getBackend().ListPresentingCards()
 
 // Per-connection repo selection
 export const SetActiveRepo = (...args: Parameters<ReturnType<typeof getBackend>['SetActiveRepo']>) => getBackend().SetActiveRepo(...args)

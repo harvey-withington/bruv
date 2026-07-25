@@ -67,6 +67,9 @@ func (r *Runtime) PresentCardJSON(cardID string) ([]byte, bool) {
 	if err != nil || card == nil {
 		return nil, false
 	}
+	// Every successful resolve = one output-page poll — feeds the
+	// "presenting" indicators (see presentwatch.go).
+	r.notePresentPoll(cardID)
 	// JSON round-trip = deep copy. The card may be shared/cached state; the
 	// resolver must never mutate the live model.
 	raw, err := json.Marshal(card)

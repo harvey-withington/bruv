@@ -6,7 +6,7 @@
   import { resolveContentType, DEFAULT_CONTENT_TYPE_ID } from '@shared/slideContentTypes'
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
-  import { SignPresentURL, SetBlockLiveState, GetBlockLiveState } from '@shared/api'
+  import { SignPresentURL, SetBlockLiveState, GetBlockLiveState, ListPresentingCards } from '@shared/api'
   import { onEvent } from '../lib/events'
   import SlideEditorDialog from './SlideEditorDialog.svelte'
 
@@ -181,6 +181,31 @@
     }
   }
 
+  // Live "presentation ongoing" state: the server flags a card while its
+  // /present-data endpoint is being polled (OBS or a tab), with
+  // present:active/idle transition events. The Present button restyles and
+  // relabels while live — otherwise nothing on the card says it's on air.
+  let presentingLive = $state(false)
+  $effect(() => {
+    let alive = true
+    ListPresentingCards()
+      .then((ids) => {
+        if (alive) presentingLive = (ids ?? []).includes(cardId)
+      })
+      .catch(() => {})
+    const unsubActive = onEvent<{ cardID?: string }>('present:active', (ev) => {
+      if (ev.cardID === cardId) presentingLive = true
+    })
+    const unsubIdle = onEvent<{ cardID?: string }>('present:idle', (ev) => {
+      if (ev.cardID === cardId) presentingLive = false
+    })
+    return () => {
+      alive = false
+      unsubActive()
+      unsubIdle()
+    }
+  })
+
   // Present opens the output page; copying the URL for an OBS Browser
   // Source is its own toolbar action (each button does one thing).
   let presenting = $state(false)
@@ -334,8 +359,15 @@
       {#if slides.length > 0}
         <!-- Present stays a full labelled button (and on the left) so it
              can't be missed; the right group is icon-only controls. -->
-        <button class="present-btn" type="button" onclick={present} disabled={presenting} title={t('slide.present_tip')}>
-          <Play size={13} /> {t('slide.present')}
+        <button
+          class="present-btn"
+          class:live={presentingLive}
+          type="button"
+          onclick={present}
+          disabled={presenting}
+          title={presentingLive ? t('slide.presenting_tip') : t('slide.present_tip')}
+        >
+          {#if presentingLive}<Presentation size={13} /> {t('slide.presenting')}{:else}<Play size={13} /> {t('slide.present')}{/if}
         </button>
       {/if}
     </div>
@@ -582,6 +614,19 @@
   .present-btn:disabled {
     opacity: 0.6;
     cursor: default;
+  }
+  .present-btn.live {
+    color: #fff;
+    border-color: transparent;
+    background: var(--agent-running-gradient);
+    background-size: 300% 300%;
+    animation: present-live 2s ease infinite;
+    box-shadow: var(--agent-running-glow);
+  }
+  @keyframes present-live {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
   }
   .nav-group {
     display: inline-flex;

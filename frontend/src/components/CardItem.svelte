@@ -6,7 +6,7 @@
   import { getCardTypeColor, getCardTypeTextColor } from '@shared/cardTypes'
   import { TriggerAgent, CancelAgent } from '@shared/api'
   import { showToast } from '../lib/toast.svelte'
-  import { Timer, Play, Square, Calendar } from 'lucide-svelte'
+  import { Timer, Play, Square, Calendar, Presentation } from 'lucide-svelte'
 
   type CardData = {
     id: string
@@ -25,6 +25,7 @@
   let hasAgent = $derived(agentState !== undefined)
   let agentEnabled = $derived(agentState === true)
   let isRunning = $derived(!!board.runningAgentIds[card.id])
+  let isPresenting = $derived(!!board.presentingCardIds[card.id])
 
   function handleDragStart(e: DragEvent) {
     if (!draggable || !e.dataTransfer) return
@@ -99,6 +100,16 @@
           <Play size={12} class="icon-play" />
         {/if}
       {/if}
+    </span>
+  {/if}
+  {#if isPresenting}
+    <span
+      class="present-indicator"
+      class:beside-agent={hasAgent}
+      title={t('slide.presenting_now')}
+      aria-label={t('slide.presenting_now')}
+    >
+      <Presentation size={13} />
     </span>
   {/if}
   <div class="card-header">
@@ -254,6 +265,30 @@
   .agent-indicator.disabled:hover {
     background: color-mix(in srgb, var(--text-muted) 22%, transparent);
     transform: scale(1.1);
+  }
+
+  /* Live presentation: same running-shimmer language as agents, slideshow
+     icon, non-interactive. Sits in the agent slot; shifts left when both. */
+  .present-indicator {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--agent-running-gradient);
+    background-size: 300% 300%;
+    animation: agent-neon 2s ease infinite;
+    color: white;
+    box-shadow: var(--agent-running-glow);
+    z-index: 1;
+    pointer-events: none;
+  }
+  .present-indicator.beside-agent {
+    right: 34px;
   }
 
   /* Running: neon AI gradient glow animation */

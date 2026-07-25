@@ -9,6 +9,8 @@ export const KNOWN_TOPICS = [
   'card:updated',
   'card:deleted',
   'block:live',
+  'present:active',
+  'present:idle',
   'brand:updated',
   'brand:deleted',
   'stream:updated',

@@ -89,6 +89,11 @@ type Runtime struct {
 	liveStateMu sync.RWMutex
 	liveState   map[string]map[string]any
 
+	// presentPolls tracks which cards' /present-data endpoints are being
+	// actively polled (cardID → idle timer). See presentwatch.go.
+	presentMu    sync.Mutex
+	presentPolls map[string]*time.Timer
+
 	// Services — exposed via reflection to the HTTP /rpc dispatcher.
 	Search     *search.Service
 	Notify     *notify.Service

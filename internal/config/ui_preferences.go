@@ -32,6 +32,15 @@ type UIPreferences struct {
 	// First-run guidance: set to true after the LLM-configuration nudge
 	// has been shown once on THIS device.
 	LLMNudgeShown bool `json:"llm_nudge_shown"`
+
+	// LocalServerPort pins the desktop app's embedded HTTP server to a
+	// fixed loopback port instead of an ephemeral one (0 = ephemeral,
+	// the default). Set it so external tools that pair by URL — the web
+	// clipper foremost — survive app restarts. Per-device by nature: the
+	// embedded server is this machine's. Applied on next launch; if the
+	// port is taken at boot the app falls back to an ephemeral port
+	// rather than losing its local transport.
+	LocalServerPort int `json:"local_server_port"`
 }
 
 // DefaultUIPreferences returns sensible defaults.

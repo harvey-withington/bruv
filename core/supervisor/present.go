@@ -56,6 +56,7 @@ var slideFieldTypes = map[string]map[string]string{
 	"image":       {"image": "image", "caption": "text"},
 	"video":       {"video": "video", "caption": "text"},
 	"lower_third": {"name": "text", "subtitle": "text"},
+	"post":        {"author": "text", "handle": "text", "avatar": "image", "text": "longtext", "media": "image", "video": "video", "date": "text", "url": "text", "platform": "text"},
 }
 
 // PresentCardJSON returns the card as JSON with all slide-deck bindings and
@@ -90,6 +91,23 @@ func (r *Runtime) PresentCardJSON(cardID string) ([]byte, bool) {
 		for _, s := range slides {
 			if sm, ok := s.(map[string]any); ok {
 				r.resolvePresentSlide(sm)
+			}
+		}
+		// Live presentation state (in-memory block state, set by the
+		// deck's console via SetBlockLiveState) overlays the stored value:
+		// currentIndex (position), videoSeq/videoAction (play-pause
+		// commands), and any future console controls flow through here —
+		// this is the only place the output page learns presenter intent.
+		// slides/theme are the persisted deck's own keys; live state must
+		// never shadow them.
+		if blockID, _ := bm["id"].(string); blockID != "" {
+			if ls := r.blockLiveState(cardID, blockID); ls != nil {
+				for k, v := range ls {
+					if k == "slides" || k == "theme" {
+						continue
+					}
+					val[k] = v
+				}
 			}
 		}
 	}

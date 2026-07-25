@@ -13,11 +13,15 @@
 
   const deck = $derived(asSlideDeck(block.value))
 
-  // First non-empty field value, else the content-type name, else Untitled.
+  // Display title first (clipped slides carry their card's title — content
+  // fields are bindings, invisible to a values scan), else first non-empty
+  // field value, else the content-type name. `platform` is never a label.
   function slideLabel(slide: Slide): string {
+    if (slide.title?.trim()) return slide.title.trim()
     const ct = resolveContentType(slide.contentTypeId)
     if (ct) {
       for (const f of ct.fields) {
+        if (f.key === 'platform') continue
         const v = slide.values?.[f.key]
         if (v && v.trim()) return v.trim()
       }

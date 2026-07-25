@@ -59,7 +59,7 @@ export function promoteBlockValue(block: Block, target: BlockType): Block['value
       contentTypeId: 'title',
       values: { title: it.text },
     }))
-    const value: SlideDeckValue = { slides, currentIndex: 0 }
+    const value: SlideDeckValue = { slides }
     return value
   }
 

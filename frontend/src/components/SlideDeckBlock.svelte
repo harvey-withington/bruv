@@ -1,21 +1,24 @@
 <script lang="ts">
-  import type { SlideDeckValue, Slide, WailsWindow } from '@shared/types'
+  import type { SlideDeckValue, Slide, BlockLiveState, WailsWindow } from '@shared/types'
   import { t } from '../lib/i18n.svelte'
-  import { Plus, GripVertical, Pencil, Copy, Trash2, Presentation, Clock, Play, ChevronLeft, ChevronRight } from 'lucide-svelte'
+  import { Plus, GripVertical, Pencil, Copy, Trash2, Presentation, Clock, Play, Pause, MonitorPlay, ChevronLeft, ChevronRight, Link2, Maximize2, Minimize2 } from 'lucide-svelte'
   import { computeReorder, wouldReorder, DROP_END } from '../lib/reorder'
   import { resolveContentType, DEFAULT_CONTENT_TYPE_ID } from '@shared/slideContentTypes'
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
-  import { SignPresentURL } from '@shared/api'
+  import { SignPresentURL, SetBlockLiveState, GetBlockLiveState } from '@shared/api'
+  import { onEvent } from '../lib/events'
   import SlideEditorDialog from './SlideEditorDialog.svelte'
 
   let {
     value,
     cardId,
+    blockId,
     onUpdate,
   }: {
     value: SlideDeckValue
     cardId: string
+    blockId: string
     onUpdate: (val: SlideDeckValue) => void
   } = $props()
 
@@ -26,12 +29,16 @@
     editingSlideId ? slides.find((s) => s.id === editingSlideId) ?? null : null,
   )
 
-  // A compact label for the row: the first non-empty field value of the
-  // slide's content type, else the content-type name, else "Untitled".
+  // A compact label for the row: the slide's own display title (clipped
+  // slides carry their card's title — their content fields are all bindings,
+  // invisible to a values scan), else the first non-empty field value, else
+  // the content-type name. `platform` is routing data, never a label.
   function slideLabel(slide: Slide): string {
+    if (slide.title?.trim()) return slide.title.trim()
     const ct = resolveContentType(slide.contentTypeId)
     if (ct) {
       for (const f of ct.fields) {
+        if (f.key === 'platform') continue
         const v = slide.values?.[f.key]
         if (v && v.trim()) return v.trim()
       }
@@ -49,9 +56,9 @@
   }
 
   function commit(nextSlides: Slide[]): void {
-    const idx = value?.currentIndex ?? 0
-    const currentIndex = idx >= nextSlides.length ? 0 : Math.max(0, idx)
-    onUpdate({ ...value, slides: nextSlides, currentIndex })
+    const next: SlideDeckValue = { ...value, slides: nextSlides }
+    delete next.currentIndex // legacy persisted position — live state owns it now
+    onUpdate(next)
   }
 
   function addSlide(): void {
@@ -80,31 +87,108 @@
   }
 
   // --- live position (the v1 presenter control surface is this block) ---
-  // Bumping currentIndex rides the normal UpdateCardBlocks save path; the
-  // /present output page polls the resolved card and follows within ~1.5s.
+  // The position is block LIVE state: server-held in memory, broadcast as
+  // `block:live`, never persisted — advancing a slide is session state, not
+  // a card edit, so it must not write the card / log activity / bump
+  // UpdatedAt. The /present page receives it via the PresentCardJSON
+  // overlay, so presenting "from slide N" is free: wherever this console
+  // last pointed is where the output page starts.
+  let liveIndex = $state(0)
   const currentIndex = $derived(
-    Math.min(Math.max(value?.currentIndex ?? 0, 0), Math.max(slides.length - 1, 0)),
+    Math.min(Math.max(liveIndex, 0), Math.max(slides.length - 1, 0)),
   )
-  function goTo(idx: number): void {
+
+  $effect(() => {
+    let alive = true
+    // A failed/absent read just means "start at slide 1" — nothing to surface.
+    GetBlockLiveState(cardId, blockId)
+      .then((s) => {
+        if (alive && typeof s?.currentIndex === 'number') liveIndex = s.currentIndex
+      })
+      .catch(() => {})
+    const unsub = onEvent<{ cardID?: string; blockID?: string; state?: BlockLiveState }>('block:live', (ev) => {
+      if (ev.cardID !== cardId || ev.blockID !== blockId) return
+      if (typeof ev.state?.currentIndex === 'number') liveIndex = ev.state.currentIndex
+      // Mirror the video transport across consoles: a state without a
+      // videoAction (e.g. plain navigation) means paused, not fullscreen.
+      videoPlaying = ev.state?.videoAction === 'play'
+      videoFull = ev.state?.videoFull === true
+    })
+    return () => {
+      alive = false
+      unsub()
+    }
+  })
+
+  async function goTo(idx: number): Promise<void> {
     if (idx < 0 || idx >= slides.length || idx === currentIndex) return
-    onUpdate({ ...value, slides, currentIndex: idx })
+    const prev = liveIndex
+    liveIndex = idx // optimistic; the block:live echo confirms
+    videoPlaying = false // navigation clears video command + fullscreen (state is replaced wholesale)
+    videoFull = false
+    try {
+      await SetBlockLiveState(cardId, blockId, { currentIndex: idx })
+    } catch {
+      liveIndex = prev
+      showToast(t('slide.nav_failed'), 'error')
+    }
   }
 
-  // Present: mint the signed output-page URL, copy it (that's what gets
-  // pasted into an OBS Browser Source), and open it for a quick look.
+  // --- video transport (presenter-fired playback) ---
+  // Videos never autoplay on the present page — a streamer sets the slide
+  // up verbally, then fires it from here. Each press bumps videoSeq so the
+  // page can distinguish new commands; navigation resets to paused.
+  const currentHasVideo = $derived.by(() => {
+    const s = slides[currentIndex]
+    return !!(s && (s.values?.video || s.bindings?.video))
+  })
+  let videoSeq = $state(0)
+  let videoPlaying = $state(false)
+  let videoFull = $state(false)
+
+  async function toggleVideo(): Promise<void> {
+    const next = !videoPlaying
+    videoPlaying = next
+    videoSeq += 1
+    try {
+      await SetBlockLiveState(cardId, blockId, {
+        currentIndex,
+        videoSeq,
+        videoAction: next ? 'play' : 'pause',
+        videoFull,
+      })
+    } catch {
+      videoPlaying = !next
+      showToast(t('slide.nav_failed'), 'error')
+    }
+  }
+
+  // Fullscreen toggle keeps videoSeq UNCHANGED — enlarging must not
+  // restart or re-fire playback, only relayout the output page.
+  async function toggleVideoFull(): Promise<void> {
+    const next = !videoFull
+    videoFull = next
+    try {
+      await SetBlockLiveState(cardId, blockId, {
+        currentIndex,
+        videoSeq,
+        videoAction: videoPlaying ? 'play' : 'pause',
+        videoFull: next,
+      })
+    } catch {
+      videoFull = !next
+      showToast(t('slide.nav_failed'), 'error')
+    }
+  }
+
+  // Present opens the output page; copying the URL for an OBS Browser
+  // Source is its own toolbar action (each button does one thing).
   let presenting = $state(false)
   async function present(): Promise<void> {
     if (presenting) return
     presenting = true
     try {
       const url = await SignPresentURL(cardId)
-      try {
-        await navigator.clipboard.writeText(url)
-        showToast(t('slide.present_copied'), 'success')
-      } catch {
-        // Clipboard can be denied — opening still works.
-        showToast(t('slide.present_opened'), 'success')
-      }
       const w = window as WailsWindow
       if (w.runtime?.BrowserOpenURL) {
         w.runtime.BrowserOpenURL(url)
@@ -115,6 +199,21 @@
       showToast(t('slide.present_failed'), 'error')
     } finally {
       presenting = false
+    }
+  }
+
+  let copying = $state(false)
+  async function copyObsUrl(): Promise<void> {
+    if (copying) return
+    copying = true
+    try {
+      const url = await SignPresentURL(cardId)
+      await navigator.clipboard.writeText(url)
+      showToast(t('slide.present_copied'), 'success')
+    } catch {
+      showToast(t('slide.copy_failed'), 'error')
+    } finally {
+      copying = false
     }
   }
 
@@ -225,14 +324,22 @@
     </ul>
   {/if}
 
-  <div class="deck-actions">
-    <button class="add-slide" type="button" onclick={addSlide}>
-      <Plus size={14} /> {t('slide.add')}
-    </button>
-    {#if slides.length > 0}
-      <button class="present-btn" type="button" onclick={present} disabled={presenting} title={t('slide.present_tip')}>
-        <Play size={13} /> {t('slide.present')}
+  <!-- Toolbar: authoring on the left, slide transport centered, presenter
+       controls (video, Present, OBS link, future fullscreen…) on the right. -->
+  <div class="deck-actions" class:has-slides={slides.length > 0}>
+    <div class="actions-left">
+      <button class="add-slide" type="button" onclick={addSlide}>
+        <Plus size={14} /> {t('slide.add')}
       </button>
+      {#if slides.length > 0}
+        <!-- Present stays a full labelled button (and on the left) so it
+             can't be missed; the right group is icon-only controls. -->
+        <button class="present-btn" type="button" onclick={present} disabled={presenting} title={t('slide.present_tip')}>
+          <Play size={13} /> {t('slide.present')}
+        </button>
+      {/if}
+    </div>
+    {#if slides.length > 0}
       <div class="nav-group" title={t('slide.nav_tip')}>
         <button class="icon-btn" type="button" onclick={() => goTo(currentIndex - 1)} disabled={currentIndex === 0} aria-label={t('slide.prev')}>
           <ChevronLeft size={14} />
@@ -240,6 +347,33 @@
         <span class="nav-pos">{currentIndex + 1} / {slides.length}</span>
         <button class="icon-btn" type="button" onclick={() => goTo(currentIndex + 1)} disabled={currentIndex >= slides.length - 1} aria-label={t('slide.next')}>
           <ChevronRight size={14} />
+        </button>
+      </div>
+      <div class="actions-right">
+        {#if currentHasVideo}
+          <button
+            class="icon-btn video-btn"
+            class:playing={videoPlaying}
+            type="button"
+            onclick={toggleVideo}
+            title={videoPlaying ? t('slide.pause_video') : t('slide.play_video')}
+            aria-label={videoPlaying ? t('slide.pause_video') : t('slide.play_video')}
+          >
+            {#if videoPlaying}<Pause size={13} />{:else}<MonitorPlay size={14} />{/if}
+          </button>
+          <button
+            class="icon-btn video-btn"
+            class:playing={videoFull}
+            type="button"
+            onclick={toggleVideoFull}
+            title={videoFull ? t('slide.video_full_exit') : t('slide.video_full')}
+            aria-label={videoFull ? t('slide.video_full_exit') : t('slide.video_full')}
+          >
+            {#if videoFull}<Minimize2 size={13} />{:else}<Maximize2 size={13} />{/if}
+          </button>
+        {/if}
+        <button class="icon-btn" type="button" onclick={copyObsUrl} disabled={copying} title={t('slide.copy_obs_tip')} aria-label={t('slide.copy_obs_tip')}>
+          <Link2 size={14} />
         </button>
       </div>
     {/if}
@@ -405,6 +539,22 @@
     align-items: center;
     gap: 6px;
   }
+  .deck-actions.has-slides {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+  }
+  .actions-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    justify-content: flex-start;
+  }
+  .actions-right {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    justify-content: flex-end;
+  }
   .add-slide,
   .present-btn {
     display: inline-flex;
@@ -437,11 +587,16 @@
     display: inline-flex;
     align-items: center;
     gap: 2px;
-    margin-left: auto;
   }
   .nav-group .icon-btn:disabled {
     opacity: 0.35;
     cursor: default;
+  }
+  .video-btn {
+    color: var(--accent);
+  }
+  .video-btn.playing {
+    color: var(--warning-text, var(--accent));
   }
   .nav-pos {
     font-size: 11px;

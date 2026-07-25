@@ -57,7 +57,34 @@ const SHOWCASE: SlideTemplate = {
   durationMs: 700,
 }
 
-export const SLIDE_TEMPLATES: SlideTemplate[] = [CLEAN, ELEGANT_QUOTE, SHOWCASE]
+// X_POST is the first per-platform template for the generic `post` content
+// type, rendered with the 'post-card' layout: avatar + name + @handle in the
+// header (first avatar/subheading/meta), post text as the body, media below,
+// later meta items (date) in the footer, platform glyph from values.platform.
+// `url` is deliberately unrendered (data-only). Future platforms
+// (reddit-post, …) are new templates over the SAME content type — the schema
+// stays generic, the template carries the platform look.
+const X_POST: SlideTemplate = {
+  id: 'x-post',
+  name: 'X Post',
+  supportedContentTypes: ['post'],
+  fieldMap: {
+    post: [
+      { field: 'avatar', role: 'avatar' },
+      { field: 'author', role: 'subheading' },
+      { field: 'handle', role: 'meta' },
+      { field: 'text', role: 'heading' },
+      { field: 'media', role: 'media' },
+      { field: 'video', role: 'media' },
+      { field: 'date', role: 'meta' },
+    ],
+  },
+  entrance: 'slideInUp',
+  durationMs: 500,
+  layout: 'post-card',
+}
+
+export const SLIDE_TEMPLATES: SlideTemplate[] = [CLEAN, ELEGANT_QUOTE, SHOWCASE, X_POST]
 
 // templatesForContentType lists the templates that can render a content type
 // (the editor's template picker, filtered by the slide's content type).

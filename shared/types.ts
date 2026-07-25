@@ -119,8 +119,10 @@ export type MediaItem = {
 
 // --- Slide Deck block ---
 // A deck lives inside a card as block data, so it stays pinnable, taggable,
-// searchable, and AI-authorable. `currentIndex` is the live presentation
-// pointer that drives the /present output page over SSE.
+// searchable, and AI-authorable. The live presentation position is NOT part
+// of the persisted value — it's block live state (SetBlockLiveState), held
+// in server memory and broadcast as `block:live`; the /present output page
+// receives it via the server-side PresentCardJSON overlay.
 
 // The slide model mirrors BRUV's Card Type ↔ Card pattern:
 //   - SlideContentType  = the schema (a named set of typed fields)
@@ -148,8 +150,11 @@ export type SlideContentType = {
 // Display roles a template assigns a content-type field to. The generic
 // renderer maps role → visual treatment; the field's type informs media
 // handling (image vs video). New roles extend the format, not the code.
+// `avatar` (small round image) and `meta` (muted metadata line) are
+// platform-neutral additions for social-post layouts.
 export type SlideDisplayRole =
   | 'heading' | 'subheading' | 'body' | 'quote' | 'attribution' | 'media' | 'caption'
+  | 'avatar' | 'meta'
 
 export type SlideFieldMapping = {
   field: string          // content-type field key
@@ -166,6 +171,13 @@ export type TemplateStyles = {
   // Extension point for user-authored templates (borders, padding, …).
 }
 
+// Layouts are part of the renderer's vocabulary (like display roles):
+// 'stack' is the centered column; 'post-card' is a social-post card —
+// avatar/name/handle header (first avatar/subheading/meta items), body
+// text, media, remaining meta as the footer, platform glyph from
+// values.platform. Templates DECLARE a layout; renderers implement it.
+export type SlideLayout = 'stack' | 'post-card'
+
 // SlideTemplate is data, not code — a single generic renderer interprets it.
 export type SlideTemplate = {
   id: string
@@ -174,6 +186,7 @@ export type SlideTemplate = {
   fieldMap: Record<string, SlideFieldMapping[]>   // contentTypeId → field→role mappings
   entrance: SlideAnimation
   durationMs: number
+  layout?: SlideLayout                            // default 'stack'
   styles?: TemplateStyles
 }
 
@@ -184,6 +197,9 @@ export type Slide = {
   cardId?: string                      // optional linked card, for field bindings
   values: Record<string, string>       // field key → literal value
   bindings?: Record<string, string>    // field key → card block id (resolved live)
+  title?: string                       // display label for row lists (never rendered on the slide);
+                                       // needed when all content fields are bindings, e.g. clipped
+                                       // slides carry their card's title here
   durationSec?: number                 // 0 / undefined = manual advance
   notes?: string                       // presenter notes — control surface only
   thumbnail?: string                   // small data-URI preview for the compact row
@@ -199,8 +215,28 @@ export type DeckTheme = {
 
 export type SlideDeckValue = {
   slides: Slide[]
-  currentIndex: number
+  // Legacy live-position field: no longer written (live state owns the
+  // position), kept optional so previously-saved decks still parse.
+  currentIndex?: number
   theme?: DeckTheme
+}
+
+// Transient per-block runtime state — server-held in memory, never
+// persisted, lost on restart. Slide decks store their live presentation
+// position and video play/pause commands here; other real-time block
+// concerns can extend the shape (PresentCardJSON overlays every key
+// except the persisted deck's own slides/theme).
+export type BlockLiveState = {
+  currentIndex?: number
+  // Monotonic per-console counter; the present page executes videoAction
+  // whenever it sees a new seq. Absent = no command (video stays on its
+  // first frame — playback is presenter-fired, never automatic).
+  videoSeq?: number
+  videoAction?: 'play' | 'pause'
+  // Enlarge the current slide's video to fill the output page's viewport
+  // (hiding the rest of the slide) — an in-page layout state, deliberately
+  // NOT the browser Fullscreen API, so OBS captures stay seamless.
+  videoFull?: boolean
 }
 
 export type BlockMeta = {
@@ -337,6 +373,10 @@ export type UIPreferences = {
   inbox_activity_limit: number
   sidebar_collapse_default: boolean
   llm_nudge_shown: boolean
+  // Fixed loopback port for this device's embedded HTTP server; 0 =
+  // ephemeral (default). Applied on next launch; lets URL-pairing tools
+  // (web clipper) survive restarts.
+  local_server_port: number
 }
 
 // --- Import / Export ---
@@ -824,6 +864,20 @@ export interface BackendAdapter {
   // Present — returns a long-lived signed URL for the card's read-only
   // slide-deck output page (OBS Browser Source / fullscreen display).
   SignPresentURL(cardID: string): Promise<string>
+
+  // Live block state — transient per-block runtime state (slide decks
+  // store {currentIndex}). Server-held in memory, never persisted; every
+  // set broadcasts a `block:live` event. Get returns null when nothing
+  // has been set. Seeding state before minting a present URL is how
+  // "start presenting at slide N" works — no dedicated API needed.
+  SetBlockLiveState(cardID: string, blockID: string, state: BlockLiveState): Promise<void>
+  GetBlockLiveState(cardID: string, blockID: string): Promise<BlockLiveState | null>
+
+  // Deck mutations — atomic server-side append so remote producers (the web
+  // clipper foremost) never read-modify-write a whole deck over the wire.
+  // The slide runs through the standard coercion (id stamping, content-type
+  // field filtering) before saving.
+  AppendDeckSlide(cardID: string, blockID: string, slide: Partial<Slide>): Promise<Card>
 
   // SetActiveRepo persists the user's repo choice for the active
   // connection. The frontend reloads after calling it so the cloud

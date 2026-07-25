@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { font: 13px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; background: #14141c; color: #e8e8f0; width: 320px; margin: 0; padding: 14px; }
+      h1 { font-size: 0.95rem; font-weight: 600; margin: 0 0 8px; }
+      .muted { opacity: 0.65; font-size: 0.8rem; }
+      .row { margin-top: 10px; }
+      input { width: 100%; padding: 7px 9px; border-radius: 6px; border: 1px solid #3a3a4c; background: #1d1d2b; color: inherit; box-sizing: border-box; }
+      button { padding: 6px 12px; border-radius: 6px; border: 1px solid #8b5cf6; background: #8b5cf6; color: #fff; cursor: pointer; font-size: 0.8rem; }
+      button.secondary { background: transparent; color: #b7a8f0; }
+      button:disabled { opacity: 0.5; cursor: default; }
+      ul { list-style: none; margin: 6px 0 0; padding: 0; max-height: 180px; overflow-y: auto; }
+      li button { display: block; width: 100%; text-align: left; background: #1d1d2b; border: 1px solid #2c2c3c; color: inherit; margin-top: 4px; padding: 7px 9px; border-radius: 6px; }
+      li button:hover { border-color: #8b5cf6; }
+      li .path { display: block; opacity: 0.55; font-size: 0.72rem; }
+      .target { margin-top: 6px; padding: 8px 10px; border-radius: 6px; background: #1d1d2b; border: 1px solid #8b5cf6; }
+      .queue { margin-top: 12px; padding-top: 10px; border-top: 1px solid #2c2c3c; }
+      .actions { display: flex; gap: 6px; margin-top: 6px; }
+      #status { margin-top: 8px; font-size: 0.8rem; }
+      #status.err { color: #ef8a8a; }
+      #status.ok { color: #7fd6a8; }
+    </style>
+  </head>
+  <body>
+    <h1 data-i18n="popup_title"></h1>
+    <div id="unpaired" class="muted" hidden></div>
+
+    <div id="paired" hidden>
+      <div class="muted" id="pair-line"></div>
+
+      <div class="row">
+        <strong data-i18n="popup_deck_target"></strong>
+        <div id="deck-target" class="target muted" data-i18n="popup_no_deck"></div>
+        <div class="row">
+          <input id="deck-search" type="search" />
+          <ul id="deck-results"></ul>
+        </div>
+        <div class="actions">
+          <button id="new-deck-btn" class="secondary" data-i18n="popup_new_deck"></button>
+          <button id="clear-deck-btn" class="secondary" data-i18n="popup_clear_deck"></button>
+        </div>
+        <div class="row" id="new-deck-row" hidden>
+          <input id="new-deck-name" type="text" />
+          <div class="actions">
+            <button id="new-deck-create" data-i18n="popup_new_deck_create"></button>
+            <button id="new-deck-cancel" class="secondary" data-i18n="popup_cancel"></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="queue">
+        <span id="queue-line" class="muted"></span>
+        <div class="actions" id="queue-actions" hidden>
+          <button id="retry-btn" data-i18n="popup_retry"></button>
+          <button id="discard-btn" class="secondary" data-i18n="popup_discard"></button>
+        </div>
+      </div>
+    </div>
+
+    <div id="status"></div>
+    <script src="popup.js"></script>
+  </body>
+</html>

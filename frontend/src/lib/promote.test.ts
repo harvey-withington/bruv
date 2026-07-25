@@ -28,7 +28,7 @@ describe('promote lattice', () => {
       value: [{ id: 'c1', text: 'Intro', done: true }, { id: 'c2', text: 'Body', done: false }],
     }
     const out = promoteBlockValue(block, 'slide_deck') as SlideDeckValue
-    expect(out.currentIndex).toBe(0)
+    expect(out.currentIndex).toBeUndefined() // live position is block live state, never persisted
     expect(out.slides.map((s) => ({ title: s.values.title, contentTypeId: s.contentTypeId }))).toEqual([
       { title: 'Intro', contentTypeId: 'title' },
       { title: 'Body', contentTypeId: 'title' },

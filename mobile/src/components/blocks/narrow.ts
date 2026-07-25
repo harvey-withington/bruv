@@ -51,13 +51,13 @@ export function asSurveyQuestions(v: unknown): SurveyQuestion[] {
 
 export function asSlideDeck(v: unknown): SlideDeckValue {
   if (v && typeof v === 'object' && !Array.isArray(v) && 'slides' in v) {
-    const obj = v as { slides?: unknown; currentIndex?: unknown }
+    const obj = v as { slides?: unknown }
     const slides = Array.isArray(obj.slides)
       ? obj.slides.filter((s): s is Slide => !!s && typeof s === 'object' && typeof (s as Slide).id === 'string')
       : []
-    return { slides, currentIndex: typeof obj.currentIndex === 'number' ? obj.currentIndex : 0 }
+    return { slides }
   }
-  return { slides: [], currentIndex: 0 }
+  return { slides: [] }
 }
 
 export function asUrlValue(v: unknown): { url: string; caption?: string } {

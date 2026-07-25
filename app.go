@@ -250,46 +250,68 @@ func (a *App) stopBusBridge() {
 	})
 }
 
-// startHTTPTransport binds the multi-repo HTTP server to a random
-// loopback port. Failures are logged but non-fatal — the desktop UI
-// surfaces a "can't reach Local" error screen if the transport is
-// unavailable, so the user can at least switch to a working Remote.
+// startHTTPTransport binds the multi-repo HTTP server to a loopback
+// port — ephemeral by default, or the fixed port from the per-device
+// LocalServerPort preference so URL-pairing tools (web clipper) keep
+// working across restarts. A taken fixed port falls back to ephemeral:
+// losing the pinned URL beats losing the local transport entirely.
+// Failures are logged but non-fatal — the desktop UI surfaces a
+// "can't reach Local" error screen if the transport is unavailable,
+// so the user can at least switch to a working Remote.
 func (a *App) startHTTPTransport() {
 	cfgDir, err := config.ConfigDir()
 	if err != nil {
 		slog.Warn("http transport: resolve config dir failed", "err", err)
 		return
 	}
-	srv, err := transporthttp.NewMulti(transporthttp.Config{
-		Addr:          "127.0.0.1:0",
-		ConfigDir:     cfgDir,
-		Version:       AppVersion,
-		BuildDate:     BuildDate,
-		StaticAssets:  assets,
-		MobileAssets:  mobile.Assets(),
-		Repos:         supervisor.NewHTTPAdapter(a.sup),
-		MachineTarget: supervisor.NewMachineService(),
-		MCPHandler:    mcpserver.New(a.sup, AppVersion),
-		Present: &transporthttp.PresentConfig{
-			Secret: a.sup.Secret(),
-			ResolveCardJSON: func(repoID, cardID string) ([]byte, bool) {
-				rt, err := a.sup.Load(repoID)
-				if err != nil || rt == nil {
-					return nil, false
-				}
-				return rt.PresentCardJSON(cardID)
+	start := func(addr string) error {
+		srv, err := transporthttp.NewMulti(transporthttp.Config{
+			Addr:          addr,
+			ConfigDir:     cfgDir,
+			Version:       AppVersion,
+			BuildDate:     BuildDate,
+			StaticAssets:  assets,
+			MobileAssets:  mobile.Assets(),
+			Repos:         supervisor.NewHTTPAdapter(a.sup),
+			MachineTarget: supervisor.NewMachineService(),
+			MCPHandler:    mcpserver.New(a.sup, AppVersion),
+			Present: &transporthttp.PresentConfig{
+				Secret: a.sup.Secret(),
+				ResolveCardJSON: func(repoID, cardID string) ([]byte, bool) {
+					rt, err := a.sup.Load(repoID)
+					if err != nil || rt == nil {
+						return nil, false
+					}
+					return rt.PresentCardJSON(cardID)
+				},
 			},
-		},
-	})
-	if err != nil {
-		slog.Warn("http transport: construct failed", "err", err)
-		return
+		})
+		if err != nil {
+			return err
+		}
+		if err := srv.Start(); err != nil {
+			return err
+		}
+		a.httpServer = srv
+		return nil
 	}
-	if err := srv.Start(); err != nil {
-		slog.Warn("http transport: start failed", "err", err)
-		return
+
+	addr := "127.0.0.1:0"
+	fixedPort := 0
+	if prefs, err := config.LoadUIPreferences(); err == nil && prefs.LocalServerPort > 0 && prefs.LocalServerPort <= 65535 {
+		fixedPort = prefs.LocalServerPort
+		addr = fmt.Sprintf("127.0.0.1:%d", fixedPort)
 	}
-	a.httpServer = srv
+	if err := start(addr); err != nil {
+		if fixedPort == 0 {
+			slog.Warn("http transport: start failed", "err", err)
+			return
+		}
+		slog.Warn("http transport: fixed port unavailable, falling back to ephemeral", "port", fixedPort, "err", err)
+		if err := start("127.0.0.1:0"); err != nil {
+			slog.Warn("http transport: start failed", "err", err)
+		}
+	}
 }
 
 // stopHTTPTransport shuts the HTTP server down. Safe to call when the

@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>BRUV Clipper — Options</title>
+    <style>
+      body { font: 14px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; background: #14141c; color: #e8e8f0; max-width: 34rem; margin: 2rem auto; padding: 0 1rem; }
+      h1 { font-size: 1.2rem; font-weight: 600; }
+      h2 { font-size: 0.95rem; font-weight: 600; margin-top: 1.6rem; }
+      label { display: block; margin: 0.8rem 0 0.25rem; opacity: 0.8; font-size: 0.85rem; }
+      input, select { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid #3a3a4c; background: #1d1d2b; color: inherit; box-sizing: border-box; }
+      button { margin-top: 1rem; padding: 8px 16px; border-radius: 6px; border: 1px solid #8b5cf6; background: #8b5cf6; color: #fff; cursor: pointer; font-weight: 500; }
+      button.secondary { background: transparent; color: #b7a8f0; }
+      button:disabled { opacity: 0.5; cursor: default; }
+      .status { margin-top: 1rem; padding: 10px 12px; border-radius: 6px; font-size: 0.85rem; display: none; }
+      .status.ok { display: block; background: #12251c; border: 1px solid #2c7a52; }
+      .status.err { display: block; background: #3b1220; border: 1px solid #ef4444; }
+      .paired { opacity: 0.75; font-size: 0.85rem; }
+      .picker { position: relative; }
+      .picker ul {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        right: 0;
+        z-index: 10;
+        list-style: none;
+        margin: 0;
+        padding: 4px;
+        max-height: 16rem;
+        overflow-y: auto;
+        background: #1d1d2b;
+        border: 1px solid #3a3a4c;
+        border-radius: 8px;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+      }
+      .picker li button {
+        display: block;
+        width: 100%;
+        margin: 0;
+        padding: 7px 9px;
+        text-align: left;
+        background: transparent;
+        border: none;
+        border-radius: 6px;
+        color: inherit;
+        font-weight: 400;
+        cursor: pointer;
+      }
+      .picker li button:hover,
+      .picker li button.active { background: #2c2c44; }
+      .picker li button.special { color: #b7a8f0; }
+    </style>
+  </head>
+  <body>
+    <h1 data-i18n="options_title"></h1>
+
+    <section id="pair-section">
+      <h2 data-i18n="options_pairing"></h2>
+      <div id="paired-info" class="paired" hidden></div>
+      <div id="pair-form">
+        <label for="server-url" data-i18n="options_server_url"></label>
+        <input id="server-url" type="url" placeholder="http://127.0.0.1:9870" />
+        <label for="bootstrap-token" data-i18n="options_bootstrap"></label>
+        <input id="bootstrap-token" type="password" autocomplete="off" />
+        <button id="pair-btn" data-i18n="options_pair"></button>
+      </div>
+      <button id="unpair-btn" class="secondary" hidden data-i18n="options_unpair"></button>
+    </section>
+
+    <section id="target-section" hidden>
+      <h2 data-i18n="options_targets"></h2>
+      <label for="repo-select" data-i18n="options_repo"></label>
+      <select id="repo-select"></select>
+      <label for="category-search" data-i18n="options_category"></label>
+      <div class="picker">
+        <input id="category-search" type="search" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="category-results" />
+        <ul id="category-results" role="listbox" hidden></ul>
+      </div>
+      <button id="save-btn" data-i18n="options_save"></button>
+    </section>
+
+    <div id="status" class="status"></div>
+    <script src="options.js"></script>
+  </body>
+</html>

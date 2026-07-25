@@ -29,6 +29,13 @@ export const SetActiveConnection = (...args: Parameters<ReturnType<typeof getBac
 export const SignAttachmentURL = (...args: Parameters<ReturnType<typeof getBackend>['SignAttachmentURL']>) => getBackend().SignAttachmentURL(...args)
 export const SignPresentURL = (...args: Parameters<ReturnType<typeof getBackend>['SignPresentURL']>) => getBackend().SignPresentURL(...args)
 
+// Live block state — transient runtime state (e.g. slide-deck position)
+export const SetBlockLiveState = (...args: Parameters<ReturnType<typeof getBackend>['SetBlockLiveState']>) => getBackend().SetBlockLiveState(...args)
+export const GetBlockLiveState = (...args: Parameters<ReturnType<typeof getBackend>['GetBlockLiveState']>) => getBackend().GetBlockLiveState(...args)
+
+// Deck mutations — atomic server-side slide append
+export const AppendDeckSlide = (...args: Parameters<ReturnType<typeof getBackend>['AppendDeckSlide']>) => getBackend().AppendDeckSlide(...args)
+
 // Per-connection repo selection
 export const SetActiveRepo = (...args: Parameters<ReturnType<typeof getBackend>['SetActiveRepo']>) => getBackend().SetActiveRepo(...args)
 

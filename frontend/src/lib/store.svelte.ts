@@ -1,5 +1,5 @@
 // Reactive app state using Svelte 5 module-level $state
-import { ListCategories, GetCard, ListCardIDsInCategory, GetProjectLabels, ListCardTypes, GetTagColors, ListAgentCardStates } from '@shared/api'
+import { ListCategories, GetCard, GetCardPins, ListCardIDsInCategory, GetProjectLabels, ListCardTypes, GetTagColors, ListAgentCardStates } from '@shared/api'
 import { onEvent } from './events'
 import type { Card, CardTypeInfo, ChecklistItem } from '@shared/types'
 
@@ -306,7 +306,13 @@ export function setupAgentEventListeners(): () => void {
   const unsub4 = onEvent<{ cardID?: string }>('card:updated', (data) => {
     if (data?.cardID) void refreshBoardCard(data.cardID)
   })
-  return () => { unsub1(); unsub2(); unsub3(); unsub4() }
+  // card:created runs through the same targeted path — its not-on-board
+  // fallback (pins lookup → conditional full reload) covers cards that
+  // arrive already pinned or get pinned moments later.
+  const unsub5 = onEvent<{ cardID?: string }>('card:created', (data) => {
+    if (data?.cardID) void refreshBoardCard(data.cardID)
+  })
+  return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5() }
 }
 
 // refreshBoardSilently reloads the active project's board without the
@@ -335,7 +341,22 @@ async function refreshBoardCard(cardID: string): Promise<void> {
       break
     }
   }
-  if (foundCategoryIdx < 0) return
+  if (foundCategoryIdx < 0) {
+    // Not on the current board — but it may have JUST been pinned onto it:
+    // external producers (web clipper, imports, promote) create the card
+    // first and pin moments later, and a targeted refresh can't see
+    // membership changes. One cheap pins lookup decides whether a full
+    // silent reload is warranted; a miss costs nothing.
+    try {
+      const pins = (await GetCardPins(cardID)) ?? []
+      if (pins.some((p) => board.categories.some((c) => c.id === p.category_id))) {
+        await refreshBoardSilently()
+      }
+    } catch {
+      // Freshness fallback only — the next full load catches up.
+    }
+    return
+  }
 
   let card: LegacyCard
   try {

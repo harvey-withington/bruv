@@ -74,6 +74,19 @@
         border-radius: 8px;
         box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
       }
+      .avatar {
+        width: 4.5rem;
+        height: 4.5rem;
+        border-radius: 50%;
+        object-fit: cover;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      }
+      .meta {
+        font-size: clamp(0.85rem, 1.4vw, 1.1rem);
+        opacity: 0.55;
+        margin: 0.35rem 0 0;
+        overflow-wrap: anywhere;
+      }
       .placeholder {
         font-size: 1.2rem;
         opacity: 0.5;
@@ -82,6 +95,95 @@
         border-radius: 8px;
       }
       .status { opacity: 0.5; font-size: 1rem; }
+      /* post-card layout — X dark-theme palette, mirrors SlideRenderer. */
+      .pc {
+        max-width: 42rem;
+        margin: 0 auto;
+        background: #000;
+        border: 1px solid #2f3336;
+        border-radius: 16px;
+        padding: 1.6rem 1.8rem;
+        text-align: left;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        color: #e7e9ea;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+      }
+      .pc-header { display: flex; align-items: center; gap: 0.75rem; }
+      .pc-avatar { width: 3rem; height: 3rem; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+      .pc-id { display: flex; flex-direction: column; min-width: 0; }
+      .pc-name { font-weight: 700; font-size: 1.05rem; overflow-wrap: anywhere; }
+      .pc-handle { color: #71767b; font-size: 0.95rem; overflow-wrap: anywhere; }
+      .pc-glyph { width: 1.6rem; height: 1.6rem; margin-left: auto; flex-shrink: 0; }
+      .pc-text {
+        font-size: clamp(1.1rem, 2.2vw, 1.8rem);
+        line-height: 1.4;
+        margin: 1rem 0 0;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .pc-media {
+        width: 100%;
+        max-height: 60vh;
+        object-fit: contain;
+        border-radius: 12px;
+        border: 1px solid #2f3336;
+        margin-top: 1rem;
+        background: #000;
+      }
+      .pc-footer { color: #71767b; font-size: 0.95rem; margin: 1rem 0 0; }
+
+      /* Console-driven video enlarge: overlay the video across the whole
+         tab (hiding the slide behind it). Deliberately in-page layout, not
+         the Fullscreen API — OBS captures the tab as-is. */
+      body.video-full video {
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
+        max-height: none;
+        object-fit: contain;
+        background: #000;
+        border: none;
+        border-radius: 0;
+        z-index: 15;
+      }
+      body.transparent.video-full video { background: transparent; }
+
+      #startgate {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        background: var(--slide-bg);
+        cursor: pointer;
+        z-index: 20;
+      }
+      #startgate[hidden] { display: none; }
+      .gate-title {
+        font-size: clamp(1.4rem, 3vw, 2.4rem);
+        font-weight: 300;
+        margin: 0;
+      }
+      .gate-sub {
+        font-size: clamp(0.95rem, 1.6vw, 1.25rem);
+        opacity: 0.6;
+        margin: 0.8rem 0 0;
+      }
+      #soundhint {
+        position: fixed;
+        bottom: 16px;
+        right: 16px;
+        padding: 6px 12px;
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.55);
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        font-size: 0.8rem;
+        opacity: 0.8;
+        display: none;
+        pointer-events: none;
+      }
 
       .anim-fadeIn { animation: fadeIn var(--anim-ms, 500ms) ease-out; }
       .anim-zoomIn { animation: zoomIn var(--anim-ms, 500ms) ease-out; }
@@ -98,6 +200,13 @@
   </head>
   <body>
     <div id="stage"><div class="frame"><p class="status">Loading…</p></div></div>
+    <div id="startgate" hidden>
+      <div>
+        <p class="gate-title">Ready to present</p>
+        <p class="gate-sub">Click anywhere to start with sound</p>
+      </div>
+    </div>
+    <div id="soundhint">Click anywhere for sound</div>
     <script>
       'use strict'
 
@@ -118,6 +227,7 @@
         image: { image: 'image', caption: 'text' },
         video: { video: 'video', caption: 'text' },
         lower_third: { name: 'text', subtitle: 'text' },
+        post: { author: 'text', handle: 'text', avatar: 'image', text: 'longtext', media: 'image', video: 'video', date: 'text', url: 'text', platform: 'text' },
       }
       const TEMPLATES = {
         clean: {
@@ -139,10 +249,17 @@
             video: [['video', 'media'], ['caption', 'caption']],
           },
         },
+        'x-post': {
+          entrance: 'slideInUp', durationMs: 500, layout: 'post-card',
+          fieldMap: {
+            post: [['avatar', 'avatar'], ['author', 'subheading'], ['handle', 'meta'], ['text', 'heading'], ['media', 'media'], ['video', 'media'], ['date', 'meta']],
+          },
+        },
       }
       const SUPPORTS = {
         title: ['clean'], statement: ['clean'], lower_third: ['clean'],
         quote: ['elegant-quote'], image: ['showcase'], video: ['showcase'],
+        post: ['x-post'],
       }
       function resolveTemplate(slide) {
         const own = slide.templateId && TEMPLATES[slide.templateId]
@@ -169,28 +286,92 @@
           case 'quote': return '<div class="quotemark">&ldquo;</div><blockquote class="title">' + v + '</blockquote>'
           case 'attribution': return '<p class="attribution">— ' + v + '</p>'
           case 'media': {
-            if (!/^(https?:|data:|blob:)/.test(value)) return '<div class="placeholder">' + v + '</div>'
-            if (type === 'video') return '<video class="media" src="' + v + '" autoplay muted loop playsinline></video>'
+            // Server-resolved attachment URLs are root-relative ("/repos/…"),
+            // same origin as this page — accept them alongside absolute URLs.
+            if (!/^(https?:|data:|blob:|\/)/.test(value)) return '<div class="placeholder">' + v + '</div>'
+            if (type === 'video') return '<video class="media" src="' + v + '" playsinline preload="auto"></video>'
             return '<img class="media" src="' + v + '" alt="">'
           }
+          case 'avatar': {
+            if (!/^(https?:|data:|blob:|\/)/.test(value)) return ''
+            return '<img class="avatar" src="' + v + '" alt="">'
+          }
+          case 'meta': return '<p class="meta">' + v + '</p>'
           default: return ''
         }
+      }
+
+      // Platform glyphs for the post-card layout, keyed by the generic
+      // `platform` field value. Additive per platform; unknown = no glyph.
+      const PLATFORM_GLYPH_PATHS = {
+        twitter: 'M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z',
+      }
+
+      function mediaTag(cls, type, value) {
+        if (!/^(https?:|data:|blob:|\/)/.test(value)) return ''
+        const v = esc(value)
+        if (type === 'video') return '<video class="' + cls + '" src="' + v + '" playsinline preload="auto"></video>'
+        return '<img class="' + cls + '" src="' + v + '" alt="">'
+      }
+
+      // post-card layout: header takes the FIRST avatar/subheading/meta,
+      // text roles form the body, later meta/attribution/caption items the
+      // footer. Mirrors SlideRenderer.svelte's partition.
+      function postCardHTML(slide, items) {
+        const first = (role) => items.find((it) => it.role === role)
+        const metas = items.filter((it) => it.role === 'meta')
+        const avatar = first('avatar')
+        const name = first('subheading')
+        const handle = metas[0]
+        const body = items.filter((it) => it.role === 'heading' || it.role === 'quote' || it.role === 'body')
+        const media = items.filter((it) => it.role === 'media')
+        const footer = metas.slice(1).concat(items.filter((it) => it.role === 'attribution' || it.role === 'caption'))
+        const glyph = PLATFORM_GLYPH_PATHS[(slide.values || {}).platform || '']
+
+        let html = '<div class="pc"><div class="pc-header">'
+        if (avatar) html += mediaTag('pc-avatar', 'image', avatar.value)
+        html += '<div class="pc-id">'
+        if (name) html += '<span class="pc-name">' + esc(name.value) + '</span>'
+        if (handle) html += '<span class="pc-handle">' + esc(handle.value) + '</span>'
+        html += '</div>'
+        if (glyph) html += '<svg class="pc-glyph" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="' + glyph + '"/></svg>'
+        html += '</div>'
+        for (const it of body) html += '<p class="pc-text">' + esc(it.value) + '</p>'
+        for (const it of media) html += mediaTag('pc-media', it.type, it.value)
+        for (const it of footer) html += '<p class="pc-footer">' + esc(it.value) + '</p>'
+        return html + '</div>'
       }
 
       function slideInnerHTML(slide, tpl) {
         const mappings = tpl.fieldMap[slide.contentTypeId] || []
         const fieldTypes = CONTENT_TYPES[slide.contentTypeId] || {}
         const values = slide.values || {}
-        let html = ''
+        const items = []
         for (const [field, role] of mappings) {
           const value = values[field]
           if (!value) continue
-          html += renderRole(role, fieldTypes[field] || 'text', value)
+          items.push({ role, type: fieldTypes[field] || 'text', value })
         }
+        if (tpl.layout === 'post-card') {
+          return items.length ? postCardHTML(slide, items) : '<p class="status">—</p>'
+        }
+        let html = ''
+        for (const it of items) html += renderRole(it.role, it.type, it.value)
         return html || '<p class="status">—</p>'
       }
 
+      // The change-detection key must IGNORE the volatile parts of signed
+      // attachment URLs: every poll re-mints them with a fresh exp/sig, and
+      // if they count as content the DOM rebuilds every 1.5s — re-firing the
+      // entrance animation and restarting <video> before it can play.
+      function stableValues(values) {
+        const out = {}
+        for (const k in values) out[k] = String(values[k]).replace(/[?&](exp|sig)=[^&]*/g, '')
+        return out
+      }
+
       let lastKey = null
+      let lastDeck = null
       function render(deck) {
         if (!deck || !Array.isArray(deck.slides) || deck.slides.length === 0) {
           if (lastKey !== 'empty') { lastKey = 'empty'; renderStatus('No slides') }
@@ -199,7 +380,7 @@
         let idx = deck.currentIndex | 0
         if (idx < 0 || idx >= deck.slides.length) idx = 0
         const slide = deck.slides[idx]
-        const key = [idx, slide.id, slide.contentTypeId, slide.templateId, JSON.stringify(slide.values || {})].join('')
+        const key = [idx, slide.id, slide.contentTypeId, slide.templateId, JSON.stringify(stableValues(slide.values || {}))].join('')
         if (key === lastKey) return
         lastKey = key
 
@@ -213,6 +394,151 @@
         const tpl = resolveTemplate(slide)
         stage.innerHTML = '<div class="frame anim-' + tpl.entrance + '" style="--anim-ms:' + tpl.durationMs + 'ms">' +
           slideInnerHTML(slide, tpl) + '</div>'
+        fitFrame()
+      }
+
+      // Auto-fit: long posts overflow the viewport at the clamp() sizes, so
+      // after each render shrink the text elements step-wise until the frame
+      // fits the stage (14px floor — beyond that, overflow beats illegible).
+      // Deliberate default, not a knob: slides size themselves.
+      function fitFrame() {
+        const frame = stage.querySelector('.frame')
+        if (!frame) return
+        const els = frame.querySelectorAll('.title, .subtitle, .body, .attribution, .meta, .pc-text')
+        if (!els.length) return
+        let guard = 30
+        while (frame.scrollHeight > stage.clientHeight && guard-- > 0) {
+          let shrunk = false
+          for (const el of els) {
+            const px = parseFloat(getComputedStyle(el).fontSize)
+            if (px > 14) { el.style.fontSize = (px * 0.92) + 'px'; shrunk = true }
+          }
+          if (!shrunk) break
+        }
+      }
+      window.addEventListener('resize', () => { lastKey = null })
+
+      // Video playback is COMMAND-driven, never automatic: a slide's video
+      // sits on its first frame until the presenter fires the console's play
+      // button, which bumps videoSeq (+ videoAction play|pause) in the
+      // deck's live state. Sound: try unmuted (OBS Browser Sources don't
+      // enforce gesture policies, so streams just get audio); if the browser
+      // blocks it, fall back to muted + a hint, and unmute on first gesture.
+      const soundHint = document.getElementById('soundhint')
+      let userInteracted = false
+      let lastVideoSeq = null
+      function syncVideoCommand(deck) {
+        const seq = deck.videoSeq
+        if (typeof seq !== 'number' || seq === lastVideoSeq) return
+        lastVideoSeq = seq
+        const v = stage.querySelector('video')
+        if (!v) return
+        if (deck.videoAction === 'pause') { v.pause(); return }
+        if (v.ended) v.currentTime = 0
+        v.muted = false
+        const p = v.play()
+        if (p && p.catch) p.catch(() => {
+          v.muted = true
+          v.play().catch(() => {})
+          if (!userInteracted) soundHint.style.display = 'block'
+        })
+      }
+      function unlockAudio() {
+        userInteracted = true
+        soundHint.style.display = 'none'
+        for (const v of stage.querySelectorAll('video')) {
+          if (v.muted && !v.paused) {
+            v.muted = false
+          }
+        }
+        dismissGate()
+      }
+      document.addEventListener('pointerdown', unlockAudio, { capture: true })
+      document.addEventListener('keydown', unlockAudio, { capture: true })
+
+      // --- Pre-flight sound gate ---
+      // A presenter shouldn't discover mid-show that the browser muted their
+      // videos. On the FIRST deck payload: if the deck contains video and
+      // unmuted playback is blocked, hold on a start gate — the click both
+      // grants the audio permission and starts the show. Skipped when audio
+      // is already allowed (OBS Browser Sources, previously-interacted tab),
+      // when the deck has no video, and in ?bg=transparent overlay mode
+      // (an OBS overlay can't be clicked).
+      const startGate = document.getElementById('startgate')
+      let gateChecked = false
+      let gateActive = false
+
+      // Probe the REAL autoplay policy by attempting unmuted playback of the
+      // deck's actual first video, invisible and immediately discarded. A
+      // synthetic silent clip is not enough: zero-length media resolves
+      // play() without consulting the policy at all (Brave passed the probe
+      // while blocking real videos). Only NotAllowedError means "sound
+      // blocked" — decode/network errors say nothing about permission, and
+      // a stalled probe fails open (worst case = the old corner hint).
+      function detectAudioAllowed(src) {
+        return new Promise((resolve) => {
+          let settled = false
+          const v = document.createElement('video')
+          const done = (ok) => {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
+            v.pause()
+            v.removeAttribute('src')
+            v.remove()
+            resolve(ok)
+          }
+          const timer = setTimeout(() => done(true), 4000)
+          try {
+            v.src = src
+            v.muted = false
+            v.playsInline = true
+            v.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none'
+            document.body.appendChild(v)
+            const p = v.play()
+            if (!p || !p.then) { done(true); return }
+            p.then(() => done(true)).catch((err) => done(!(err && err.name === 'NotAllowedError')))
+          } catch (e) {
+            done(true)
+          }
+        })
+      }
+
+      function firstVideoUrl(deck) {
+        for (const slide of deck.slides || []) {
+          const fieldTypes = CONTENT_TYPES[slide.contentTypeId] || {}
+          const values = slide.values || {}
+          for (const key in fieldTypes) {
+            if (fieldTypes[key] === 'video' && values[key] && /^(https?:|data:|blob:|\/)/.test(values[key])) {
+              return values[key]
+            }
+          }
+        }
+        return null
+      }
+
+      async function maybeGate(deck) {
+        if (gateChecked) return gateActive
+        gateChecked = true
+        if (q.get('bg') === 'transparent' || userInteracted) return false
+        const src = firstVideoUrl(deck)
+        if (!src) return false
+        const allowed = await detectAudioAllowed(src)
+        if (allowed || userInteracted) return false
+        gateActive = true
+        startGate.hidden = false
+        return true
+      }
+
+      function dismissGate() {
+        if (!gateActive) return
+        gateActive = false
+        startGate.hidden = true
+        if (lastDeck) {
+          render(lastDeck)
+          syncVideoCommand(lastDeck)
+          document.body.classList.toggle('video-full', lastDeck.videoFull === true && !!stage.querySelector('video'))
+        }
       }
 
       function findDeck(card) {
@@ -229,7 +555,15 @@
             '?exp=' + encodeURIComponent(exp) + '&sig=' + encodeURIComponent(sig)
           const res = await fetch(url, { cache: 'no-store' })
           if (!res.ok) { renderStatus(res.status === 401 ? 'Link expired' : 'Unavailable (' + res.status + ')'); return }
-          render(findDeck(await res.json()))
+          const deck = findDeck(await res.json())
+          lastDeck = deck
+          if (deck && (await maybeGate(deck))) return
+          if (gateActive) return
+          render(deck)
+          if (deck) {
+            syncVideoCommand(deck)
+            document.body.classList.toggle('video-full', deck.videoFull === true && !!stage.querySelector('video'))
+          }
         } catch (e) {
           // Transient network error — keep the current slide, retry.
         }

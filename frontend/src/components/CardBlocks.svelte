@@ -69,7 +69,7 @@
       case 'number': case 'rating': case 'progress': return 0
       case 'checkbox': return false
       case 'divider': return null
-      case 'slide_deck': return { slides: [], currentIndex: 0 }
+      case 'slide_deck': return { slides: [] }
       default: return ''
     }
   }
@@ -416,7 +416,7 @@
     else if (blockType === 'progress') value = 0
     else if (blockType === 'alarm') { value = null; meta = { alarm_channels: 'in-app,system' } }
     else if (blockType === 'survey') value = []
-    else if (blockType === 'slide_deck') value = { slides: [], currentIndex: 0 }
+    else if (blockType === 'slide_deck') value = { slides: [] }
 
     // User-added blocks have no schema key — `key` identifies a card-type
     // field, and a freeform block isn't one. A derived key would collide

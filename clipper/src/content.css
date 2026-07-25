@@ -1,0 +1,22 @@
+/* In-page toast for clip feedback. Fixed viewport position, max z-index,
+   deliberately self-contained (host pages must not restyle it). */
+.bruv-clip-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483647;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font: 500 13px/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: #fff;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  animation: bruv-toast-in 160ms ease-out;
+  pointer-events: none;
+}
+.bruv-clip-toast.bruv-ok { background: #1d1d2b; border: 1px solid #8b5cf6; }
+.bruv-clip-toast.bruv-err { background: #3b1220; border: 1px solid #ef4444; }
+@keyframes bruv-toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}

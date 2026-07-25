@@ -74,8 +74,8 @@ func TestCoerceSlideDeck_FullObject(t *testing.T) {
 	if slides[1]["durationSec"] != 8 {
 		t.Errorf("slide 1 duration wrong: %v", slides[1])
 	}
-	if deck["currentIndex"] != 1 {
-		t.Errorf("currentIndex = %v, want 1", deck["currentIndex"])
+	if _, present := deck["currentIndex"]; present {
+		t.Errorf("currentIndex should be dropped (live state owns it), got %v", deck["currentIndex"])
 	}
 }
 
@@ -117,13 +117,13 @@ func TestCoerceSlideDeck_BareStrings(t *testing.T) {
 	}
 }
 
-func TestCoerceSlideDeck_ClampsCurrentIndex(t *testing.T) {
+func TestCoerceSlideDeck_DropsCurrentIndex(t *testing.T) {
 	deck := coerceBlockValue(model.BlockSlideDeck, map[string]any{
 		"slides":       []any{map[string]any{"values": map[string]any{"title": "only"}}},
 		"currentIndex": float64(9),
 	}).(map[string]any)
-	if deck["currentIndex"] != 0 {
-		t.Errorf("out-of-range currentIndex should clamp to 0, got %v", deck["currentIndex"])
+	if _, present := deck["currentIndex"]; present {
+		t.Errorf("currentIndex should be dropped (live state owns it), got %v", deck["currentIndex"])
 	}
 }
 

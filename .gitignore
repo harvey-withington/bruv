@@ -4,6 +4,7 @@ build/windows/icon.ico
 build/windows/installer/wails_tools.nsh
 node_modules
 frontend/dist
+clipper/dist
 frontend/wailsjs
 frontend/public/bruv-icon.svg
 frontend/public/bruv-icon.png

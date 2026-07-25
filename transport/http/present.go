@@ -12,9 +12,11 @@ package http
 //	    Authorization header, so the signature IS the auth (same approach as
 //	    signed attachment URLs). Long expiry vs. the attachments' ~5 min.
 //
-// Live control rides the existing data path: the presenter console bumps the
-// deck's currentIndex via UpdateCardBlocks; the page picks the change up by
-// polling this endpoint. (An SSE upgrade is a tracked follow-up.)
+// Live control rides the existing data path: the presenter console sets the
+// deck's position via SetBlockLiveState (in-memory block live state — never
+// persisted), PresentCardJSON overlays it onto the resolved card, and the
+// page picks the change up by polling this endpoint. (An SSE upgrade is a
+// tracked follow-up.)
 
 import (
 	"crypto/hmac"

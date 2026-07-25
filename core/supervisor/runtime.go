@@ -82,6 +82,13 @@ type Runtime struct {
 	// string so logActivity can attribute edits correctly.
 	llmActors sync.Map
 
+	// liveState holds transient per-block runtime state (e.g. a slide
+	// deck's live presentation position), keyed "cardID/blockID".
+	// In-memory only — never persisted, lost on restart by design.
+	// See livestate.go.
+	liveStateMu sync.RWMutex
+	liveState   map[string]map[string]any
+
 	// Services — exposed via reflection to the HTTP /rpc dispatcher.
 	Search     *search.Service
 	Notify     *notify.Service

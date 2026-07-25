@@ -52,6 +52,7 @@ const mockUIPreferences = (): UIPreferences => ({
   inbox_activity_limit: 25,
   sidebar_collapse_default: false,
   llm_nudge_shown: false,
+  local_server_port: 0,
 })
 
 /**
@@ -115,6 +116,9 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
 
     SignAttachmentURL: async (cardID: string, attachmentID: string) => `mock://${cardID}/${attachmentID}`,
     SignPresentURL: async (cardID: string) => `mock://present/${cardID}`,
+    SetBlockLiveState: async () => {},
+    GetBlockLiveState: async () => null,
+    AppendDeckSlide: async () => mockCard(),
     SetActiveRepo: async () => {},
 
     subscribe: (_cb: EventCallback) => {},

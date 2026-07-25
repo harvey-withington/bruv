@@ -438,8 +438,9 @@
           />
         {:else if block.type === 'slide_deck'}
           <SlideDeckBlock
-            value={block.value && typeof block.value === 'object' && !Array.isArray(block.value) && 'slides' in block.value ? (block.value as SlideDeckValue) : { slides: [], currentIndex: 0 }}
+            value={block.value && typeof block.value === 'object' && !Array.isArray(block.value) && 'slides' in block.value ? (block.value as SlideDeckValue) : { slides: [] }}
             cardId={cardId}
+            blockId={block.id}
             onUpdate={(val) => commitBlock(block, val)}
           />
 

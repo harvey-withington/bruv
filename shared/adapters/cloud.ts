@@ -483,6 +483,7 @@ function defaultUIPreferences(): UIPreferences {
     inbox_activity_limit: 25,
     sidebar_collapse_default: false,
     llm_nudge_shown: false,
+    local_server_port: 0,
   }
 }
 

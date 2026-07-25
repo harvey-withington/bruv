@@ -333,6 +333,7 @@ var slideContentTypeFields = map[string][]string{
 	"image":       {"image", "caption"},
 	"video":       {"video", "caption"},
 	"lower_third": {"name", "subtitle"},
+	"post":        {"author", "handle", "avatar", "text", "media", "video", "date", "url", "platform"},
 }
 
 func sliceContains(ss []string, s string) bool {
@@ -345,17 +346,17 @@ func sliceContains(ss []string, s string) bool {
 }
 
 // coerceSlideDeck normalises an AI/MCP-authored slide_deck value into the
-// {slides:[{id,contentTypeId,values,...}], currentIndex} shape the frontend
-// expects. Accepts the full object, a bare array of slides, or bare strings
-// (each becomes a title slide), and stamps a stable id on any slide missing one.
+// {slides:[{id,contentTypeId,values,...}]} shape the frontend expects.
+// Accepts the full object, a bare array of slides, or bare strings (each
+// becomes a title slide), and stamps a stable id on any slide missing one.
+// A supplied currentIndex is dropped: live presentation position is block
+// live state (SetBlockLiveState), not persisted card content.
 func coerceSlideDeck(val any) map[string]any {
 	var rawSlides []any
-	currentIndex := 0
 	var theme any
 	switch v := val.(type) {
 	case map[string]any:
 		rawSlides, _ = v["slides"].([]any)
-		currentIndex = int(coerceNumber(v["currentIndex"]))
 		theme = v["theme"]
 	case []any:
 		rawSlides = v
@@ -373,10 +374,7 @@ func coerceSlideDeck(val any) map[string]any {
 		}
 		slides = append(slides, coerceSlide(m))
 	}
-	if currentIndex < 0 || currentIndex >= len(slides) {
-		currentIndex = 0
-	}
-	out := map[string]any{"slides": slides, "currentIndex": currentIndex}
+	out := map[string]any{"slides": slides}
 	if t, ok := theme.(map[string]any); ok {
 		out["theme"] = t
 	}
@@ -413,7 +411,7 @@ func coerceSlide(m map[string]any) map[string]any {
 		"contentTypeId": contentTypeID,
 		"values":        values,
 	}
-	for _, k := range []string{"templateId", "cardId", "notes", "thumbnail"} {
+	for _, k := range []string{"templateId", "cardId", "title", "notes", "thumbnail"} {
 		if s, ok := m[k].(string); ok && strings.TrimSpace(s) != "" {
 			slide[k] = s
 		}

@@ -34,6 +34,7 @@
     inbox_recent_cards_limit: 21,
     inbox_activity_limit: 25,
     sidebar_collapse_default: false,
+    local_server_port: 0,
   })
 
   // --- AI / LLM ---
@@ -107,6 +108,7 @@
         prefs.inbox_recent_cards_limit = ui.inbox_recent_cards_limit || 21
         prefs.inbox_activity_limit = ui.inbox_activity_limit || 25
         prefs.sidebar_collapse_default = ui.sidebar_collapse_default ?? false
+        prefs.local_server_port = ui.local_server_port || 0
       }
       if (c) {
         llm.context = c.context || ''
@@ -203,6 +205,7 @@
     { tab: 'general', key: 'default_category_name', label: 'default category name' },
     { tab: 'general', key: 'inbox_recent_cards_limit', label: 'inbox recently updated card limit' },
     { tab: 'general', key: 'sidebar_collapse_default', label: 'sidebar collapsed collapse tree startup' },
+    { tab: 'general', key: 'local_server_port', label: 'local server port fixed stable clipper pairing' },
     { tab: 'ai', key: 'accounts', label: 'ai accounts provider openai anthropic ollama api key model' },
     { tab: 'ai', key: 'ai_mode', label: 'ai mode chat edit card fields' },
     { tab: 'ai', key: 'min_confidence', label: 'minimum confidence ai suggestion pin threshold' },
@@ -406,6 +409,20 @@
             <label class="field toggle-field">
               <span class="field-label">{t('prefs.sidebar_collapse_default')}</span>
               <input type="checkbox" bind:checked={prefs.sidebar_collapse_default} />
+            </label>
+          {/if}
+
+          {#if fieldVisible('local_server_port')}
+            <label class="field">
+              <span class="field-label">{t('prefs.local_server_port')}</span>
+              <input
+                type="number"
+                min="0"
+                max="65535"
+                bind:value={prefs.local_server_port}
+                class="text-input number-input"
+              />
+              <span class="field-hint">{t('prefs.local_server_port_hint')}</span>
             </label>
           {/if}
         {/if}

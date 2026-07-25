@@ -102,9 +102,14 @@
     return all.find((a) => a.id === attID)?.name ?? ref
   }
 
-  // Sign preview URLs for any attachment refs in the current values.
+  // Sign preview URLs for any attachment refs in the current values — AND
+  // for refs arriving through bindings (a bound media block's value can be
+  // an attachment ref; clipper-built cards bind everything).
   $effect(() => {
-    const refs = Object.values(values).filter((v) => v.startsWith('attachment:') && !(v in signedRefUrls))
+    const boundRefs = Object.keys(bindings)
+      .map((k) => resolveField(previewSlide, k) ?? '')
+    const refs = [...Object.values(values), ...boundRefs]
+      .filter((v) => v.startsWith('attachment:') && !(v in signedRefUrls))
     for (const ref of refs) {
       const rest = ref.slice('attachment:'.length)
       const slash = rest.indexOf('/')

@@ -51,6 +51,25 @@ export const SLIDE_CONTENT_TYPES: SlideContentType[] = [
       { key: 'subtitle', label: 'Subtitle', type: 'text' },
     ],
   },
+  {
+    // Generic social post — deliberately NOT platform-specific (a tweet's
+    // fields are any post's fields; Reddit/Mastodon/Bluesky fill the same
+    // schema). The platform look lives in per-platform TEMPLATES; `platform`
+    // and `url` are data fields most templates won't render.
+    id: 'post',
+    name: 'Social Post',
+    fields: [
+      { key: 'author', label: 'Author', type: 'text' },
+      { key: 'handle', label: 'Handle', type: 'text' },
+      { key: 'avatar', label: 'Avatar', type: 'image' },
+      { key: 'text', label: 'Text', type: 'longtext' },
+      { key: 'media', label: 'Media', type: 'image' },
+      { key: 'video', label: 'Video', type: 'video' },
+      { key: 'date', label: 'Date', type: 'text' },
+      { key: 'url', label: 'Link', type: 'text' },
+      { key: 'platform', label: 'Platform', type: 'text' },
+    ],
+  },
 ]
 
 export const DEFAULT_CONTENT_TYPE_ID = 'title'

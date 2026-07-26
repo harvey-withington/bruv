@@ -225,6 +225,23 @@ h2 { font-size: clamp(1.8rem, 4vw, 2.8rem); font-weight: 800; }
 }
 .platform-note { text-align: center; color: var(--text-faint); margin-top: 28px; font-size: 0.95rem; }
 
+/* ---------- promote path ---------- */
+.grow-flow {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr;
+  gap: 16px; align-items: stretch;
+}
+.grow-step { padding: 26px 22px; }
+.grow-arrow {
+  width: 26px; height: 26px; align-self: center; flex-shrink: 0;
+  fill: none; stroke: url(#ng);
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+}
+@media (max-width: 900px) {
+  .grow-flow { grid-template-columns: 1fr; }
+  .grow-arrow { transform: rotate(90deg); justify-self: center; }
+}
+
 /* ---------- agents spotlight ---------- */
 .spotlight {
   background:
@@ -251,6 +268,118 @@ h2 { font-size: clamp(1.8rem, 4vw, 2.8rem); font-weight: 800; }
 }
 
 .spotlight-art { display: flex; justify-content: center; }
+
+/* ---------- present spotlight ---------- */
+/* Mirrored rhythm: art left / copy right on wide screens (DOM keeps copy
+   first so narrow viewports stack copy → art like the agents section). */
+.spotlight-present {
+  background:
+    radial-gradient(800px 400px at 20% 20%, rgba(139, 92, 246, 0.12), transparent 60%),
+    linear-gradient(180deg, rgba(45, 212, 191, 0.05), transparent);
+  border-top: 0;
+}
+@media (min-width: 921px) {
+  .spotlight-grid.flip .spotlight-copy { order: 2; }
+  .spotlight-grid.flip .spotlight-art { order: 1; }
+}
+
+.pill-sm {
+  padding: 3px 11px; font-size: 0.72rem; margin-left: 10px;
+  vertical-align: text-bottom;
+}
+.pill-sm .dot { width: 6px; height: 6px; }
+.soon-note { color: var(--text-faint); font-size: 0.9rem; margin: 22px 0 0; }
+
+/* Stylised deck-block illustration (deliberately abstract — not a fake
+   screenshot): a LIVE stage rendering a social-post slide, with the deck
+   block's transport console beneath it. */
+.deck-mock { width: min(460px, 100%); display: grid; gap: 14px; }
+.deck-stage {
+  position: relative; aspect-ratio: 16 / 9; border-radius: var(--radius);
+  background: linear-gradient(160deg, #101018, #0a0a12 70%);
+  border: 1px solid var(--border-bright);
+  box-shadow: var(--glow);
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+.deck-live {
+  position: absolute; top: 12px; right: 12px;
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.62rem; font-weight: 800; letter-spacing: 0.12em;
+  color: var(--text); background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--border); border-radius: 999px; padding: 3px 9px;
+}
+.deck-live-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: #f87171;
+  box-shadow: 0 0 8px rgba(248, 113, 113, 0.9);
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+@keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.deck-slide {
+  width: 72%; border-radius: 12px; padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid var(--border);
+  display: grid; gap: 8px;
+}
+.post-head { display: flex; align-items: center; gap: 10px; margin-bottom: 2px; }
+.post-avatar {
+  width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
+  background: var(--grad);
+}
+.post-id { display: grid; gap: 4px; flex: 1; }
+.post-line {
+  display: block; height: 7px; border-radius: 4px;
+  background: rgba(255, 255, 255, 0.14);
+}
+.post-name { width: 34%; background: rgba(255, 255, 255, 0.24); }
+.post-handle { width: 22%; background: rgba(255, 255, 255, 0.1); }
+.w-92 { width: 92%; }
+.w-78 { width: 78%; }
+.w-45 { width: 45%; }
+.post-media {
+  margin-top: 4px; aspect-ratio: 16 / 7; border-radius: 8px;
+  background:
+    radial-gradient(120px 60px at 30% 30%, rgba(139, 92, 246, 0.35), transparent 70%),
+    radial-gradient(140px 70px at 75% 70%, rgba(45, 212, 191, 0.28), transparent 70%),
+    rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+}
+.post-play {
+  width: 0; height: 0; margin-left: 3px;
+  border-style: solid; border-width: 8px 0 8px 13px;
+  border-color: transparent transparent transparent rgba(236, 235, 245, 0.85);
+  filter: drop-shadow(0 0 8px rgba(167, 139, 250, 0.6));
+}
+.deck-console {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 9px 14px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--border);
+  width: fit-content; margin: 0 auto;
+}
+.deck-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 8px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  color: var(--text-muted); font-size: 0.75rem; line-height: 1;
+}
+.deck-count { font-size: 0.78rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.deck-sep { width: 1px; height: 18px; background: var(--border); }
+.deck-present {
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
+  color: var(--text); border-radius: 999px; padding: 4px 12px;
+  border: 1px solid var(--border-bright);
+  background: linear-gradient(110deg, rgba(167, 139, 250, 0.25), rgba(99, 102, 241, 0.25), rgba(45, 212, 191, 0.25), rgba(167, 139, 250, 0.25));
+  background-size: 220% 100%;
+  animation: present-shimmer 2.8s linear infinite;
+}
+@keyframes present-shimmer {
+  from { background-position: 0% 0; }
+  to { background-position: 220% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .deck-live-dot, .deck-present { animation: none; }
+}
 
 /* ---------- final cta ---------- */
 .cta-final {

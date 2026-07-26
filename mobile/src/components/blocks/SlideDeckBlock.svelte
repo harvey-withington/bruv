@@ -7,27 +7,48 @@
   import { t } from '../../lib/i18n.svelte'
   import type { Block, Slide } from '@shared/types'
   import { resolveContentType } from '@shared/slideContentTypes'
+  import { slideDisplayLabel } from '@shared/slideLabel'
+  import { repoRPC } from '../../lib/auth'
+  import { onEvent } from '../../lib/events.svelte'
   import { asSlideDeck } from './narrow'
 
   let { block }: { block: Block } = $props()
 
   const deck = $derived(asSlideDeck(block.value))
 
-  // Display title first (clipped slides carry their card's title — content
-  // fields are bindings, invisible to a values scan), else first non-empty
-  // field value, else the content-type name. `platform` is never a label.
-  function slideLabel(slide: Slide): string {
-    if (slide.title?.trim()) return slide.title.trim()
-    const ct = resolveContentType(slide.contentTypeId)
-    if (ct) {
-      for (const f of ct.fields) {
-        if (f.key === 'platform') continue
-        const v = slide.values?.[f.key]
-        if (v && v.trim()) return v.trim()
+  // Row labels follow the linked card's LIVE title unless the slide carries
+  // an explicit title override (shared/slideLabel.ts owns the priority
+  // order). Fetched once per linked card, refreshed on card:updated.
+  let linkedTitles = $state<Record<string, string>>({})
+  const requestedTitleIds = new Set<string>()
+  function loadLinkedTitle(id: string): void {
+    // A failed load (e.g. deleted linked card) leaves the label on its
+    // value/content-type fallback — nothing to surface.
+    repoRPC<{ title?: string }>('GetCard', [id])
+      .then((c) => {
+        if (c?.title) linkedTitles[id] = c.title
+      })
+      .catch(() => {})
+  }
+  $effect(() => {
+    for (const s of deck.slides) {
+      if (s.cardId && !requestedTitleIds.has(s.cardId)) {
+        requestedTitleIds.add(s.cardId)
+        loadLinkedTitle(s.cardId)
       }
-      return t('slide.ct.' + slide.contentTypeId)
     }
-    return t('slide.untitled')
+  })
+  $effect(() => {
+    return onEvent((ev) => {
+      const cardID = typeof ev.payload.cardID === 'string' ? ev.payload.cardID : undefined
+      if (ev.topic === 'card:updated' && cardID && requestedTitleIds.has(cardID)) loadLinkedTitle(cardID)
+    })
+  })
+
+  function slideLabel(slide: Slide): string {
+    const label = slideDisplayLabel(slide, slide.cardId ? linkedTitles[slide.cardId] : undefined)
+    if (label) return label
+    return resolveContentType(slide.contentTypeId) ? t('slide.ct.' + slide.contentTypeId) : t('slide.untitled')
   }
 
   function contentTypeName(slide: Slide): string {

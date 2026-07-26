@@ -197,9 +197,9 @@ export type Slide = {
   cardId?: string                      // optional linked card, for field bindings
   values: Record<string, string>       // field key → literal value
   bindings?: Record<string, string>    // field key → card block id (resolved live)
-  title?: string                       // display label for row lists (never rendered on the slide);
-                                       // needed when all content fields are bindings, e.g. clipped
-                                       // slides carry their card's title here
+  title?: string                       // manual display-label override for row lists (never rendered
+                                       // on the slide); when absent, labels follow the linked card's
+                                       // live title — see shared/slideLabel.ts
   durationSec?: number                 // 0 / undefined = manual advance
   notes?: string                       // presenter notes — control surface only
   thumbnail?: string                   // small data-URI preview for the compact row

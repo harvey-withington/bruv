@@ -253,13 +253,12 @@ export async function executeJob(s: ClipperSettings, job: ClipJob): Promise<Clip
     // Every captured field binds LIVE to the card's blocks — the card is
     // the source of truth and edits propagate to the slide. `platform` is
     // the only literal (it has no block; it's routing data, not content).
+    // No `title`: the deck row label follows the linked card's live title;
+    // stamping the clip-time title here would freeze it against renames.
     const slide: Record<string, unknown> = {
       contentTypeId: 'post',
       templateId: job.clip.extras.templateId || undefined,
       cardId: cardID,
-      // Row-list display label — the content fields are all bindings, which
-      // a values scan can't see.
-      title: cardTitle(clip),
       values: { platform: clip.platform },
       bindings,
     }

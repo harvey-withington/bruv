@@ -99,6 +99,22 @@
         <path d="M3 12A9 9 0 0 1 18.5 5.8L21 8" />
         <path d="M21 4v4h-4M3 20v-4h4" />
       </symbol>
+      <symbol id="i-bulb" viewBox="0 0 24 24">
+        <path d="M15 14.5c.2-1 .7-1.8 1.5-2.6a6 6 0 1 0-9 0c.8.8 1.3 1.6 1.5 2.6" />
+        <!-- One path for both bars: a lone horizontal line has a zero-height
+             bbox and the objectBoundingBox gradient stroke vanishes on it. -->
+        <path d="M9.5 18h5M10.5 21.5h3" />
+      </symbol>
+      <symbol id="i-card" viewBox="0 0 24 24">
+        <rect x="3.5" y="5" width="17" height="14" rx="2.5" />
+        <path d="M7 9.5h7M7 12.5h10M7 15.5h5" />
+      </symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24">
+        <path d="M3.5 7.5A1.5 1.5 0 0 1 5 6h4l2 2.5h8a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 19 19.5H5A1.5 1.5 0 0 1 3.5 18ZM3.5 11h17" />
+      </symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24">
+        <path d="M4 12h16m-6-6 6 6-6 6" />
+      </symbol>
       <symbol id="i-lock" viewBox="0 0 24 24">
         <rect x="5" y="10.5" width="14" height="10" rx="2" />
         <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
@@ -128,6 +144,7 @@
     <nav class="nav-links">
       <a href="#features">Features</a>
       <a href="#agents">Agents</a>
+      <a href="#present">Present</a>
       <a href="#platforms">Platforms</a>
       <a class="nav-cta" href="https://github.com/harvey-withington/bruv"><svg class="gh-ico" aria-hidden="true">
           <use href="#i-github" />
@@ -286,6 +303,55 @@
       </div>
     </section>
 
+    <!-- ───────────────── Promote path ───────────────── -->
+    <section id="grow" class="section">
+      <div class="section-head reveal">
+        <span class="eyebrow">The promote path</span>
+        <h2>Start small. <span class="grad">Grow legs.</span></h2>
+        <p>Every big thing starts as a whisper in your AI's ear. BRUV gives it a growth path —
+          promote as it earns structure, no re-filing, no starting over.</p>
+      </div>
+      <div class="grow-flow reveal">
+        <article class="card grow-step">
+          <svg class="ico">
+            <use href="#i-bulb" />
+          </svg>
+          <h3>Idea</h3>
+          <p>One line in the inbox — typed, shared from your phone, or whispered to the AI.</p>
+        </article>
+        <svg class="grow-arrow" aria-hidden="true">
+          <use href="#i-arrow" />
+        </svg>
+        <article class="card grow-step">
+          <svg class="ico">
+            <use href="#i-card" />
+          </svg>
+          <h3>Card</h3>
+          <p>It takes shape: typed blocks, tags, due dates, media — even an agent of its own.</p>
+        </article>
+        <svg class="grow-arrow" aria-hidden="true">
+          <use href="#i-arrow" />
+        </svg>
+        <article class="card grow-step">
+          <svg class="ico">
+            <use href="#i-layers" />
+          </svg>
+          <h3>Project</h3>
+          <p>Outgrown one card? Promote it — a project with its own board, back-linked to where it began.</p>
+        </article>
+        <svg class="grow-arrow" aria-hidden="true">
+          <use href="#i-arrow" />
+        </svg>
+        <article class="card grow-step">
+          <svg class="ico">
+            <use href="#i-folder" />
+          </svg>
+          <h3>Workspace</h3>
+          <p>Expand as it grows legs: real folders and files on disk, wired to the board.</p>
+        </article>
+      </div>
+    </section>
+
     <!-- ───────────────── Agents spotlight ───────────────── -->
     <section id="agents" class="section spotlight">
       <div class="spotlight-grid">
@@ -310,6 +376,59 @@
               alt="The Agents dashboard — fleet status, run history, daily runs, token usage and cost by model."
               width="2089" height="1305" loading="lazy" decoding="async" />
           </figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────────── Present spotlight ───────────────── -->
+    <section id="present" class="section spotlight spotlight-present">
+      <div class="spotlight-grid flip">
+        <div class="spotlight-copy reveal">
+          <span class="eyebrow">Slide decks &amp; presenting</span>
+          <span class="pill pill-sm"><span class="dot"></span>Coming soon</span>
+          <h2>Clip it, deck it, <span class="grad">put it on air.</span></h2>
+          <p>
+            A slide deck is just another block on a card — and a full broadcast pipeline.
+            Clip posts straight from the web into slides, bind them to live card content,
+            and present to any screen, including straight into OBS.
+          </p>
+          <ul class="ticks">
+            <li>One-click web clipper: a post becomes a card, its media, and a ready-made slide</li>
+            <li>Slides bind to card content — edit the card and the deck updates itself</li>
+            <li>Templated slides: titles, quotes, lower thirds, social posts</li>
+            <li>Present via a signed link — no login on the output, OBS-ready with a transparent overlay mode</li>
+            <li>Drive it live from the board: navigate, fire videos, go fullscreen — every open output follows</li>
+          </ul>
+          <p class="soon-note">In testing now — lands in the next alpha release.</p>
+        </div>
+        <div class="spotlight-art reveal">
+          <!-- Stylised illustration of the present output + deck console (not a screenshot) -->
+          <div class="deck-mock" aria-hidden="true">
+            <div class="deck-stage">
+              <span class="deck-live"><span class="deck-live-dot"></span>LIVE</span>
+              <div class="deck-slide">
+                <div class="post-head">
+                  <span class="post-avatar"></span>
+                  <span class="post-id">
+                    <span class="post-line post-name"></span>
+                    <span class="post-line post-handle"></span>
+                  </span>
+                </div>
+                <span class="post-line w-92"></span>
+                <span class="post-line w-78"></span>
+                <span class="post-line w-45"></span>
+                <div class="post-media"><span class="post-play"></span></div>
+              </div>
+            </div>
+            <div class="deck-console">
+              <span class="deck-btn">‹</span>
+              <span class="deck-count">4&thinsp;/&thinsp;9</span>
+              <span class="deck-btn">›</span>
+              <span class="deck-sep"></span>
+              <span class="deck-btn">▶</span>
+              <span class="deck-present">Presenting</span>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -419,6 +538,7 @@
       </a>
       <a href="#features">Features</a>
       <a href="#agents">Agents</a>
+      <a href="#present">Present</a>
       <a href="#platforms">Platforms</a>
       <a href="https://github.com/harvey-withington/bruv"><svg class="gh-ico" aria-hidden="true">
           <use href="#i-github" />

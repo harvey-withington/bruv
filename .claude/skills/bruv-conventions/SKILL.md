@@ -29,14 +29,15 @@ BRUV is a polished Kanban surface that **augments an AI-first capture ethos** �
 3. **Error surfacing.** `catch { console.error }` is banned when the user is affected. Both surfaces: `showToast(t('...'), 'error')` from `lib/toast.svelte` (shared store in `@shared/toast.svelte`; each surface has its own Toast component). Toasts survive navigation. Mobile pages also have inline `saveError`/`mutationError` rails — prefer those for persistent field-level errors, toasts for transient op feedback.
    Success feedback rule: **one-shot actions toast** (copy, export, import, delete); **ambient autosave state stays inline** (desktop `SaveIndicator`, mobile saved-chip — UI-CONVENTIONS.md §9). Never toast per-keystroke/debounced save events.
 4. **Confirmations.** Never native `confirm()`/`alert()`. Desktop: `await showConfirm(...)` from `lib/confirm.svelte`. Mobile: prop-based `ConfirmDialog` component.
-5. **Shared logic placement.** Logic needed by both surfaces goes in `shared/`, transport-agnostic, with the backend surface injected as a small interface — desktop binds `@shared/api` wrappers, mobile binds `repoRPC`. Reference implementation: `shared/cardTransfer.ts` with the two ~50-line `cardExport.ts` adapters.
-6. **Reusable behaviours.** Check `frontend/src/lib/actions.ts` (focusTrap, focusOnMount, floatingDropdown…) and `mobile/src/lib/actions/` before writing new DOM logic. Extract on second use.
-7. **Design tokens.** Colors/sizing via CSS custom properties (`var(--text-muted)` etc.). No inline hex/rgb in components.
-8. **State keyed by entity ID**, never array index — indices shift on reorder/delete.
-9. **Component size ~300 lines.** If your change pushes a component further past it, extract the piece you're adding as a child component instead of growing the parent.
-10. **Strict TS.** No `any`, no `as any`. If a backend method in `shared/types.ts` returns `Promise<any>`, prefer fixing its type over casting at the call site.
-11. **Drag-and-drop** over up/down buttons wherever reordering exists. Design metaphor: no grip-handle icons — the element body drags. Mobile uses the Pointer-Events action in `mobile/src/lib/actions/dnd.svelte.ts` (long-press to arm).
-12. **UI-CONVENTIONS.md is a contract** — update it when adding shared components or patterns.
+5. **Layered dialogs shield BOTH window keys.** A dialog/sheet/picker layered above a closable container (CardDetail, mobile sheets) must intercept **Escape AND Ctrl+Enter** — the parent's `<svelte:window>` handler owns both, and an unshielded chord closes the card underneath, discarding the layer's edits. This bug has recurred on four dialogs; Escape-only shields are half a fix. Patterns (capture-phase shield vs parent stand-down guard) + references: UI-CONVENTIONS §8.1.
+6. **Shared logic placement.** Logic needed by both surfaces goes in `shared/`, transport-agnostic, with the backend surface injected as a small interface — desktop binds `@shared/api` wrappers, mobile binds `repoRPC`. Reference implementation: `shared/cardTransfer.ts` with the two ~50-line `cardExport.ts` adapters.
+7. **Reusable behaviours.** Check `frontend/src/lib/actions.ts` (focusTrap, focusOnMount, floatingDropdown…) and `mobile/src/lib/actions/` before writing new DOM logic. Extract on second use.
+8. **Design tokens.** Colors/sizing via CSS custom properties (`var(--text-muted)` etc.). No inline hex/rgb in components.
+9. **State keyed by entity ID**, never array index — indices shift on reorder/delete.
+10. **Component size ~300 lines.** If your change pushes a component further past it, extract the piece you're adding as a child component instead of growing the parent.
+11. **Strict TS.** No `any`, no `as any`. If a backend method in `shared/types.ts` returns `Promise<any>`, prefer fixing its type over casting at the call site.
+12. **Drag-and-drop** over up/down buttons wherever reordering exists. Design metaphor: no grip-handle icons — the element body drags. Mobile uses the Pointer-Events action in `mobile/src/lib/actions/dnd.svelte.ts` (long-press to arm).
+13. **UI-CONVENTIONS is a contract** — it lives at `frontend/src/UI-CONVENTIONS.md` (NOT the repo root — root-level searches miss it). Update it when adding shared components or patterns.
 
 ## Pre-commit verification
 

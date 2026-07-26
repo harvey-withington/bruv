@@ -4,9 +4,10 @@
   import { Plus, GripVertical, Pencil, Copy, Trash2, Presentation, Clock, Play, Pause, Square, MonitorPlay, ChevronLeft, ChevronRight, Link2, ExternalLink, Maximize2, Minimize2 } from 'lucide-svelte'
   import { computeReorder, wouldReorder, DROP_END } from '../lib/reorder'
   import { resolveContentType, DEFAULT_CONTENT_TYPE_ID } from '@shared/slideContentTypes'
+  import { slideDisplayLabel } from '@shared/slideLabel'
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
-  import { SignPresentURL, SetBlockLiveState, GetBlockLiveState, ListPresentingCards, SetPresenting } from '@shared/api'
+  import { GetCard, SignPresentURL, SetBlockLiveState, GetBlockLiveState, ListPresentingCards, SetPresenting } from '@shared/api'
   import { onEvent } from '../lib/events'
   import SlideEditorDialog from './SlideEditorDialog.svelte'
 
@@ -29,22 +30,39 @@
     editingSlideId ? slides.find((s) => s.id === editingSlideId) ?? null : null,
   )
 
-  // A compact label for the row: the slide's own display title (clipped
-  // slides carry their card's title — their content fields are all bindings,
-  // invisible to a values scan), else the first non-empty field value, else
-  // the content-type name. `platform` is routing data, never a label.
-  function slideLabel(slide: Slide): string {
-    if (slide.title?.trim()) return slide.title.trim()
-    const ct = resolveContentType(slide.contentTypeId)
-    if (ct) {
-      for (const f of ct.fields) {
-        if (f.key === 'platform') continue
-        const v = slide.values?.[f.key]
-        if (v && v.trim()) return v.trim()
+  // Row labels follow the linked card's LIVE title unless the slide carries
+  // an explicit title override (see shared/slideLabel.ts for the priority
+  // order). Titles are fetched once per linked card and refreshed on
+  // card:updated, so renaming a clipped card renames its slide row.
+  let linkedTitles = $state<Record<string, string>>({})
+  const requestedTitleIds = new Set<string>()
+  function loadLinkedTitle(id: string): void {
+    // A failed load (e.g. the linked card was deleted) just leaves the
+    // label on its value/content-type fallback — nothing to surface.
+    GetCard(id)
+      .then((c) => {
+        linkedTitles[id] = c.title
+      })
+      .catch(() => {})
+  }
+  $effect(() => {
+    for (const s of slides) {
+      if (s.cardId && !requestedTitleIds.has(s.cardId)) {
+        requestedTitleIds.add(s.cardId)
+        loadLinkedTitle(s.cardId)
       }
-      return t('slide.ct.' + slide.contentTypeId)
     }
-    return t('slide.untitled')
+  })
+  $effect(() => {
+    return onEvent<{ cardID?: string }>('card:updated', (ev) => {
+      if (ev?.cardID && requestedTitleIds.has(ev.cardID)) loadLinkedTitle(ev.cardID)
+    })
+  })
+
+  function slideLabel(slide: Slide): string {
+    const label = slideDisplayLabel(slide, slide.cardId ? linkedTitles[slide.cardId] : undefined)
+    if (label) return label
+    return resolveContentType(slide.contentTypeId) ? t('slide.ct.' + slide.contentTypeId) : t('slide.untitled')
   }
 
   function contentTypeName(slide: Slide): string {

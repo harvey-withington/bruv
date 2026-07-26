@@ -30,6 +30,7 @@
   let values = $state<Record<string, string>>({ ...(initial.values ?? {}) })
   let bindings = $state<Record<string, string>>({ ...(initial.bindings ?? {}) })
   let linkedCardId = $state<string | undefined>(initial.cardId)
+  let displayTitle = $state<string>(initial.title ?? '')
   let durationInput = $state<number>(initial.durationSec ?? 0)
   let notes = $state<string>(initial.notes ?? '')
 
@@ -204,22 +205,33 @@
     if (templateId) d.templateId = templateId
     if (linkedCardId) d.cardId = linkedCardId
     if (Object.keys(cleanBindings).length) d.bindings = cleanBindings
+    if (displayTitle.trim()) d.title = displayTitle.trim()
     if (durationInput > 0) d.durationSec = durationInput
     if (notes.trim()) d.notes = notes.trim()
     if (initial.thumbnail) d.thumbnail = initial.thumbnail
     onSave(d)
   }
 
-  // Escape handling uses a CAPTURE-phase window listener (registered before
-  // CardDetail's bubble-phase one fires) so Esc in this second-level dialog
-  // never falls through and closes the card underneath — the exact data-loss
-  // path Harvey hit. stopPropagation() shields the bubble phase; layering is
+  // Escape/Ctrl+Enter handling uses a CAPTURE-phase window listener
+  // (registered before CardDetail's bubble-phase one fires) so neither key
+  // in this second-level dialog falls through to the card underneath — Esc
+  // would close the card (the original data-loss path Harvey hit), and
+  // Ctrl+Enter would commit-and-close the card, discarding slide edits.
+  // stopPropagation() shields the bubble phase; Escape layering is
   // dropdown-first: an open dropdown consumes the Esc, the dialog only closes
   // on a "bare" one. (Same capture-shield pattern as mobile's ChatSheet; the
   // deferred overlay-stack refactor in TODO would replace all of these.)
   let dialogEl = $state<HTMLElement | null>(null)
 
   function handleCaptureKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      // Keyboard contract: Ctrl+Enter commits the surface it's pressed in —
+      // here that's the slide, not the card.
+      e.preventDefault()
+      e.stopPropagation()
+      save()
+      return
+    }
     if (e.key !== 'Escape') return
     e.preventDefault()
     e.stopPropagation()
@@ -311,6 +323,16 @@
               </div>
             </div>
           {/if}
+
+          <label class="field">
+            <span class="field-label">{t('slide.display_title')}</span>
+            <input
+              class="field-input"
+              bind:value={displayTitle}
+              placeholder={linkedCard?.title || t('slide.display_title_placeholder')}
+            />
+            <span class="field-hint">{linkedCardId ? t('slide.display_title_hint_linked') : t('slide.display_title_hint')}</span>
+          </label>
 
           <label class="field">
             <span class="field-label">{t('slide.duration')}</span>

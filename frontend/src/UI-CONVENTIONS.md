@@ -239,6 +239,19 @@ Hand-rolled handlers are acceptable ONLY where the flow is genuinely special (su
 
 **Do not** write inline `onkeydown` + `onblur` handlers for simple commit/cancel inputs — use this action.
 
+### 8.1 Layered dialogs — shield BOTH window keys (recurring data-loss bug)
+
+Containers like CardDetail own **two** window-level keys: Escape (close when nothing edits) and **Ctrl+Enter (commit-all + close)**. Any dialog/sheet/picker layered above such a container MUST intercept **both** — every Escape-only shield has later resurfaced as a Ctrl+Enter bug that closed the card underneath and discarded the layer's edits (SlideEditorDialog hit this twice: Escape 2026-07-18, Ctrl+Enter 2026-07-27).
+
+In the layer, route the keys per the §8 table *scoped to the layer itself*: Escape cancels/closes the topmost thing (open dropdown first, then the layer), Ctrl+Enter commits **the layer's surface**, not the card's.
+
+Two working shield patterns — pick by DOM relationship to the parent's listener:
+
+1. **Child-side capture shield** — a capture-phase window listener (`window.addEventListener('keydown', h, true)`) registered while the layer is open; `preventDefault()` + `stopPropagation()` stops the parent's bubble-phase `<svelte:window>` handler. Reference: `SlideEditorDialog.handleCaptureKeydown`, mobile `ChatSheet`.
+2. **Parent-side stand-down guard** — required when the layer is a portaled **sibling** that itself listens on `<svelte:window>`: `stopPropagation()` cannot stop sibling listeners on the same node (only `stopImmediatePropagation`, unavailable from `<svelte:window>`). The parent checks the layer's visibility and returns early. Reference: CardDetail's `optionsEditorState.visible` / `showCreateTypeDialog` / `showPromoteDialog` guards.
+
+These are stopgaps: the overlay-stack refactor in `plan/TODO.md` replaces all of them with one ordered stack. Until it lands, every new layered dialog adds one of the two shields — for both keys — or it ships this bug again.
+
 ---
 
 ## 9. SaveIndicator — Persistent Save Feedback

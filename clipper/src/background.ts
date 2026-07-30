@@ -55,9 +55,6 @@ async function handleExtracted(message: ClipExtractedMessage, tabId: number | un
   if (plugin?.enrich && clip.needsEnrichment) {
     clip = await plugin.enrich(clip)
   }
-  // Stamp the platform's default slide template — the ONLY platform-aware
-  // value that crosses into the generic pipeline, and it's data, not logic.
-  if (plugin) clip.extras.templateId = plugin.defaultTemplateId
 
   const job = await buildJob(clip, message.includeInDeck)
   try {

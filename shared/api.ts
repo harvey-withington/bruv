@@ -35,6 +35,10 @@ export const GetBlockLiveState = (...args: Parameters<ReturnType<typeof getBacke
 
 // Deck mutations — atomic server-side slide append
 export const AppendDeckSlide = (...args: Parameters<ReturnType<typeof getBackend>['AppendDeckSlide']>) => getBackend().AppendDeckSlide(...args)
+
+// Vault-level slide-template preferences (Auto matching)
+export const GetTemplatePrefs = () => getBackend().GetTemplatePrefs()
+export const SetTemplatePrefs = (...args: Parameters<ReturnType<typeof getBackend>['SetTemplatePrefs']>) => getBackend().SetTemplatePrefs(...args)
 export const ListPresentingCards = () => getBackend().ListPresentingCards()
 export const SetPresenting = (...args: Parameters<ReturnType<typeof getBackend>['SetPresenting']>) => getBackend().SetPresenting(...args)
 

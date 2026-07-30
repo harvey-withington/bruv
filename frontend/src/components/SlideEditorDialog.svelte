@@ -7,7 +7,8 @@
   import { GetCard, SearchCards, RecentCards, SignAttachmentURL } from '@shared/api'
   import { showToast } from '../lib/toast.svelte'
   import { SLIDE_CONTENT_TYPES, resolveContentType } from '@shared/slideContentTypes'
-  import { templatesForContentType, resolveSlideTemplate } from '@shared/slideTemplates'
+  import { templatesForContentType, resolveSlideTemplate, AUTO_TEMPLATE_ID } from '@shared/slideTemplates'
+  import { templatePrefs, loadTemplatePrefs } from '../lib/templatePrefs.svelte'
   import { isBlockCompatible, resolveBlockValueForField } from '@shared/slideBindings'
   import SlideRenderer from '../lib/slides/SlideRenderer.svelte'
   import BoundField from './BoundField.svelte'
@@ -33,6 +34,10 @@
   let displayTitle = $state<string>(initial.title ?? '')
   let durationInput = $state<number>(initial.durationSec ?? 0)
   let notes = $state<string>(initial.notes ?? '')
+  let overflowMode = $state<'fit' | 'scroll'>(initial.overflow === 'scroll' ? 'scroll' : 'fit')
+  // Live overflow signal from the preview renderer — badge only, the
+  // renderer already handles it (scale backstop / scrollbar).
+  let previewOverflows = $state(false)
 
   let linkedCard = $state<Card | null>(null)
   let hostCard = $state<Card | null>(null)
@@ -46,7 +51,12 @@
   const contentType = $derived(resolveContentType(contentTypeId))
   const fields = $derived<SlideFieldDef[]>(contentType?.fields ?? [])
   const templates = $derived(templatesForContentType(contentTypeId))
-  const activeTemplateId = $derived(resolveSlideTemplate(templateId, contentTypeId).id)
+  const isAuto = $derived(templateId === AUTO_TEMPLATE_ID)
+  const activeTemplateId = $derived(isAuto ? '' : resolveSlideTemplate(templateId, contentTypeId).id)
+
+  // Vault Auto-matching prefs — loaded on open; a failed load just means
+  // default ordering, so it degrades silently.
+  loadTemplatePrefs().catch(() => {})
 
   // Fetch the linked card's blocks whenever the link changes (stale-guarded).
   let loadSeq = 0
@@ -109,7 +119,10 @@
   $effect(() => {
     const boundRefs = Object.keys(bindings)
       .map((k) => resolveField(previewSlide, k) ?? '')
+    // Media values may be multi-URL (newline-joined galleries) — split
+    // before matching, each line signs independently.
     const refs = [...Object.values(values), ...boundRefs]
+      .flatMap((v) => v.split('\n'))
       .filter((v) => v.startsWith('attachment:') && !(v in signedRefUrls))
     for (const ref of refs) {
       const rest = ref.slice('attachment:'.length)
@@ -178,7 +191,9 @@
 
   function setContentType(id: string): void {
     contentTypeId = id
-    if (templateId && !templatesForContentType(id).some((tpl) => tpl.id === templateId)) {
+    // Auto survives a content-type switch (it's content-type-agnostic);
+    // only an explicit pin invalid for the new type resets.
+    if (templateId && templateId !== AUTO_TEMPLATE_ID && !templatesForContentType(id).some((tpl) => tpl.id === templateId)) {
       templateId = undefined
     }
   }
@@ -191,7 +206,18 @@
     values,
     bindings,
     durationSec: durationInput > 0 ? durationInput : undefined,
+    overflow: overflowMode === 'scroll' ? 'scroll' : undefined,
   })
+
+  // Capture URL (literal or bound) drives Auto matching; Auto is only
+  // offered when one exists. The picker labels Auto with the LIVE
+  // resolution ("Auto (X Post)") so the user always sees which template is
+  // actually rendering — the label updates when a new template's hint
+  // starts matching.
+  const captureUrl = $derived(((values.url ?? '').trim() || resolveField(previewSlide, 'url') || '').trim())
+  const autoResolvedName = $derived(
+    resolveSlideTemplate(AUTO_TEMPLATE_ID, contentTypeId, captureUrl || undefined, templatePrefs()).name,
+  )
 
   function save(): void {
     const cleanValues: Record<string, string> = {}
@@ -209,6 +235,7 @@
     if (durationInput > 0) d.durationSec = durationInput
     if (notes.trim()) d.notes = notes.trim()
     if (initial.thumbnail) d.thumbnail = initial.thumbnail
+    if (overflowMode === 'scroll') d.overflow = 'scroll'
     onSave(d)
   }
 
@@ -313,10 +340,15 @@
             />
           {/each}
 
-          {#if templates.length > 1}
+          {#if templates.length > 1 || captureUrl}
             <div class="field">
               <span class="field-label">{t('slide.template')}</span>
               <div class="seg-picker">
+                {#if captureUrl}
+                  <button class="seg-btn" class:active={isAuto} type="button" onclick={() => (templateId = AUTO_TEMPLATE_ID)}>
+                    {t('slide.template_auto', { name: autoResolvedName })}
+                  </button>
+                {/if}
                 {#each templates as tpl (tpl.id)}
                   <button class="seg-btn" class:active={activeTemplateId === tpl.id} type="button" onclick={() => (templateId = tpl.id)}>{tpl.name}</button>
                 {/each}
@@ -334,6 +366,15 @@
             <span class="field-hint">{linkedCardId ? t('slide.display_title_hint_linked') : t('slide.display_title_hint')}</span>
           </label>
 
+          <div class="field">
+            <span class="field-label">{t('slide.overflow')}</span>
+            <div class="seg-picker">
+              <button class="seg-btn" class:active={overflowMode === 'fit'} type="button" onclick={() => (overflowMode = 'fit')}>{t('slide.overflow_fit')}</button>
+              <button class="seg-btn" class:active={overflowMode === 'scroll'} type="button" onclick={() => (overflowMode = 'scroll')}>{t('slide.overflow_scroll')}</button>
+            </div>
+            <span class="field-hint">{t('slide.overflow_hint')}</span>
+          </div>
+
           <label class="field">
             <span class="field-label">{t('slide.duration')}</span>
             <input class="field-input" type="number" min="0" bind:value={durationInput} placeholder="0" />
@@ -347,9 +388,20 @@
         </div>
 
         <div class="preview-col">
-          <span class="field-label">{t('slide.preview')}</span>
+          <span class="field-label">
+            {t('slide.preview')}
+            {#if previewOverflows}
+              <span class="overflow-badge">{overflowMode === 'scroll' ? t('slide.overflow_badge_scroll') : t('slide.overflow_badge_fit')}</span>
+            {/if}
+          </span>
           <div class="preview-frame">
-            <SlideRenderer slide={previewSlide} {resolveField} {resolveMediaUrl} />
+            <SlideRenderer
+              slide={previewSlide}
+              {resolveField}
+              {resolveMediaUrl}
+              templatePrefs={templatePrefs()}
+              onOverflowChange={(o) => (previewOverflows = o)}
+            />
           </div>
           <p class="field-hint">{t('slide.preview_hint')}</p>
         </div>
@@ -461,6 +513,16 @@
     font-size: 10px;
     color: var(--text-muted);
     font-style: italic;
+  }
+  .overflow-badge {
+    margin-left: 6px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    color: var(--accent);
+    vertical-align: 1px;
   }
   .seg-picker {
     display: flex;

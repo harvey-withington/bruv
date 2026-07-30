@@ -28,6 +28,7 @@ func TestAppendDeckSlide(t *testing.T) {
 	if _, err := rt.AppendDeckSlide(card.ID, "d1", map[string]any{
 		"contentTypeId": "post",
 		"templateId":    "x-post",
+		"overflow":      "scroll",
 		"values": map[string]any{
 			"author": "Harvey", "handle": "@harvey", "text": "hello",
 			"bogus": "drop me",
@@ -52,6 +53,9 @@ func TestAppendDeckSlide(t *testing.T) {
 	}
 	if appended["contentTypeId"] != "post" || appended["templateId"] != "x-post" {
 		t.Errorf("content type / template lost: %v", appended)
+	}
+	if appended["overflow"] != "scroll" {
+		t.Errorf("overflow mode lost: %v", appended)
 	}
 	vals, _ := appended["values"].(map[string]any)
 	if vals["author"] != "Harvey" || vals["text"] != "hello" {

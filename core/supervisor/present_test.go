@@ -62,6 +62,12 @@ func TestPresentCardJSON_ResolvesBindingsAndAttachments(t *testing.T) {
 				"id": "s2", "contentTypeId": "image",
 				"values": map[string]any{"image": "attachment:" + deckCard.ID + "/att123", "caption": "Pic"},
 			},
+			// Gallery: a multi-URL (newline-joined) media value — every
+			// attachment line must sign independently.
+			map[string]any{
+				"id": "s3", "contentTypeId": "post",
+				"values": map[string]any{"media": "attachment:" + deckCard.ID + "/attA\nattachment:" + deckCard.ID + "/attB"},
+			},
 		},
 		"currentIndex": 0,
 	}
@@ -90,8 +96,8 @@ func TestPresentCardJSON_ResolvesBindingsAndAttachments(t *testing.T) {
 			slides = bm["value"].(map[string]any)["slides"].([]any)
 		}
 	}
-	if len(slides) != 2 {
-		t.Fatalf("expected 2 slides, got %d", len(slides))
+	if len(slides) != 3 {
+		t.Fatalf("expected 3 slides, got %d", len(slides))
 	}
 
 	s1 := slides[0].(map[string]any)["values"].(map[string]any)
@@ -110,6 +116,18 @@ func TestPresentCardJSON_ResolvesBindingsAndAttachments(t *testing.T) {
 	}
 	if s2["caption"] != "Pic" {
 		t.Errorf("caption lost: %v", s2)
+	}
+
+	s3 := slides[2].(map[string]any)["values"].(map[string]any)
+	gallery, _ := s3["media"].(string)
+	lines := strings.Split(gallery, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("gallery line count changed: %q", gallery)
+	}
+	for i, line := range lines {
+		if !strings.HasPrefix(line, "/repos/") || !strings.Contains(line, "sig=") {
+			t.Errorf("gallery line %d not signed: %q", i, line)
+		}
 	}
 
 	// The LIVE card must be untouched (resolver works on a deep copy).

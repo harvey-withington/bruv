@@ -4,18 +4,19 @@
 // (enrich: API lookups the page context can't do, e.g. resolving video
 // URLs). Everything else in the extension is platform-blind.
 //
-// Expanding beyond Twitter = adding one plugin here (+ one slide template
-// on the BRUV side). Nothing else changes.
+// Adding a platform = one plugin here. Plugins know NOTHING about slide
+// templates: slides are stamped 'auto' and BRUV resolves the template from
+// the capture URL (shared/slideTemplates.ts) — so a platform captured today
+// picks up its dedicated template whenever one ships, retroactively.
 
 import type { ClipResult } from '../types'
 import { twitterPlugin } from './twitter'
+import { truthsocialPlugin } from './truthsocial'
+import { redditPlugin } from './reddit'
+import { youtubePlugin } from './youtube'
 
 export type ClipperPlugin = {
   id: string
-  // Which slide template BRUV should render this platform's posts with.
-  // Stamped onto the slide at construction — template resolution on the
-  // BRUV side stays platform-blind.
-  defaultTemplateId: string
   matchesUrl(url: string): boolean
   // DOM side (content script). Returns the capture unit containing the
   // click/selection target, or null when the target isn't capturable.
@@ -27,7 +28,7 @@ export type ClipperPlugin = {
   enrich?(clip: ClipResult): Promise<ClipResult>
 }
 
-const PLUGINS: ClipperPlugin[] = [twitterPlugin]
+const PLUGINS: ClipperPlugin[] = [twitterPlugin, truthsocialPlugin, redditPlugin, youtubePlugin]
 
 export function pluginForUrl(url: string): ClipperPlugin | null {
   return PLUGINS.find((p) => p.matchesUrl(url)) ?? null

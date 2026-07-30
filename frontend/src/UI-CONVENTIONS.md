@@ -417,3 +417,65 @@ The Workspace panel content (`components/workspace/WorkspacePanel.svelte`) rende
 It self-imports for recursion (never `<svelte:self>` — deprecated). Keyboard: rows are real `<button>`s, so Tab/Enter work for free.
 
 **Workspace file links**: markdown `workspace://<ws-id>/<path>` renders via `shared/markdown.ts` as `.bruv-link[data-workspace]`; the `main.ts` click interceptor dispatches `bruv:navigate {type: ''workspace-file''}` and App opens the panel + viewer. Same chain as `bruv:card:` links.
+
+---
+
+## 14. Slide Template Auto-Matching (templatePrefs store + Settings tab)
+
+Slides whose `templateId` is `'auto'` (what the clipper stamps) resolve their
+template at render time: `resolveSlideTemplate(templateId, contentTypeId,
+captureUrl, prefs)` in `shared/slideTemplates.ts` matches each template's
+`urlHint` regex against the slide's capture URL (`values.url`,
+post-binding-resolution). An explicit template pin ALWAYS wins — hints power
+Auto only and never filter the manual picker (ruling, 2026-07-31; rendering
+Facebook content on the X template is a choice, not an error).
+
+**`lib/templatePrefs.svelte.ts`** is the shared reactive store for the
+vault-level prefs (`GetTemplatePrefs`/`SetTemplatePrefs`): Auto priority
+`order` + per-template `urlOverrides`. Consumers call `loadTemplatePrefs()`
+on mount/open and pass `templatePrefs()` into `SlideRenderer` (prop-injected
+— the renderer stays surface-agnostic).
+
+**Auto in the picker (SlideEditorDialog):** when the slide has a capture URL
+the template seg-picker gains an "Auto (X Post)"-style first entry showing
+the LIVE resolution; the label updates when a new template's hint starts
+matching. Auto survives content-type switches; invalid explicit pins reset.
+
+**`SlideTemplatePrefsSection.svelte`** (Settings → Slide Templates tab)
+lists the hint-carrying templates: rows drag to set multi-match priority
+(row body drags, no grips — §12.5), pattern inputs override the built-in
+regex with inline invalid-pattern errors (an uncompilable override falls
+back to the built-in hint at render time — rendering can never break), and
+"Reset" clears an override promptless (an edit, not a delete — §12.5
+boundary). The section persists itself on commit; the dialog's Save is not
+involved.
+
+`embed://<provider>/<id>` media values (YouTube captures) render as the
+platform's official iframe player in both renderers (`.pc-embed`/`.r-embed`)
+— allowlist-parsed, unknown providers render nothing.
+
+**Slide overflow (ruling, 2026-07-31):** captured content can't be authored
+shorter, so every slide has an `overflow` option — **Scale to fit** (default)
+or **Scroll**. Fit mode shrinks text step-wise (14px floor) and then
+transform-scales the `.frame-fit` / `.fit` inner wrapper as the backstop: a
+slide can NEVER clip. The scale lives on the inner wrapper, never the
+animated frame (entrance keyframes own the frame's transform). Scroll mode
+renders full-size: desktop/editor stages get a themed scrollbar; `/present`
+pages via the console's ⬇ button (`scrollSeq` live-state command, videoSeq
+pattern) — one page per press, wrapping to the top at the bottom, because
+the console cannot know the output viewport's page count and a press must
+always visibly do something. `SlideRenderer` reports overflow via
+`onOverflowChange`; the editor preview shows a "Scaled to fit"/"Scrolls"
+badge.
+
+**Gallery carousels (2026-07-31):** a media (image) field whose resolved
+value contains multiple newline-joined URLs renders as a carousel — one
+image visible, counter badge, advance-with-wrap. This is schema-free: the
+`post` content type keeps its single `media` field; multi-image cards store
+a multi-item `media` block, and binding resolution (`slideBindings.ts` +
+present.go's mirror, which also signs attachment refs line-by-line) joins
+every item URL for image fields (video fields stay first-URL). Desktop /
+editor preview: the image itself is the advance button (no chrome). On
+`/present`: the console's Images button (shown when the current slide
+resolves to >1 image) bumps `carouselSeq` in block live state — same
+command shape as `scrollSeq`, wrap at the end.

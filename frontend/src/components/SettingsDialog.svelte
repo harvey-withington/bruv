@@ -4,6 +4,7 @@
   import { showToast } from '../lib/toast.svelte'
   import { GetPreferences, SetPreferences, GetUIPreferences, SetUIPreferences, GetLLMConfig, SetLLMConfig, GetNotifyConfig, SetNotifyConfig, GetLLMAccounts, SaveLLMAccounts, TestSystemNotification, GetDueDateSettings, SaveDueDateSettings } from '@shared/api'
   import LLMAccountsManager from './LLMAccountsManager.svelte'
+  import SlideTemplatePrefsSection from './SlideTemplatePrefsSection.svelte'
   import type { LLMAccount } from '@shared/types'
   import { theme, setTheme } from '../lib/theme.svelte'
   import { setLocale, availableLocales } from '../lib/i18n.svelte'
@@ -11,7 +12,7 @@
   import { draggable } from '../lib/draggable'
   import { fade } from 'svelte/transition'
   import { focusTrap } from '../lib/actions'
-  type TabId = 'general' | 'ai' | 'notifications'
+  type TabId = 'general' | 'ai' | 'notifications' | 'templates'
 
   let { onClose, initialTab }: { onClose: () => void; initialTab?: TabId } = $props()
 
@@ -215,6 +216,7 @@
     { tab: 'notifications', key: 'smtp_to', label: 'email smtp recipient to address' },
     { tab: 'notifications', key: 'webhook_url', label: 'webhook url post' },
     { tab: 'notifications', key: 'due_date', label: 'due date notifications reminder overdue' },
+    { tab: 'templates', key: 'slide_templates', label: 'slide templates auto matching priority url pattern regex social post clipper' },
   ]
 
   let matchingKeys = $derived.by(() => {
@@ -243,7 +245,7 @@
   // Auto-switch to first matching tab when searching
   $effect(() => {
     if (matchingTabs && !matchingTabs.has(activeTab)) {
-      const first = (['general', 'ai', 'notifications'] as TabId[]).find(t => matchingTabs!.has(t))
+      const first = (['general', 'ai', 'notifications', 'templates'] as TabId[]).find(t => matchingTabs!.has(t))
       if (first) activeTab = first
     }
   })
@@ -252,6 +254,7 @@
     { id: 'general', labelKey: 'prefs.tab_general' },
     { id: 'ai', labelKey: 'prefs.tab_ai' },
     { id: 'notifications', labelKey: 'prefs.tab_notifications' },
+    { id: 'templates', labelKey: 'prefs.tab_templates' },
   ]
 
   function handleOverlayClick(e: MouseEvent) {
@@ -559,6 +562,14 @@
                 </div>
               </div>
             {/if}
+          {/if}
+        {/if}
+
+        <!-- SLIDE TEMPLATES TAB — vault-level Auto-matching prefs; the
+             section persists its own changes (no dialog Save involved). -->
+        {#if activeTab === 'templates'}
+          {#if fieldVisible('slide_templates')}
+            <SlideTemplatePrefsSection />
           {/if}
         {/if}
 

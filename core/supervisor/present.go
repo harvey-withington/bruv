@@ -20,8 +20,32 @@ import (
 	"time"
 
 	"bruv/internal/model"
+	"bruv/internal/repo"
 	transporthttp "bruv/transport/http"
 )
+
+// TemplatePrefs re-exports the repo type for the RPC surface (stable TS
+// binding name, same pattern as CardTypeInfo).
+type TemplatePrefs = repo.TemplatePrefs
+
+// GetTemplatePrefs returns the vault's slide-template preferences (Auto
+// priority order + per-template urlHint overrides).
+func (r *Runtime) GetTemplatePrefs() (TemplatePrefs, error) {
+	if r.repo == nil {
+		return TemplatePrefs{}, fmt.Errorf("repo not loaded")
+	}
+	return r.repo.LoadTemplatePrefs()
+}
+
+// SetTemplatePrefs replaces the vault's slide-template preferences. The
+// server stores them blindly — regex validity is a renderer concern (an
+// uncompilable override falls back to the built-in hint at render time).
+func (r *Runtime) SetTemplatePrefs(p TemplatePrefs) error {
+	if r.repo == nil {
+		return fmt.Errorf("repo not loaded")
+	}
+	return r.repo.SaveTemplatePrefs(p)
+}
 
 // presentTTL is deliberately long (vs the attachments' 5 min): a present URL
 // lives in an OBS scene config across a whole stream session. Attachment URLs
@@ -118,6 +142,12 @@ func (r *Runtime) PresentCardJSON(cardID string) ([]byte, bool) {
 			}
 		}
 	}
+	// Template prefs ride the payload so the output page resolves Auto
+	// templates with the same inputs as the app (it can't call authed RPCs).
+	// Additive top-level key beside the card fields; absence = defaults.
+	if prefs, err := r.repo.LoadTemplatePrefs(); err == nil {
+		m["templatePrefs"] = prefs
+	}
 	out, err := json.Marshal(m)
 	if err != nil {
 		return nil, false
@@ -159,18 +189,26 @@ func (r *Runtime) resolvePresentSlide(sm map[string]any) {
 		}
 	}
 
-	// 2. Attachment refs on media fields → signed URLs.
+	// 2. Attachment refs on media fields → signed URLs. Image values may be
+	// multi-URL (newline-joined — a gallery carousel); sign line by line.
 	for fieldKey, raw := range values {
 		s, ok := raw.(string)
-		if !ok || !strings.HasPrefix(s, "attachment:") {
+		if !ok || !strings.Contains(s, "attachment:") {
 			continue
 		}
 		if ft := fieldTypes[fieldKey]; ft != "image" && ft != "video" {
 			continue
 		}
-		if signed, ok := r.signAttachmentRef(s); ok {
-			values[fieldKey] = signed
+		lines := strings.Split(s, "\n")
+		for i, line := range lines {
+			if !strings.HasPrefix(line, "attachment:") {
+				continue
+			}
+			if signed, ok := r.signAttachmentRef(line); ok {
+				lines[i] = signed
+			}
 		}
+		values[fieldKey] = strings.Join(lines, "\n")
 	}
 }
 
@@ -202,11 +240,13 @@ func findBlock(blocks []model.Block, id string) *model.Block {
 }
 
 // blockValueForField mirrors shared/slideBindings.ts resolveBlockValueForField:
-// a URL for media fields, readable text otherwise.
+// URL(s) for media fields — image fields join every item URL with '\n' (a
+// multi-image block renders as a carousel), video stays first-URL — and
+// readable text otherwise.
 func blockValueForField(b *model.Block, fieldType string) string {
 	v := b.Value
 	if fieldType == "image" || fieldType == "video" {
-		return urlFromBlockValue(v)
+		return urlFromBlockValue(v, fieldType == "image")
 	}
 	switch t := v.(type) {
 	case string:
@@ -239,7 +279,7 @@ func blockValueForField(b *model.Block, fieldType string) string {
 	return fmt.Sprintf("%v", v)
 }
 
-func urlFromBlockValue(v any) string {
+func urlFromBlockValue(v any, multi bool) string {
 	switch t := v.(type) {
 	case string:
 		return t
@@ -248,13 +288,21 @@ func urlFromBlockValue(v any) string {
 			return u
 		}
 	case []any:
-		if len(t) > 0 {
-			if im, ok := t[0].(map[string]any); ok {
-				if u, ok := im["url"].(string); ok {
-					return u
+		var urls []string
+		for _, it := range t {
+			if im, ok := it.(map[string]any); ok {
+				if u, ok := im["url"].(string); ok && u != "" {
+					urls = append(urls, u)
 				}
 			}
 		}
+		if len(urls) == 0 {
+			return ""
+		}
+		if multi {
+			return strings.Join(urls, "\n")
+		}
+		return urls[0]
 	}
 	return ""
 }

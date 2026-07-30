@@ -19,7 +19,6 @@ function syndicationToken(id: string): string {
 
 export const twitterPlugin: ClipperPlugin = {
   id: 'twitter',
-  defaultTemplateId: 'x-post',
 
   matchesUrl(url: string): boolean {
     return /^https?:\/\/(mobile\.)?(twitter|x)\.com\//.test(url)

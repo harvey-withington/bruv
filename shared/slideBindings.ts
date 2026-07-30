@@ -25,21 +25,27 @@ export function isBlockCompatible(blockType: BlockType, fieldType: SlideFieldTyp
   return blockTypesForFieldType(fieldType).includes(blockType)
 }
 
-function urlFromValue(v: unknown): string {
+// multi=true (image fields) joins EVERY item URL with '\n' — a multi-image
+// media block resolves to a multi-URL value that renderers show as a
+// carousel. Video fields stay first-URL (one player per slide).
+function urlFromValue(v: unknown, multi: boolean): string {
   if (typeof v === 'string') return v
-  if (v && typeof v === 'object' && 'url' in v) return String((v as { url?: unknown }).url ?? '')
-  if (Array.isArray(v) && v.length > 0 && v[0] && typeof v[0] === 'object' && 'url' in v[0]) {
-    return String((v[0] as { url?: unknown }).url ?? '')
+  if (Array.isArray(v)) {
+    const urls = v
+      .map((it) => (it && typeof it === 'object' && 'url' in it ? String((it as { url?: unknown }).url ?? '') : ''))
+      .filter(Boolean)
+    return multi ? urls.join('\n') : (urls[0] ?? '')
   }
+  if (v && typeof v === 'object' && 'url' in v) return String((v as { url?: unknown }).url ?? '')
   return ''
 }
 
 // resolveBlockValueForField extracts a renderable string from a block for the
-// given field type — a URL for media fields, readable text otherwise.
+// given field type — URL(s) for media fields, readable text otherwise.
 export function resolveBlockValueForField(block: Block, fieldType: SlideFieldType): string {
   const v = block.value
   if (fieldType === 'image' || fieldType === 'video') {
-    return urlFromValue(v)
+    return urlFromValue(v, fieldType === 'image')
   }
   if (typeof v === 'string') return v
   if (typeof v === 'number') return String(v)

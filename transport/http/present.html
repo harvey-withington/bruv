@@ -33,6 +33,14 @@
         padding: 4vmin;
       }
       .frame { max-width: 60rem; width: 100%; text-align: center; }
+      /* Scale-backstop host — the transform lives on .fit, not .frame,
+         because the entrance keyframes animate .frame's transform and the
+         two would fight. */
+      .fit { width: 100%; }
+      /* Scroll mode (slide.overflow === 'scroll'): full-size content, the
+         stage scrolls — programmatically (console-paged via scrollSeq),
+         never by viewer interaction, so no visible scrollbar. */
+      #stage.scrolling { align-items: flex-start; overflow-y: hidden; }
       .title {
         font-size: clamp(1.5rem, 4vw, 3.2rem);
         font-weight: 300;
@@ -95,25 +103,33 @@
         border-radius: 8px;
       }
       .status { opacity: 0.5; font-size: 1rem; }
-      /* post-card layout — X dark-theme palette, mirrors SlideRenderer. */
+      /* post-card layout — mirrors SlideRenderer. Neutral defaults; each
+         template's style tokens override the --pc-* vars inline (the
+         platform "skin": X black, Reddit dark, YouTube dark…). */
       .pc {
+        --pc-bg: #000;
+        --pc-border: #2f3336;
+        --pc-fg: #e7e9ea;
+        --pc-muted: #71767b;
+        --pc-accent: currentColor;
+        --pc-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
         max-width: 42rem;
         margin: 0 auto;
-        background: #000;
-        border: 1px solid #2f3336;
+        background: var(--pc-bg);
+        border: 1px solid var(--pc-border);
         border-radius: 16px;
         padding: 1.6rem 1.8rem;
         text-align: left;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-        color: #e7e9ea;
+        font-family: var(--pc-font);
+        color: var(--pc-fg);
         box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
       }
       .pc-header { display: flex; align-items: center; gap: 0.75rem; }
       .pc-avatar { width: 3rem; height: 3rem; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
       .pc-id { display: flex; flex-direction: column; min-width: 0; }
       .pc-name { font-weight: 700; font-size: 1.05rem; overflow-wrap: anywhere; }
-      .pc-handle { color: #71767b; font-size: 0.95rem; overflow-wrap: anywhere; }
-      .pc-glyph { width: 1.6rem; height: 1.6rem; margin-left: auto; flex-shrink: 0; }
+      .pc-handle { color: var(--pc-muted); font-size: 0.95rem; overflow-wrap: anywhere; }
+      .pc-glyph { width: 1.6rem; height: 1.6rem; margin-left: auto; flex-shrink: 0; color: var(--pc-accent); }
       .pc-text {
         font-size: clamp(1.1rem, 2.2vw, 1.8rem);
         line-height: 1.4;
@@ -126,21 +142,56 @@
         max-height: 60vh;
         object-fit: contain;
         border-radius: 12px;
-        border: 1px solid #2f3336;
+        border: 1px solid var(--pc-border);
         margin-top: 1rem;
         background: #000;
       }
-      .pc-footer { color: #71767b; font-size: 0.95rem; margin: 1rem 0 0; }
+      .pc-embed {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        border: 1px solid var(--pc-border);
+        border-radius: 12px;
+        margin-top: 1rem;
+        background: #000;
+      }
+      .pc-footer { color: var(--pc-muted); font-size: 0.95rem; margin: 1rem 0 0; }
+      /* Gallery carousel: all images in the DOM, one visible; the console's
+         Images button advances (carouselSeq), counter badge in the corner. */
+      .car { position: relative; }
+      .car .car-img { display: none; }
+      .car .car-img.car-active { display: block; margin-left: auto; margin-right: auto; }
+      .car-count {
+        position: absolute;
+        top: 0.6rem;
+        right: 0.6rem;
+        padding: 2px 9px;
+        border-radius: 999px;
+        background: rgba(0, 0, 0, 0.65);
+        color: #fff;
+        font-size: 0.75rem;
+        font-weight: 600;
+      }
+      .r-embed {
+        width: 100%;
+        max-width: 60rem;
+        aspect-ratio: 16 / 9;
+        border: 0;
+        border-radius: 8px;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+      }
 
       /* Console-driven video enlarge: overlay the video across the whole
          tab (hiding the slide behind it). Deliberately in-page layout, not
          the Fullscreen API — OBS captures the tab as-is. */
-      body.video-full video {
+      body.video-full video,
+      body.video-full iframe.pc-embed,
+      body.video-full iframe.r-embed {
         position: fixed;
         inset: 0;
         width: 100vw;
         height: 100vh;
         max-height: none;
+        aspect-ratio: auto;
         object-fit: contain;
         background: #000;
         border: none;
@@ -148,6 +199,11 @@
         z-index: 15;
       }
       body.transparent.video-full video { background: transparent; }
+      /* A transformed ancestor becomes the containing block for
+         position:fixed — the fit wrapper's scale backstop would trap the
+         enlarged media inside the shrunken slide. Lift the scale while the
+         overlay is up (the media covers the stage anyway). */
+      body.video-full .fit { transform: none !important; }
 
       #startgate {
         position: fixed;
@@ -229,6 +285,7 @@
         lower_third: { name: 'text', subtitle: 'text' },
         post: { author: 'text', handle: 'text', avatar: 'image', text: 'longtext', media: 'image', video: 'video', date: 'text', url: 'text', platform: 'text' },
       }
+      const POST_FIELDS = [['avatar', 'avatar'], ['author', 'subheading'], ['handle', 'meta'], ['text', 'heading'], ['media', 'media'], ['video', 'media'], ['date', 'meta']]
       const TEMPLATES = {
         clean: {
           entrance: 'fadeIn', durationMs: 500,
@@ -249,22 +306,86 @@
             video: [['video', 'media'], ['caption', 'caption']],
           },
         },
+        // Social templates: one generic `post` schema, per-platform skins
+        // (styles = --pc-* overrides) + urlHint for Auto matching. Mirrors
+        // shared/slideTemplates.ts — keep in sync until templates-as-files
+        // moves this data into the payload.
+        'social-post': {
+          entrance: 'slideInUp', durationMs: 500, layout: 'post-card',
+          fieldMap: { post: POST_FIELDS },
+        },
         'x-post': {
           entrance: 'slideInUp', durationMs: 500, layout: 'post-card',
-          fieldMap: {
-            post: [['avatar', 'avatar'], ['author', 'subheading'], ['handle', 'meta'], ['text', 'heading'], ['media', 'media'], ['video', 'media'], ['date', 'meta']],
-          },
+          fieldMap: { post: POST_FIELDS },
+          urlHint: '^https?://(mobile\\.)?(twitter|x)\\.com/',
+          styles: { bg: '#000000', border: '#2f3336', fg: '#e7e9ea', muted: '#71767b', accent: '#e7e9ea', font: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" },
+        },
+        'truth-post': {
+          entrance: 'slideInUp', durationMs: 500, layout: 'post-card',
+          fieldMap: { post: POST_FIELDS },
+          urlHint: '^https?://([a-z0-9-]+\\.)?truthsocial\\.com/',
+          styles: { bg: '#10141f', border: '#2a3245', fg: '#e8eaf0', muted: '#7a849b', accent: '#5448ee', font: "'Segoe UI', Roboto, Helvetica, Arial, sans-serif" },
+        },
+        'reddit-post': {
+          entrance: 'slideInUp', durationMs: 500, layout: 'post-card',
+          fieldMap: { post: POST_FIELDS },
+          urlHint: '^https?://([a-z0-9-]+\\.)?(reddit\\.com|redd\\.it)/',
+          styles: { bg: '#0f1113', border: '#343536', fg: '#d7dadc', muted: '#818384', accent: '#ff4500', font: "'Segoe UI', Roboto, Helvetica, Arial, sans-serif" },
+        },
+        'yt-video': {
+          entrance: 'slideInUp', durationMs: 500, layout: 'post-card',
+          // No `media` mapping: thumbnail + embed is two near-identical
+          // images stacked — the player alone renders (mirrors shared).
+          fieldMap: { post: POST_FIELDS.filter(function (p) { return p[0] !== 'media' }) },
+          urlHint: '^https?://([a-z0-9-]+\\.)?(youtube\\.com|youtu\\.be)/',
+          styles: { bg: '#0f0f0f', border: '#303030', fg: '#f1f1f1', muted: '#aaaaaa', accent: '#ff0000', font: "Roboto, 'Segoe UI', Helvetica, Arial, sans-serif" },
         },
       }
       const SUPPORTS = {
         title: ['clean'], statement: ['clean'], lower_third: ['clean'],
         quote: ['elegant-quote'], image: ['showcase'], video: ['showcase'],
-        post: ['x-post'],
+        post: ['social-post', 'x-post', 'truth-post', 'reddit-post', 'yt-video'],
       }
+      // No-match fallback per content type (social-post has no urlHint — it
+      // never competes in Auto and only ever arrives here).
+      const FALLBACK = { post: 'social-post' }
+
+      // Vault template prefs (Auto priority order + urlHint overrides) —
+      // ride the /present-data payload, refreshed every poll.
+      let templatePrefs = {}
+
+      function hintRegex(id, tpl) {
+        const src = (templatePrefs.urlOverrides || {})[id]
+        if (src) {
+          try { return new RegExp(src, 'i') } catch (e) { /* invalid override → built-in */ }
+        }
+        if (!tpl.urlHint) return null
+        try { return new RegExp(tpl.urlHint, 'i') } catch (e) { return null }
+      }
+
+      // Mirrors shared/slideTemplates.ts resolveSlideTemplate: explicit pin
+      // always wins; 'auto' matches supporting templates' effective hints
+      // against the capture URL (values.url), ordered by prefs; fallback.
       function resolveTemplate(slide) {
-        const own = slide.templateId && TEMPLATES[slide.templateId]
-        if (own && own.fieldMap[slide.contentTypeId]) return { id: slide.templateId, ...own }
-        const id = (SUPPORTS[slide.contentTypeId] || ['clean'])[0]
+        if (slide.templateId && slide.templateId !== 'auto') {
+          const own = TEMPLATES[slide.templateId]
+          if (own && own.fieldMap[slide.contentTypeId]) return { id: slide.templateId, ...own }
+        }
+        const supports = SUPPORTS[slide.contentTypeId] || []
+        if (slide.templateId === 'auto') {
+          const url = (slide.values || {}).url || ''
+          if (url) {
+            const order = templatePrefs.order || []
+            const matched = supports
+              .filter((id) => { const re = hintRegex(id, TEMPLATES[id]); return re && re.test(url) })
+              .sort((a, b) => {
+                const ra = order.indexOf(a), rb = order.indexOf(b)
+                return (ra < 0 ? order.length : ra) - (rb < 0 ? order.length : rb)
+              })
+            if (matched.length) return { id: matched[0], ...TEMPLATES[matched[0]] }
+          }
+        }
+        const id = FALLBACK[slide.contentTypeId] || supports[0] || 'clean'
         return { id, ...TEMPLATES[id] }
       }
 
@@ -286,6 +407,8 @@
           case 'quote': return '<div class="quotemark">&ldquo;</div><blockquote class="title">' + v + '</blockquote>'
           case 'attribution': return '<p class="attribution">— ' + v + '</p>'
           case 'media': {
+            if (/^embed:\/\//.test(value)) return embedTag('r-embed', value)
+            if (type !== 'video' && value.indexOf('\n') !== -1) return galleryHTML('media', value)
             // Server-resolved attachment URLs are root-relative ("/repos/…"),
             // same origin as this page — accept them alongside absolute URLs.
             if (!/^(https?:|data:|blob:|\/)/.test(value)) return '<div class="placeholder">' + v + '</div>'
@@ -303,11 +426,51 @@
 
       // Platform glyphs for the post-card layout, keyed by the generic
       // `platform` field value. Additive per platform; unknown = no glyph.
+      // twitter/reddit/youtube are Simple Icons brand paths; truthsocial is
+      // a hand-drawn "T." wordmark (not in Simple Icons).
       const PLATFORM_GLYPH_PATHS = {
         twitter: 'M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z',
+        truthsocial: 'M3 4h13v4h-4.5v12H7V8H3V4zm14.5 12H21v4h-3.5v-4z',
+        reddit: 'M12 0C5.373 0 0 5.373 0 12c0 3.314 1.343 6.314 3.515 8.485l-2.286 2.286C.775 23.225 1.097 24 1.738 24H12c6.627 0 12-5.373 12-12S18.627 0 12 0Zm4.388 3.199c1.104 0 1.999.895 1.999 1.999 0 1.105-.895 2-1.999 2-.946 0-1.739-.657-1.947-1.539v.002c-1.147.162-2.032 1.15-2.032 2.341v.007c1.776.067 3.4.567 4.686 1.363.473-.363 1.064-.58 1.707-.58 1.547 0 2.802 1.254 2.802 2.802 0 1.117-.655 2.081-1.601 2.531-.088 3.256-3.637 5.876-7.997 5.876-4.361 0-7.905-2.617-7.998-5.87-.954-.447-1.614-1.415-1.614-2.538 0-1.548 1.255-2.802 2.803-2.802.645 0 1.239.218 1.712.585 1.275-.79 2.881-1.291 4.64-1.365v-.01c0-1.663 1.263-3.034 2.88-3.207.188-.911.993-1.595 1.959-1.595Zm-8.085 8.376c-.784 0-1.459.78-1.506 1.797-.047 1.016.64 1.429 1.426 1.429.786 0 1.371-.369 1.418-1.385.047-1.017-.553-1.841-1.338-1.841Zm7.406 0c-.786 0-1.385.824-1.338 1.841.047 1.017.634 1.385 1.418 1.385.785 0 1.473-.413 1.426-1.429-.046-1.017-.721-1.797-1.506-1.797Zm-3.703 4.013c-.974 0-1.907.048-2.77.135-.147.015-.241.168-.183.305.483 1.154 1.622 1.964 2.953 1.964 1.33 0 2.47-.81 2.953-1.964.057-.137-.037-.29-.184-.305-.863-.087-1.795-.135-2.769-.135Z',
+        youtube: 'M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z',
+      }
+
+      // "embed://<provider>/<id>" media values render the platform's own
+      // iframe player (YouTube etc. — no downloadable stream exists). The id
+      // is allowlist-sanitised; unknown providers render nothing.
+      function embedTag(cls, value) {
+        const m = value.match(/^embed:\/\/([a-z0-9-]+)\/([A-Za-z0-9_-]+)$/)
+        if (!m) return ''
+        if (m[1] === 'youtube') {
+          // enablejsapi lets the console's play button drive the player via
+          // postMessage (syncVideoCommand); allow="autoplay" delegates the
+          // autoplay permission so that script-initiated play works.
+          // www.youtube.com, NOT youtube-nocookie.com: the no-cookie domain
+          // sends no session and trips the "sign in to confirm you're not a
+          // bot" wall; the standard domain rides the viewer's YouTube login.
+          return '<iframe class="' + cls + '" src="https://www.youtube.com/embed/' + esc(m[2]) +
+            '?rel=0&enablejsapi=1" title="YouTube video" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>'
+        }
+        return ''
+      }
+
+      // Multi-URL image values (newline-joined — a gallery) render as a
+      // carousel: all images in the DOM, one visible, counter badge. The
+      // console's Images button advances via carouselSeq (wraps at the end).
+      function galleryHTML(cls, value) {
+        const urls = value.split('\n').filter((u) => /^(https?:|data:|blob:|\/)/.test(u))
+        if (!urls.length) return ''
+        if (urls.length === 1) return '<img class="' + cls + '" src="' + esc(urls[0]) + '" alt="">'
+        let html = '<div class="car">'
+        for (let i = 0; i < urls.length; i++) {
+          html += '<img class="' + cls + ' car-img' + (i === 0 ? ' car-active' : '') + '" src="' + esc(urls[i]) + '" alt="">'
+        }
+        return html + '<span class="car-count">1/' + urls.length + '</span></div>'
       }
 
       function mediaTag(cls, type, value) {
+        if (/^embed:\/\//.test(value)) return embedTag(cls === 'pc-media' ? 'pc-embed' : cls, value)
+        if (type !== 'video' && value.indexOf('\n') !== -1) return galleryHTML(cls, value)
         if (!/^(https?:|data:|blob:|\/)/.test(value)) return ''
         const v = esc(value)
         if (type === 'video') return '<video class="' + cls + '" src="' + v + '" playsinline preload="auto"></video>'
@@ -317,7 +480,7 @@
       // post-card layout: header takes the FIRST avatar/subheading/meta,
       // text roles form the body, later meta/attribution/caption items the
       // footer. Mirrors SlideRenderer.svelte's partition.
-      function postCardHTML(slide, items) {
+      function postCardHTML(slide, items, tpl) {
         const first = (role) => items.find((it) => it.role === role)
         const metas = items.filter((it) => it.role === 'meta')
         const avatar = first('avatar')
@@ -328,7 +491,17 @@
         const footer = metas.slice(1).concat(items.filter((it) => it.role === 'attribution' || it.role === 'caption'))
         const glyph = PLATFORM_GLYPH_PATHS[(slide.values || {}).platform || '']
 
-        let html = '<div class="pc"><div class="pc-header">'
+        // Template style tokens → the card's --pc-* custom properties (the
+        // platform skin). Values are template data (trusted registry above),
+        // but esc() anyway — cheap belt-and-braces.
+        const s = (tpl && tpl.styles) || {}
+        const skin = [
+          s.bg ? '--pc-bg:' + s.bg : '', s.border ? '--pc-border:' + s.border : '',
+          s.fg ? '--pc-fg:' + s.fg : '', s.muted ? '--pc-muted:' + s.muted : '',
+          s.accent ? '--pc-accent:' + s.accent : '', s.font ? '--pc-font:' + s.font : '',
+        ].filter(Boolean).join(';')
+
+        let html = '<div class="pc"' + (skin ? ' style="' + esc(skin) + '"' : '') + '><div class="pc-header">'
         if (avatar) html += mediaTag('pc-avatar', 'image', avatar.value)
         html += '<div class="pc-id">'
         if (name) html += '<span class="pc-name">' + esc(name.value) + '</span>'
@@ -353,7 +526,7 @@
           items.push({ role, type: fieldTypes[field] || 'text', value })
         }
         if (tpl.layout === 'post-card') {
-          return items.length ? postCardHTML(slide, items) : '<p class="status">—</p>'
+          return items.length ? postCardHTML(slide, items, tpl) : '<p class="status">—</p>'
         }
         let html = ''
         for (const it of items) html += renderRole(it.role, it.type, it.value)
@@ -380,7 +553,8 @@
         let idx = deck.currentIndex | 0
         if (idx < 0 || idx >= deck.slides.length) idx = 0
         const slide = deck.slides[idx]
-        const key = [idx, slide.id, slide.contentTypeId, slide.templateId, JSON.stringify(stableValues(slide.values || {}))].join('')
+        const tpl = resolveTemplate(slide)
+        const key = [idx, slide.id, slide.contentTypeId, tpl.id, JSON.stringify(stableValues(slide.values || {}))].join('')
         if (key === lastKey) return
         lastKey = key
 
@@ -391,10 +565,18 @@
         if (theme.accentColor) root.setProperty('--slide-accent', theme.accentColor)
         if (theme.fontFamily) root.setProperty('--slide-font', theme.fontFamily)
 
-        const tpl = resolveTemplate(slide)
-        stage.innerHTML = '<div class="frame anim-' + tpl.entrance + '" style="--anim-ms:' + tpl.durationMs + 'ms">' +
-          slideInnerHTML(slide, tpl) + '</div>'
-        fitFrame()
+        // Overflow mode: 'fit' (default) shrinks text then transform-scales
+        // the .fit wrapper — a slide can never clip; 'scroll' renders
+        // full-size and the console pages via scrollSeq.
+        const scrollMode = slide.overflow === 'scroll'
+        stage.classList.toggle('scrolling', scrollMode)
+        stage.innerHTML = '<div class="frame anim-' + tpl.entrance + '" style="--anim-ms:' + tpl.durationMs + 'ms"><div class="fit">' +
+          slideInnerHTML(slide, tpl) + '</div></div>'
+        stage.scrollTop = 0
+        if (!scrollMode) {
+          fitFrame()
+          refitOnMediaLoad()
+        }
       }
 
       // Auto-fit: long posts overflow the viewport at the clamp() sizes, so
@@ -402,12 +584,18 @@
       // fits the stage (14px floor — beyond that, overflow beats illegible).
       // Deliberate default, not a knob: slides size themselves.
       function fitFrame() {
-        const frame = stage.querySelector('.frame')
-        if (!frame) return
-        const els = frame.querySelectorAll('.title, .subtitle, .body, .attribution, .meta, .pc-text')
-        if (!els.length) return
+        if (stage.classList.contains('scrolling')) return
+        const fit = stage.querySelector('.fit')
+        if (!fit) return
+        fit.style.transform = ''
+        // Available height = the stage's content box (clientHeight includes
+        // the 4vmin padding — fitting against it lets content overlap the
+        // padding and read as "not scaled").
+        const cs = getComputedStyle(stage)
+        const avail = stage.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)
+        const els = fit.querySelectorAll('.title, .subtitle, .body, .attribution, .meta, .pc-text')
         let guard = 30
-        while (frame.scrollHeight > stage.clientHeight && guard-- > 0) {
+        while (els.length && fit.scrollHeight > avail && guard-- > 0) {
           let shrunk = false
           for (const el of els) {
             const px = parseFloat(getComputedStyle(el).fontSize)
@@ -415,8 +603,28 @@
           }
           if (!shrunk) break
         }
+        // Scale backstop: whatever still doesn't fit (media-heavy slides,
+        // text at the 14px floor) shrinks proportionally — never clips.
+        if (fit.scrollHeight > avail) {
+          fit.style.transform = 'scale(' + (avail / fit.scrollHeight) + ')'
+        }
+      }
+
+      // Media sizes arrive AFTER the first fit pass (the measurement runs
+      // synchronously on fresh innerHTML, when <img>/<video> have no height
+      // yet) — without this, exactly the slides that need the backstop are
+      // the ones that skip it. Listeners die with the next innerHTML swap.
+      function refitOnMediaLoad() {
+        for (const img of stage.querySelectorAll('.fit img')) {
+          if (!img.complete) img.addEventListener('load', fitFrame, { once: true })
+        }
+        for (const v of stage.querySelectorAll('.fit video')) {
+          v.addEventListener('loadedmetadata', fitFrame, { once: true })
+        }
       }
       window.addEventListener('resize', () => { lastKey = null })
+      // Web-font swap changes text metrics after the first fit pass.
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitFrame)
 
       // Video playback is COMMAND-driven, never automatic: a slide's video
       // sits on its first frame until the presenter fires the console's play
@@ -427,12 +635,26 @@
       const soundHint = document.getElementById('soundhint')
       let userInteracted = false
       let lastVideoSeq = null
+      // Embedded players (embed:// → iframe with enablejsapi) are driven by
+      // the same console button, via YouTube's postMessage command channel —
+      // there's no <video> element to control.
+      function embedCommand(func) {
+        const frame = stage.querySelector('iframe.pc-embed, iframe.r-embed')
+        if (!frame || !frame.contentWindow) return false
+        frame.contentWindow.postMessage(
+          JSON.stringify({ event: 'command', func: func, args: [] }), '*')
+        return true
+      }
+
       function syncVideoCommand(deck) {
         const seq = deck.videoSeq
         if (typeof seq !== 'number' || seq === lastVideoSeq) return
         lastVideoSeq = seq
         const v = stage.querySelector('video')
-        if (!v) return
+        if (!v) {
+          embedCommand(deck.videoAction === 'pause' ? 'pauseVideo' : 'playVideo')
+          return
+        }
         if (deck.videoAction === 'pause') { v.pause(); return }
         if (v.ended) v.currentTime = 0
         v.muted = false
@@ -443,6 +665,56 @@
           if (!userInteracted) soundHint.style.display = 'block'
         })
       }
+      // Scroll paging is COMMAND-driven like video playback: the console
+      // bumps scrollSeq and this page advances one page — wrapping back to
+      // the top at the bottom, so a press always visibly does something
+      // (the console can't know this viewport's page count). Joining
+      // mid-show adopts the current counter without paging.
+      let lastScrollSeq = null
+      let scrollSeqInit = false
+      function syncScrollCommand(deck) {
+        const seq = deck.scrollSeq
+        if (!scrollSeqInit) {
+          scrollSeqInit = true
+          // Joined mid-show with a counter already ticking: adopt it
+          // silently. (A first payload WITHOUT a counter falls through, so
+          // the first-ever press still pages.)
+          if (typeof seq === 'number') { lastScrollSeq = seq; return }
+        }
+        if (typeof seq !== 'number' || seq === lastScrollSeq) return
+        lastScrollSeq = seq
+        if (!stage.classList.contains('scrolling')) return
+        const atBottom = stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 4
+        if (atBottom) stage.scrollTo({ top: 0, behavior: 'smooth' })
+        else stage.scrollBy({ top: Math.max(60, stage.clientHeight * 0.85), behavior: 'smooth' })
+      }
+
+      // Carousel advance — same command shape as scroll paging: each new
+      // carouselSeq shows the next gallery image, wrapping at the end.
+      // Joining mid-show adopts the counter without advancing.
+      let lastCarouselSeq = null
+      let carouselSeqInit = false
+      function syncCarouselCommand(deck) {
+        const seq = deck.carouselSeq
+        if (!carouselSeqInit) {
+          carouselSeqInit = true
+          if (typeof seq === 'number') { lastCarouselSeq = seq; return }
+        }
+        if (typeof seq !== 'number' || seq === lastCarouselSeq) return
+        lastCarouselSeq = seq
+        const car = stage.querySelector('.car')
+        if (!car) return
+        const imgs = Array.from(car.querySelectorAll('.car-img'))
+        if (imgs.length < 2) return
+        const active = imgs.findIndex((im) => im.classList.contains('car-active'))
+        const next = (active + 1) % imgs.length
+        imgs.forEach((im, i) => im.classList.toggle('car-active', i === next))
+        const count = car.querySelector('.car-count')
+        if (count) count.textContent = (next + 1) + '/' + imgs.length
+        // Gallery images differ in height — refit (no-op in scroll mode).
+        fitFrame()
+      }
+
       function unlockAudio() {
         userInteracted = true
         soundHint.style.display = 'none'
@@ -569,6 +841,10 @@
             }
             return
           }
+          // Vault template prefs ride the payload (Auto matching inputs).
+          if (payload && typeof payload.templatePrefs === 'object' && payload.templatePrefs) {
+            templatePrefs = payload.templatePrefs
+          }
           const deck = findDeck(payload)
           lastDeck = deck
           if (deck && (await maybeGate(deck))) return
@@ -576,7 +852,10 @@
           render(deck)
           if (deck) {
             syncVideoCommand(deck)
-            document.body.classList.toggle('video-full', deck.videoFull === true && !!stage.querySelector('video'))
+            syncScrollCommand(deck)
+            syncCarouselCommand(deck)
+            document.body.classList.toggle('video-full',
+              deck.videoFull === true && !!stage.querySelector('video, iframe.pc-embed, iframe.r-embed'))
           }
         } catch (e) {
           // Transient network error — keep the current slide, retry.

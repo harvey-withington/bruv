@@ -181,16 +181,18 @@ export async function executeJob(s: ClipperSettings, job: ClipJob): Promise<Clip
   const card = await repoRPC<Card>(s, 'CreateCard', [typeID, cardTitle(clip)])
   const cardID = card.id
 
-  // Attachments first — the blocks reference them.
+  // Attachments first — the blocks reference them. EVERY image ref is
+  // kept: galleries become a multi-item media block (rendered as a
+  // carousel on slides), not first-image-wins.
   const known = new Set<string>()
-  let firstImageRef = ''
+  const imageRefs: string[] = []
   let firstVideoRef = ''
   for (const m of job.media) {
     const attID = await addAttachment(s, cardID, known, m.name, m.base64)
     if (!attID) continue
     const ref = `attachment:${cardID}/${attID}`
     if (m.kind === 'video' && !firstVideoRef) firstVideoRef = ref
-    if (m.kind === 'image' && !firstImageRef) firstImageRef = ref
+    if (m.kind === 'image') imageRefs.push(ref)
   }
   let avatarRef = ''
   if (job.avatarBase64 && job.avatarName) {
@@ -212,7 +214,13 @@ export async function executeJob(s: ClipperSettings, job: ClipJob): Promise<Clip
   if (clip.handle) addBlock('handle', 'text', 'Handle', clip.handle)
   if (avatarRef) addBlock('avatar', 'image', 'Avatar', { url: avatarRef })
   if (clip.text) addBlock('text', 'text', 'Text', clip.text)
-  if (firstImageRef) addBlock('media', 'image', 'Media', { url: firstImageRef })
+  if (imageRefs.length > 1) {
+    // Gallery: one multi-item media block. Slide binding resolution joins
+    // every item URL (newline-delimited); renderers show a carousel.
+    addBlock('media', 'media', 'Media', imageRefs.map((r) => ({ id: newID('m'), url: r })))
+  } else if (imageRefs.length === 1) {
+    addBlock('media', 'image', 'Media', { url: imageRefs[0] })
+  }
   if (firstVideoRef) addBlock('video', 'media', 'Video', [{ id: newID('m'), url: firstVideoRef, mime: 'video/mp4' }])
   const dateText = displayDate(clip.publishedAt)
   if (dateText) addBlock('date', 'text', 'Date', dateText)
@@ -255,11 +263,17 @@ export async function executeJob(s: ClipperSettings, job: ClipJob): Promise<Clip
     // the only literal (it has no block; it's routing data, not content).
     // No `title`: the deck row label follows the linked card's live title;
     // stamping the clip-time title here would freeze it against renames.
+    // templateId 'auto': BRUV resolves the template from the capture URL
+    // (bound `url` field) at render time — so platforms without a dedicated
+    // template render on the generic fallback and upgrade retroactively the
+    // moment a matching template ships.
+    const values: Record<string, string> = { platform: clip.platform }
+    if (clip.embedVideo) values.video = `embed://${clip.embedVideo.provider}/${clip.embedVideo.id}`
     const slide: Record<string, unknown> = {
       contentTypeId: 'post',
-      templateId: job.clip.extras.templateId || undefined,
+      templateId: 'auto',
       cardId: cardID,
-      values: { platform: clip.platform },
+      values,
       bindings,
     }
     await repoRPC(s, 'AppendDeckSlide', [s.deckTarget.cardID, s.deckTarget.blockID, slide])

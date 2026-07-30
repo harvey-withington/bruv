@@ -1,8 +1,8 @@
 // The genericity contract lives here. Everything downstream of a plugin —
 // card mapping, media download, deck append, queueing — consumes ONLY these
-// shapes and must stay platform-blind. Exactly one artifact per layer may
-// know a platform: the extractor plugin (emits ClipResult) and, on the BRUV
-// side, the slide template the plugin names in `defaultTemplateId`.
+// shapes and must stay platform-blind. Exactly ONE artifact knows a
+// platform: the extractor plugin (emits ClipResult). Slides are stamped
+// 'auto'; BRUV resolves the template from the capture URL.
 
 export type ClipMediaKind = 'image' | 'video'
 
@@ -25,6 +25,11 @@ export type ClipResult = {
   text: string
   media: ClipMedia[]
   publishedAt?: string
+  // Embedded playback via the platform's official player (YouTube etc.) —
+  // for sources whose video streams can't be downloaded in-browser. Becomes
+  // the slide's `video` value as "embed://<provider>/<id>"; renderers show
+  // an iframe. Never downloaded, never an attachment.
+  embedVideo?: { provider: string; id: string }
   // Platform-specific extras the generic pipeline stores but never reads.
   extras: Record<string, string>
   // Set by the DOM extractor when media needs background-side resolution

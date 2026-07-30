@@ -168,6 +168,15 @@ export type TemplateStyles = {
   textColor?: string
   accentColor?: string
   fontFamily?: string
+  // post-card layout tokens — the platform "skin" (Facebook blue, X black…).
+  // Renderers map these onto the layout's CSS custom properties; absent
+  // tokens keep the layout's built-in defaults.
+  cardBackgroundColor?: string
+  cardBorderColor?: string
+  cardTextColor?: string
+  cardMutedColor?: string
+  cardAccentColor?: string
+  cardFontFamily?: string
   // Extension point for user-authored templates (borders, padding, …).
 }
 
@@ -188,12 +197,28 @@ export type SlideTemplate = {
   durationMs: number
   layout?: SlideLayout                            // default 'stack'
   styles?: TemplateStyles
+  // Regex SOURCE tested against a slide's capture URL (values.url) when the
+  // slide's template is 'auto'. Powers Auto selection ONLY — never restricts
+  // the manual picker. Absent = never auto-matched (generic templates).
+  urlHint?: string
+}
+
+// Vault-level template preferences (GetTemplatePrefs / SetTemplatePrefs).
+export type TemplatePrefs = {
+  // Priority for Auto multi-match: template ids first-match-wins in this
+  // order; unlisted templates follow in registration order.
+  order?: string[]
+  // Per-template urlHint replacement (regex source). Invalid regexes fall
+  // back to the template's built-in hint.
+  urlOverrides?: Record<string, string>
 }
 
 export type Slide = {
   id: string
   contentTypeId: string
-  templateId?: string                  // falls back to the first template supporting the type
+  templateId?: string                  // AUTO_TEMPLATE_ID = resolve from capture URL (stamped by the
+                                       // clipper); explicit id = user pin (always wins); undefined =
+                                       // legacy fallback (first template supporting the type)
   cardId?: string                      // optional linked card, for field bindings
   values: Record<string, string>       // field key → literal value
   bindings?: Record<string, string>    // field key → card block id (resolved live)
@@ -203,6 +228,9 @@ export type Slide = {
   durationSec?: number                 // 0 / undefined = manual advance
   notes?: string                       // presenter notes — control surface only
   thumbnail?: string                   // small data-URI preview for the compact row
+  overflow?: 'fit' | 'scroll'          // oversized content: 'fit' (default) shrinks text then
+                                       // transform-scales the whole frame — a slide can never clip;
+                                       // 'scroll' renders full-size and scrolls (console-paged on /present)
 }
 
 export type DeckTheme = {
@@ -237,6 +265,14 @@ export type BlockLiveState = {
   // (hiding the rest of the slide) — an in-page layout state, deliberately
   // NOT the browser Fullscreen API, so OBS captures stay seamless.
   videoFull?: boolean
+  // Monotonic per-console counter for scroll-mode slides: each new seq
+  // pages the output down one viewport (wrapping to the top at the bottom
+  // — the console can't know the output's page count, so a press must
+  // always visibly act).
+  scrollSeq?: number
+  // Monotonic per-console counter for multi-image (carousel) slides: each
+  // new seq advances the output to the next image, wrapping at the end.
+  carouselSeq?: number
 }
 
 export type BlockMeta = {
@@ -878,6 +914,12 @@ export interface BackendAdapter {
   // The slide runs through the standard coercion (id stamping, content-type
   // field filtering) before saving.
   AppendDeckSlide(cardID: string, blockID: string, slide: Partial<Slide>): Promise<Card>
+
+  // Vault-level slide-template preferences (Auto priority order +
+  // per-template urlHint regex overrides). Stored blindly server-side;
+  // regex validity is a renderer concern.
+  GetTemplatePrefs(): Promise<TemplatePrefs>
+  SetTemplatePrefs(prefs: TemplatePrefs): Promise<void>
 
   // Presentation gate — presenting is explicit start/stop, not inferred.
   // While closed, /present-data serves a waiting payload (the signed URL

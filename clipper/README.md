@@ -1,11 +1,15 @@
 # BRUV Clipper
 
 Browser extension (Chrome MV3) that captures social posts into BRUV cards —
-and, with one click, appends them as slides to a target slide deck. Twitter/X
-is the first supported platform; the architecture is platform-generic (see
+and, with one click, appends them as slides to a target slide deck.
+Supported platforms: **Twitter/X, Truth Social, Reddit, YouTube** — one
+plugin each in `src/lib/plugins/` (see
 `plan/2026-07-25 twitter to slide deck end-to-end.md` for the genericity
-contract). Adding a platform = one plugin in `src/lib/plugins/` + one slide
-template on the BRUV side.
+contract). Adding a platform = one plugin file + a registry line; plugins
+know nothing about slide templates — slides are stamped `auto` and BRUV
+resolves the template from the capture URL (per-platform look, retroactive
+upgrades; see `plan/2026-07-31 per-platform slide templates and auto
+matching.md`).
 
 ## Build
 
@@ -73,6 +77,42 @@ now** in the popup.
       (or wait a minute) → card + slide appear.
 - [ ] Present the deck → slides render on the x-post template with avatar,
       name, @handle, text, media, date.
+
+### Truth Social
+
+- [ ] Capture a plain text post — author, handle, and text populate
+      correctly after API enrichment.
+- [ ] Capture a post with a single image — image lands as an attachment,
+      not a blank/rotting CDN link.
+- [ ] Capture a post with video — resolves to a playable mp4 via the
+      statuses API (or degrades cleanly to the poster image).
+- [ ] Capture a reply in a thread — canonicalUrl is the reply's own
+      permalink, not the thread root.
+
+### Reddit
+
+- [ ] New Reddit (www): capture a text/self post — title + truncated
+      selftext preview land on card and slide.
+- [ ] New Reddit: capture a gallery post — every image attaches (cap 12);
+      the slide shows them as a carousel (counter badge; console Images
+      button / click-in-preview advances, wrapping at the end).
+- [ ] New Reddit: capture a native video post — video attaches (video-only,
+      no audio track — accepted trade-off) with poster fallback.
+- [ ] old.reddit.com: capture via div.thing — author/subreddit/title match
+      the new-Reddit capture of the same post.
+
+### YouTube
+
+- [ ] Right-click on a watch page (away from thumbnails) — captures that
+      video with title, channel, @handle, avatar.
+- [ ] Right-click a thumbnail on home/search — captures that video's id;
+      title, channel name, and @handle fill via the oEmbed lookup (only the
+      channel avatar stays blank — oEmbed doesn't carry it).
+- [ ] Shorts: thumbnail and watch page both resolve the right video id.
+- [ ] Old/low-res video (no maxresdefault) — thumbnail downgrades to
+      hqdefault, not a broken image.
+- [ ] Slide renders the official YouTube embed (iframe) at Present time;
+      the card holds the thumbnail + source link (no video download).
 
 ## Notes
 

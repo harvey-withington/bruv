@@ -411,7 +411,7 @@ func coerceSlide(m map[string]any) map[string]any {
 		"contentTypeId": contentTypeID,
 		"values":        values,
 	}
-	for _, k := range []string{"templateId", "cardId", "title", "notes", "thumbnail"} {
+	for _, k := range []string{"templateId", "cardId", "title", "notes", "thumbnail", "overflow"} {
 		if s, ok := m[k].(string); ok && strings.TrimSpace(s) != "" {
 			slide[k] = s
 		}

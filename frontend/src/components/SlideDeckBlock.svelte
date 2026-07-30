@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { SlideDeckValue, Slide, BlockLiveState, WailsWindow } from '@shared/types'
   import { t } from '../lib/i18n.svelte'
-  import { Plus, GripVertical, Pencil, Copy, Trash2, Presentation, Clock, Play, Pause, Square, MonitorPlay, ChevronLeft, ChevronRight, Link2, ExternalLink, Maximize2, Minimize2 } from 'lucide-svelte'
+  import { Plus, GripVertical, Pencil, Copy, Trash2, Presentation, Clock, Play, Pause, Square, MonitorPlay, ChevronLeft, ChevronRight, ChevronsDown, Images, Link2, ExternalLink, Maximize2, Minimize2 } from 'lucide-svelte'
   import { computeReorder, wouldReorder, DROP_END } from '../lib/reorder'
   import { resolveContentType, DEFAULT_CONTENT_TYPE_ID } from '@shared/slideContentTypes'
   import { slideDisplayLabel } from '@shared/slideLabel'
@@ -163,6 +163,77 @@
   let videoSeq = $state(0)
   let videoPlaying = $state(false)
   let videoFull = $state(false)
+
+  // --- scroll paging (presenter-fired, scroll-mode slides only) ---
+  // Mirrors the video transport: each press bumps scrollSeq and the output
+  // page advances one page, wrapping to the top at the bottom (the console
+  // can't know the output viewport's page count, so wrap guarantees a
+  // press always visibly does something).
+  const currentScrolls = $derived(slides[currentIndex]?.overflow === 'scroll')
+  let scrollSeq = $state(0)
+
+  async function pageScroll(): Promise<void> {
+    scrollSeq += 1
+    try {
+      await SetBlockLiveState(cardId, blockId, {
+        currentIndex,
+        videoSeq,
+        videoAction: videoPlaying ? 'play' : 'pause',
+        videoFull,
+        scrollSeq,
+        carouselSeq,
+      })
+    } catch {
+      showToast(t('slide.nav_failed'), 'error')
+    }
+  }
+
+  // --- media carousel (multi-image slides) ---
+  // Same command shape as scroll paging: each press bumps carouselSeq and
+  // the output page advances one image, wrapping at the end. The button
+  // only shows when the current slide actually resolves to >1 image —
+  // literal values are counted directly; a bound media field needs the
+  // linked card's block (fetched lazily, stale-guarded).
+  let mediaCount = $state(1)
+  let mediaCountSeq = 0
+  $effect(() => {
+    const s = slides[currentIndex]
+    const seq = ++mediaCountSeq
+    mediaCount = 1
+    if (!s) return
+    const literal = (s.values?.media ?? '').trim()
+    if (literal.includes('\n')) {
+      mediaCount = literal.split('\n').filter(Boolean).length
+      return
+    }
+    const boundBlockId = s.bindings?.media
+    if (!literal && boundBlockId && s.cardId) {
+      GetCard(s.cardId)
+        .then((c) => {
+          if (seq !== mediaCountSeq) return
+          const b = c?.blocks?.find((x) => x.id === boundBlockId)
+          if (b && Array.isArray(b.value)) mediaCount = b.value.length
+        })
+        .catch(() => {})
+    }
+  })
+  let carouselSeq = $state(0)
+
+  async function pageCarousel(): Promise<void> {
+    carouselSeq += 1
+    try {
+      await SetBlockLiveState(cardId, blockId, {
+        currentIndex,
+        videoSeq,
+        videoAction: videoPlaying ? 'play' : 'pause',
+        videoFull,
+        scrollSeq,
+        carouselSeq,
+      })
+    } catch {
+      showToast(t('slide.nav_failed'), 'error')
+    }
+  }
 
   async function toggleVideo(): Promise<void> {
     const next = !videoPlaying
@@ -419,6 +490,28 @@
         </button>
       </div>
       <div class="actions-right">
+        {#if currentScrolls}
+          <button
+            class="icon-btn video-btn"
+            type="button"
+            onclick={pageScroll}
+            title={t('slide.page_scroll')}
+            aria-label={t('slide.page_scroll')}
+          >
+            <ChevronsDown size={14} />
+          </button>
+        {/if}
+        {#if mediaCount > 1}
+          <button
+            class="icon-btn video-btn"
+            type="button"
+            onclick={pageCarousel}
+            title={t('slide.next_image', { count: mediaCount })}
+            aria-label={t('slide.next_image', { count: mediaCount })}
+          >
+            <Images size={14} />
+          </button>
+        {/if}
         {#if currentHasVideo}
           <button
             class="icon-btn video-btn"

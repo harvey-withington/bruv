@@ -63,6 +63,14 @@ export const youtubePlugin: ClipperPlugin = {
     return null
   },
 
+  // Completion captures (a pending clip's URL opened in a transient tab)
+  // have no click target — which is exactly path 2 above: any URL carrying
+  // a video id makes the whole page the capture unit.
+  resolvePageUnit(doc: Document): Element | null {
+    const pageHref = doc.location?.href ?? ''
+    return videoIdFromHref(pageHref, pageHref) ? doc.body : null
+  },
+
   extract(unit: Element, doc: Document): ClipResult | null {
     const isPageCapture = unit === doc.body
 

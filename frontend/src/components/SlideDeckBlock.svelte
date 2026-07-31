@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { SlideDeckValue, Slide, BlockLiveState, WailsWindow } from '@shared/types'
   import { t } from '../lib/i18n.svelte'
-  import { Plus, GripVertical, Pencil, Copy, Trash2, Presentation, Clock, Play, Pause, Square, MonitorPlay, ChevronLeft, ChevronRight, ChevronsDown, Images, Link2, ExternalLink, Maximize2, Minimize2 } from 'lucide-svelte'
+  import { Plus, GripVertical, Pencil, Copy, Trash2, Presentation, Clock, Play, Pause, Square, MonitorPlay, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Link2, ExternalLink, Maximize2, Minimize2 } from 'lucide-svelte'
   import { computeReorder, wouldReorder, DROP_END } from '../lib/reorder'
   import { resolveContentType, DEFAULT_CONTENT_TYPE_ID } from '@shared/slideContentTypes'
   import { slideDisplayLabel } from '@shared/slideLabel'
@@ -131,6 +131,7 @@
       // videoAction (e.g. plain navigation) means paused, not fullscreen.
       videoPlaying = ev.state?.videoAction === 'play'
       videoFull = ev.state?.videoFull === true
+      imageFull = ev.state?.imageFull === true
     })
     return () => {
       alive = false
@@ -142,8 +143,9 @@
     if (idx < 0 || idx >= slides.length || idx === currentIndex) return
     const prev = liveIndex
     liveIndex = idx // optimistic; the block:live echo confirms
-    videoPlaying = false // navigation clears video command + fullscreen (state is replaced wholesale)
+    videoPlaying = false // navigation clears media commands + overlays (state is replaced wholesale)
     videoFull = false
+    imageFull = false
     try {
       await SetBlockLiveState(cardId, blockId, { currentIndex: idx })
     } catch {
@@ -163,37 +165,53 @@
   let videoSeq = $state(0)
   let videoPlaying = $state(false)
   let videoFull = $state(false)
+  let imageFull = $state(false)
 
-  // --- scroll paging (presenter-fired, scroll-mode slides only) ---
-  // Mirrors the video transport: each press bumps scrollSeq and the output
-  // page advances one page, wrapping to the top at the bottom (the console
-  // can't know the output viewport's page count, so wrap guarantees a
-  // press always visibly does something).
-  const currentScrolls = $derived(slides[currentIndex]?.overflow === 'scroll')
-  let scrollSeq = $state(0)
+  // liveCommand is the full replacement state every console command
+  // sends — SetBlockLiveState replaces wholesale, so each command
+  // re-sends the lot (one builder instead of five hand-rolled payloads).
+  function liveCommand(): BlockLiveState {
+    return {
+      currentIndex,
+      videoSeq,
+      videoAction: videoPlaying ? 'play' : 'pause',
+      videoFull,
+      imageFull,
+      scrollSeq,
+      scrollDir,
+      carouselSeq,
+      carouselDir,
+    }
+  }
 
-  async function pageScroll(): Promise<void> {
-    scrollSeq += 1
+  async function pushLive(revert?: () => void): Promise<void> {
     try {
-      await SetBlockLiveState(cardId, blockId, {
-        currentIndex,
-        videoSeq,
-        videoAction: videoPlaying ? 'play' : 'pause',
-        videoFull,
-        scrollSeq,
-        carouselSeq,
-      })
+      await SetBlockLiveState(cardId, blockId, liveCommand())
     } catch {
+      revert?.()
       showToast(t('slide.nav_failed'), 'error')
     }
   }
 
-  // --- media carousel (multi-image slides) ---
-  // Same command shape as scroll paging: each press bumps carouselSeq and
-  // the output page advances one image, wrapping at the end. The button
-  // only shows when the current slide actually resolves to >1 image —
-  // literal values are counted directly; a bound media field needs the
-  // linked card's block (fetched lazily, stale-guarded).
+  // --- within-slide axis (⬆/⬇) ---
+  // Scroll mode and galleries are the same concept — a dimension WITHIN
+  // the current slide — so one control pair drives whichever the slide
+  // has: scroll-mode slides page their content (clamped at the ends),
+  // gallery slides step their carousel (wrapping both ways). Scroll wins
+  // when a slide somehow has both — content paging is the primary axis.
+  // Direction rides the live state beside the monotonic seq; an absent
+  // dir means forward, so older output pages keep one-way semantics.
+  // Article slides (planned) become a third rider on this axis.
+  const currentScrolls = $derived(slides[currentIndex]?.overflow === 'scroll')
+  let scrollSeq = $state(0)
+  let scrollDir = $state<1 | -1>(1)
+  let carouselSeq = $state(0)
+  let carouselDir = $state<1 | -1>(1)
+
+  // mediaCount: the ⬆/⬇ pair only steps a carousel when the current
+  // slide actually resolves to >1 image — literal values are counted
+  // directly; a bound media field needs the linked card's block (fetched
+  // lazily, stale-guarded).
   let mediaCount = $state(1)
   let mediaCountSeq = 0
   $effect(() => {
@@ -217,57 +235,56 @@
         .catch(() => {})
     }
   })
-  let carouselSeq = $state(0)
 
-  async function pageCarousel(): Promise<void> {
-    carouselSeq += 1
-    try {
-      await SetBlockLiveState(cardId, blockId, {
-        currentIndex,
-        videoSeq,
-        videoAction: videoPlaying ? 'play' : 'pause',
-        videoFull,
-        scrollSeq,
-        carouselSeq,
-      })
-    } catch {
-      showToast(t('slide.nav_failed'), 'error')
+  const withinAxis = $derived<'scroll' | 'carousel' | null>(
+    currentScrolls ? 'scroll' : mediaCount > 1 ? 'carousel' : null,
+  )
+
+  async function pageWithin(dir: 1 | -1): Promise<void> {
+    if (withinAxis === 'scroll') {
+      scrollSeq += 1
+      scrollDir = dir
+    } else if (withinAxis === 'carousel') {
+      carouselSeq += 1
+      carouselDir = dir
+    } else {
+      return
     }
+    await pushLive()
   }
 
   async function toggleVideo(): Promise<void> {
     const next = !videoPlaying
     videoPlaying = next
     videoSeq += 1
-    try {
-      await SetBlockLiveState(cardId, blockId, {
-        currentIndex,
-        videoSeq,
-        videoAction: next ? 'play' : 'pause',
-        videoFull,
-      })
-    } catch {
+    await pushLive(() => {
       videoPlaying = !next
-      showToast(t('slide.nav_failed'), 'error')
-    }
+    })
   }
 
-  // Fullscreen toggle keeps videoSeq UNCHANGED — enlarging must not
+  // Fullscreen toggles keep videoSeq UNCHANGED — enlarging must not
   // restart or re-fire playback, only relayout the output page.
   async function toggleVideoFull(): Promise<void> {
     const next = !videoFull
     videoFull = next
-    try {
-      await SetBlockLiveState(cardId, blockId, {
-        currentIndex,
-        videoSeq,
-        videoAction: videoPlaying ? 'play' : 'pause',
-        videoFull: next,
-      })
-    } catch {
+    await pushLive(() => {
       videoFull = !next
-      showToast(t('slide.nav_failed'), 'error')
-    }
+    })
+  }
+
+  // Image analogue of the video ⛶: slides with an image but no video get
+  // their own enlarge toggle (when both exist, the video one wins — two
+  // maximize buttons on one console row would be noise).
+  const currentHasImage = $derived.by(() => {
+    const s = slides[currentIndex]
+    return !!(s && (s.values?.media || s.bindings?.media))
+  })
+  async function toggleImageFull(): Promise<void> {
+    const next = !imageFull
+    imageFull = next
+    await pushLive(() => {
+      imageFull = !next
+    })
   }
 
   // Live "presentation ongoing" state: the server flags a card while its
@@ -490,26 +507,38 @@
         </button>
       </div>
       <div class="actions-right">
-        {#if currentScrolls}
+        {#if withinAxis}
+          {@const prevLabel = withinAxis === 'scroll' ? t('slide.page_prev_scroll') : t('slide.page_prev_image', { count: mediaCount })}
+          {@const nextLabel = withinAxis === 'scroll' ? t('slide.page_next_scroll') : t('slide.page_next_image', { count: mediaCount })}
           <button
             class="icon-btn video-btn"
             type="button"
-            onclick={pageScroll}
-            title={t('slide.page_scroll')}
-            aria-label={t('slide.page_scroll')}
+            onclick={() => pageWithin(-1)}
+            title={prevLabel}
+            aria-label={prevLabel}
           >
-            <ChevronsDown size={14} />
+            <ChevronUp size={14} />
+          </button>
+          <button
+            class="icon-btn video-btn"
+            type="button"
+            onclick={() => pageWithin(1)}
+            title={nextLabel}
+            aria-label={nextLabel}
+          >
+            <ChevronDown size={14} />
           </button>
         {/if}
-        {#if mediaCount > 1}
+        {#if currentHasImage && !currentHasVideo}
           <button
             class="icon-btn video-btn"
+            class:playing={imageFull}
             type="button"
-            onclick={pageCarousel}
-            title={t('slide.next_image', { count: mediaCount })}
-            aria-label={t('slide.next_image', { count: mediaCount })}
+            onclick={toggleImageFull}
+            title={imageFull ? t('slide.image_full_exit') : t('slide.image_full')}
+            aria-label={imageFull ? t('slide.image_full_exit') : t('slide.image_full')}
           >
-            <Images size={14} />
+            {#if imageFull}<Minimize2 size={13} />{:else}<Maximize2 size={13} />{/if}
           </button>
         {/if}
         {#if currentHasVideo}

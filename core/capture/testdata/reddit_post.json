@@ -1,0 +1,20 @@
+[
+  {
+    "data": {
+      "children": [
+        {
+          "data": {
+            "title": "A post title",
+            "selftext": "Some body text",
+            "author": "gopher",
+            "subreddit_name_prefixed": "r/golang",
+            "created_utc": 1785412800,
+            "permalink": "/r/golang/comments/abc123/some_title/",
+            "preview": { "images": [{ "source": { "url": "https://preview.redd.it/img1.jpg" } }] }
+          }
+        }
+      ]
+    }
+  },
+  { "data": { "children": [] } }
+]

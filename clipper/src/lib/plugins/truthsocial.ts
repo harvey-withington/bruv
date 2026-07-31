@@ -93,6 +93,20 @@ export const truthsocialPlugin: ClipperPlugin = {
     )
   },
 
+  // Completion captures (a pending clip's URL opened in a transient tab)
+  // have no click target. Only a post permalink (/@user/posts/<id>) has an
+  // unambiguous primary status, and on one the focused post renders first;
+  // the same fallback ladder as resolveCaptureUnit applies, since none of
+  // these selectors is a documented contract.
+  resolvePageUnit(doc: Document): Element | null {
+    if (!statusIdFromUrl(doc.location?.href ?? '')) return null
+    return (
+      doc.querySelector('[data-testid="status"]') ??
+      doc.querySelector('div.status') ??
+      doc.querySelector('[data-id]')
+    )
+  },
+
   extract(unit: Element): ClipResult | null {
     // Permalink: prefer an in-unit anchor pointing at /@user/posts/<id>
     // (the only reliable per-post URL — a reply's own link, not the page's).

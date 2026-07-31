@@ -97,9 +97,12 @@ function cardTitle(clip: ClipResult): string {
 // generic `post` slide content type — platforms differentiate by template,
 // never by schema), provisioned in-context on first clip per repo. This is
 // the Create-Type-from-Card adoption lesson: the type exists because real
-// data needed it. NOTE: these template blocks are the 4th mirror of the
-// post schema (with shared/slideContentTypes.ts + the two Go maps) — keep
-// all four in sync.
+// data needed it. NOTE: these template blocks are one of FIVE mirrors of
+// the post schema (shared/slideContentTypes.ts, the two Go maps in
+// present.go, core/supervisor/capture.go's socialPostTemplateBlocks, and
+// this) — keep all five in sync. This copy retires when the extension's
+// normal clips move onto the server's ingest via CompleteCapture (planned
+// unification).
 const SOCIAL_POST_TYPE_LABEL = 'Social Post'
 
 const SOCIAL_POST_TEMPLATE_BLOCKS = [

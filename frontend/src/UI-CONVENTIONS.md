@@ -252,6 +252,14 @@ Two working shield patterns — pick by DOM relationship to the parent's listene
 
 These are stopgaps: the overlay-stack refactor in `plan/TODO.md` replaces all of them with one ordered stack. Until it lands, every new layered dialog adds one of the two shields — for both keys — or it ships this bug again.
 
+**Mobile sheet chrome (2026-07-31):** new mobile bottom sheets use
+`mobile/src/components/BottomSheet.svelte` (props: `title`, `subtitle?`,
+`historyKey`, `onClose`, children) — it owns the backdrop, fly-in, and the
+three dismissal paths (backdrop tap / Escape / Android Back via a history
+entry) so sheets don't hand-roll them. First users: the clip flow's
+DeckTargetPicker and ClipPinPicker. Pre-existing sheets (PinPicker,
+CardTypePicker, …) migrate opportunistically, not in bulk.
+
 ---
 
 ## 9. SaveIndicator — Persistent Save Feedback
@@ -461,21 +469,44 @@ transform-scales the `.frame-fit` / `.fit` inner wrapper as the backstop: a
 slide can NEVER clip. The scale lives on the inner wrapper, never the
 animated frame (entrance keyframes own the frame's transform). Scroll mode
 renders full-size: desktop/editor stages get a themed scrollbar; `/present`
-pages via the console's ⬇ button (`scrollSeq` live-state command, videoSeq
-pattern) — one page per press, wrapping to the top at the bottom, because
-the console cannot know the output viewport's page count and a press must
-always visibly do something. `SlideRenderer` reports overflow via
-`onOverflowChange`; the editor preview shows a "Scaled to fit"/"Scrolls"
-badge.
+pages via the console's within-slide ⬆/⬇ pair (below). `SlideRenderer`
+reports overflow via `onOverflowChange`; the editor preview shows a
+"Scaled to fit"/"Scrolls" badge.
 
 **Gallery carousels (2026-07-31):** a media (image) field whose resolved
 value contains multiple newline-joined URLs renders as a carousel — one
-image visible, counter badge, advance-with-wrap. This is schema-free: the
-`post` content type keeps its single `media` field; multi-image cards store
-a multi-item `media` block, and binding resolution (`slideBindings.ts` +
-present.go's mirror, which also signs attachment refs line-by-line) joins
-every item URL for image fields (video fields stay first-URL). Desktop /
-editor preview: the image itself is the advance button (no chrome). On
-`/present`: the console's Images button (shown when the current slide
-resolves to >1 image) bumps `carouselSeq` in block live state — same
-command shape as `scrollSeq`, wrap at the end.
+image visible, counter badge. This is schema-free: the `post` content type
+keeps its single `media` field; multi-image cards store a multi-item
+`media` block, and binding resolution (`slideBindings.ts` + present.go's
+mirror, which also signs attachment refs line-by-line) joins every item
+URL for image fields (video fields stay first-URL). Desktop / editor
+preview: the image itself is the advance button (no chrome, always
+"next"). On `/present`: the within-slide ⬆/⬇ pair steps the carousel.
+
+**Within-slide ⬆/⬇ axis (ruling, 2026-07-31 — supersedes the one-way ⬇ /
+Images buttons):** scroll paging and carousel stepping are the same
+concept — a dimension WITHIN the current slide — so the console shows ONE
+standard control pair (`ChevronUp`/`ChevronDown`; vertical = within the
+slide, horizontal ◀▶ = between slides) whenever the current slide has a
+within-slide dimension. It drives scroll on scroll-mode slides (clamped
+at both ends — the old wrap-at-bottom existed because a one-way press had
+to "always do something"; with both directions, clamping is the calmer
+contract) and the carousel otherwise (wrapping both ways). Scroll wins on
+the rare slide with both. Protocol: the monotonic `scrollSeq`/
+`carouselSeq` counters stay, joined by `scrollDir`/`carouselDir` (+1/-1)
+in `BlockLiveState`; an absent dir means forward, so old output pages
+keep one-way semantics. The console is deliberately click-only (no
+keyboard — the deck lives inside CardDetail's Escape/Ctrl+Enter-owning
+modal; see §8.1). Planned article slides page on this same axis with no
+new controls.
+
+**Fullscreen media (`videoFull` 2026-07-25 / `imageFull` 2026-07-31):**
+the console's ⛶ toggle enlarges the current slide's video — or, on
+video-less image slides, its visible image (a gallery's active entry) —
+to fill the `/present` viewport. Deliberately an in-page overlay
+(`body.video-full` / `body.image-full` CSS classes in present.html), NOT
+the browser Fullscreen API, so OBS captures the tab as-is. The flags live
+in `BlockLiveState`; toggling never bumps `videoSeq` (enlarging must not
+restart playback). One ⛶ per console row: video's when the slide has
+video, image's otherwise. Slide navigation clears both overlays (state is
+replaced wholesale).

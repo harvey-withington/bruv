@@ -31,6 +31,16 @@ export const twitterPlugin: ClipperPlugin = {
     return target.closest('article[data-testid="tweet"]')
   },
 
+  // Completion captures (a pending clip's URL opened in a transient tab)
+  // have no click target. Only a permalink page has an unambiguous primary
+  // tweet — and on one, the focused tweet is the FIRST article rendered
+  // (replies and the "more posts" rail follow it). A timeline URL would
+  // otherwise silently capture whatever happened to be top of the feed.
+  resolvePageUnit(doc: Document): Element | null {
+    if (!statusIdFromUrl(doc.location?.href ?? '')) return null
+    return doc.querySelector('article[data-testid="tweet"]')
+  },
+
   extract(unit: Element): ClipResult | null {
     // Canonical permalink: the <time> element sits inside an anchor that IS
     // the tweet's own /status/ link — the only reliable per-tweet URL on

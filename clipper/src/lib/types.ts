@@ -82,3 +82,15 @@ export type ClipJob = {
 export type ClipRequestMessage = { type: 'BRUV_CLIP'; includeInDeck: boolean }
 export type ClipExtractedMessage = { type: 'BRUV_EXTRACTED'; clip: ClipResult; includeInDeck: boolean }
 export type ToastMessage = { type: 'BRUV_TOAST'; text: string; ok: boolean }
+
+// Completion flow (background → content): capture the page's PRIMARY unit
+// with no click target. The tab is transient and unattended, so the reply
+// travels back over sendResponse instead of a follow-up message, and the
+// content script shows no toast.
+export type ClipPageRequestMessage = { type: 'BRUV_CLIP_PAGE' }
+export type ClipPageResponse = { clip: ClipResult | null }
+
+// Completion flow (popup → background): finish one pending clip card by
+// opening its source URL in a real, logged-in browser tab.
+export type CompleteRequestMessage = { type: 'BRUV_COMPLETE'; cardID: string; url: string }
+export type CompleteResponse = { ok: boolean; error?: string }

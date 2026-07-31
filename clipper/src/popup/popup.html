@@ -17,6 +17,12 @@
       li .path { display: block; opacity: 0.55; font-size: 0.72rem; }
       .target { margin-top: 6px; padding: 8px 10px; border-radius: 6px; background: #1d1d2b; border: 1px solid #8b5cf6; }
       .queue { margin-top: 12px; padding-top: 10px; border-top: 1px solid #2c2c3c; }
+      li.pending-row { display: flex; align-items: center; gap: 6px; margin-top: 4px; padding: 6px 9px; border-radius: 6px; background: #1d1d2b; border: 1px solid #2c2c3c; }
+      li.pending-row .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      li.pending-row button { display: inline-block; width: auto; margin: 0; padding: 4px 8px; font-size: 0.72rem; }
+      li.pending-row .state { font-size: 0.72rem; opacity: 0.6; white-space: nowrap; }
+      li.pending-row .state.ok { color: #7fd6a8; opacity: 1; }
+      li.pending-row .state.err { color: #ef8a8a; opacity: 1; }
       .actions { display: flex; gap: 6px; margin-top: 6px; }
       #status { margin-top: 8px; font-size: 0.8rem; }
       #status.err { color: #ef8a8a; }
@@ -55,6 +61,14 @@
         <div class="actions" id="queue-actions" hidden>
           <button id="retry-btn" data-i18n="popup_retry"></button>
           <button id="discard-btn" class="secondary" data-i18n="popup_discard"></button>
+        </div>
+      </div>
+
+      <div class="queue" id="pending" hidden>
+        <span class="muted" data-i18n="popup_pending_title"></span>
+        <ul id="pending-list"></ul>
+        <div class="actions" id="pending-actions" hidden>
+          <button id="complete-all-btn" data-i18n="popup_pending_complete_all"></button>
         </div>
       </div>
     </div>

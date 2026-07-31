@@ -1,11 +1,15 @@
 // Popup: shows pairing status, manages the STICKY DECK TARGET (the thing
-// that makes clip #2 onward one click), and surfaces the offline queue.
+// that makes clip #2 onward one click), surfaces the offline queue, and
+// lists PENDING CLIPS waiting for this browser to complete them (see
+// popup/pendingSection.ts).
 // Deck picking: search cards, pick one, first slide_deck block wins (multi-
 // deck cards are rare; the options page story can grow later). "New deck"
 // creates a card with an empty deck block in one step.
 
 import { loadSettings, repoRPC, saveSettings } from '../lib/api'
 import { drainQueue, clearQueue, listQueue } from '../lib/queue'
+import { refreshPendingBadge } from '../lib/pending'
+import { renderPendingSection } from './pendingSection'
 import type { ClipperSettings, DeckTarget } from '../lib/types'
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T
@@ -166,6 +170,7 @@ $('retry-btn').addEventListener('click', () => {
     try {
       const res = await drainQueue(settings)
       showStatus(msg('popup_retry_done').replace('{n}', String(res.done)), true)
+      void refreshPendingBadge()
     } finally {
       btn.disabled = false
       await refreshQueue()
@@ -220,4 +225,6 @@ void (async () => {
   $<HTMLInputElement>('deck-search').placeholder = msg('popup_search_placeholder')
   renderDeckTarget()
   await refreshQueue()
+  await renderPendingSection(settings!, showStatus)
+  void refreshPendingBadge()
 })()

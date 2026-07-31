@@ -266,14 +266,48 @@ export type BlockLiveState = {
   // NOT the browser Fullscreen API, so OBS captures stay seamless.
   videoFull?: boolean
   // Monotonic per-console counter for scroll-mode slides: each new seq
-  // pages the output down one viewport (wrapping to the top at the bottom
-  // — the console can't know the output's page count, so a press must
-  // always visibly act).
+  // pages the output one viewport in scrollDir's direction, clamped at
+  // the ends (the pre-⬆ behaviour wrapped at the bottom; with both
+  // directions available, clamping is the less disorienting contract).
   scrollSeq?: number
   // Monotonic per-console counter for multi-image (carousel) slides: each
-  // new seq advances the output to the next image, wrapping at the end.
+  // new seq steps the output one image in carouselDir's direction,
+  // wrapping in both directions.
   carouselSeq?: number
+  // Direction for the most recent scrollSeq/carouselSeq bump: 1 pages
+  // down/next, -1 pages up/previous. Absent = 1, so older payloads keep
+  // their one-way forward semantics.
+  scrollDir?: 1 | -1
+  carouselDir?: 1 | -1
+  // Image analogue of videoFull: enlarge the slide's visible image
+  // (single or the carousel's active one) to fill the output viewport.
+  // Same deliberate non-use of the Fullscreen API — OBS captures as-is.
+  imageFull?: boolean
 }
+
+// Options for a server-side URL capture. categoryID "" pins nowhere
+// (Inbox); the "__deck__" sentinel mirrors the deck-target card's pins.
+export type CaptureOpts = {
+  includeInDeck?: boolean
+  deckCardID?: string
+  deckBlockID?: string
+  categoryID?: string
+}
+
+// Result of CaptureFromURL/RetryCapture. pending=true means the resolver
+// was blocked and the clip degraded to the link-only rung: the card and
+// (when requested) the deck slide exist now, and completion happens from
+// the browser extension or a later retry.
+export type CaptureResult = {
+  cardId: string
+  slideAppended: boolean
+  platform: string
+  pending: boolean
+}
+
+// The clip-pending marker tag — user-visible chip by design (searchable
+// on every surface); the extension polls it for badge + pending list.
+export const CLIP_PENDING_TAG = 'clip-pending'
 
 export type BlockMeta = {
   options?: string[]
@@ -914,6 +948,16 @@ export interface BackendAdapter {
   // The slide runs through the standard coercion (id stamping, content-type
   // field filtering) before saving.
   AppendDeckSlide(cardID: string, blockID: string, slide: Partial<Slide>): Promise<Card>
+
+  // Server-side URL capture (the mobile share/clip pipeline). Match is the
+  // cheap preflight (platform id or ""); CaptureFromURL resolves + ingests,
+  // degrading to a pending clip (clip-pending tag, link-only card,
+  // pre-bound slide) instead of failing when a platform blocks the server;
+  // RetryCapture re-resolves an existing pending card in place — block IDs
+  // survive so live slide bindings keep pointing at the same blocks.
+  MatchCaptureURL(url: string): Promise<string>
+  CaptureFromURL(url: string, opts: CaptureOpts): Promise<CaptureResult>
+  RetryCapture(cardID: string): Promise<CaptureResult>
 
   // Vault-level slide-template preferences (Auto priority order +
   // per-template urlHint regex overrides). Stored blindly server-side;

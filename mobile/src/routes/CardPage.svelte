@@ -6,7 +6,8 @@
   import { navigate, projectURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
   import { renderInline } from '@shared/markdown'
-  import { Trash2, MapPin, Plus, X, RefreshCw, Search, Paperclip, MessageSquare, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, ArrowUpRight } from 'lucide-svelte'
+  import { Trash2, MapPin, Plus, X, RefreshCw, Search, Paperclip, MessageSquare, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, ArrowUpRight, MonitorUp } from 'lucide-svelte'
+  import { showToast } from '../lib/toast.svelte'
   import EditableText from '../components/EditableText.svelte'
   import EditableDescription from '../components/EditableDescription.svelte'
   import TagsEditor from '../components/TagsEditor.svelte'
@@ -26,6 +27,7 @@
   import { repoMeta, loadProjectTags, projectKey as makeProjectKey } from '../lib/repoMeta.svelte'
   import { onEvent } from '../lib/events.svelte'
   import { dragSortable, type DragMoveDetail } from '../lib/actions/dnd.svelte'
+  import { CLIP_PENDING_TAG } from '@shared/types'
   import type { Block, Card, CardPin } from '@shared/types'
 
   // Card view + basic edit. Phase 1 scope:
@@ -713,6 +715,34 @@
     }
   }
 
+  // --- Pending clip ---
+  //
+  // A card tagged clip-pending holds only the link: the platform blocked
+  // the server-side capture and the post gets fetched from the desktop
+  // browser extension (or a retry from here, if the block was temporary).
+  // A successful retry rewrites the card, tag included, so the banner
+  // clears with the refetch below.
+
+  let retryingClip = $state(false)
+
+  async function retryClip() {
+    if (!card || retryingClip) return
+    retryingClip = true
+    try {
+      await repoRPC('RetryCapture', [card.id])
+      showToast(t('card.pending_retry_success'), 'success')
+      const fresh = await repoRPC<Card>('GetCard', [id])
+      if (fresh) {
+        card = fresh
+        lastSavedBlocks = fresh.blocks ?? []
+      }
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : t('card.pending_retry_failed'), 'error')
+    } finally {
+      retryingClip = false
+    }
+  }
+
   // --- Delete ---
 
   let confirmingDelete = $state(false)
@@ -784,6 +814,19 @@
     <ErrorState message={errorMsg} />
   {:else if card}
     <section class="meta">
+      {#if card.tags?.includes(CLIP_PENDING_TAG)}
+        <div class="pending-clip" role="status">
+          <span class="pending-icon" aria-hidden="true"><MonitorUp size={16} /></span>
+          <div class="pending-text">
+            <strong>{t('card.pending_clip')}</strong>
+            <span>{t('card.pending_clip_detail')}</span>
+          </div>
+          <button type="button" class="pending-retry" onclick={retryClip} disabled={retryingClip}>
+            {retryingClip ? t('card.pending_retrying') : t('card.pending_retry')}
+          </button>
+        </div>
+      {/if}
+
       <EditableText
         value={card.title}
         placeholder={t('card.untitled')}
@@ -1372,6 +1415,53 @@
     color: var(--text);
     border-color: var(--text-muted);
     outline: none;
+  }
+
+  .pending-clip {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.65rem 0.8rem;
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    border-radius: 8px;
+    color: var(--warn-text);
+  }
+  .pending-icon {
+    display: inline-flex;
+    margin-top: 0.1rem;
+    flex-shrink: 0;
+  }
+  .pending-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    font-size: 0.8rem;
+    line-height: 1.4;
+  }
+  .pending-retry {
+    flex-shrink: 0;
+    align-self: center;
+    background: transparent;
+    border: 1px solid var(--warn-border);
+    border-radius: 6px;
+    color: inherit;
+    font: inherit;
+    font-size: 0.8rem;
+    padding: 0.4rem 0.7rem;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .pending-retry:hover:not(:disabled),
+  .pending-retry:focus-visible:not(:disabled) {
+    background: color-mix(in srgb, var(--warn-border) 20%, transparent);
+    outline: none;
+  }
+  .pending-retry:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
 
   .save-error {

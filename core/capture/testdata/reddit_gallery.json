@@ -1,0 +1,24 @@
+[
+  {
+    "data": {
+      "children": [
+        {
+          "data": {
+            "title": "Gallery title",
+            "author": "snapper",
+            "subreddit_name_prefixed": "r/pics",
+            "created_utc": 1785412800,
+            "permalink": "/r/pics/comments/xyz789/gallery_title/",
+            "is_gallery": true,
+            "media_metadata": {
+              "a": { "s": { "u": "https://i.redd.it/img-a.jpg" } },
+              "b": { "s": { "u": "https://i.redd.it/img-b.jpg" } },
+              "c": { "s": { "u": "https://i.redd.it/img-c.jpg" } }
+            },
+            "gallery_data": { "items": [{ "media_id": "b" }, { "media_id": "a" }, { "media_id": "c" }] }
+          }
+        }
+      ]
+    }
+  }
+]

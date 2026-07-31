@@ -35,6 +35,9 @@ export const GetBlockLiveState = (...args: Parameters<ReturnType<typeof getBacke
 
 // Deck mutations — atomic server-side slide append
 export const AppendDeckSlide = (...args: Parameters<ReturnType<typeof getBackend>['AppendDeckSlide']>) => getBackend().AppendDeckSlide(...args)
+export const MatchCaptureURL = (...args: Parameters<ReturnType<typeof getBackend>['MatchCaptureURL']>) => getBackend().MatchCaptureURL(...args)
+export const CaptureFromURL = (...args: Parameters<ReturnType<typeof getBackend>['CaptureFromURL']>) => getBackend().CaptureFromURL(...args)
+export const RetryCapture = (...args: Parameters<ReturnType<typeof getBackend>['RetryCapture']>) => getBackend().RetryCapture(...args)
 
 // Vault-level slide-template preferences (Auto matching)
 export const GetTemplatePrefs = () => getBackend().GetTemplatePrefs()

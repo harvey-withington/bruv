@@ -21,6 +21,11 @@ export type ClipperPlugin = {
   // DOM side (content script). Returns the capture unit containing the
   // click/selection target, or null when the target isn't capturable.
   resolveCaptureUnit(target: Element, doc: Document): Element | null
+  // DOM side, no click target: resolve the PAGE's primary capture unit.
+  // Used by the completion flow, which opens a pending clip's URL in a
+  // transient tab and captures it unattended (no user gesture to anchor
+  // on). Returns null when the page isn't a single-post permalink.
+  resolvePageUnit?(doc: Document): Element | null
   extract(unit: Element, doc: Document): ClipResult | null
   // Background side. Resolve anything the DOM couldn't (video URLs, …).
   // Must tolerate failure by returning the clip unchanged or degraded —

@@ -199,11 +199,32 @@
         z-index: 15;
       }
       body.transparent.video-full video { background: transparent; }
+      /* Console-driven image enlarge — the image analogue of video-full,
+         same in-page-overlay rationale. Targets the slide's content
+         images (pc-media/r-media; NOT the avatar); a gallery's inactive
+         car-img entries keep their display:none, so only the active
+         image fills the tab. */
+      body.image-full img.pc-media,
+      body.image-full img.r-media {
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
+        max-height: none;
+        object-fit: contain;
+        background: #000;
+        border: none;
+        border-radius: 0;
+        z-index: 15;
+      }
+      body.transparent.image-full img.pc-media,
+      body.transparent.image-full img.r-media { background: transparent; }
       /* A transformed ancestor becomes the containing block for
          position:fixed — the fit wrapper's scale backstop would trap the
          enlarged media inside the shrunken slide. Lift the scale while the
          overlay is up (the media covers the stage anyway). */
-      body.video-full .fit { transform: none !important; }
+      body.video-full .fit,
+      body.image-full .fit { transform: none !important; }
 
       #startgate {
         position: fixed;
@@ -666,10 +687,13 @@
         })
       }
       // Scroll paging is COMMAND-driven like video playback: the console
-      // bumps scrollSeq and this page advances one page — wrapping back to
-      // the top at the bottom, so a press always visibly does something
-      // (the console can't know this viewport's page count). Joining
-      // mid-show adopts the current counter without paging.
+      // bumps scrollSeq and this page pages one viewport in scrollDir's
+      // direction (+1 down, -1 up; absent = +1 so older consoles keep
+      // their one-way semantics), clamped at both ends by scrollBy itself.
+      // (Pre-⬆ builds wrapped at the bottom because a press had to
+      // "always do something"; with both directions on the console,
+      // clamping is the less disorienting contract.) Joining mid-show
+      // adopts the current counter without paging.
       let lastScrollSeq = null
       let scrollSeqInit = false
       function syncScrollCommand(deck) {
@@ -684,14 +708,14 @@
         if (typeof seq !== 'number' || seq === lastScrollSeq) return
         lastScrollSeq = seq
         if (!stage.classList.contains('scrolling')) return
-        const atBottom = stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 4
-        if (atBottom) stage.scrollTo({ top: 0, behavior: 'smooth' })
-        else stage.scrollBy({ top: Math.max(60, stage.clientHeight * 0.85), behavior: 'smooth' })
+        const dir = deck.scrollDir === -1 ? -1 : 1
+        stage.scrollBy({ top: dir * Math.max(60, stage.clientHeight * 0.85), behavior: 'smooth' })
       }
 
-      // Carousel advance — same command shape as scroll paging: each new
-      // carouselSeq shows the next gallery image, wrapping at the end.
-      // Joining mid-show adopts the counter without advancing.
+      // Carousel step — same command shape as scroll paging: each new
+      // carouselSeq shows the adjacent gallery image in carouselDir's
+      // direction (absent = next), wrapping in both directions. Joining
+      // mid-show adopts the counter without advancing.
       let lastCarouselSeq = null
       let carouselSeqInit = false
       function syncCarouselCommand(deck) {
@@ -706,8 +730,9 @@
         if (!car) return
         const imgs = Array.from(car.querySelectorAll('.car-img'))
         if (imgs.length < 2) return
+        const dir = deck.carouselDir === -1 ? -1 : 1
         const active = imgs.findIndex((im) => im.classList.contains('car-active'))
-        const next = (active + 1) % imgs.length
+        const next = (active + dir + imgs.length) % imgs.length
         imgs.forEach((im, i) => im.classList.toggle('car-active', i === next))
         const count = car.querySelector('.car-count')
         if (count) count.textContent = (next + 1) + '/' + imgs.length
@@ -810,6 +835,7 @@
           render(lastDeck)
           syncVideoCommand(lastDeck)
           document.body.classList.toggle('video-full', lastDeck.videoFull === true && !!stage.querySelector('video'))
+          document.body.classList.toggle('image-full', lastDeck.imageFull === true && !!stage.querySelector('img.pc-media, img.r-media'))
         }
       }
 
@@ -836,6 +862,7 @@
               lastKey = 'waiting'
               lastDeck = null
               document.body.classList.remove('video-full')
+              document.body.classList.remove('image-full')
               if (q.get('bg') === 'transparent') stage.innerHTML = ''
               else renderStatus('Waiting for the presentation to start…')
             }
@@ -856,6 +883,8 @@
             syncCarouselCommand(deck)
             document.body.classList.toggle('video-full',
               deck.videoFull === true && !!stage.querySelector('video, iframe.pc-embed, iframe.r-embed'))
+            document.body.classList.toggle('image-full',
+              deck.imageFull === true && !!stage.querySelector('img.pc-media, img.r-media'))
           }
         } catch (e) {
           // Transient network error — keep the current slide, retry.

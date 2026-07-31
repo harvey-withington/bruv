@@ -62,6 +62,14 @@ export const redditPlugin: ClipperPlugin = {
     return target.closest('shreddit-post') ?? target.closest('.thing') ?? doc.querySelector('shreddit-post')
   },
 
+  // Completion captures (a pending clip's URL opened in a transient tab)
+  // have no click target: take the page's own post on either frontend. On
+  // a listing page this lands on the first post, which is harmless —
+  // enrich() re-resolves everything from the permalink the DOM reported.
+  resolvePageUnit(doc: Document): Element | null {
+    return doc.querySelector('shreddit-post') ?? doc.querySelector('.thing')
+  },
+
   extract(unit: Element): ClipResult | null {
     const isShreddit = unit.tagName.toLowerCase() === 'shreddit-post'
 

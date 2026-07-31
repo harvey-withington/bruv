@@ -1,25 +1,35 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
   import { Share2 } from 'lucide-svelte'
   import { repoRPC } from '../lib/auth'
   import { navigate, cardURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
-  import type { Card } from '@shared/types'
+  import { showToast } from '../lib/toast.svelte'
+  import {
+    loadCapturePrefs,
+    saveCapturePrefs,
+    captureOptsFrom,
+    type CapturePrefs,
+  } from '../lib/capturePrefs'
+  import { savePlainShare } from '../lib/shareCapture'
+  import ShareFields from '../components/ShareFields.svelte'
+  import ClipTargetControls from '../components/ClipTargetControls.svelte'
+  import ClipOutcomePanel from '../components/ClipOutcomePanel.svelte'
+  import type { CaptureResult } from '@shared/types'
 
-  // Landing page for shares from the Android system share sheet.
+  // Landing page for shares from the Android system share sheet, and the
+  // home "Clip a link" tile.
   //
-  // The browser POSTs to /m/share with title/text/url; the Go handler
-  // 303-redirects here with those fields as query params. We pre-fill
-  // an editable preview so the user can tweak before saving — most
-  // shares are URLs that the user wants to keep + maybe annotate.
+  // Two modes, decided by the server: a URL a capture plugin claims goes
+  // into CLIP MODE (BRUV resolves the post itself and builds the card),
+  // anything else stays in PLAIN MODE (title/text/url → a plain card).
+  // Both modes can append a slide to a sticky deck target.
 
   function readParam(name: string): string {
     if (typeof window === 'undefined') return ''
     return new URLSearchParams(window.location.search).get(name) ?? ''
   }
 
-  // Capture once on mount so the inputs are seeded; let the user edit
-  // freely after that.
+  // Captured once so the inputs are seeded; the user edits freely after.
   // svelte-ignore state_referenced_locally
   let title = $state(readParam('title'))
   // svelte-ignore state_referenced_locally
@@ -27,65 +37,107 @@
   // svelte-ignore state_referenced_locally
   let url = $state(readParam('url'))
 
+  let platform = $state('')
+  let checking = $state(false)
   let saving = $state(false)
   let errorMsg = $state<string | null>(null)
-  let titleEl: HTMLInputElement | undefined = $state()
+  let outcome = $state<CaptureResult | null>(null)
+  let prefs = $state<CapturePrefs>(loadCapturePrefs())
 
-  onMount(() => {
-    // If no title was supplied, derive a sensible one from the URL or
-    // the first line of text. Real-world Android shares from Chrome
-    // typically include a URL but no title.
-    if (!title) {
-      if (url) {
-        try {
-          title = new URL(url).hostname
-        } catch {
-          title = url
-        }
-      } else if (text) {
-        title = text.split('\n')[0].slice(0, 80)
+  const platformLabel = $derived(platform ? platform[0].toUpperCase() + platform.slice(1) : '')
+  const canSave = $derived(platform ? !!url.trim() : !!title.trim())
+
+  function updatePrefs(next: CapturePrefs) {
+    prefs = next
+    saveCapturePrefs(next)
+  }
+
+  /** Fallback title for a plain card: the URL's host, or the first line
+   *  of the shared text. Real-world Android shares carry a URL but no
+   *  title. */
+  function deriveTitle(): string {
+    const u = url.trim()
+    if (u) {
+      try {
+        return new URL(u).hostname
+      } catch {
+        return u
       }
     }
-    queueMicrotask(() => titleEl?.focus())
+    return text.trim().split('\n')[0].slice(0, 80)
+  }
+
+  // --- Mode preflight -------------------------------------------------
+  //
+  // Ask the server whether any capture plugin claims this URL. Debounced
+  // so typing/pasting doesn't fire a call per keystroke; sequenced so a
+  // slow answer for an older URL can't overwrite a newer one.
+
+  let preflightSeq = 0
+
+  async function preflight(raw: string) {
+    const u = raw.trim()
+    const mine = ++preflightSeq
+    if (!title.trim()) title = deriveTitle()
+    if (!u) {
+      platform = ''
+      checking = false
+      return
+    }
+    checking = true
+    try {
+      const match = await repoRPC<string>('MatchCaptureURL', [u])
+      if (mine !== preflightSeq) return
+      platform = match ?? ''
+    } catch {
+      // Preflight is an enhancement, not a gate: an unreachable server
+      // just means plain mode, and Save will surface the real error.
+      if (mine === preflightSeq) platform = ''
+    } finally {
+      if (mine === preflightSeq) checking = false
+    }
+  }
+
+  $effect(() => {
+    const current = url
+    const timer = setTimeout(() => void preflight(current), 300)
+    return () => clearTimeout(timer)
   })
 
-  function buildBody(): string {
-    // Minimal filtering: take whatever's in the form's URL + text
-    // fields and concatenate verbatim (preserving the multi-line
-    // structure of the highlighted text). The user already saw and
-    // edited these in the preview — we don't second-guess them.
-    //
-    // Only dedup case: text and URL are byte-identical (Brave's
-    // "share this page" stuffs the URL into both). Everything else
-    // including title overlap goes through as-is — better to keep
-    // duplicate content than silently drop a paragraph.
+  // --- Saving ---------------------------------------------------------
+
+  async function saveClip() {
     const u = url.trim()
-    const tx = text.trim()
-    if (u && tx && u !== tx) return `${u}\n\n${tx}`
-    return tx || u
+    const opts = captureOptsFrom(prefs)
+    const result = await repoRPC<CaptureResult>('CaptureFromURL', [u, opts])
+    if (result.pending) {
+      // Never navigate away like a success — the clip is half-done and
+      // the user needs to know where to finish it.
+      outcome = result
+      return
+    }
+    showToast(t('share.clipped'), 'success')
+    if (opts.includeInDeck && !result.slideAppended) {
+      showToast(t('share.deck_append_failed'), 'warning')
+    }
+    navigate(cardURL(result.cardId))
+  }
+
+  async function savePlain() {
+    const result = await savePlainShare({ title, text, url, prefs })
+    if (result.deckFailed) showToast(t('share.deck_append_failed'), 'warning')
+    navigate(cardURL(result.cardID))
   }
 
   async function save() {
-    const finalTitle = title.trim()
-    if (!finalTitle || saving) return
+    if (saving || !canSave) return
     saving = true
     errorMsg = null
     try {
-      const card = await repoRPC<Card>('CreateCard', ['', finalTitle])
-      const body = buildBody()
-      if (body) {
-        // Persist the shared text as the card's intrinsic description.
-        // Non-fatal on failure — the card exists either way; the user
-        // can paste manually if the description save fails.
-        try {
-          await repoRPC('UpdateCardDescription', [card.id, body])
-        } catch {
-          /* leave description empty rather than blocking the navigate */
-        }
-      }
-      navigate(cardURL(card.id))
+      if (platform) await saveClip()
+      else await savePlain()
     } catch (err) {
-      errorMsg = err instanceof Error ? err.message : t('share.err_save')
+      errorMsg = err instanceof Error ? err.message : t(platform ? 'share.err_capture' : 'share.err_save')
     } finally {
       saving = false
     }
@@ -105,50 +157,54 @@
 </header>
 
 <main>
-  <p class="intro">{t('share.intro')}</p>
-
-  <label class="field">
-    <span class="field-label">{t('share.field_title')}</span>
-    <input
-      bind:this={titleEl}
-      bind:value={title}
-      type="text"
-      placeholder={t('share.field_title_placeholder')}
-      disabled={saving}
+  {#if outcome}
+    <ClipOutcomePanel
+      platform={platformLabel || outcome.platform}
+      cardId={outcome.cardId}
+      slideAppended={outcome.slideAppended}
     />
-  </label>
+  {:else}
+    {#if !platform}
+      <p class="intro">{t('share.intro')}</p>
+    {/if}
 
-  {#if url}
-    <label class="field">
-      <span class="field-label">{t('share.field_url')}</span>
-      <input bind:value={url} type="url" disabled={saving} />
-    </label>
+    <ShareFields
+      {platformLabel}
+      bind:title
+      bind:text
+      bind:url
+      disabled={saving}
+      onPasteError={(msg) => (errorMsg = msg)}
+    />
+
+    {#if checking}
+      <p class="checking">{t('share.checking')}</p>
+    {/if}
+
+    <ClipTargetControls
+      {prefs}
+      onChange={updatePrefs}
+      disabled={saving}
+      showPin={!!platform}
+    />
+
+    {#if errorMsg}
+      <div class="error" role="alert">{errorMsg}</div>
+    {/if}
+
+    <div class="actions">
+      <button type="button" class="ghost" onclick={cancel} disabled={saving}>
+        {t('common.cancel')}
+      </button>
+      <button type="button" class="primary" onclick={save} disabled={saving || !canSave}>
+        {#if platform}
+          {saving ? t('share.clipping') : t('share.clip')}
+        {:else}
+          {saving ? t('share.saving') : t('share.save')}
+        {/if}
+      </button>
+    </div>
   {/if}
-
-  {#if text}
-    <label class="field">
-      <span class="field-label">{t('share.field_text')}</span>
-      <textarea bind:value={text} rows="4" disabled={saving}></textarea>
-    </label>
-  {/if}
-
-  {#if errorMsg}
-    <div class="error" role="alert">{errorMsg}</div>
-  {/if}
-
-  <div class="actions">
-    <button type="button" class="ghost" onclick={cancel} disabled={saving}>
-      {t('common.cancel')}
-    </button>
-    <button
-      type="button"
-      class="primary"
-      onclick={save}
-      disabled={saving || !title.trim()}
-    >
-      {saving ? t('share.saving') : t('share.save')}
-    </button>
-  </div>
 </main>
 
 <style>
@@ -209,36 +265,10 @@
     line-height: 1.5;
   }
 
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-  }
-
-  .field-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-
-  input,
-  textarea {
-    background: var(--bg-elev-1);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text);
-    font: inherit;
-    font-size: 1rem;
-    padding: 0.65rem 0.85rem;
-    outline: none;
-    resize: vertical;
-  }
-
-  input:focus,
-  textarea:focus {
-    border-color: var(--accent);
+  .checking {
+    margin: -0.35rem 0 0;
+    color: var(--text-faint);
+    font-size: 0.8rem;
   }
 
   .error {

@@ -3,7 +3,13 @@
 // capture unit via the plugin, extracts a ClipResult, and hands it to the
 // background worker. Also renders the in-page toast.
 
-import type { ClipExtractedMessage, ClipRequestMessage, ToastMessage } from './lib/types'
+import type {
+  ClipExtractedMessage,
+  ClipPageRequestMessage,
+  ClipPageResponse,
+  ClipRequestMessage,
+  ToastMessage,
+} from './lib/types'
 import { pluginForUrl } from './lib/plugins/registry'
 
 let lastContextTarget: Element | null = null
@@ -66,7 +72,28 @@ function handleClipRequest(msg: ClipRequestMessage): void {
   void chrome.runtime.sendMessage(out)
 }
 
-chrome.runtime.onMessage.addListener((message: ClipRequestMessage | ToastMessage) => {
-  if (message?.type === 'BRUV_CLIP') handleClipRequest(message)
-  else if (message?.type === 'BRUV_TOAST') showToast(message.text, message.ok)
-})
+// Completion capture: no click target, no toast. The background worker
+// opened this tab from a pending clip card and will close it again the
+// moment we answer, so the page is never a place the user is looking at —
+// failures are reported in the popup, not here.
+function handleClipPageRequest(): ClipPageResponse {
+  const plugin = pluginForUrl(location.href)
+  const unit = plugin?.resolvePageUnit?.(document) ?? null
+  if (!unit || !plugin) return { clip: null }
+  return { clip: plugin.extract(unit, document) }
+}
+
+chrome.runtime.onMessage.addListener(
+  (
+    message: ClipRequestMessage | ToastMessage | ClipPageRequestMessage,
+    _sender,
+    sendResponse: (response: ClipPageResponse) => void,
+  ) => {
+    if (message?.type === 'BRUV_CLIP') handleClipRequest(message)
+    else if (message?.type === 'BRUV_TOAST') showToast(message.text, message.ok)
+    else if (message?.type === 'BRUV_CLIP_PAGE') {
+      sendResponse(handleClipPageRequest())
+      return true
+    }
+  },
+)

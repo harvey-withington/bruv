@@ -9,6 +9,7 @@
   import PinPicker from './PinPicker.svelte'
   import PinPanel from './PinPanel.svelte'
   import CardHeader from './CardHeader.svelte'
+  import PendingClipBanner from './PendingClipBanner.svelte'
   import DescriptionSection from './DescriptionSection.svelte'
   import ChatSection from './ChatSection.svelte'
   import AgentTab from './AgentTab.svelte'
@@ -612,6 +613,8 @@
         onRefreshType={refreshType}
         onCreateTypeFromCard={openCreateTypeFromCard}
       />
+
+      <PendingClipBanner {card} onCardUpdated={applyCardUpdate} />
 
       <PinPanel
         {pinBreadcrumbs}

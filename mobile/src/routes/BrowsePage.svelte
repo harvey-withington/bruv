@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte'
-  import { Inbox, Search, Bell, Settings, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Plus, MoreVertical, Pencil, Trash2 } from 'lucide-svelte'
+  import { Inbox, Link2, Search, Bell, Settings, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Plus, MoreVertical, Pencil, Trash2 } from 'lucide-svelte'
   import {
     browse,
     loadBrands,
@@ -637,6 +637,14 @@
     </div>
   </button>
 
+  <button type="button" class="inbox-tile clip-tile" onclick={() => navigate('/share')}>
+    <span class="inbox-icon" aria-hidden="true"><Link2 size={22} /></span>
+    <div class="tile-text">
+      <span class="tile-title">{t('home.clip_link')}</span>
+      <span class="tile-sub">{t('home.clip_link_sub')}</span>
+    </div>
+  </button>
+
   <div class="brands-header">
     <h2 class="section brands-section">{t('browse.brands')}</h2>
     <div class="acc-toolbar" role="toolbar" aria-label={t('browse.accordion_toolbar')}>
@@ -1083,6 +1091,11 @@
   .inbox-tile:focus-visible {
     border-color: var(--accent);
     outline: none;
+  }
+
+  /* Second tile in the stack — same treatment, just spaced. */
+  .clip-tile {
+    margin-top: 0.6rem;
   }
 
   .inbox-icon {

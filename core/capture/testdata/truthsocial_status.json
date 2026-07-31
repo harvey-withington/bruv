@@ -1,0 +1,14 @@
+{
+  "account": {
+    "display_name": "Some One",
+    "username": "someone",
+    "avatar": "https://static-assets-1.truthsocial.com/avatars/a.jpg"
+  },
+  "content": "<p>Hello &amp; welcome.</p><p>Second paragraph.</p>",
+  "created_at": "2026-07-29T10:00:00.000Z",
+  "url": "https://truthsocial.com/@someone/posts/112233445566778899",
+  "media_attachments": [
+    { "type": "image", "url": "https://media.truthsocial.com/img1.jpg" },
+    { "type": "video", "url": "https://media.truthsocial.com/vid1.mp4", "preview_url": "https://media.truthsocial.com/vid1-poster.jpg" }
+  ]
+}

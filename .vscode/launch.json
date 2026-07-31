@@ -1,8 +1,12 @@
 {
-  // Three top-level debug workflows (prefixed "Debug:"):
+  // Four top-level debug workflows (prefixed "Debug:"):
   //   1. Client with internal server — Wails desktop, embedded server
   //   2. Client + external server    — compound: server + Wails desktop
   //   3. Mobile + server             — compound: server + mobile vite
+  //   4. Desktop + mobile            — compound: Wails desktop + mobile
+  //      vite riding the DESKTOP's embedded server (one backend, both
+  //      surfaces at once — spawning bruv-server alongside would fight
+  //      the desktop supervisor for the same repo locks)
   //
   // The "Run:" entries are building blocks the compounds chain
   // together. They exist as launches (rather than tasks) because
@@ -42,6 +46,21 @@
       "preLaunchTask": "bootstrap: mobile deps"
     },
     {
+      "name": "Run: Mobile vite dev (desktop backend)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}/mobile",
+      "preLaunchTask": "bootstrap: mobile deps",
+      // Rides the DESKTOP app's embedded server instead of spawning
+      // bruv-server. The port must match Settings → General → "local
+      // server port" (the fixed LocalServerPort preference) — with an
+      // ephemeral port the pairing breaks every boot. Vite starts
+      // faster than the desktop binds: early proxy errors in the
+      // terminal just mean the app is still launching.
+      "env": { "VITE_BACKEND": "http://127.0.0.1:9876" }
+    },
+    {
       "name": "Debug: Client with internal server",
       "type": "node-terminal",
       "request": "launch",
@@ -59,6 +78,11 @@
     {
       "name": "Debug: Client + external server",
       "configurations": ["Run: Server (delve)", "Debug: Client with internal server"],
+      "stopAll": true
+    },
+    {
+      "name": "Debug: Desktop + mobile (one server)",
+      "configurations": ["Debug: Client with internal server", "Run: Mobile vite dev (desktop backend)"],
       "stopAll": true
     }
   ]

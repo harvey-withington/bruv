@@ -31,6 +31,8 @@
   "enrol.server_label": "Server:",
   "enrol.submit": "Pair",
   "enrol.submitting": "Pairing…",
+  "enrol.local_pair": "Pair automatically (this machine)",
+  "enrol.local_pair_or": "or pair with a token:",
   "enrol.err_generic": "Enrolment failed.",
   "enrol.err_url_required": "Server URL is required.",
   "enrol.err_token_required": "Bootstrap token is required.",

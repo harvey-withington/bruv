@@ -122,6 +122,37 @@ export async function enrol(args: {
     body: JSON.stringify({ bootstrap_token: token, device_name: name }),
   })
 
+  return finishEnrolment(res, url, name)
+}
+
+/**
+ * Same-machine pairing without a bootstrap token. POST /auth/local-pair
+ * is honoured server-side only for unproxied loopback requests from a
+ * local browser origin (see transport/http/localpair.go's trust
+ * argument) — the same trust the desktop app's own token-file self-enrol
+ * already relies on. Only meaningful when this bundle is served from a
+ * loopback origin: the desktop's embedded /m/, or the Vite dev server
+ * proxying to it.
+ */
+export async function enrolLocal(args: {
+  serverURL: string
+  deviceName: string
+}): Promise<EnrolmentResult> {
+  const url = args.serverURL.trim().replace(/\/+$/, '')
+  const name = args.deviceName.trim() || defaultDeviceName()
+  if (!url) throw new Error(t('enrol.err_url_required'))
+
+  const res = await fetch(`${url}/auth/local-pair`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ device_name: name }),
+  })
+  return finishEnrolment(res, url, name)
+}
+
+/** Shared tail of both enrolment paths: surface the server's error
+ *  detail, validate the token payload, persist, return. */
+async function finishEnrolment(res: Response, url: string, name: string): Promise<EnrolmentResult> {
   if (!res.ok) {
     let detail = res.statusText
     try {

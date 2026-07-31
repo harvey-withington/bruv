@@ -294,6 +294,11 @@ func (s *Server) buildMux() *nethttp.ServeMux {
 	})
 
 	mux.Handle("/auth/enrol", requireBootstrap(s.devices, enrolHandler(s.devices)))
+	// Same-machine pairing without the bootstrap paste — see localpair.go
+	// for the trust argument (loopback + unproxied + loopback Host +
+	// browser-privileged Origin ≙ the file access the desktop app's own
+	// self-enrol already trusts).
+	mux.Handle("/auth/local-pair", localPairHandler(s.cfg.ConfigDir, s.devices))
 
 	// /pair — operator-facing pairing page. Self-authenticated via the
 	// bootstrap token in ?token=, so it works in headless server mode

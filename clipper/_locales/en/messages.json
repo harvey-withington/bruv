@@ -54,6 +54,7 @@
   "options_bootstrap": { "message": "Bootstrap token (from the server's bootstrap-token.txt / QR page)" },
   "options_pair": { "message": "Pair" },
   "options_paired_ok": { "message": "Paired — now pick a repo below" },
+  "options_pair_local": { "message": "Pair automatically (this machine — no token needed)" },
   "options_err_unreachable": { "message": "Can't reach the BRUV server at {url}. For a local pairing, make sure the desktop app (or the BRUV service) is running — the local server stops with the app, and its port can change if the fixed port was taken at startup." },
   "options_category_stale": { "message": "The saved pin target doesn't exist in this repo — clips will land in the Inbox until you pick a new one." },
   "options_paired_with": { "message": "Paired with" },

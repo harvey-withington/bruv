@@ -45,6 +45,32 @@ export async function enrol(serverURL: string, bootstrapToken: string): Promise<
   return { serverURL: url, deviceToken: body.device_token, deviceID: body.device_id }
 }
 
+// Same-machine pairing — no bootstrap paste. The server honours
+// /auth/local-pair only for unproxied loopback requests carrying a
+// browser-privileged Origin (see transport/http/localpair.go); this
+// extension qualifies via its chrome-extension:// origin. Options shows
+// the button only when the entered server URL is loopback.
+export async function enrolLocal(serverURL: string): Promise<EnrolResult> {
+  const url = serverURL.trim().replace(/\/+$/, '')
+  if (!url) throw new Error('server URL is required')
+  const res = await fetch(`${url}/auth/local-pair`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ device_name: 'BRUV Clipper' }),
+  })
+  if (!res.ok) {
+    let detail = res.statusText
+    try {
+      const body = (await res.json()) as { error?: string }
+      if (body?.error) detail = body.error
+    } catch { /* keep statusText */ }
+    throw new Error(`${res.status} ${detail}`)
+  }
+  const body = (await res.json()) as { device_token?: string; device_id?: string }
+  if (!body.device_token || !body.device_id) throw new Error('malformed enrol response')
+  return { serverURL: url, deviceToken: body.device_token, deviceID: body.device_id }
+}
+
 async function apiFetch(s: ClipperSettings, path: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers)
   headers.set('Authorization', `Bearer ${s.deviceToken}`)

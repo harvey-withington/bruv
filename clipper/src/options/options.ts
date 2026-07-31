@@ -4,7 +4,7 @@
 // (BRUV's picker rules: pre-populated on focus, type to filter, arrow keys
 // + Enter to select) rather than a bare <select>.
 
-import { clearSettings, enrol, listRepos, loadSettings, repoRPC, saveSettings } from '../lib/api'
+import { clearSettings, enrol, enrolLocal, listRepos, loadSettings, repoRPC, saveSettings } from '../lib/api'
 import { PIN_WITH_DECK, type ClipperSettings } from '../lib/types'
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T
@@ -196,6 +196,52 @@ $('pair-btn').addEventListener('click', () => {
     btn.disabled = true
     try {
       const result = await enrol($<HTMLInputElement>('server-url').value, $<HTMLInputElement>('bootstrap-token').value)
+      const settings: ClipperSettings = {
+        serverURL: result.serverURL,
+        deviceToken: result.deviceToken,
+        deviceID: result.deviceID,
+        repoID: '',
+        repoName: '',
+        deckTarget: null,
+        categoryID: '',
+        categoryName: '',
+      }
+      await saveSettings(settings)
+      showStatus(msg('options_paired_ok'), true)
+      await refresh()
+    } catch (err) {
+      showStatus(err instanceof Error ? err.message : String(err), false)
+    } finally {
+      btn.disabled = false
+    }
+  })()
+})
+
+// Same-machine pairing: for a loopback server URL the bootstrap paste is
+// unnecessary — the server trusts unproxied loopback + this extension's
+// origin (transport/http/localpair.go). The button only appears when the
+// entered URL is loopback, so remote pairings keep the explicit token.
+function isLoopbackServerURL(value: string): boolean {
+  try {
+    const u = new URL(value.trim())
+    return ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname)
+  } catch {
+    return false
+  }
+}
+
+function refreshLocalPairVisibility(): void {
+  $<HTMLButtonElement>('local-pair-btn').hidden = !isLoopbackServerURL($<HTMLInputElement>('server-url').value)
+}
+$('server-url').addEventListener('input', refreshLocalPairVisibility)
+refreshLocalPairVisibility()
+
+$('local-pair-btn').addEventListener('click', () => {
+  void (async () => {
+    const btn = $<HTMLButtonElement>('local-pair-btn')
+    btn.disabled = true
+    try {
+      const result = await enrolLocal($<HTMLInputElement>('server-url').value)
       const settings: ClipperSettings = {
         serverURL: result.serverURL,
         deviceToken: result.deviceToken,

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { enrol } from '../lib/auth'
+  import { enrol, enrolLocal } from '../lib/auth'
   import { replace } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
 
@@ -30,6 +30,28 @@
   let errorMsg = $state<string | null>(null)
   let showAdvanced = $state(false)
 
+  // Same-machine pairing: when this bundle is served from a loopback
+  // origin (desktop-embedded /m/, or the Vite dev server proxying to
+  // it), the server accepts a token-less local pair — one tap instead
+  // of the bootstrap-token hunt. The server enforces the trust stack;
+  // this flag only decides whether offering the button makes sense.
+  const isLocalOrigin =
+    typeof window !== 'undefined' &&
+    ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)
+
+  async function localPair() {
+    errorMsg = null
+    submitting = true
+    try {
+      await enrolLocal({ serverURL, deviceName })
+      replace('/')
+    } catch (err) {
+      errorMsg = err instanceof Error ? err.message : t('enrol.err_generic')
+    } finally {
+      submitting = false
+    }
+  }
+
   async function submit(event: SubmitEvent) {
     event.preventDefault()
     errorMsg = null
@@ -55,6 +77,13 @@
   <div class="card">
     <h1>{t('enrol.title')}</h1>
     <p class="subtitle">{t('enrol.subtitle')}</p>
+
+    {#if isLocalOrigin}
+      <button type="button" class="primary local-pair" onclick={localPair} disabled={submitting}>
+        {submitting ? t('enrol.submitting') : t('enrol.local_pair')}
+      </button>
+      <p class="subtitle local-pair-or">{t('enrol.local_pair_or')}</p>
+    {/if}
 
     <form onsubmit={submit}>
       <label>
@@ -213,6 +242,16 @@
     border: 1px solid rgba(239, 68, 68, 0.4);
     border-radius: 6px;
     font-size: 0.85rem;
+  }
+
+  .local-pair {
+    width: 100%;
+    margin-top: 0;
+  }
+
+  .local-pair-or {
+    text-align: center;
+    margin: 0.75rem 0 0.25rem;
   }
 
   .primary {

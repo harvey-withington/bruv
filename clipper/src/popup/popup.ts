@@ -9,6 +9,7 @@
 import { loadSettings, repoRPC, saveSettings } from '../lib/api'
 import { drainQueue, clearQueue, listQueue } from '../lib/queue'
 import { refreshPendingBadge } from '../lib/pending'
+import { typeahead } from '../lib/typeahead'
 import { renderPendingSection } from './pendingSection'
 import type { ClipperSettings, DeckTarget } from '../lib/types'
 
@@ -30,24 +31,11 @@ type CardBlocks = { id: string; blocks?: Array<{ id: string; type: string; label
 
 let settings: ClipperSettings | null = null
 
-function renderDeckTarget(): void {
-  const el = $<HTMLDivElement>('deck-target')
-  if (settings?.deckTarget) {
-    el.textContent = settings.deckTarget.name
-    el.classList.remove('muted')
-  } else {
-    el.textContent = msg('popup_no_deck')
-    el.classList.add('muted')
-  }
-}
-
 async function setDeckTarget(target: DeckTarget | null): Promise<void> {
   if (!settings) return
   settings = { ...settings, deckTarget: target }
   await saveSettings(settings)
-  renderDeckTarget()
-  $<HTMLUListElement>('deck-results').innerHTML = ''
-  $<HTMLInputElement>('deck-search').value = ''
+  deckPicker.setValue(target?.name ?? '')
 }
 
 async function pickCardAsDeck(cardID: string, title: string): Promise<void> {
@@ -66,50 +54,35 @@ async function pickCardAsDeck(cardID: string, title: string): Promise<void> {
   }
 }
 
-function renderResults(results: SearchResult[]): void {
-  const list = $<HTMLUListElement>('deck-results')
-  list.innerHTML = ''
-  for (const r of results) {
-    const li = document.createElement('li')
-    const btn = document.createElement('button')
-    btn.type = 'button'
-    const title = document.createElement('span')
-    title.textContent = r.Title || msg('popup_untitled')
-    btn.appendChild(title)
-    if (r.ProjectContext) {
-      const path = document.createElement('span')
-      path.className = 'path'
-      path.textContent = r.ProjectContext
-      btn.appendChild(path)
+// One combobox IS the deck target: its value at rest is the current
+// selection, typing searches, the inline × clears it. Recents on focus
+// (empty query) per the picker rules.
+const deckPicker = typeahead({
+  input: $<HTMLInputElement>('deck-search'),
+  list: $<HTMLUListElement>('deck-results'),
+  clearBtn: $<HTMLButtonElement>('deck-clear'),
+  emptyLabel: msg('popup_no_results'),
+  entries: async (query) => {
+    if (!settings) return []
+    try {
+      const q = query.trim()
+      const results =
+        (q
+          ? await repoRPC<SearchResult[]>(settings, 'SearchCards', [q, 8])
+          : await repoRPC<SearchResult[]>(settings, 'RecentCards', [8])) ?? []
+      return results.map((r) => ({
+        id: r.CardID,
+        label: r.Title || msg('popup_untitled'),
+        sub: r.ProjectContext,
+      }))
+    } catch (err) {
+      showStatus(err instanceof Error ? err.message : String(err), false)
+      return []
     }
-    btn.addEventListener('click', () => void pickCardAsDeck(r.CardID, r.Title || msg('popup_untitled')))
-    li.appendChild(btn)
-    list.appendChild(li)
-  }
-}
-
-let searchSeq = 0
-async function runSearch(query: string): Promise<void> {
-  if (!settings) return
-  const seq = ++searchSeq
-  try {
-    const results = query.trim()
-      ? await repoRPC<SearchResult[]>(settings, 'SearchCards', [query.trim(), 8])
-      : await repoRPC<SearchResult[]>(settings, 'RecentCards', [8])
-    if (seq !== searchSeq) return
-    renderResults(results ?? [])
-  } catch {
-    if (seq === searchSeq) renderResults([])
-  }
-}
-
-let debounce: number | undefined
-$('deck-search').addEventListener('input', (e) => {
-  const q = (e.target as HTMLInputElement).value
-  clearTimeout(debounce)
-  debounce = setTimeout(() => void runSearch(q), 250) as unknown as number
+  },
+  onSelect: (entry) => pickCardAsDeck(entry.id, entry.label),
+  onClear: () => setDeckTarget(null),
 })
-$('deck-search').addEventListener('focus', () => void runSearch($<HTMLInputElement>('deck-search').value))
 
 // New-deck flow: inline name row, no native prompt (project convention —
 // native dialogs are banned everywhere users see BRUV).
@@ -143,8 +116,6 @@ $('new-deck-create').addEventListener('click', () => {
     }
   })()
 })
-
-$('clear-deck-btn').addEventListener('click', () => void setDeckTarget(null))
 
 async function refreshQueue(): Promise<void> {
   const jobs = await listQueue()
@@ -209,7 +180,50 @@ $('options-btn').addEventListener('click', () => {
   void chrome.runtime.openOptionsPage()
 })
 
-void (async () => {
+// --- server availability ----------------------------------------------
+//
+// Everything below the pair line needs the server: picking a deck target
+// searches cards, the pending list fetches them. With the server down
+// those controls used to sit there looking usable and fail one by one on
+// click. Probe first, and when it's unreachable make the dead parts LOOK
+// dead — greyed, click-blocked, with one banner saying why.
+
+const REACH_TIMEOUT_MS = 2500
+
+async function serverReachable(s: ClipperSettings): Promise<boolean> {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), REACH_TIMEOUT_MS)
+  try {
+    // /version is unauthenticated — this asks "is a server there?", not
+    // "is my token good", so an expired pairing still reports online and
+    // fails with a real auth error where the user can act on it.
+    const res = await fetch(`${s.serverURL}/version`, { signal: ctrl.signal })
+    return res.ok
+  } catch {
+    return false
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function setServerAvailable(available: boolean, serverURL: string): void {
+  $('offline').hidden = available
+  const deck = $('deck-section')
+  deck.classList.toggle('unavailable', !available)
+  // `inert` as well as the CSS: pointer-events alone still lets Tab
+  // reach the search box, so the section would be keyboard-usable while
+  // looking dead.
+  deck.inert = !available
+  // The queue COUNT stays readable offline (knowing clips are waiting is
+  // exactly what you want to see) — only the server-dependent Retry is
+  // disabled. Discard is local storage, so it keeps working.
+  $<HTMLButtonElement>('retry-btn').disabled = !available
+  if (!available) {
+    $<HTMLDivElement>('offline-text').textContent = msg('popup_offline').replace('{url}', serverURL)
+  }
+}
+
+async function init(): Promise<void> {
   settings = await loadSettings()
   const paired = settings !== null && settings.repoID !== ''
   $('paired').hidden = !paired
@@ -219,9 +233,30 @@ void (async () => {
     return
   }
   $<HTMLDivElement>('pair-line').textContent = `${settings!.repoName || settings!.repoID} @ ${settings!.serverURL}`
-  $<HTMLInputElement>('deck-search').placeholder = msg('popup_search_placeholder')
-  renderDeckTarget()
+  $<HTMLInputElement>('deck-search').placeholder = msg('popup_no_deck')
+  deckPicker.setValue(settings!.deckTarget?.name ?? '')
+  // Queue is local storage — always meaningful, online or not.
   await refreshQueue()
+
+  const online = await serverReachable(settings!)
+  setServerAvailable(online, settings!.serverURL)
+  if (!online) return
+
   await renderPendingSection(settings!, showStatus)
   void refreshPendingBadge()
-})()
+}
+
+$('offline-retry').addEventListener('click', () => {
+  void (async () => {
+    const btn = $<HTMLButtonElement>('offline-retry')
+    btn.disabled = true
+    showStatus('', true)
+    try {
+      await init()
+    } finally {
+      btn.disabled = false
+    }
+  })()
+})
+
+void init()

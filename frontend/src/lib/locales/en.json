@@ -1243,6 +1243,7 @@
   "slide.page_next_image": "Next image ({count} in gallery, wraps)",
   "slide.image_full": "Enlarge the image to fill the present page",
   "slide.image_full_exit": "Shrink the image back into the slide",
+  "local_server.port_changed": "Port {requested} was busy — this machine's BRUV server is on {actual} instead. Devices paired to the old address (web clipper, phone) need re-pointing.",
   "capture.pending_banner": "Waiting for desktop capture",
   "capture.pending_banner_detail": "This clip couldn't be captured server-side. Complete it from the BRUV Clipper in your browser — or retry from here.",
   "capture.retry": "Retry capture",

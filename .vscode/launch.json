@@ -22,7 +22,12 @@
       "request": "launch",
       "mode": "auto",
       "program": "${workspaceFolder}/cmd/bruv-server",
-      "args": ["--addr", "127.0.0.1:9870"],
+      // 9871, not 9870: the desktop app now defaults to 9870, and the
+      // compounds below run this ALONGSIDE it. Sharing a port would make
+      // whichever booted second fall back silently-ish (it toasts) and
+      // leave the mobile proxy pointing at the wrong process. Both stay
+      // inside the 9870-9879 range the clipper's detection probes.
+      "args": ["--addr", "127.0.0.1:9871"],
       "cwd": "${workspaceFolder}",
       // Park the compiled debug binary in the OS temp dir instead of
       // letting delve drop it into cmd/bruv-server/. Crashed/force-
@@ -53,12 +58,15 @@
       "cwd": "${workspaceFolder}/mobile",
       "preLaunchTask": "bootstrap: mobile deps",
       // Rides the DESKTOP app's embedded server instead of spawning
-      // bruv-server. The port must match Settings → General → "local
-      // server port" (the fixed LocalServerPort preference) — with an
-      // ephemeral port the pairing breaks every boot. Vite starts
-      // faster than the desktop binds: early proxy errors in the
-      // terminal just mean the app is still launching.
-      "env": { "VITE_BACKEND": "http://127.0.0.1:9876" }
+      // bruv-server. 9870 is the desktop app's default local port
+      // (override in Settings → General → "local server port", and here
+      // to match). If the app reports a port clash on boot — e.g.
+      // bruv-server is already holding 9870 from another session — it
+      // moves within 9870-9879 and toasts the port it got; point this
+      // at that port. Vite starts faster than the desktop binds: early
+      // proxy errors in the terminal just mean the app is still
+      // launching.
+      "env": { "VITE_BACKEND": "http://127.0.0.1:9870" }
     },
     {
       "name": "Debug: Client with internal server",

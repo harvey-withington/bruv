@@ -135,6 +135,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     GetBuildInfo: async () => ({ version: '0.1.0-test', build_date: 'test', os: 'test', arch: 'test', go_version: 'test' }),
     OpenConfigFolder: async () => {},
     OpenLogsFolder: async () => {},
+    GetLocalServerStatus: async () => ({ addr: '127.0.0.1:9870', requestedPort: 9870, actualPort: 9870 }),
     OpenBugReportURL: async () => {},
     CheckForUpdates: async () => ({ status: 'up_to_date' as const, current_version: '0.1.0-test' }),
     ExportCardTypesToFile: async () => {},

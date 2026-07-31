@@ -435,6 +435,9 @@ const SHELL_METHODS = new Set<string>([
   'GetBuildInfo',
   'Version',
   'CheckForUpdates',
+  // How THIS process bound its loopback transport — shell-only by
+  // definition (a remote connection has no local server to report on).
+  'GetLocalServerStatus',
 ])
 
 function buildShellMethod(name: string): (...args: unknown[]) => Promise<unknown> {

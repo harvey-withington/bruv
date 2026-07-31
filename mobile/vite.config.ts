@@ -11,10 +11,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 //
 // In dev, the PWA assumes same-origin enrolment + RPC (the production
 // Go server hosts both UI and API). Vite alone has no backend, so we
-// proxy the backend paths to bruv-server on 9870 — that keeps the
+// proxy the backend paths to a BRUV server on 9870 (the shared default:
+// the desktop app's local transport and bruv-server both aim for it) —
+// that keeps the
 // "same-origin" assumption true from the browser's point of view.
 // VITE_BACKEND lets the operator override the target (e.g. a Tailscale
-// hostname for testing against a remote dev server).
+// hostname for testing against a remote dev server, or the port the
+// desktop app moved to after a clash — it toasts the one it got).
 const backendTarget = process.env.VITE_BACKEND ?? 'http://127.0.0.1:9870'
 
 export default defineConfig({

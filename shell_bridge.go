@@ -33,6 +33,14 @@ func (s *ShellAPI) GetHTTPTransportInfo() map[string]string {
 	return s.app.GetHTTPTransportInfo()
 }
 
+// GetLocalServerStatus reports the loopback transport's requested vs
+// actual port. The frontend checks it once at boot and warns when they
+// differ — pairings (clipper, phone) are URL-keyed, so a port that
+// silently moved presents later as an unexplained "can't reach server".
+func (s *ShellAPI) GetLocalServerStatus() LocalServerStatus {
+	return s.app.GetLocalServerStatus()
+}
+
 // --- Native dialogs (must run in the shell process) ---
 
 func (s *ShellAPI) PickFolder(title string) (string, error) {

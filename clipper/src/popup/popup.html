@@ -17,9 +17,20 @@
       button:disabled { opacity: 0.5; cursor: default; }
       ul { list-style: none; margin: 6px 0 0; padding: 0; max-height: 180px; overflow-y: auto; }
       li button { display: block; width: 100%; text-align: left; background: #1d1d2b; border: 1px solid #2c2c3c; color: inherit; margin-top: 4px; padding: 7px 9px; border-radius: 6px; }
-      li button:hover { border-color: #8b5cf6; }
+      li button:hover, li button.active { border-color: #8b5cf6; }
+      li button.special { color: #b7a8f0; }
       li .path { display: block; opacity: 0.55; font-size: 0.72rem; }
-      .target { margin-top: 6px; padding: 8px 10px; border-radius: 6px; background: #1d1d2b; border: 1px solid #8b5cf6; }
+      li.empty { padding: 7px 9px; opacity: 0.55; font-size: 0.78rem; }
+      /* One combobox holds the chosen deck AND the search — the value at
+         rest is the selection, cleared by the inline × (same shape as the
+         app's pickers; a separate display line + Clear button was the odd
+         one out). */
+      .picker { position: relative; margin-top: 6px; }
+      .picker input { padding-right: 28px; }
+      .picker .clear { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); width: 20px; height: 20px; padding: 0; line-height: 1; border: none; background: transparent; color: #b7a8f0; font-size: 1rem; }
+      .picker .clear:hover { color: #fff; }
+      .picker ul { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 10; margin: 0; padding: 4px; background: #1d1d2b; border: 1px solid #3a3a4c; border-radius: 8px; box-shadow: 0 12px 30px rgba(0,0,0,0.45); }
+      .picker ul li button { margin-top: 2px; background: transparent; border: 1px solid transparent; }
       .queue { margin-top: 12px; padding-top: 10px; border-top: 1px solid #2c2c3c; }
       li.pending-row { display: flex; align-items: center; gap: 6px; margin-top: 4px; padding: 6px 9px; border-radius: 6px; background: #1d1d2b; border: 1px solid #2c2c3c; }
       li.pending-row .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -28,6 +39,12 @@
       li.pending-row .state.ok { color: #7fd6a8; opacity: 1; }
       li.pending-row .state.err { color: #ef8a8a; opacity: 1; }
       .actions { display: flex; gap: 6px; margin-top: 6px; }
+      .offline { margin-top: 10px; padding: 8px 10px; border-radius: 6px; background: #3a2a12; border: 1px solid #d97706; color: #fed7aa; font-size: 0.8rem; }
+      .offline .actions { margin-top: 6px; }
+      .offline button { border-color: #d97706; background: transparent; color: #fed7aa; }
+      /* Non-functional while the server is unreachable — greyed AND
+         click-blocked, so the popup can't look alive when it isn't. */
+      .unavailable { opacity: 0.4; pointer-events: none; }
       #status { margin-top: 8px; font-size: 0.8rem; }
       #status.err { color: #ef8a8a; }
       #status.ok { color: #7fd6a8; }
@@ -43,16 +60,24 @@
     <div id="paired" hidden>
       <div class="muted" id="pair-line"></div>
 
-      <div class="row">
+      <!-- Server unreachable: the sections below can't do anything, so
+           they're visibly disabled rather than left looking functional. -->
+      <div id="offline" class="offline" hidden>
+        <div id="offline-text"></div>
+        <div class="actions">
+          <button id="offline-retry" data-i18n="popup_offline_retry"></button>
+        </div>
+      </div>
+
+      <div class="row" id="deck-section">
         <strong data-i18n="popup_deck_target"></strong>
-        <div id="deck-target" class="target muted" data-i18n="popup_no_deck"></div>
-        <div class="row">
-          <input id="deck-search" type="search" />
-          <ul id="deck-results"></ul>
+        <div class="picker">
+          <input id="deck-search" type="text" role="combobox" autocomplete="off" aria-expanded="false" aria-controls="deck-results" />
+          <button id="deck-clear" class="clear" hidden aria-label="Clear" title="Clear">×</button>
+          <ul id="deck-results" role="listbox" hidden></ul>
         </div>
         <div class="actions">
           <button id="new-deck-btn" class="secondary" data-i18n="popup_new_deck"></button>
-          <button id="clear-deck-btn" class="secondary" data-i18n="popup_clear_deck"></button>
         </div>
         <div class="row" id="new-deck-row" hidden>
           <input id="new-deck-name" type="text" />

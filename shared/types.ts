@@ -314,6 +314,14 @@ export type CaptureResult = {
 // on every surface); the extension polls it for badge + pending list.
 export const CLIP_PENDING_TAG = 'clip-pending'
 
+// Result of GetLocalServerStatus — see the BackendAdapter entry.
+export type LocalServerStatus = {
+  addr: string
+  requestedPort: number
+  actualPort: number
+  fallbackReason?: string
+}
+
 export type BlockMeta = {
   options?: string[]
   collapsed?: boolean
@@ -992,6 +1000,13 @@ export interface BackendAdapter {
   GetBuildInfo(): Promise<BuildInfo>
   OpenConfigFolder(): Promise<void>
   OpenLogsFolder(): Promise<void>
+
+  // How this desktop process bound its loopback HTTP transport. When
+  // actualPort differs from requestedPort the port was taken and the app
+  // moved — URL-keyed pairings (clipper, phone) will be pointing at the
+  // old one, so the UI announces it. Shell-only: a remote connection has
+  // no local server to report on.
+  GetLocalServerStatus(): Promise<LocalServerStatus>
   OpenBugReportURL(): Promise<void>
   CheckForUpdates(): Promise<UpdateCheckResult>
   ExportCardTypesToFile(filePath: string): Promise<void>

@@ -31,7 +31,7 @@
   import { installResilience } from './lib/connectivity.svelte'
   import { resolveTransportInfo } from '@shared/adapters/cloud'
 
-  import { GetUIPreferences, SetUIPreferences, GetCurrentRepo, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, IsLLMConfigured } from '@shared/api'
+  import { GetUIPreferences, SetUIPreferences, GetCurrentRepo, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, IsLLMConfigured, GetLocalServerStatus } from '@shared/api'
 
   // Restore persisted preferences
   loadTheme()
@@ -315,6 +315,30 @@
   // by the Rebuild button in AboutDialog (via the success toast) — a
   // soft-reset fine for alpha; per-session re-warn is enough.
   let indexStaleNotified = false
+
+  // The local server binds a predictable port (9870 by default, or the
+  // configured one) so URL-keyed pairings — the web clipper, a phone
+  // pointed at this machine — survive restarts. When that port is taken
+  // the app moves, and those pairings silently point at nothing; say so
+  // once, with the port it actually got, rather than letting it surface
+  // later as an unexplained "can't reach server".
+  async function checkLocalServerPort() {
+    try {
+      const status = await GetLocalServerStatus()
+      if (!status || !status.actualPort || status.actualPort === status.requestedPort) return
+      showToast(
+        t('local_server.port_changed', {
+          requested: status.requestedPort,
+          actual: status.actualPort,
+        }),
+        'warning',
+        10000,
+      )
+    } catch {
+      // Remote/browser mode has no local server — nothing to report.
+    }
+  }
+
   onMount(() => {
     // Notifications are per-machine (MachineService.GetNotifications
     // routes via /server/rpc, no repoID needed) so we can fetch
@@ -325,6 +349,7 @@
     // and the user landed with an empty notification list until the
     // next event arrived.
     loadNotifications()
+    checkLocalServerPort()
     notifCleanups = [
       onEvent<NotificationPayload>('notification:new', (data) => {
         handleNewNotification(data ?? {})

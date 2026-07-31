@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -76,6 +78,11 @@ type App struct {
 	busBridgeOnce  sync.Once
 
 	httpServer *transporthttp.Server
+
+	// localServer records how the loopback transport bound this boot —
+	// read by the frontend at startup so a moved port is announced, not
+	// silently breaking URL-keyed pairings.
+	localServer LocalServerStatus
 }
 
 // NewApp constructs the desktop App. The supervisor is built from
@@ -258,6 +265,29 @@ func (a *App) stopBusBridge() {
 // Failures are logged but non-fatal — the desktop UI surfaces a
 // "can't reach Local" error screen if the transport is unavailable,
 // so the user can at least switch to a working Remote.
+// The local transport binds a PREDICTABLE port so URL-pairing tools
+// (the web clipper, a phone pointed at this machine) keep working across
+// restarts without re-pairing — and so "find the BRUV server on this
+// machine" is a bounded search rather than a guess. 9870 is the same
+// default bruv-server uses; on a clash we walk the rest of the 987x
+// range (the range the clipper probes) before conceding to an ephemeral
+// port. Whenever the port we land on isn't the one we asked for, the UI
+// says so — a silently-moved port is how pairings mysteriously break.
+const (
+	defaultLocalServerPort = 9870
+	localServerPortLadder  = 9879
+)
+
+// LocalServerStatus reports how this boot's loopback transport bound.
+// FallbackReason is empty on the happy path; when set it explains why
+// the requested port couldn't be used, and the frontend surfaces it.
+type LocalServerStatus struct {
+	Addr           string `json:"addr"`
+	RequestedPort  int    `json:"requestedPort"`
+	ActualPort     int    `json:"actualPort"`
+	FallbackReason string `json:"fallbackReason,omitempty"`
+}
+
 func (a *App) startHTTPTransport() {
 	cfgDir, err := config.ConfigDir()
 	if err != nil {
@@ -296,23 +326,56 @@ func (a *App) startHTTPTransport() {
 		return nil
 	}
 
-	addr := "127.0.0.1:0"
-	fixedPort := 0
+	// Preference wins; otherwise the shared default.
+	requested := defaultLocalServerPort
 	if prefs, err := config.LoadUIPreferences(); err == nil && prefs.LocalServerPort > 0 && prefs.LocalServerPort <= 65535 {
-		fixedPort = prefs.LocalServerPort
-		addr = fmt.Sprintf("127.0.0.1:%d", fixedPort)
+		requested = prefs.LocalServerPort
 	}
-	if err := start(addr); err != nil {
-		if fixedPort == 0 {
-			slog.Warn("http transport: start failed", "err", err)
+
+	tryPort := func(port int) error { return start(fmt.Sprintf("127.0.0.1:%d", port)) }
+
+	if err := tryPort(requested); err == nil {
+		a.localServer = LocalServerStatus{Addr: a.httpServer.Addr(), RequestedPort: requested, ActualPort: requested}
+		return
+	} else {
+		slog.Warn("http transport: requested port unavailable", "port", requested, "err", err)
+		a.localServer.FallbackReason = err.Error()
+	}
+
+	// Walk the discoverable range before giving up on predictability.
+	for port := defaultLocalServerPort; port <= localServerPortLadder; port++ {
+		if port == requested {
+			continue
+		}
+		if err := tryPort(port); err == nil {
+			slog.Warn("http transport: fell back to an alternate port", "requested", requested, "actual", port)
+			a.localServer.Addr = a.httpServer.Addr()
+			a.localServer.RequestedPort = requested
+			a.localServer.ActualPort = port
 			return
 		}
-		slog.Warn("http transport: fixed port unavailable, falling back to ephemeral", "port", fixedPort, "err", err)
-		if err := start("127.0.0.1:0"); err != nil {
-			slog.Warn("http transport: start failed", "err", err)
-		}
 	}
+
+	// Last resort: any free port. Pairings pointing at the old URL will
+	// break, which is exactly why this gets reported to the user.
+	if err := start("127.0.0.1:0"); err != nil {
+		slog.Warn("http transport: start failed", "err", err)
+		a.localServer.RequestedPort = requested
+		return
+	}
+	actual := 0
+	if _, portStr, splitErr := net.SplitHostPort(a.httpServer.Addr()); splitErr == nil {
+		actual, _ = strconv.Atoi(portStr)
+	}
+	slog.Warn("http transport: fell back to an ephemeral port", "requested", requested, "actual", actual)
+	a.localServer.Addr = a.httpServer.Addr()
+	a.localServer.RequestedPort = requested
+	a.localServer.ActualPort = actual
 }
+
+// GetLocalServerStatus reports this boot's local-transport binding so
+// the frontend can warn when the port moved (pairings are URL-keyed).
+func (a *App) GetLocalServerStatus() LocalServerStatus { return a.localServer }
 
 // stopHTTPTransport shuts the HTTP server down. Safe to call when the
 // server never started (no-op).

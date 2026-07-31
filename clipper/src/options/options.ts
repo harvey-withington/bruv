@@ -5,6 +5,7 @@
 // + Enter to select) rather than a bare <select>.
 
 import { clearSettings, enrol, enrolLocal, listRepos, loadSettings, repoRPC, saveSettings } from '../lib/api'
+import { typeahead } from '../lib/typeahead'
 import { PIN_WITH_DECK, type ClipperSettings } from '../lib/types'
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T
@@ -41,7 +42,6 @@ type PinEntry = { id: string; name: string; special: boolean }
 let current: ClipperSettings | null = null
 let allCategories: CategoryPath[] = []
 let selectedPin: { id: string; name: string } = { id: '', name: '' }
-let activeIdx = -1
 
 function specialEntries(): PinEntry[] {
   return [
@@ -60,81 +60,18 @@ function pinEntries(query: string): PinEntry[] {
   return all.filter((e) => e.name.toLowerCase().includes(q))
 }
 
-function selectPin(entry: PinEntry): void {
-  selectedPin = { id: entry.id, name: entry.name }
-  const input = $<HTMLInputElement>('category-search')
-  input.value = entry.name
-  input.setAttribute('aria-expanded', 'false')
-  $<HTMLUListElement>('category-results').hidden = true
-  activeIdx = -1
-}
-
-function renderPinList(query: string): void {
-  const list = $<HTMLUListElement>('category-results')
-  const entries = pinEntries(query)
-  list.innerHTML = ''
-  entries.forEach((entry, i) => {
-    const li = document.createElement('li')
-    const btn = document.createElement('button')
-    btn.type = 'button'
-    btn.textContent = entry.name
-    btn.className = (entry.special ? 'special' : '') + (i === activeIdx ? ' active' : '')
-    btn.setAttribute('role', 'option')
-    // pointerdown, not click — selection must beat the input's blur.
-    btn.addEventListener('pointerdown', (e) => {
-      e.preventDefault()
-      selectPin(entry)
-    })
-    li.appendChild(btn)
-    list.appendChild(li)
-  })
-  list.hidden = entries.length === 0
-  $<HTMLInputElement>('category-search').setAttribute('aria-expanded', String(!list.hidden))
-}
-
-function wirePinPicker(): void {
-  const input = $<HTMLInputElement>('category-search')
-  input.placeholder = msg('options_category_placeholder')
-
-  input.addEventListener('focus', () => {
-    // Pre-populate before typing — an empty picker is capture friction.
-    input.select()
-    activeIdx = -1
-    renderPinList('')
-  })
-  input.addEventListener('input', () => {
-    activeIdx = -1
-    renderPinList(input.value)
-  })
-  input.addEventListener('blur', () => {
-    // Restore the committed selection; pointerdown-selection already ran.
-    setTimeout(() => {
-      input.value = selectedPin.name
-      $<HTMLUListElement>('category-results').hidden = true
-      input.setAttribute('aria-expanded', 'false')
-    }, 120)
-  })
-  input.addEventListener('keydown', (e) => {
-    const entries = pinEntries(input.value)
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      e.preventDefault()
-      if (entries.length === 0) return
-      const delta = e.key === 'ArrowDown' ? 1 : -1
-      activeIdx = (activeIdx + delta + entries.length) % entries.length
-      renderPinList(input.value)
-    } else if (e.key === 'Enter') {
-      e.preventDefault()
-      const entry = activeIdx >= 0 ? entries[activeIdx] : entries[0]
-      if (entry) selectPin(entry)
-      input.blur()
-    } else if (e.key === 'Escape') {
-      input.value = selectedPin.name
-      $<HTMLUListElement>('category-results').hidden = true
-      input.setAttribute('aria-expanded', 'false')
-      activeIdx = -1
-    }
-  })
-}
+// Same combobox behaviour as the popup's deck picker (lib/typeahead.ts).
+// Entries here are local — specials plus the loaded category list — so
+// the lookup is synchronous.
+const pinPicker = typeahead({
+  input: $<HTMLInputElement>('category-search'),
+  list: $<HTMLUListElement>('category-results'),
+  entries: (query) =>
+    pinEntries(query).map((e) => ({ id: e.id, label: e.name, special: e.special })),
+  onSelect: (entry) => {
+    selectedPin = { id: entry.id, name: entry.label }
+  },
+})
 
 async function refresh(): Promise<void> {
   current = await loadSettings()
@@ -186,7 +123,7 @@ async function refresh(): Promise<void> {
   } else {
     selectedPin = { id: '', name: msg('options_category_inbox') }
   }
-  $<HTMLInputElement>('category-search').value = selectedPin.name
+  pinPicker.setValue(selectedPin.name)
 }
 
 async function loadCategories(): Promise<void> {
@@ -384,7 +321,7 @@ $('repo-select').addEventListener('change', () => {
     // to Inbox — a category from the old repo is meaningless in the new one.
     await loadCategories()
     selectedPin = { id: '', name: msg('options_category_inbox') }
-    $<HTMLInputElement>('category-search').value = selectedPin.name
+    pinPicker.setValue(selectedPin.name)
   })()
 })
 
@@ -407,5 +344,5 @@ $('save-btn').addEventListener('click', () => {
   })()
 })
 
-wirePinPicker()
+$<HTMLInputElement>('category-search').placeholder = msg('options_category_placeholder')
 void refresh()

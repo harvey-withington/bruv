@@ -10,9 +10,14 @@
 // own error reporting through the popup's status line.
 
 import type { ClipperSettings, CompleteRequestMessage, CompleteResponse } from '../lib/types'
+import { repoRPC } from '../lib/api'
 import { loadPendingCards, refreshPendingBadge, type PendingCard } from '../lib/pending'
 
 const PENDING_LIMIT = 10
+// Two-step delete: the first click arms, the second confirms, and the
+// arming lapses. Same pattern as the queue's Discard — the extension has
+// no dialog layer, and native confirm() is banned project-wide.
+const DELETE_ARM_MS = 3000
 
 type StatusFn = (text: string, ok: boolean) => void
 
@@ -58,7 +63,54 @@ async function complete(card: PendingCard, showStatus: StatusFn): Promise<void> 
   void refreshPendingBadge()
 }
 
-function renderRow(card: PendingCard, showStatus: StatusFn): HTMLLIElement {
+// Deleting a pending clip removes the CARD. Not every pending clip can
+// be completed — a deleted or dead source URL never will be — so there
+// has to be a way out that isn't "live with it forever".
+async function deleteRow(card: PendingCard, li: HTMLLIElement, settings: ClipperSettings, showStatus: StatusFn): Promise<void> {
+  try {
+    await repoRPC(settings, 'DeleteCard', [card.id])
+    rows.delete(card.id)
+    li.remove()
+    if (rows.size === 0) $('pending').hidden = true
+    $('pending-actions').hidden = [...rows.values()].filter((r) => r.card.url).length < 2
+    // Honest about the loose end: the capture-time slide lives on the
+    // DECK card and binds to the card we just deleted, so it stays put
+    // (blank) until removed there. The extension can't know which deck
+    // holds it — see the RemoveDeckSlide item in plan/TODO.md.
+    showStatus(msg('popup_pending_deleted'), true)
+    void refreshPendingBadge()
+  } catch (err) {
+    showStatus(err instanceof Error ? err.message : String(err), false)
+  }
+}
+
+function wireDeleteButton(btn: HTMLButtonElement, card: PendingCard, li: HTMLLIElement, settings: ClipperSettings, showStatus: StatusFn): void {
+  let armed = false
+  let timer: number | undefined
+  const disarm = (): void => {
+    armed = false
+    btn.classList.remove('armed')
+    btn.textContent = '×'
+    btn.title = msg('popup_pending_delete')
+  }
+  disarm()
+  btn.addEventListener('click', () => {
+    if (!armed) {
+      armed = true
+      btn.classList.add('armed')
+      btn.textContent = msg('popup_pending_delete_confirm')
+      btn.title = msg('popup_pending_delete_confirm')
+      clearTimeout(timer)
+      timer = setTimeout(disarm, DELETE_ARM_MS) as unknown as number
+      return
+    }
+    clearTimeout(timer)
+    disarm()
+    void deleteRow(card, li, settings, showStatus)
+  })
+}
+
+function renderRow(card: PendingCard, settings: ClipperSettings, showStatus: StatusFn): HTMLLIElement {
   const li = document.createElement('li')
   li.className = 'pending-row'
 
@@ -77,10 +129,16 @@ function renderRow(card: PendingCard, showStatus: StatusFn): HTMLLIElement {
   button.textContent = msg('popup_pending_complete')
   li.appendChild(button)
 
+  const del = document.createElement('button')
+  del.type = 'button'
+  del.className = 'danger'
+  li.appendChild(del)
+  wireDeleteButton(del, card, li, settings, showStatus)
+
   rows.set(card.id, { card, button, state })
 
   // No source URL = nothing to open. Shown (disabled) rather than hidden:
-  // a stuck card the user can see is one they can go fix.
+  // a stuck card the user can see is one they can go fix — or now delete.
   if (!card.url) {
     button.disabled = true
     setState(card.id, msg('popup_pending_no_url'), 'err')
@@ -119,7 +177,7 @@ export async function renderPendingSection(settings: ClipperSettings, showStatus
   list.innerHTML = ''
   section.hidden = cards.length === 0
   actions.hidden = cards.filter((c) => c.url).length < 2
-  for (const card of cards) list.appendChild(renderRow(card, showStatus))
+  for (const card of cards) list.appendChild(renderRow(card, settings, showStatus))
 
   $('complete-all-btn').onclick = () => completeAll(showStatus)
 }

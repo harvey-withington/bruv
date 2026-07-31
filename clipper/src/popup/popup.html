@@ -38,6 +38,11 @@
       li.pending-row .state { font-size: 0.72rem; opacity: 0.6; white-space: nowrap; }
       li.pending-row .state.ok { color: #7fd6a8; opacity: 1; }
       li.pending-row .state.err { color: #ef8a8a; opacity: 1; }
+      /* Destructive, so it reads destructive — and arms before it acts
+         (the extension has no dialog layer; native confirm() is banned). */
+      li.pending-row button.danger { border-color: #ef4444; background: transparent; color: #ef8a8a; padding: 4px 7px; }
+      li.pending-row button.danger:hover { background: rgba(239, 68, 68, 0.15); }
+      li.pending-row button.danger.armed { background: #ef4444; color: #fff; }
       .actions { display: flex; gap: 6px; margin-top: 6px; }
       .offline { margin-top: 10px; padding: 8px 10px; border-radius: 6px; background: #3a2a12; border: 1px solid #d97706; color: #fed7aa; font-size: 0.8rem; }
       .offline .actions { margin-top: 6px; }

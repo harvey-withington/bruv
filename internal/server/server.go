@@ -96,9 +96,17 @@ func Run(opts Options) error {
 	// when boot goes sideways. Failure is non-fatal — the slog default
 	// (stderr) keeps working, just invisible to anyone who isn't
 	// running the binary from a terminal.
+	// NOTE (2026-08-01): "stderr disappears into the void" turned out to
+	// be worse than invisible — os.Stderr's handle is INVALID under the
+	// SCM, and the old io.MultiWriter fan-out aborted on its error before
+	// reaching the file, so these logs were created-then-empty. See
+	// logging.fanout.
 	if _, err := logging.Init(opts.ConfigDir); err != nil {
 		slog.Warn("logging init failed", "err", err)
 	}
+	// Sync + release the log file on the way out (service stop, signal,
+	// or a returned error) rather than relying on process teardown.
+	defer logging.Close()
 	logging.InitCrashReporting(opts.ConfigDir, opts.Version, opts.BuildDate)
 
 	slog.Info("bruv-server starting", "version", opts.Version, "build_date", opts.BuildDate, "config_dir", opts.ConfigDir)

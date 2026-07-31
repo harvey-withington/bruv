@@ -1,6 +1,8 @@
 package logging
 
 import (
+	"bytes"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -8,6 +10,54 @@ import (
 	"testing"
 	"time"
 )
+
+// brokenWriter stands in for os.Stderr under the Windows SCM: a valid
+// io.Writer whose underlying handle is dead, so every Write errors.
+// The existing Init tests can't catch this — `go test` has a working
+// stderr, which is precisely how the bug below survived to production.
+type brokenWriter struct{ writes int }
+
+func (b *brokenWriter) Write(p []byte) (int, error) {
+	b.writes++
+	return 0, errors.New("the handle is invalid")
+}
+
+// The regression that left the home server with EMPTY log files: with
+// io.MultiWriter a failing console aborted the write before it reached
+// the log file. Every destination must be attempted independently.
+func TestFanoutSurvivesADeadWriter(t *testing.T) {
+	broken := &brokenWriter{}
+	var file bytes.Buffer
+
+	n, err := fanout(&file, broken).Write([]byte("hello"))
+	if err != nil {
+		t.Fatalf("write returned %v, want nil (one destination succeeded)", err)
+	}
+	if n != len("hello") {
+		t.Errorf("n = %d, want %d", n, len("hello"))
+	}
+	if file.String() != "hello" {
+		t.Errorf("file writer got %q, want %q", file.String(), "hello")
+	}
+	if broken.writes != 1 {
+		t.Errorf("broken writer attempted %d times, want 1", broken.writes)
+	}
+
+	// Order must not matter — the dead writer FIRST is the production case.
+	file.Reset()
+	if _, err := fanout(broken, &file).Write([]byte("second")); err != nil {
+		t.Fatalf("write returned %v, want nil", err)
+	}
+	if file.String() != "second" {
+		t.Errorf("file writer got %q, want %q", file.String(), "second")
+	}
+}
+
+func TestFanoutFailsOnlyWhenEveryWriterFails(t *testing.T) {
+	if _, err := fanout(&brokenWriter{}, &brokenWriter{}).Write([]byte("x")); err == nil {
+		t.Fatal("expected an error when every destination fails")
+	}
+}
 
 func TestInitCreatesLogFileAndAcceptsWrites(t *testing.T) {
 	dir := t.TempDir()

@@ -64,9 +64,40 @@ func Init(configDir string) (string, error) {
 	}
 	logFile = f
 
-	installDefault(io.MultiWriter(os.Stderr, f))
+	installDefault(fanout(f, os.Stderr))
 	slog.Info("logging initialised", "path", path)
 	return path, nil
+}
+
+// fanout returns a writer that attempts EVERY destination and only
+// fails if they all do.
+//
+// This is deliberately not io.MultiWriter: that stops at the first
+// error, and when BRUV runs under the Windows SCM there is no console,
+// so os.Stderr's handle is invalid and its Write fails immediately.
+// With stderr in front of the log file, every single log line was
+// dropped before reaching disk — the service's log files were created
+// on startup and then stayed 0 bytes (found 2026-07-31, diagnosing why
+// the home server had no logs at all). The file is also first in the
+// list now, so the durable destination is never hostage to the console.
+func fanout(writers ...io.Writer) io.Writer { return fanoutWriter(writers) }
+
+type fanoutWriter []io.Writer
+
+func (fw fanoutWriter) Write(p []byte) (int, error) {
+	var lastErr error
+	delivered := false
+	for _, w := range fw {
+		if _, err := w.Write(p); err != nil {
+			lastErr = err
+			continue
+		}
+		delivered = true
+	}
+	if delivered {
+		return len(p), nil
+	}
+	return 0, lastErr
 }
 
 // LogsDir returns the directory where BRUV writes its log files.

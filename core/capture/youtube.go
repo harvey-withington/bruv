@@ -3,12 +3,17 @@
 // unit is a VIDEO, not a "post" — playback is ciphered MSE/DASH with no
 // downloadable URL, so this resolver never attempts one. It records an
 // embedVideo reference (the deck renders YouTube's own iframe player at
-// Present time) and the thumbnail is the only media it ever produces.
+// Present time) and produces NO media at all: the embed IS the content,
+// and templates switch cleanly only when fields stay role-pure. A
+// thumbnail stand-in was deliberately dropped (ruled 2026-07-31) — it was
+// a vestige of a template that composed thumbnail + player, and papering
+// over a failed embed would hide an error state that should look like one
+// (YouTube's own "video unavailable" frame is the honest failure).
 //
 // oEmbed (youtube.com/oembed) is public — no key, no auth — and returns
 // title / channel name / channel URL for any video id. The channel avatar
 // is the one field it lacks; server captures go without it rather than
-// guessing (matching the extension's thumbnail-capture behaviour).
+// guessing (matching the extension's behaviour).
 
 package capture
 
@@ -79,17 +84,6 @@ func (r youtubeResolver) Resolve(ctx context.Context, c *Client, rawURL string) 
 		handle = m[1]
 	}
 
-	// Thumbnail: i.ytimg.com URLs are stable and unauthenticated, but
-	// maxresdefault 404s for uploads that never got a high-res thumbnail —
-	// probe it and downgrade to hqdefault (generated for effectively every
-	// upload). Known caveat carried over from the extension: YouTube
-	// sometimes serves a tiny grey placeholder with a 200 for missing
-	// maxres; the rare slip-through is accepted over dimension checks.
-	thumb := fmt.Sprintf("https://i.ytimg.com/vi/%s/maxresdefault.jpg", id)
-	if !c.Exists(ctx, thumb) {
-		thumb = fmt.Sprintf("https://i.ytimg.com/vi/%s/hqdefault.jpg", id)
-	}
-
 	// Field mapping mirrors the extension: the slide schema is a
 	// social-post shape, so text = video title, author = channel name.
 	return &Clip{
@@ -98,7 +92,6 @@ func (r youtubeResolver) Resolve(ctx context.Context, c *Client, rawURL string) 
 		Author:       o.AuthorName,
 		Handle:       handle,
 		Text:         o.Title,
-		Media:        []Media{{URL: thumb, Kind: MediaImage}},
 		// No downloadable stream — the deck resolves this to
 		// "embed://youtube/<id>" and renders the official iframe player.
 		EmbedVideo: &EmbedVideo{Provider: "youtube", ID: id},

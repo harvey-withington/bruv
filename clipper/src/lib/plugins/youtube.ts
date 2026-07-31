@@ -3,11 +3,14 @@
 // downloadable video URL (playback is ciphered MSE/DASH, not a plain mp4),
 // so this plugin never attempts to resolve one. Instead it records an
 // `embedVideo` reference and lets the platform's own official iframe player
-// render it at Present time — the thumbnail image is the only "media" this
-// plugin ever produces.
+// render it at Present time — and produces NO media at all (ruled
+// 2026-07-31): the embed IS the content, a thumbnail in the media field
+// broke cross-template value purity, and a failed embed should look like
+// the error it is (YouTube's own "video unavailable" frame), not hide
+// behind a stand-in image.
 
 import type { ClipperPlugin } from './registry'
-import type { ClipMedia, ClipResult } from '../types'
+import type { ClipResult } from '../types'
 
 // Pull a video id out of any of YouTube's three URL shapes:
 //   https://www.youtube.com/watch?v=<id>
@@ -131,12 +134,6 @@ export const youtubePlugin: ClipperPlugin = {
       text = titleEl?.getAttribute('title')?.trim() || titleEl?.textContent?.trim() || ''
     }
 
-    // Thumbnail: i.ytimg.com URLs are stable and unauthenticated (no signed
-    // token, no rot), but maxresdefault (1280x720) 404s for older or
-    // low-resolution uploads that never got a high-res thumbnail generated.
-    // enrich() verifies it and downgrades to hqdefault when it's missing.
-    const media: ClipMedia[] = [{ url: `https://i.ytimg.com/vi/${id}/maxresdefault.jpg`, kind: 'image' }]
-
     return {
       platform: 'youtube',
       canonicalUrl,
@@ -144,7 +141,7 @@ export const youtubePlugin: ClipperPlugin = {
       handle,
       avatarUrl,
       text,
-      media,
+      media: [],
       publishedAt,
       // No downloadable stream — the deck resolves this to "embed://youtube/<id>"
       // and renders YouTube's own iframe player at Present time.
@@ -154,18 +151,14 @@ export const youtubePlugin: ClipperPlugin = {
     }
   },
 
-  // Two independent enrichment passes, each failure-isolated (a clip must
-  // never die here):
-  //  1. oEmbed — youtube.com/oembed is public (no key, no auth) and returns
-  //     title / channel name / channel URL for any video id. It is
-  //     AUTHORITATIVE over the DOM extraction: thumbnail captures have no
-  //     channel metadata at all, and watch-page captures can be SPA-stale
-  //     (og:title / document.title lag client-side navigation). The channel
-  //     avatar is the one field oEmbed lacks — thumbnail captures go
-  //     without it rather than guessing.
-  //  2. Thumbnail check — verify maxresdefault exists; downgrade to
-  //     hqdefault (360p, generated for every upload since the site's early
-  //     days — effectively guaranteed) when it doesn't.
+  // One enrichment pass, failure-isolated (a clip must never die here):
+  // oEmbed — youtube.com/oembed is public (no key, no auth) and returns
+  // title / channel name / channel URL for any video id. It is
+  // AUTHORITATIVE over the DOM extraction: thumbnail-link captures have no
+  // channel metadata at all, and watch-page captures can be SPA-stale
+  // (og:title / document.title lag client-side navigation). The channel
+  // avatar is the one field oEmbed lacks — listing-page captures go
+  // without it rather than guessing.
   async enrich(clip: ClipResult): Promise<ClipResult> {
     const id = clip.extras.videoId
     if (!id) return { ...clip, needsEnrichment: false }
@@ -187,26 +180,6 @@ export const youtubePlugin: ClipperPlugin = {
       }
     } catch {
       // oEmbed unreachable — keep whatever the DOM found.
-    }
-
-    const pending = next.media.find((m) => m.kind === 'image' && m.url.includes('/maxresdefault.jpg'))
-    if (pending) {
-      const hqUrl = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`
-      try {
-        // HEAD is enough to check existence without pulling the full image
-        // into the service worker just to throw it away. res.ok is treated
-        // as sufficient, with a known caveat: YouTube doesn't always 404 a
-        // missing maxres — for some videos it serves a tiny (~1KB, 120x90)
-        // grey placeholder with a 200 status instead. We accept the rare
-        // placeholder slipping through rather than add dimension checks,
-        // since hqdefault is only ever a downgrade path.
-        const res = await fetch(pending.url, { method: 'HEAD' })
-        if (!res.ok) {
-          next = { ...next, media: next.media.map((m) => (m === pending ? { ...m, url: hqUrl } : m)) }
-        }
-      } catch {
-        next = { ...next, media: next.media.map((m) => (m === pending ? { ...m, url: hqUrl } : m)) }
-      }
     }
 
     return { ...next, needsEnrichment: false }

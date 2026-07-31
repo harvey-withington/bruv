@@ -250,8 +250,7 @@ func TestRedditResolveShareLinkAndGallery(t *testing.T) {
 
 func TestYouTubeResolve(t *testing.T) {
 	c := testClient(t, map[string]routeFn{
-		"www.youtube.com /oembed":                    respond(200, fixture(t, "youtube_oembed.json"), nil),
-		"i.ytimg.com /vi/dQw4w9WgXcQ/maxresdefault.jpg": respond(404, "", nil),
+		"www.youtube.com /oembed": respond(200, fixture(t, "youtube_oembed.json"), nil),
 	})
 	clip, err := Resolve(context.Background(), c, "https://youtu.be/dQw4w9WgXcQ")
 	if err != nil {
@@ -263,9 +262,11 @@ func TestYouTubeResolve(t *testing.T) {
 	if clip.EmbedVideo == nil || clip.EmbedVideo.Provider != "youtube" || clip.EmbedVideo.ID != "dQw4w9WgXcQ" {
 		t.Errorf("embedVideo wrong: %+v", clip.EmbedVideo)
 	}
-	// maxres 404s in this fixture set → hqdefault downgrade.
-	if len(clip.Media) != 1 || !strings.Contains(clip.Media[0].URL, "hqdefault.jpg") {
-		t.Errorf("thumbnail downgrade wrong: %+v", clip.Media)
+	// No media by design (ruled 2026-07-31): the embed IS the content —
+	// a thumbnail in the media field breaks cross-template value purity,
+	// and a failed embed should look like the error it is.
+	if len(clip.Media) != 0 {
+		t.Errorf("youtube must produce no media, got %+v", clip.Media)
 	}
 }
 

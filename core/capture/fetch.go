@@ -77,18 +77,6 @@ func (c *Client) GetJSON(ctx context.Context, url string, v any) error {
 	return nil
 }
 
-// Exists reports whether url answers a HEAD with 200 — the YouTube
-// maxresdefault existence probe. Errors count as "no": the caller's
-// fallback URL is the safe choice either way.
-func (c *Client) Exists(ctx context.Context, url string) bool {
-	res, err := c.do(ctx, http.MethodHead, url)
-	if err != nil {
-		return false
-	}
-	defer res.Body.Close()
-	return res.StatusCode == http.StatusOK
-}
-
 // FinalURL follows redirects and returns where url actually lands —
 // how opaque share links (redd.it, reddit.com/r/…/s/…) become real
 // permalinks. The body is discarded; the UA rides every hop (the redirect

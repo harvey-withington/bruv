@@ -203,6 +203,12 @@ $('discard-btn').addEventListener('click', () => {
   })()
 })
 
+// Options is reachable from the header at all times (Chrome's own route
+// to it is buried); the unpaired state just says what's wrong.
+$('options-btn').addEventListener('click', () => {
+  void chrome.runtime.openOptionsPage()
+})
+
 void (async () => {
   settings = await loadSettings()
   const paired = settings !== null && settings.repoID !== ''
@@ -210,15 +216,6 @@ void (async () => {
   $('unpaired').hidden = paired
   if (!paired) {
     $('unpaired').textContent = msg('popup_not_paired')
-    const link = document.createElement('a')
-    link.href = '#'
-    link.textContent = ` ${msg('popup_open_options')}`
-    link.style.color = '#b7a8f0'
-    link.addEventListener('click', (e) => {
-      e.preventDefault()
-      void chrome.runtime.openOptionsPage()
-    })
-    $('unpaired').appendChild(link)
     return
   }
   $<HTMLDivElement>('pair-line').textContent = `${settings!.repoName || settings!.repoID} @ ${settings!.serverURL}`

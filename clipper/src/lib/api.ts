@@ -26,7 +26,7 @@ export type EnrolResult = { serverURL: string; deviceToken: string; deviceID: st
 export async function enrol(serverURL: string, bootstrapToken: string): Promise<EnrolResult> {
   const url = serverURL.trim().replace(/\/+$/, '')
   const token = bootstrapToken.trim()
-  if (!url || !token) throw new Error('server URL and bootstrap token are required')
+  if (!url || !token) throw new Error(chrome.i18n.getMessage('options_err_url_and_token'))
   const res = await fetch(`${url}/auth/enrol`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -52,7 +52,7 @@ export async function enrol(serverURL: string, bootstrapToken: string): Promise<
 // the button only when the entered server URL is loopback.
 export async function enrolLocal(serverURL: string): Promise<EnrolResult> {
   const url = serverURL.trim().replace(/\/+$/, '')
-  if (!url) throw new Error('server URL is required')
+  if (!url) throw new Error(chrome.i18n.getMessage('options_err_url_required'))
   const res = await fetch(`${url}/auth/local-pair`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

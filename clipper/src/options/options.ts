@@ -21,6 +21,17 @@ function showStatus(text: string, ok: boolean): void {
   statusEl.className = `status ${ok ? 'ok' : 'err'}`
 }
 
+// fetch() rejects with TypeError when the server was never reached —
+// "Failed to fetch" tells the user nothing, so name the likely cause
+// (same treatment as the repo-list load).
+function showError(err: unknown, serverURL: string): void {
+  if (err instanceof TypeError) {
+    showStatus(msg('options_err_unreachable').replace('{url}', serverURL), false)
+    return
+  }
+  showStatus(err instanceof Error ? err.message : String(err), false)
+}
+
 // Field names mirror card.CategoryPath's JSON tags (camelCase — unlike
 // index.SearchResult, which has no tags and stays PascalCase).
 type CategoryPath = { categoryId: string; breadcrumb: string }
@@ -210,7 +221,75 @@ $('pair-btn').addEventListener('click', () => {
       showStatus(msg('options_paired_ok'), true)
       await refresh()
     } catch (err) {
-      showStatus(err instanceof Error ? err.message : String(err), false)
+      showError(err, $<HTMLInputElement>('server-url').value)
+    } finally {
+      btn.disabled = false
+    }
+  })()
+})
+
+// --- find the server on this machine ---------------------------------
+//
+// The local URL can't be DERIVED: the desktop app binds whatever
+// LocalServerPort says, falling back to an ephemeral port when that one
+// is taken, and bruv-server defaults to 9870 — none of it readable from
+// an extension. So instead of a "local" checkbox that would be guessing,
+// this probes a bounded set of loopback ports and IDENTIFIES a real BRUV
+// server by its /version signature. Explicit click, loopback only, ten
+// ports, immediate refusals — cheap and honest about what it found.
+
+const PROBE_PORTS = [9870, 9871, 9872, 9873, 9874, 9875, 9876, 9877, 9878, 9879]
+const PROBE_TIMEOUT_MS = 800
+
+type FoundServer = { url: string; port: number; version: string }
+
+async function probeBruvServer(port: number): Promise<FoundServer | null> {
+  const url = `http://127.0.0.1:${port}`
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS)
+  try {
+    const res = await fetch(`${url}/version`, { signal: ctrl.signal })
+    if (!res.ok) return null
+    const body = (await res.json()) as { version?: unknown; go_version?: unknown }
+    // Both fields together are BRUV's /version signature — enough to not
+    // hand the user some unrelated service listening on a nearby port.
+    if (typeof body.version !== 'string' || typeof body.go_version !== 'string') return null
+    return { url, port, version: body.version }
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+$('detect-btn').addEventListener('click', () => {
+  void (async () => {
+    const btn = $<HTMLButtonElement>('detect-btn')
+    btn.disabled = true
+    showStatus(msg('options_detect_running'), true)
+    try {
+      const results = (await Promise.all(PROBE_PORTS.map(probeBruvServer))).filter(
+        (r): r is FoundServer => r !== null,
+      )
+      if (results.length === 0) {
+        showStatus(msg('options_detect_none'), false)
+        return
+      }
+      const chosen = results[0]
+      $<HTMLInputElement>('server-url').value = chosen.url
+      refreshPairAffordances()
+      if (results.length > 1) {
+        // Desktop app AND bruv-server both up, say — name the others
+        // rather than silently picking one.
+        showStatus(
+          msg('options_detect_multi')
+            .replace('{url}', chosen.url)
+            .replace('{ports}', results.map((r) => String(r.port)).join(', ')),
+          true,
+        )
+      } else {
+        showStatus(msg('options_detected').replace('{url}', chosen.url).replace('{version}', chosen.version), true)
+      }
     } finally {
       btn.disabled = false
     }
@@ -230,11 +309,39 @@ function isLoopbackServerURL(value: string): boolean {
   }
 }
 
-function refreshLocalPairVisibility(): void {
-  $<HTMLButtonElement>('local-pair-btn').hidden = !isLoopbackServerURL($<HTMLInputElement>('server-url').value)
+// Whichever path is actually available leads: for a loopback server the
+// token-less button becomes primary and the token form recedes (it was
+// the other way round at first, and the purple Pair button — which
+// demands a token — kept getting clicked instead).
+function refreshPairAffordances(): void {
+  const local = isLoopbackServerURL($<HTMLInputElement>('server-url').value)
+  const localBtn = $<HTMLButtonElement>('local-pair-btn')
+  const tokenBtn = $<HTMLButtonElement>('pair-btn')
+  localBtn.hidden = !local
+  localBtn.classList.toggle('secondary', !local)
+  tokenBtn.classList.toggle('secondary', local)
+  const collapseToken = local && !tokenFieldTouched
+  $('token-row').hidden = collapseToken
+  tokenBtn.hidden = collapseToken
+  $('show-token-row').hidden = !collapseToken
+  // Pairing with a token needs a token: disable rather than explain
+  // afterwards.
+  tokenBtn.disabled = !$<HTMLInputElement>('bootstrap-token').value.trim()
 }
-$('server-url').addEventListener('input', refreshLocalPairVisibility)
-refreshLocalPairVisibility()
+
+// Once the user deliberately touches the token field, stop collapsing it.
+let tokenFieldTouched = false
+$('bootstrap-token').addEventListener('input', () => {
+  tokenFieldTouched = true
+  refreshPairAffordances()
+})
+$('show-token-row').addEventListener('click', () => {
+  tokenFieldTouched = true
+  refreshPairAffordances()
+  $<HTMLInputElement>('bootstrap-token').focus()
+})
+$('server-url').addEventListener('input', refreshPairAffordances)
+refreshPairAffordances()
 
 $('local-pair-btn').addEventListener('click', () => {
   void (async () => {
@@ -256,7 +363,7 @@ $('local-pair-btn').addEventListener('click', () => {
       showStatus(msg('options_paired_ok'), true)
       await refresh()
     } catch (err) {
-      showStatus(err instanceof Error ? err.message : String(err), false)
+      showError(err, $<HTMLInputElement>('server-url').value)
     } finally {
       btn.disabled = false
     }

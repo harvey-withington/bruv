@@ -11,6 +11,8 @@
       input, select { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid #3a3a4c; background: #1d1d2b; color: inherit; box-sizing: border-box; }
       button { margin-top: 1rem; padding: 8px 16px; border-radius: 6px; border: 1px solid #8b5cf6; background: #8b5cf6; color: #fff; cursor: pointer; font-weight: 500; }
       button.secondary { background: transparent; color: #b7a8f0; }
+      button.link { background: transparent; border: none; color: #b7a8f0; padding: 4px 0; margin-left: 0.75rem; font-weight: 400; text-decoration: underline; }
+      #token-row[hidden] + button.link { margin-left: 0; }
       button:disabled { opacity: 0.5; cursor: default; }
       .status { margin-top: 1rem; padding: 10px 12px; border-radius: 6px; font-size: 0.85rem; display: none; }
       .status.ok { display: block; background: #12251c; border: 1px solid #2c7a52; }
@@ -60,10 +62,14 @@
       <div id="pair-form">
         <label for="server-url" data-i18n="options_server_url"></label>
         <input id="server-url" type="url" placeholder="http://127.0.0.1:9870" />
-        <label for="bootstrap-token" data-i18n="options_bootstrap"></label>
-        <input id="bootstrap-token" type="password" autocomplete="off" />
+        <button id="detect-btn" class="link" data-i18n="options_detect"></button>
+        <div id="token-row">
+          <label for="bootstrap-token" data-i18n="options_bootstrap"></label>
+          <input id="bootstrap-token" type="password" autocomplete="off" />
+        </div>
+        <button id="local-pair-btn" hidden data-i18n="options_pair_local"></button>
         <button id="pair-btn" data-i18n="options_pair"></button>
-        <button id="local-pair-btn" class="secondary" hidden data-i18n="options_pair_local"></button>
+        <button id="show-token-row" class="link" data-i18n="options_pair_with_token"></button>
       </div>
       <button id="unpair-btn" class="secondary" hidden data-i18n="options_unpair"></button>
     </section>

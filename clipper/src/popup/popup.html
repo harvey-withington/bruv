@@ -4,7 +4,11 @@
     <meta charset="utf-8" />
     <style>
       body { font: 13px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; background: #14141c; color: #e8e8f0; width: 320px; margin: 0; padding: 14px; }
-      h1 { font-size: 0.95rem; font-weight: 600; margin: 0 0 8px; }
+      h1 { font-size: 0.95rem; font-weight: 600; margin: 0; }
+      /* Options is always reachable from here — Chrome's own route to an
+         extension's options page is several clicks deep. */
+      .header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+      button.link { background: transparent; border: none; color: #b7a8f0; padding: 0; font-size: 0.78rem; text-decoration: underline; }
       .muted { opacity: 0.65; font-size: 0.8rem; }
       .row { margin-top: 10px; }
       input { width: 100%; padding: 7px 9px; border-radius: 6px; border: 1px solid #3a3a4c; background: #1d1d2b; color: inherit; box-sizing: border-box; }
@@ -30,7 +34,10 @@
     </style>
   </head>
   <body>
-    <h1 data-i18n="popup_title"></h1>
+    <div class="header">
+      <h1 data-i18n="popup_title"></h1>
+      <button id="options-btn" class="link" data-i18n="popup_options"></button>
+    </div>
     <div id="unpaired" class="muted" hidden></div>
 
     <div id="paired" hidden>

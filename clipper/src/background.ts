@@ -98,11 +98,18 @@ async function handleExtracted(message: ClipExtractedMessage, tabId: number | un
   const job = await buildJob(clip, message.includeInDeck)
   try {
     const outcome = await executeJob(settings, job)
-    toast(
-      tabId,
-      chrome.i18n.getMessage(outcome.slideAppended ? 'toast_clipped_deck' : 'toast_clipped'),
-      true,
-    )
+    if (outcome.pinFailed) {
+      // The clip landed but the chosen pin destination bounced (stale
+      // category from another pairing, accepted-types gate) — attention
+      // styling on purpose: silently landing in the Inbox is the bug.
+      toast(tabId, chrome.i18n.getMessage('toast_clipped_no_pin'), false)
+    } else {
+      toast(
+        tabId,
+        chrome.i18n.getMessage(outcome.slideAppended ? 'toast_clipped_deck' : 'toast_clipped'),
+        true,
+      )
+    }
     void refreshPendingBadge()
   } catch (err) {
     if (isNetworkError(err)) {

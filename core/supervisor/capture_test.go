@@ -252,6 +252,45 @@ func TestCaptureFromURLFullClip(t *testing.T) {
 	}
 }
 
+func TestCaptureReportsPinFailure(t *testing.T) {
+	rt := newTestRuntime(t)
+	swapCaptureHTTP(t, successRoutes())
+
+	// A category from another vault (or deleted): the pin must bounce,
+	// the clip must still land, and the result must SAY the pin failed —
+	// the 2026-07-31 silent-Inbox bug.
+	res, err := rt.CaptureFromURL(tweetURL, CaptureOpts{CategoryID: "cat-from-another-vault"})
+	if err != nil {
+		t.Fatalf("capture: %v", err)
+	}
+	if !res.PinFailed || res.PinError == "" {
+		t.Fatalf("expected reported pin failure, got %+v", res)
+	}
+	if pins, _ := rt.GetCardPins(res.CardID); len(pins) != 0 {
+		t.Fatalf("card should be unpinned (Inbox), got %v", pins)
+	}
+
+	// Mirroring an UNPINNED deck card mirrors nothing — also a reported
+	// failure, not a silent Inbox landing.
+	deck := newDeckCard(t, rt)
+	res2, err := rt.CaptureFromURL(tweetURL, CaptureOpts{CategoryID: pinWithDeck, DeckCardID: deck.ID})
+	if err != nil {
+		t.Fatalf("capture: %v", err)
+	}
+	if !res2.PinFailed || res2.PinError == "" {
+		t.Fatalf("expected reported pin failure for unpinned deck mirror, got %+v", res2)
+	}
+
+	// And a plain Inbox capture (no destination requested) reports nothing.
+	res3, err := rt.CaptureFromURL(tweetURL, CaptureOpts{})
+	if err != nil {
+		t.Fatalf("capture: %v", err)
+	}
+	if res3.PinFailed || res3.PinError != "" {
+		t.Fatalf("no pin requested must not report failure: %+v", res3)
+	}
+}
+
 func TestCompleteCaptureBlockIDStability(t *testing.T) {
 	rt := newTestRuntime(t)
 	swapCaptureHTTP(t, failRoutes())

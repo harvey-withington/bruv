@@ -10,7 +10,7 @@
     captureOptsFrom,
     type CapturePrefs,
   } from '../lib/capturePrefs'
-  import { savePlainShare } from '../lib/shareCapture'
+  import { savePlainShare, seedShareParams } from '../lib/shareCapture'
   import ShareFields from '../components/ShareFields.svelte'
   import ClipTargetControls from '../components/ClipTargetControls.svelte'
   import ClipOutcomePanel from '../components/ClipOutcomePanel.svelte'
@@ -30,12 +30,13 @@
   }
 
   // Captured once so the inputs are seeded; the user edits freely after.
-  // svelte-ignore state_referenced_locally
-  let title = $state(readParam('title'))
-  // svelte-ignore state_referenced_locally
-  let text = $state(readParam('text'))
-  // svelte-ignore state_referenced_locally
-  let url = $state(readParam('url'))
+  // seedShareParams lifts a text-borne URL into the url slot first —
+  // otherwise apps that share the link inside EXTRA_TEXT never trigger
+  // clip mode (see shareCapture.ts).
+  const seeded = seedShareParams(readParam('title'), readParam('text'), readParam('url'))
+  let title = $state(seeded.title)
+  let text = $state(seeded.text)
+  let url = $state(seeded.url)
 
   let platform = $state('')
   let checking = $state(false)
@@ -110,6 +111,12 @@
     const u = url.trim()
     const opts = captureOptsFrom(prefs)
     const result = await repoRPC<CaptureResult>('CaptureFromURL', [u, opts])
+    // A bounced pin (accepted-types gate, stale category, unpinned deck
+    // mirror) lands the card in the Inbox — say so, with the server's
+    // reason, instead of celebrating a destination that was ignored.
+    if (result.pinFailed) {
+      showToast(t('share.pin_failed', { error: result.pinError ?? '' }), 'warning', 7000)
+    }
     if (result.pending) {
       // Never navigate away like a success — the clip is half-done and
       // the user needs to know where to finish it.

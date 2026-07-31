@@ -297,12 +297,17 @@ export type CaptureOpts = {
 // Result of CaptureFromURL/RetryCapture. pending=true means the resolver
 // was blocked and the clip degraded to the link-only rung: the card and
 // (when requested) the deck slide exist now, and completion happens from
-// the browser extension or a later retry.
+// the browser extension or a later retry. pinFailed=true means a
+// requested pin destination bounced (accepted-types gate, missing
+// category, unpinned deck mirror) and the card is in the Inbox — the UI
+// must surface it (pinError carries the reason), never celebrate.
 export type CaptureResult = {
   cardId: string
   slideAppended: boolean
   platform: string
   pending: boolean
+  pinFailed?: boolean
+  pinError?: string
 }
 
 // The clip-pending marker tag — user-visible chip by design (searchable

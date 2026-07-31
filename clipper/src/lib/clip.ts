@@ -169,7 +169,7 @@ async function addAttachment(
   return null
 }
 
-export type ClipOutcome = { cardID: string; slideAppended: boolean }
+export type ClipOutcome = { cardID: string; slideAppended: boolean; pinFailed: boolean }
 
 // executeJob runs the whole pipeline for one job. Throws on failure — the
 // caller decides whether it's queueable (network) or terminal (business).
@@ -234,15 +234,22 @@ export async function executeJob(s: ClipperSettings, job: ClipJob): Promise<Clip
 
   // Pinning is best-effort: a failed pin leaves the card in the Inbox
   // (visible, recoverable) — never worth failing or requeueing a clip whose
-  // content already landed.
+  // content already landed. But a bounced pin is REPORTED via the outcome
+  // (accepted-types gate, a category from another pairing/vault, an
+  // unpinned deck mirror): the user chose a destination, and silence here
+  // shipped the 2026-07-31 everything-lands-in-Inbox bug.
+  let pinRequested = false
+  let pinLanded = false
   if (s.categoryID === PIN_WITH_DECK) {
     if (s.deckTarget) {
+      pinRequested = true
       try {
         const pins = (await repoRPC<Array<{ category_id: string }>>(s, 'GetCardPins', [s.deckTarget.cardID])) ?? []
         for (const p of pins) {
           if (!p.category_id) continue
           try {
             await repoRPC(s, 'PinCard', [cardID, p.category_id])
+            pinLanded = true
           } catch (err) {
             console.warn('pin to deck location failed:', err)
           }
@@ -252,12 +259,15 @@ export async function executeJob(s: ClipperSettings, job: ClipJob): Promise<Clip
       }
     }
   } else if (s.categoryID) {
+    pinRequested = true
     try {
       await repoRPC(s, 'PinCard', [cardID, s.categoryID])
+      pinLanded = true
     } catch (err) {
       console.warn('pin failed:', err)
     }
   }
+  const pinFailed = pinRequested && !pinLanded
 
   let slideAppended = false
   if (job.includeInDeck && s.deckTarget) {
@@ -283,5 +293,5 @@ export async function executeJob(s: ClipperSettings, job: ClipJob): Promise<Clip
     slideAppended = true
   }
 
-  return { cardID, slideAppended }
+  return { cardID, slideAppended, pinFailed }
 }

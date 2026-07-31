@@ -10,6 +10,34 @@ import { t } from './i18n.svelte'
 import type { Block, Card, Slide } from '@shared/types'
 import type { CapturePrefs, DeckTarget } from './capturePrefs'
 
+/** First http(s) token in a blob of shared text. */
+const urlInTextRe = /https?:\/\/\S+/
+
+/**
+ * Normalize incoming share params: several Android apps put the link in
+ * the shared TEXT rather than a URL slot (YouTube's "Check this out
+ * https://…"), and Chrome only promotes text to the `url` param when it
+ * is PURELY a link — so a clip-able URL can arrive buried in `text`,
+ * stranding the share in plain mode. When `url` is empty, lift the first
+ * http(s) URL out of `text` (trailing prose punctuation stripped) so the
+ * clip-mode preflight sees it.
+ *
+ * Simulate in devtools with:
+ *   /m/share?text=Check%20this%20out%20https%3A%2F%2Fyoutu.be%2FdQw4w9WgXcQ
+ */
+export function seedShareParams(
+  title: string,
+  text: string,
+  url: string,
+): { title: string; text: string; url: string } {
+  if (url.trim() || !text) return { title, text, url }
+  const match = text.match(urlInTextRe)
+  if (!match) return { title, text, url }
+  const lifted = match[0].replace(/[)\].,!?'"]+$/, '')
+  const remaining = text.replace(match[0], '').replace(/\s{2,}/g, ' ').trim()
+  return { title, text: remaining, url: lifted }
+}
+
 export type PlainShareInput = {
   title: string
   text: string

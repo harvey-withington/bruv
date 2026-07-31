@@ -70,12 +70,22 @@ type CaptureOpts struct {
 }
 
 // CaptureResult mirrors the clipper's ClipOutcome, widened with the
-// pending flag the mobile outcome panel branches on.
+// pending flag the mobile outcome panel branches on and honest pin
+// reporting: a pin the user asked for that bounced (accepted-types gate,
+// category from another vault, deleted category) leaves the card in the
+// Inbox — recoverable, but the UI must SAY so, not celebrate. Found the
+// hard way on 2026-07-31: "Pin with deck" into a livestream-only
+// category failed silently on every surface.
 type CaptureResult struct {
 	CardID        string `json:"cardId"`
 	SlideAppended bool   `json:"slideAppended"`
 	Platform      string `json:"platform"`
 	Pending       bool   `json:"pending"`
+	// PinFailed is true when a pin destination was requested but no pin
+	// landed; PinError carries the first rejection so the user learns WHY
+	// (e.g. "category only accepts: livestream").
+	PinFailed bool   `json:"pinFailed,omitempty"`
+	PinError  string `json:"pinError,omitempty"`
 }
 
 // CompleteMedia is one already-downloaded media item posted by the
@@ -385,10 +395,20 @@ func (r *Runtime) ingestClip(ctx context.Context, existingID string, clip *captu
 	}
 
 	// Pinning is best-effort and capture-time only: a failed pin leaves
-	// the card in the Inbox (visible, recoverable).
+	// the card in the Inbox (visible, recoverable) — but the failure is
+	// REPORTED, never swallowed: the user chose a destination.
+	pinRequested := false
+	pinLanded := false
+	pinError := ""
+	notePinErr := func(err error) {
+		if pinError == "" && err != nil {
+			pinError = err.Error()
+		}
+	}
 	if !completing {
 		switch {
 		case opts.CategoryID == pinWithDeck && opts.DeckCardID != "":
+			pinRequested = true
 			if pins, err := r.Card.GetPins(opts.DeckCardID); err == nil {
 				for _, p := range pins {
 					if p.CategoryID == "" {
@@ -396,14 +416,27 @@ func (r *Runtime) ingestClip(ctx context.Context, existingID string, clip *captu
 					}
 					if err := r.Card.Pin(cardID, p.CategoryID); err != nil {
 						slog.Warn("capture: pin to deck location failed", "card", cardID, "category", p.CategoryID, "err", err)
+						notePinErr(err)
+					} else {
+						pinLanded = true
 					}
+				}
+				if len(pins) == 0 {
+					// Mirroring an unpinned deck mirrors nothing — that's
+					// Inbox by definition, and worth saying.
+					notePinErr(fmt.Errorf("deck card has no pins to mirror"))
 				}
 			} else {
 				slog.Warn("capture: resolve deck pins failed", "deckCard", opts.DeckCardID, "err", err)
+				notePinErr(err)
 			}
 		case opts.CategoryID != "" && opts.CategoryID != pinWithDeck:
+			pinRequested = true
 			if err := r.Card.Pin(cardID, opts.CategoryID); err != nil {
 				slog.Warn("capture: pin failed", "card", cardID, "category", opts.CategoryID, "err", err)
+				notePinErr(err)
+			} else {
+				pinLanded = true
 			}
 		}
 	}
@@ -437,12 +470,17 @@ func (r *Runtime) ingestClip(ctx context.Context, existingID string, clip *captu
 		}
 	}
 
-	return &CaptureResult{
+	res := &CaptureResult{
 		CardID:        cardID,
 		SlideAppended: slideAppended,
 		Platform:      clip.Platform,
 		Pending:       pending,
-	}, nil
+	}
+	if pinRequested && !pinLanded {
+		res.PinFailed = true
+		res.PinError = pinError
+	}
+	return res, nil
 }
 
 // --- Social Post type provisioning (clipper parity) ------------------------

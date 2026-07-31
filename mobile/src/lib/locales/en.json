@@ -261,6 +261,7 @@
   "share.clipping": "Clipping…",
   "share.clipped": "Clipped.",
   "share.deck_append_failed": "Card saved, but the deck slide wasn't added.",
+  "share.pin_failed": "Couldn't pin the card — it's in the Inbox. {error}",
   "share.source_block_label": "Source",
   "share.err_capture": "Couldn't clip that link.",
   "share.pending_title": "Finish this clip on desktop",

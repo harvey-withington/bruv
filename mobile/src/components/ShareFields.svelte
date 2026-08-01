@@ -10,6 +10,7 @@
 
   let {
     platformLabel,
+    unsupportedHost = '',
     title = $bindable(),
     text = $bindable(),
     url = $bindable(),
@@ -18,6 +19,9 @@
   }: {
     /** Capitalized platform id when the URL is clippable, '' otherwise. */
     platformLabel: string
+    /** Host of a URL no capture plugin claims — the share still saves,
+     *  as a link card, and the user should know that BEFORE tapping. */
+    unsupportedHost?: string
     title: string
     text: string
     url: string
@@ -57,6 +61,13 @@
   <div class="platform-row">
     <span class="platform-chip">{platformLabel}</span>
     <span class="platform-hint">{t('share.clip_hint')}</span>
+  </div>
+{:else if unsupportedHost}
+  <!-- Plain mode used to be silent, so an unsupported platform looked
+       identical to a supported one until the card came out bare. -->
+  <div class="platform-row">
+    <span class="platform-chip link-chip">{t('share.link_chip')}</span>
+    <span class="platform-hint">{t('share.no_resolver', { host: unsupportedHost })}</span>
   </div>
 {/if}
 
@@ -118,6 +129,14 @@
     color: var(--accent);
     background: color-mix(in srgb, var(--accent) 15%, transparent);
     border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+
+  /* Neutral, not alarming: a link card is a valid outcome, just not a
+     rich capture. */
+  .link-chip {
+    color: var(--text-muted);
+    background: var(--bg-elev-1);
+    border-color: var(--border);
   }
 
   .platform-hint {

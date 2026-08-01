@@ -60,16 +60,10 @@ export function asSlideDeck(v: unknown): SlideDeckValue {
   return { slides: [] }
 }
 
-export function asUrlValue(v: unknown): { url: string; caption?: string } {
-  if (v && typeof v === 'object' && 'url' in v) {
-    const obj = v as { url?: unknown; caption?: unknown }
-    return {
-      url: typeof obj.url === 'string' ? obj.url : '',
-      caption: typeof obj.caption === 'string' ? obj.caption : undefined,
-    }
-  }
-  return { url: '' }
-}
+// asUrlValue lives in shared/ now — desktop needs the same narrowing,
+// and this copy silently dropped legacy STRING values (url blocks saved
+// by older desktop edits rendered empty here).
+export { asUrlValue } from '@shared/blockValues'
 
 /** Construct a copy of `block` with a new value. Helper for editors that
  *  fire onChange — keeps immutability tidy and centralises any future

@@ -14,6 +14,7 @@
   import ShareFields from '../components/ShareFields.svelte'
   import ClipTargetControls from '../components/ClipTargetControls.svelte'
   import ClipOutcomePanel from '../components/ClipOutcomePanel.svelte'
+  import ShareActions from '../components/ShareActions.svelte'
   import type { CaptureResult } from '@shared/types'
 
   // Landing page for shares from the Android system share sheet, and the
@@ -47,6 +48,18 @@
 
   const platformLabel = $derived(platform ? platform[0].toUpperCase() + platform.slice(1) : '')
   const canSave = $derived(platform ? !!url.trim() : !!title.trim())
+
+  // A real URL that no capture plugin claims: the share still saves (as
+  // a link card), but say so up front rather than letting the user
+  // discover it from a bare card afterwards.
+  const unsupportedHost = $derived.by(() => {
+    if (platform || checking || !url.trim()) return ''
+    try {
+      return new URL(url.trim()).hostname.replace(/^www\./, '')
+    } catch {
+      return ''
+    }
+  })
 
   function updatePrefs(next: CapturePrefs) {
     prefs = next
@@ -171,12 +184,13 @@
       slideAppended={outcome.slideAppended}
     />
   {:else}
-    {#if !platform}
+    {#if !platform && !unsupportedHost}
       <p class="intro">{t('share.intro')}</p>
     {/if}
 
     <ShareFields
       {platformLabel}
+      {unsupportedHost}
       bind:title
       bind:text
       bind:url
@@ -195,22 +209,14 @@
       showPin={!!platform}
     />
 
-    {#if errorMsg}
-      <div class="error" role="alert">{errorMsg}</div>
-    {/if}
-
-    <div class="actions">
-      <button type="button" class="ghost" onclick={cancel} disabled={saving}>
-        {t('common.cancel')}
-      </button>
-      <button type="button" class="primary" onclick={save} disabled={saving || !canSave}>
-        {#if platform}
-          {saving ? t('share.clipping') : t('share.clip')}
-        {:else}
-          {saving ? t('share.saving') : t('share.save')}
-        {/if}
-      </button>
-    </div>
+    <ShareActions
+      {errorMsg}
+      {saving}
+      {canSave}
+      isClip={!!platform}
+      onCancel={cancel}
+      onSave={save}
+    />
   {/if}
 </main>
 
@@ -278,59 +284,5 @@
     font-size: 0.8rem;
   }
 
-  .error {
-    padding: 0.5rem 0.75rem;
-    background: rgba(239, 68, 68, 0.12);
-    color: #fca5a5;
-    border: 1px solid rgba(239, 68, 68, 0.4);
-    border-radius: 6px;
-    font-size: 0.85rem;
-  }
-
-  .actions {
-    display: flex;
-    gap: 0.5rem;
-    margin-top: 0.5rem;
-  }
-
-  .ghost,
-  .primary {
-    padding: 0.7rem 1.2rem;
-    border-radius: 8px;
-    font: inherit;
-    font-size: 0.9rem;
-    font-weight: 500;
-    cursor: pointer;
-    border: 1px solid transparent;
-  }
-
-  .ghost {
-    background: transparent;
-    color: var(--text-muted);
-    border-color: var(--border);
-  }
-  .ghost:hover:not(:disabled),
-  .ghost:focus-visible:not(:disabled) {
-    color: var(--text);
-    border-color: var(--text-muted);
-    outline: none;
-  }
-
-  .primary {
-    background: var(--accent);
-    color: var(--bg);
-    flex: 1;
-    font-weight: 600;
-  }
-  .primary:hover:not(:disabled),
-  .primary:focus-visible:not(:disabled) {
-    filter: brightness(1.1);
-    outline: none;
-  }
-
-  .ghost:disabled,
-  .primary:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
+/* The error rail + Cancel/Save styles moved to ShareActions.svelte. */
 </style>

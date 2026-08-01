@@ -18,6 +18,7 @@
   import { t } from '../lib/i18n.svelte'
   import { focusOnMount, inlineEdit, clickOutside } from '../lib/actions'
   import { promoteTargets } from '@shared/promote'
+  import { asUrlValue } from '@shared/blockValues'
   import { getContext } from 'svelte'
   import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import { showToast } from '../lib/toast.svelte'
@@ -352,14 +353,15 @@
               placeholder={t('block.url_placeholder')}
               use:inlineEdit={{
                 onCommit: () => onSaveUrl(block.id),
-                onCancel: () => { blockDrafts[block.id] = String(block.value ?? ''); editingBlockId = null },
+                onCancel: () => { blockDrafts[block.id] = asUrlValue(block.value).url; editingBlockId = null },
                 scope: editScope,
               }}
             />
-          {:else if block.value}
+          {:else if asUrlValue(block.value).url}
+            {@const urlValue = asUrlValue(block.value)}
             <div class="block-url-row">
-              <a href={String(block.value)} target="_blank" rel="noopener" class="block-link">{String(block.value)}</a>
-              <button class="block-action-btn action-reveal action-reveal--edit" onclick={(e) => { e.stopPropagation(); editingBlockId = block.id; blockDrafts[block.id] = String(block.value ?? '') }} title={t('tooltip.edit_url')}><Pencil size={11} /></button>
+              <a href={urlValue.url} target="_blank" rel="noopener" class="block-link">{urlValue.caption || urlValue.url}</a>
+              <button class="block-action-btn action-reveal action-reveal--edit" onclick={(e) => { e.stopPropagation(); editingBlockId = block.id; blockDrafts[block.id] = urlValue.url }} title={t('tooltip.edit_url')}><Pencil size={11} /></button>
             </div>
           {:else}
             <!-- svelte-ignore a11y_no_static_element_interactions -->

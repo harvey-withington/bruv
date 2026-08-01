@@ -17,6 +17,7 @@
    */
   import { UpdateCardBlocks } from '@shared/api'
   import { promoteBlockValue } from '@shared/promote'
+  import { asUrlValue, urlBlockValue } from '@shared/blockValues'
   import { ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree } from 'lucide-svelte'
   import { getContext } from 'svelte'
   import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
@@ -499,12 +500,15 @@
     const block = card.blocks.find((b: Block) => b.id === blockId)
     // Normalise: add https:// if the user typed a bare host. Empty is fine — stores as empty.
     const draft = raw && !/^https?:\/\//i.test(raw) && !raw.startsWith('/') ? `https://${raw}` : raw
-    if (draft === String(block?.value ?? '')) {
+    if (draft === asUrlValue(block?.value).url) {
       editingBlockId = null
       return
     }
+    // Store the canonical {url, caption?} shape (see shared/blockValues.ts)
+    // — writing a bare string here is what made desktop edits render
+    // empty on mobile and in markdown export.
     const updatedBlocks = card.blocks.map((b: Block) =>
-      b.id === blockId && b.type === 'url' ? { ...b, value: draft } : b
+      b.id === blockId && b.type === 'url' ? { ...b, value: urlBlockValue(draft, b.value) } : b
     )
     let updated: Card
     try {

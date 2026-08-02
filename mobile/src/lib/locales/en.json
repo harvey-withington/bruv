@@ -264,6 +264,7 @@
   "share.clipped": "Clipped.",
   "share.deck_append_failed": "Card saved, but the deck slide wasn't added.",
   "share.pin_failed": "Couldn't pin the card — it's in the Inbox. {error}",
+  "share.check_failed": "Couldn't check this link — saving will still try to capture it.",
   "share.link_chip": "Link",
   "share.no_resolver": "No capture plugin for {host} yet — saving as a link card.",
   "share.source_block_label": "Source",

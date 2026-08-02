@@ -36,6 +36,34 @@ func (p *ollamaProvider) ChatCompletion(ctx context.Context, req ChatRequest) (*
 	}
 	for _, m := range req.Messages {
 		msg := map[string]any{"role": m.Role, "content": m.Content}
+		// Carry the tool linkage. Without it the model receives a tool
+		// RESULT with no record of the call that produced it, and
+		// commonly just re-issues the same call until MaxIter — which is
+		// what happened to every Ollama tool loop until 2026-08-02.
+		// /api/chat takes the OpenAI shapes here.
+		if m.Role == "tool" && m.ToolCallID != "" {
+			msg["tool_call_id"] = m.ToolCallID
+		}
+		if len(m.ToolCalls) > 0 {
+			tcs := make([]map[string]any, 0, len(m.ToolCalls))
+			for _, tc := range m.ToolCalls {
+				args := tc.Arguments
+				if args == nil {
+					args = map[string]any{}
+				}
+				tcs = append(tcs, map[string]any{
+					"id":   tc.ID,
+					"type": "function",
+					"function": map[string]any{
+						"name": tc.Name,
+						// Ollama takes arguments as an OBJECT here, unlike
+						// OpenAI's JSON-string encoding.
+						"arguments": args,
+					},
+				})
+			}
+			msg["tool_calls"] = tcs
+		}
 		msgs = append(msgs, msg)
 	}
 

@@ -1350,6 +1350,13 @@ export interface WorkspaceEntry {
   is_dir?: boolean
   size?: number
   symlink?: boolean
+  /** A directory that exists but was deliberately not walked — dependency
+   *  and build caches (node_modules, __pycache__, .venv, .svelte-kit …).
+   *  One node_modules can hold 30k+ files, enough to exhaust the server's
+   *  20k index cap on its own and truncate the real workspace out of the
+   *  tree. Render it WITHOUT an expander and say it isn't indexed —
+   *  showing it as an empty folder would be a lie. */
+  not_indexed?: boolean
 }
 
 export interface WorkspaceIndex {

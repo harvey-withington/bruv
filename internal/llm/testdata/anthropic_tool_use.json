@@ -1,0 +1,42 @@
+{
+  "id": "msg_01Aq9w938a90dw8q0q319029",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-4-5-20250929",
+  "content": [
+    {
+      "type": "text",
+      "text": "I'll retitle the card and tag it."
+    },
+    {
+      "type": "tool_use",
+      "id": "toolu_01A09q90qw90lq917835lq9",
+      "name": "set_title",
+      "input": {
+        "title": "Ship the web clipper",
+        "meta": {
+          "confidence": "high",
+          "tags": ["release", "clipper"],
+          "score": 0.87,
+          "auto": true
+        }
+      }
+    },
+    {
+      "type": "tool_use",
+      "id": "toolu_01B22ff11aa33bb44cc55dd",
+      "name": "add_tags",
+      "input": {
+        "tags": ["release", "clipper"]
+      }
+    }
+  ],
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 2764,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 137
+  }
+}

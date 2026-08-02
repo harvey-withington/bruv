@@ -220,3 +220,15 @@ jobs:
       - name: svelte-check (mobile)
         working-directory: mobile
         run: npx svelte-check --fail-on-warnings
+
+      # Unit + component tests. These ran locally-only until 2026-08-02,
+      # which meant a green CI said nothing about whether the UI logic
+      # still worked — type-checking can't catch a wrong branch. Both
+      # suites are jsdom + vitest and take seconds.
+      - name: vitest (frontend)
+        working-directory: frontend
+        run: npx vitest run
+
+      - name: vitest (mobile)
+        working-directory: mobile
+        run: npx vitest run

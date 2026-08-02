@@ -11,6 +11,7 @@
     type CapturePrefs,
   } from '../lib/capturePrefs'
   import { savePlainShare, seedShareParams } from '../lib/shareCapture'
+  import { createPreflight } from '../lib/capturePreflight.svelte'
   import ShareFields from '../components/ShareFields.svelte'
   import ClipTargetControls from '../components/ClipTargetControls.svelte'
   import ClipOutcomePanel from '../components/ClipOutcomePanel.svelte'
@@ -39,21 +40,23 @@
   let text = $state(seeded.text)
   let url = $state(seeded.url)
 
-  let platform = $state('')
-  let checking = $state(false)
+  const preflight = createPreflight()
   let saving = $state(false)
   let errorMsg = $state<string | null>(null)
   let outcome = $state<CaptureResult | null>(null)
   let prefs = $state<CapturePrefs>(loadCapturePrefs())
 
+  const platform = $derived(preflight.platform)
   const platformLabel = $derived(platform ? platform[0].toUpperCase() + platform.slice(1) : '')
   const canSave = $derived(platform ? !!url.trim() : !!title.trim())
 
   // A real URL that no capture plugin claims: the share still saves (as
   // a link card), but say so up front rather than letting the user
-  // discover it from a bare card afterwards.
+  // discover it from a bare card afterwards. Requires a verdict about
+  // THIS url — a pending or failed check must never claim "unsupported".
   const unsupportedHost = $derived.by(() => {
-    if (platform || checking || !url.trim()) return ''
+    if (platform || preflight.checking || preflight.failed) return ''
+    if (!url.trim() || !preflight.hasVerdictFor(url)) return ''
     try {
       return new URL(url.trim()).hostname.replace(/^www\./, '')
     } catch {
@@ -83,39 +86,16 @@
 
   // --- Mode preflight -------------------------------------------------
   //
-  // Ask the server whether any capture plugin claims this URL. Debounced
-  // so typing/pasting doesn't fire a call per keystroke; sequenced so a
-  // slow answer for an older URL can't overwrite a newer one.
-
-  let preflightSeq = 0
-
-  async function preflight(raw: string) {
-    const u = raw.trim()
-    const mine = ++preflightSeq
-    if (!title.trim()) title = deriveTitle()
-    if (!u) {
-      platform = ''
-      checking = false
-      return
-    }
-    checking = true
-    try {
-      const match = await repoRPC<string>('MatchCaptureURL', [u])
-      if (mine !== preflightSeq) return
-      platform = match ?? ''
-    } catch {
-      // Preflight is an enhancement, not a gate: an unreachable server
-      // just means plain mode, and Save will surface the real error.
-      if (mine === preflightSeq) platform = ''
-    } finally {
-      if (mine === preflightSeq) checking = false
-    }
-  }
+  // Ask the server whether any capture plugin claims this URL (debounced
+  // while typing/pasting). The verdict is tied to the URL it was made
+  // about, so Save can tell "no plugin" apart from "not checked yet" —
+  // see lib/capturePreflight.svelte.ts.
 
   $effect(() => {
     const current = url
-    const timer = setTimeout(() => void preflight(current), 300)
-    return () => clearTimeout(timer)
+    if (!title.trim()) title = deriveTitle()
+    preflight.schedule(current)
+    return () => preflight.cancel()
   })
 
   // --- Saving ---------------------------------------------------------
@@ -154,12 +134,38 @@
     saving = true
     errorMsg = null
     try {
+      const u = url.trim()
+      // Never let a fast Save beat the check: without a verdict about
+      // THIS url we'd silently take the plain path and save a clippable
+      // link as a bare card (a YouTube share did exactly that on
+      // 2026-08-02). Await the answer first.
+      if (u && !preflight.hasVerdictFor(u)) {
+        preflight.cancel()
+        await preflight.check(u)
+      }
       if (platform) await saveClip()
+      else if (u && preflight.failed) await saveClipOrPlain()
       else await savePlain()
     } catch (err) {
       errorMsg = err instanceof Error ? err.message : t(platform ? 'share.err_capture' : 'share.err_save')
     } finally {
       saving = false
+    }
+  }
+
+  /** The check couldn't run, so we don't know whether this URL is
+   *  clippable. Ask the server to capture it — it's the authority — and
+   *  fall back to a plain card only when it says it has no plugin.
+   *  Guessing "plain" here is the expensive mistake: a bare card for a
+   *  supported post is tedious to fix, an error message isn't. */
+  async function saveClipOrPlain() {
+    try {
+      await saveClip()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      // Matches the server's own wording in supervisor/capture.go.
+      if (msg.includes('no capture support')) await savePlain()
+      else throw err
     }
   }
 
@@ -198,8 +204,12 @@
       onPasteError={(msg) => (errorMsg = msg)}
     />
 
-    {#if checking}
+    {#if preflight.checking}
       <p class="checking">{t('share.checking')}</p>
+    {:else if preflight.failed && url.trim()}
+      <!-- Unknown ≠ unsupported: say we couldn't check, and Save will
+           still try to capture rather than quietly making a link card. -->
+      <p class="checking">{t('share.check_failed')}</p>
     {/if}
 
     <ClipTargetControls

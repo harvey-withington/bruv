@@ -1,0 +1,44 @@
+{
+  "id": "chatcmpl-B9MJdbslfkBeAs8l4bebGdFOJ6QqT",
+  "object": "chat.completion",
+  "created": 1741570310,
+  "model": "gpt-4o-2024-08-06",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_12345xyz",
+            "type": "function",
+            "function": {
+              "name": "set_title",
+              "arguments": "{\"title\":\"Ship the web clipper\",\"meta\":{\"confidence\":\"high\",\"tags\":[\"release\",\"clipper\"],\"score\":0.87,\"auto\":true}}"
+            }
+          },
+          {
+            "id": "call_67890abc",
+            "type": "function",
+            "function": {
+              "name": "add_tags",
+              "arguments": "{\"tags\":[\"release\",\"clipper\"]}"
+            }
+          }
+        ],
+        "refusal": null,
+        "annotations": []
+      },
+      "logprobs": null,
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 2764,
+    "completion_tokens": 137,
+    "total_tokens": 2901
+  },
+  "service_tier": "default",
+  "system_fingerprint": "fp_fc9f1d7035"
+}

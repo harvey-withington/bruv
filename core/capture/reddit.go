@@ -42,13 +42,13 @@ func redditIsOpaque(rawURL string) bool {
 // --- Reddit's public JSON API shape (only the fields we read) -------------
 
 type redditPost struct {
-	Title         string `json:"title"`
-	Selftext      string `json:"selftext"`
-	Author        string `json:"author"`
-	SubredditName string `json:"subreddit_name_prefixed"`
+	Title         string  `json:"title"`
+	Selftext      string  `json:"selftext"`
+	Author        string  `json:"author"`
+	SubredditName string  `json:"subreddit_name_prefixed"`
 	CreatedUTC    float64 `json:"created_utc"`
-	Permalink     string `json:"permalink"`
-	IsGallery     bool   `json:"is_gallery"`
+	Permalink     string  `json:"permalink"`
+	IsGallery     bool    `json:"is_gallery"`
 	Preview       *struct {
 		Images []struct {
 			Source *struct {

@@ -95,33 +95,46 @@ See [CLAUDE.md](CLAUDE.md) for the full list — those standards were written fo
 
 ```
 bruv-1.0/
-├── main.go              # Wails app entry point
-├── app.go               # App struct — Go methods exposed to frontend
-├── app_agent.go         # Agent-related methods on the App struct
-├── tray_windows.go      # System tray (Windows); tray_other.go stubs Mac/Linux
+├── main.go              # Wails app entry point (desktop, --server, and service modes)
+├── app.go               # App struct — desktop-only concerns: window, tray, local HTTP transport
+├── shell_bridge.go      # ShellAPI — the narrow Wails-bound surface (dialogs, shell-open, pairing bootstrap)
+├── service.go           # Windows Service install/uninstall/run (kardianos/service)
 ├── wails.json           # Wails project config
-├── internal/
-│   ├── agent/           # Agent runtime, scheduler, due-date scanner, web tools
-│   ├── config/          # User config + personal state (LLM accounts, chats, prefs)
-│   ├── importer/        # Trello JSON importer
-│   ├── index/           # SQLite full-text search index
-│   ├── llm/             # Provider adapters (Anthropic, OpenAI, Ollama), tool definitions
-│   ├── model/           # Shared data model (Brand, Stream, Project, Card, Block, ...)
-│   ├── notify/          # Notification dispatcher (in-app, system, email, webhook)
-│   ├── repo/            # Repository layer — atomic JSON file IO, portable repo format
-│   ├── schema/          # Card type JSON schema system
-│   └── update/          # GitHub Releases update checker
-├── frontend/
+├── cmd/
+│   └── bruv-server/     # Headless backend binary (same service layer, no GUI)
+├── core/                # Domain layer — shared by desktop and server
+│   ├── capture/         # URL → structured clip resolvers (Twitter/Truth Social/Reddit/YouTube)
+│   ├── events/          # In-memory event bus
+│   ├── reposync/        # Filesystem watcher → change events
+│   ├── runtime/         # LLM runtime: chat, agents, tool dispatch, prompts, MCP bridging
+│   ├── services/        # Card, project, catalog, search, chat, agent, workspace services
+│   ├── supervisor/      # Multi-repo Runtime host; the per-repo JSON-RPC method surface
+│   └── workspace/       # Path-safety chokepoint for on-disk workspaces
+├── transport/
+│   └── http/            # JSON-RPC 2.0 + SSE + auth + static hosting + /present output page
+├── internal/            # Infrastructure — no domain logic
+│   ├── agent/ config/ importer/ index/ llm/ logging/ mcp/ mcpserver/ model/
+│   ├── notify/ push/ repo/ repocli/ schema/ server/ update/ workspace/
+│   └──                  # (repo/ owns the portable on-disk format; model/ the data types)
+├── foldertemplate/      # Card/workspace folder templates (its own Go module)
+├── frontend/            # Desktop UI (Svelte 5 + Wails)
 │   └── src/
-│       ├── components/  # Svelte 5 components
-│       ├── lib/         # Stores, actions, adapters, API surface
-│       └── assets/      # Icons, fonts, images
+│       ├── components/  # Svelte components
+│       ├── lib/         # Stores, actions, adapters, locales
+│       └── UI-CONVENTIONS.md   # The UI contract — read before adding shared components
+├── mobile/              # Phone PWA, served at /m/ (embedded into the binary at build time)
+├── shared/              # TypeScript shared by both surfaces (@shared/ alias)
+├── clipper/             # Web clipper browser extension (Chrome MV3, sideloaded)
+├── docs/                # User-facing docs (self-hosting, MCP)
+├── scripts/             # Dev/deploy helpers
+├── website/             # Landing site (GitHub Pages → bruv-ai.app)
+├── plan/                # Project journal + TODO (gitignored)
 └── build/               # Build assets (icons, Wails platform configs, NSIS installer)
 ```
 
 ### Repo format contract
 
-BRUV repos are designed to be self-contained and portable. The format is stable from v1.0a onward — any future additions must preserve this invariant: **the repo folder contains everything needed to render the project, and nothing personal to the user who created it**.
+BRUV repos are designed to be self-contained and portable. The format is stable from `v1.0` final onward — any future additions must preserve this invariant: **the repo folder contains everything needed to render the project, and nothing personal to the user who created it**.
 
 ```
 <repo>/

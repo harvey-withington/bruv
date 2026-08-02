@@ -168,15 +168,18 @@ jobs:
 
             🌐 [bruv-ai.app](https://bruv-ai.app)
 
-            <!-- Release notes go here. See plan/backlog.md for the change log. -->
+            <!-- Release notes go here. Paste the body from the release-notes
+                 doc written for this tag (plan/<date> release notes <tag>.md);
+                 the change log itself is the compare link that doc ends with. -->
 
             ### Install
 
             Download the installer below and run it. Windows SmartScreen may
-            warn you during the beta — see the [README](../README.md#smartscreen-and-signing)
+            warn you during the alpha — see the
+            [README](https://github.com/harvey-withington/bruv/blob/main/README.md#smartscreen-and-signing)
             for why and how to proceed.
 
             ### Verify
 
             The source is MIT-licensed and buildable from a clean checkout.
-            See [CONTRIBUTING.md](../CONTRIBUTING.md) for instructions.
+            See [CONTRIBUTING.md](https://github.com/harvey-withington/bruv/blob/main/CONTRIBUTING.md) for instructions.

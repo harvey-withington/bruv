@@ -117,11 +117,11 @@ func (r truthsocialResolver) Resolve(ctx context.Context, c *Client, rawURL stri
 // stripped; entity decoding covers the handful Mastodon-style servers
 // actually emit in status content.
 var (
-	brTagRe    = regexp.MustCompile(`(?i)<br\s*/?>`)
-	pCloseRe   = regexp.MustCompile(`(?i)</p>`)
-	anyTagRe   = regexp.MustCompile(`<[^>]+>`)
-	decEntRe   = regexp.MustCompile(`&#(\d+);`)
-	namedEnts  = strings.NewReplacer("&nbsp;", " ", "&amp;", "&", "&lt;", "<", "&gt;", ">", "&quot;", `"`, "&#39;", "'")
+	brTagRe   = regexp.MustCompile(`(?i)<br\s*/?>`)
+	pCloseRe  = regexp.MustCompile(`(?i)</p>`)
+	anyTagRe  = regexp.MustCompile(`<[^>]+>`)
+	decEntRe  = regexp.MustCompile(`&#(\d+);`)
+	namedEnts = strings.NewReplacer("&nbsp;", " ", "&amp;", "&", "&lt;", "<", "&gt;", ">", "&quot;", `"`, "&#39;", "'")
 )
 
 func mastodonHTMLToText(html string) string {

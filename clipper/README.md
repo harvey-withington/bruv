@@ -27,35 +27,76 @@ npm run build   # bundles into dist/
 
 ## Pair with your BRUV server
 
-1. Right-click the extension icon → **Options**.
-2. Server URL — one of:
-   - the **desktop app itself**: set Settings → General → "Local server port"
-     to a fixed port (e.g. `9876`), restart the app, then pair to
-     `http://127.0.0.1:9876` (without a fixed port the app picks a random
-     port each launch, which breaks pairing on restart);
-   - an installed **BRUV-Server service**: `http://127.0.0.1:9870`;
-   - a remote server, e.g. `http://ripped.tail2ebd58.ts.net:9870`.
-3. Bootstrap token: from the server's `bootstrap-token.txt` (same token the
-   mobile enrolment QR encodes). Locations: desktop app / dev server →
-   `%APPDATA%\bruv\bootstrap-token.txt`; installed Windows service →
+Open the popup → **Options** (top-right; always available).
+
+### A server on this machine — no token needed
+
+1. Click **Find the server on this machine**. It probes loopback ports
+   9870-9879 and identifies a real BRUV server by its `/version` response,
+   then fills the URL in. (The desktop app defaults to **9870** and, if that
+   port is taken, moves within that range and tells you which port it got.
+   Settings → General → "Local server port" overrides the default.)
+2. Click **Pair automatically** — no bootstrap token. The server accepts
+   token-less pairing only for unproxied loopback requests from a
+   browser-privileged origin, which is the same trust the desktop app already
+   places in reading its own token file. See `transport/http/localpair.go`.
+3. Pick the target repository, and where clipped cards should be pinned
+   (default: Inbox) → **Save**.
+
+### A remote server — bootstrap token
+
+Locality is the credential above, and a remote request hasn't got one, so
+remote pairing still uses the token:
+
+1. Enter the server URL, e.g. `https://myserver.tailnet.ts.net`.
+2. Paste the bootstrap token from `bootstrap-token.txt` on that server — the
+   same token the mobile enrolment QR encodes. Locations: desktop app / dev
+   server → `%APPDATA%\bruv\bootstrap-token.txt`; installed Windows service →
    `%PROGRAMDATA%\BRUV\bootstrap-token.txt` (separate config dirs, separate
-   tokens).
-4. Pair → pick the target repository → optionally pick a category to pin
-   clipped cards into (default: Inbox) → Save.
+   tokens). The server also serves a pairing page with a QR at
+   `/pair?token=<token>`.
+3. Pair → pick the repository and pin target → **Save**.
+
+Pair the extension to the **same server your phone shares to** — pending
+clips (below) only appear for the paired server.
 
 ## Use
 
-1. (Once) Click the extension icon → pick or create a **slide deck target**.
-2. Browse X. Right-click on a tweet (or a reply, or highlighted text inside
-   one) → **Add to BRUV + slide deck**.
-3. Repeat for each slide. Every clip: creates a card (text + source link +
-   media downloaded into attachments), tags it `twitter`, and appends a
-   `post` slide on the `x-post` template to the target deck.
+1. (Once) Open the popup → type in the **deck target** box to search your
+   cards (recents appear on focus) and pick a deck — or create one with
+   **New deck**. The × inside the box clears it.
+2. Browse a supported site. Right-click a post — or a reply, or text you've
+   highlighted inside one → **Add to BRUV + slide deck**.
+3. Repeat for each slide. Every clip creates a card (author, handle, avatar,
+   text, date, source link, media downloaded into attachments), tags it with
+   the platform, and appends a `post` slide to the target deck. The slide
+   binds to the card's blocks, so editing the card updates the slide; the
+   template resolves from the capture URL at render time.
 4. Open the deck card in BRUV → **Present**. Boom — usable slide deck.
 
 If the server is unreachable, clips queue locally (media already embedded,
 so nothing rots) and drain automatically once it's back — or via **Retry
-now** in the popup.
+now** in the popup. While the server is down the popup greys out what it
+can't do, rather than pretending.
+
+## Pending clips (completing a phone capture)
+
+When you share a URL to BRUV from your phone and the platform blocks the
+server from reading it (Reddit does this to everyone now), the server still
+creates the card, the source link and the deck slide, and marks the card
+`clip-pending`. This extension finishes the job, because it runs in a real
+browser that's already logged in.
+
+- The toolbar icon shows a **badge** with the number of clips waiting.
+- The popup lists them under **Pending clips**. **Complete** opens the post
+  in a tab, captures it with the same plugins, fills the card's blocks in
+  place — so the slide that's already in your deck fills in where it stands —
+  and closes the tab. Completions run one at a time in the background, so
+  "Complete all" keeps working after the popup closes (opening a tab takes
+  focus, which closes it).
+- The red **×** deletes a pending clip you'll never complete (a dead link,
+  say). It arms on the first click and deletes on the second. Note it deletes
+  the *card*; a slide already added for it stays in the deck.
 
 ## Manual test checklist (needs a live browser on real X pages)
 

@@ -43,6 +43,34 @@ var noDescendDirs = map[string]bool{
 	".obsidian": true,
 }
 
+// generatedDirs are dependency/build caches. They're recorded (so you can
+// see the folder is there) and flagged NotIndexed, but never walked.
+//
+// A single node_modules routinely holds 30k+ files — on its own enough to
+// exhaust MaxIndexEntries, which didn't just make the tree slow, it
+// TRUNCATED the user's actual work out of the index (Harvey, 2026-08-02:
+// "any folder that contains a node_modules is going to choke it").
+//
+// Deliberately conservative: only names that are definitionally machine-
+// generated. Ambiguous ones — dist, build, target, bin, obj, vendor — can
+// hold real content a user wants to browse, so they stay walkable and
+// `.bruvignore` remains the escape hatch for those.
+var generatedDirs = map[string]bool{
+	"node_modules":  true,
+	"__pycache__":   true,
+	".venv":         true,
+	"venv":          true,
+	".mypy_cache":   true,
+	".pytest_cache": true,
+	".ruff_cache":   true,
+	".next":         true,
+	".nuxt":         true,
+	".svelte-kit":   true,
+	".turbo":        true,
+	".gradle":       true,
+	".tox":          true,
+}
+
 // FS abstracts "local directory" vs "remote listing + on-demand fetch" so the
 // same adapter works at Tier 0 and Tier 1. M1 ships the local implementation;
 // the remote one arrives with M2 transports.
@@ -133,6 +161,13 @@ func (l *LocalFS) List(ctx context.Context) ([]model.WorkspaceEntry, bool, error
 			if info, err := d.Info(); err == nil {
 				e.Size = info.Size()
 			}
+		}
+		if d.IsDir() && generatedDirs[name] {
+			// Visible, honest, and cheap: the folder is listed as
+			// unindexed rather than walked (or silently hidden).
+			e.NotIndexed = true
+			entries = append(entries, e)
+			return filepath.SkipDir
 		}
 		entries = append(entries, e)
 		if d.IsDir() && noDescendDirs[name] {

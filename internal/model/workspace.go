@@ -80,6 +80,11 @@ type WorkspaceEntry struct {
 	IsDir   bool   `json:"is_dir,omitempty"`
 	Size    int64  `json:"size,omitempty"`
 	Symlink bool   `json:"symlink,omitempty"` // recorded, never followed
+	// NotIndexed marks a directory that exists but was deliberately not
+	// walked (dependency/build caches like node_modules). Without it the
+	// folder would render as EMPTY, which is a lie — the UI shows it as
+	// unindexed instead, with no expander.
+	NotIndexed bool `json:"not_indexed,omitempty"`
 }
 
 // WorkspaceIndex is the adapter's output (workspace/index.json): the tree plus

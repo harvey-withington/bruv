@@ -1,54 +1,37 @@
 <script lang="ts">
   import { ChevronRight, ChevronDown, Folder, FileText, Link2, LayoutTemplate } from 'lucide-svelte'
-  import type { WorkspaceEntry } from '@shared/types'
+  import type { WorkspaceTree } from '../../lib/workspaceTree'
+  import { t } from '../../lib/i18n.svelte'
   import WorkspaceFileTree from './WorkspaceFileTree.svelte'
 
-  // Recursive collapsible tree over the flat, sorted index entries.
-  // `prefix` scopes this level: entries directly under it render here,
-  // deeper ones render in the recursive child instances.
+  // Recursive collapsible tree over a prebuilt index (lib/workspaceTree.ts).
+  // `dir` scopes this level; children come back from one Map lookup instead
+  // of each level re-filtering the whole flat entry list (see the helper for
+  // why that mattered at the 20k-entry cap).
   //
   // `collapsed` is one shared $state record owned by the ROOT consumer
   // (WorkspacePanel) and passed down every level — that's what lets
   // Expand All / Collapse All and the accordion mode operate across the
   // whole tree instead of per-level islands.
-  let { entries, prefix = '', onOpenFile, depth = 0, collapsed, mode = 'multi', templateRoots }: {
-    entries: WorkspaceEntry[]
-    prefix?: string
+  let { tree, dir = '', onOpenFile, depth = 0, collapsed, mode = 'multi' }: {
+    tree: WorkspaceTree
+    /** Directory this instance renders the children of ('' = root). */
+    dir?: string
     onOpenFile?: (path: string) => void
     depth?: number
     collapsed: Record<string, boolean>
     /** 'single': expanding a folder collapses its siblings (accordion),
      *  matching the Sidebar project tree's mode toggle. */
     mode?: 'single' | 'multi'
-    /** Folder-Template roots (dirs containing .ft/template.json), computed
-     *  once at the root instance and passed down. */
-    templateRoots?: Set<string>
   } = $props()
 
-  // Icons distinguish elements: template roots render distinctly.
-  const tplRoots = $derived(
-    templateRoots ?? new Set(
-      entries
-        .filter(e => !e.is_dir && e.path.endsWith('/.ft/template.json'))
-        .map(e => e.path.slice(0, -'/.ft/template.json'.length))
-    )
-  )
-
-  const level = $derived(entries.filter(e => {
-    if (!e.path.startsWith(prefix)) return false
-    const rest = e.path.slice(prefix.length)
-    return rest.length > 0 && !rest.includes('/')
-  }))
-
-  function name(e: WorkspaceEntry): string {
-    return e.path.slice(prefix.length)
-  }
+  const level = $derived(tree.childrenOf(dir))
 
   function toggleDir(path: string) {
     const expanding = collapsed[path]
     if (expanding && mode === 'single') {
       for (const sib of level) {
-        if (sib.is_dir && sib.path !== path) collapsed[sib.path] = true
+        if (sib.isDir && sib.path !== path) collapsed[sib.path] = true
       }
     }
     collapsed[path] = !collapsed[path]
@@ -56,21 +39,33 @@
 </script>
 
 <ul class="tree" style:padding-left={depth > 0 ? '0.9rem' : '0'}>
-  {#each level as e (e.path)}
+  {#each level as n (n.path)}
     <li>
-      {#if e.is_dir}
-        <button class="node dir" class:tpl={tplRoots.has(e.path)} onclick={() => toggleDir(e.path)}>
-          {#if collapsed[e.path]}<ChevronRight size={12} />{:else}<ChevronDown size={12} />{/if}
-          {#if tplRoots.has(e.path)}<LayoutTemplate size={13} />{:else}<Folder size={13} />{/if}
-          <span class="name">{name(e)}</span>
+      {#if n.isDir && n.notIndexed}
+        <!-- Recorded but never walked (node_modules & friends). No expander,
+             and an explicit hint — rendering it as an empty folder would be
+             a lie about what's on disk. -->
+        <div class="node dir unindexed">
+          <span class="chevron-slot" aria-hidden="true"></span>
+          <Folder size={13} />
+          <span class="name">{n.name}</span>
+          <span class="tag">{t('workspace.not_indexed')}</span>
+        </div>
+      {:else if n.isDir}
+        <button class="node dir" class:tpl={n.isTemplateRoot} onclick={() => toggleDir(n.path)}>
+          {#if collapsed[n.path]}<ChevronRight size={12} />{:else}<ChevronDown size={12} />{/if}
+          {#if n.isTemplateRoot}<LayoutTemplate size={13} />{:else}<Folder size={13} />{/if}
+          <span class="name">{n.name}</span>
         </button>
-        {#if !collapsed[e.path]}
-          <WorkspaceFileTree {entries} prefix={e.path + '/'} {onOpenFile} depth={depth + 1} {collapsed} {mode} templateRoots={tplRoots} />
+        <!-- Children mount only while expanded: collapsed subtrees cost
+             nothing to render and nothing to keep in the DOM. -->
+        {#if !collapsed[n.path]}
+          <WorkspaceFileTree {tree} dir={n.path} {onOpenFile} depth={depth + 1} {collapsed} {mode} />
         {/if}
       {:else}
-        <button class="node file" onclick={() => onOpenFile?.(e.path)}>
-          {#if e.symlink}<Link2 size={13} />{:else}<FileText size={13} />{/if}
-          <span class="name">{name(e)}</span>
+        <button class="node file" onclick={() => onOpenFile?.(n.path)}>
+          {#if n.symlink}<Link2 size={13} />{:else}<FileText size={13} />{/if}
+          <span class="name">{n.name}</span>
         </button>
       {/if}
     </li>
@@ -117,6 +112,27 @@
   .node.dir.tpl:focus-visible {
     color: var(--template-accent);
     filter: brightness(1.15);
+  }
+  /* Inert row: nothing to open, nothing to expand. */
+  .node.dir.unindexed {
+    color: var(--text-muted);
+    font-weight: 400;
+    cursor: default;
+  }
+  .node.dir.unindexed:hover {
+    background: none;
+    color: var(--text-muted);
+  }
+  /* Keeps the label aligned with expandable siblings. */
+  .chevron-slot {
+    width: 12px;
+    flex-shrink: 0;
+  }
+  .tag {
+    flex-shrink: 0;
+    font-size: 0.66rem;
+    color: var(--text-faint);
+    white-space: nowrap;
   }
   .name {
     overflow: hidden;

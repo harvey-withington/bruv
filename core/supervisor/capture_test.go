@@ -63,8 +63,8 @@ const tweetJSON = `{
 
 func successRoutes() captureRoutes {
 	return captureRoutes{
-		"cdn.syndication.twimg.com /tweet-result": {200, tweetJSON},
-		"pbs.twimg.com /media/pic.jpg":            {200, "fake-image-bytes"},
+		"cdn.syndication.twimg.com /tweet-result":       {200, tweetJSON},
+		"pbs.twimg.com /media/pic.jpg":                  {200, "fake-image-bytes"},
 		"pbs.twimg.com /profile_images/1/a_400x400.jpg": {200, "fake-avatar-bytes"},
 	}
 }

@@ -1,0 +1,40 @@
+{
+  "model": "llama3.1:8b",
+  "created_at": "2026-07-30T12:01:11.945312Z",
+  "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+      {
+        "function": {
+          "name": "set_title",
+          "arguments": {
+            "title": "Ship the web clipper",
+            "meta": {
+              "confidence": "high",
+              "tags": ["release", "clipper"],
+              "score": 0.87,
+              "auto": true
+            }
+          }
+        }
+      },
+      {
+        "function": {
+          "name": "add_tags",
+          "arguments": {
+            "tags": ["release", "clipper"]
+          }
+        }
+      }
+    ]
+  },
+  "done_reason": "stop",
+  "done": true,
+  "total_duration": 1290981875,
+  "load_duration": 1334875,
+  "prompt_eval_count": 312,
+  "prompt_eval_duration": 102546000,
+  "eval_count": 41,
+  "eval_duration": 1180599000
+}

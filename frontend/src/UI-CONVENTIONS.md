@@ -417,10 +417,16 @@ The Workspace panel content (`components/workspace/WorkspacePanel.svelte`) rende
 
 | Prop | Type | Notes |
 |---|---|---|
-| `entries` | `WorkspaceEntry[]` | Flat, sorted, slash-relative paths (the whole tree; each instance filters its own level) |
-| `prefix` | `string` | Path prefix this instance renders (`''` = root) |
+| `tree` | `WorkspaceTree` | Prebuilt index from `lib/workspaceTree.ts` (`buildWorkspaceTree(entries)`), built ONCE by the root consumer |
+| `dir` | `string` | Directory this instance renders the children of (`''` = root) |
 | `onOpenFile` | `(path: string) => void` | File row click |
 | `depth` | `number` | Indentation level (self-incremented on recursion) |
+| `collapsed` | `Record<string, boolean>` | Shared expand state owned by the root consumer — what makes Expand/Collapse All and accordion mode global |
+| `mode` | `'single' \| 'multi'` | `single` = accordion (expanding collapses siblings) |
+
+**Never hand the flat entry list down the recursion.** Each level used to re-filter all n entries to find its own children — O(n × levels) of string work per render, redone on every expand/collapse because `collapsed` is one shared reactive record; at the 20k-entry server cap that choked. `buildWorkspaceTree` does one O(n) pass into parent → children buckets and each level does a single Map lookup. Sibling order is the server's (path-ascending, files and folders interleaved — *not* folders-first). Children mount only while expanded. `WorkspacePanel` builds the index off the paint path and shows `common.loading` in the Files section meanwhile.
+
+Directories flagged `not_indexed` (dependency/build caches the indexer records but never walks) render with no expander and a muted `workspace.not_indexed` tag — never as an empty folder.
 
 It self-imports for recursion (never `<svelte:self>` — deprecated). Keyboard: rows are real `<button>`s, so Tab/Enter work for free.
 

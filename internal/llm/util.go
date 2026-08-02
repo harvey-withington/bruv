@@ -1,10 +1,35 @@
 package llm
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
+
+// parseToolArguments decodes a provider's JSON-string tool arguments.
+//
+// An ABSENT argument list is legitimate — plenty of tools take none, and
+// providers spell that as "", "null" or "{}" — so those return an empty
+// map, not an error. Anything else that fails to parse is a genuine
+// problem (most often a response truncated mid-arguments) and must be
+// reported: running a tool with silently-missing arguments is how
+// `set_title` ends up called with no title.
+func parseToolArguments(raw string) (map[string]any, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || trimmed == "null" {
+		return map[string]any{}, nil
+	}
+	var args map[string]any
+	if err := json.Unmarshal([]byte(trimmed), &args); err != nil {
+		return nil, err
+	}
+	if args == nil {
+		args = map[string]any{}
+	}
+	return args, nil
+}
 
 // truncate shortens a string to maxLen, adding "..." if truncated.
 func truncate(s string, maxLen int) string {

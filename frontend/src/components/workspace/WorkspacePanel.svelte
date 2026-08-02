@@ -6,6 +6,7 @@
   import { showToast } from '../../lib/toast.svelte'
   import { showConfirm } from '../../lib/confirm.svelte'
   import { onEvent } from '../../lib/events'
+  import { buildWorkspaceTree, type WorkspaceTree } from '../../lib/workspaceTree'
   import EditableText from '../EditableText.svelte'
   import WorkspaceFileTree from './WorkspaceFileTree.svelte'
   import WorkspaceFileViewer from './WorkspaceFileViewer.svelte'
@@ -137,6 +138,31 @@
   const ws = $derived(wsState?.workspace)
   const idx = $derived(wsState?.index)
 
+  // The file tree renders from a prebuilt index, not the raw entry list —
+  // see lib/workspaceTree.ts for why. Building it is a single O(n) pass, but
+  // it runs on a macrotask rather than inline in the derivation so opening
+  // the panel (and the meta section above) paints immediately even on a
+  // capped 20k-entry index; the Files section shows the loading row until
+  // the index lands.
+  let fileTree = $state<WorkspaceTree | null>(null)
+  let treeBuilding = $state(false)
+
+  $effect(() => {
+    const entries = idx?.tree
+    if (!entries || entries.length === 0) {
+      fileTree = null
+      treeBuilding = false
+      return
+    }
+    treeBuilding = true
+    const timer = setTimeout(() => {
+      fileTree = buildWorkspaceTree(entries)
+      treeBuilding = false
+    })
+    // A refresh landing mid-build must not stamp the stale tree afterwards.
+    return () => clearTimeout(timer)
+  })
+
   // Pick-to-fill launch suggestions, ordered by adapter (an Obsidian vault
   // most likely opens in Obsidian; a repo in an editor). Free text stays
   // the model — these just save you knowing that VS Code's binary is
@@ -264,9 +290,11 @@
 
       <section class="files">
         <span class="label">{t('workspace.files')}</span>
-        {#if idx && idx.tree?.length > 0}
+        {#if treeBuilding}
+          <p class="muted">{t('common.loading')}</p>
+        {:else if fileTree}
           <div class="tree-scroll">
-            <WorkspaceFileTree entries={idx.tree} collapsed={treeCollapsed} mode={treeMode} onOpenFile={(p) => openFilePath = p} />
+            <WorkspaceFileTree tree={fileTree} collapsed={treeCollapsed} mode={treeMode} onOpenFile={(p) => openFilePath = p} />
           </div>
         {:else}
           <p class="muted">{t('workspace.no_index')}</p>

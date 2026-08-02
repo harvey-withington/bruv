@@ -162,8 +162,17 @@ func (p *openaiProvider) ChatCompletion(ctx context.Context, req ChatRequest) (*
 	}
 
 	for _, tc := range choice.Message.ToolCalls {
-		var args map[string]any
-		_ = json.Unmarshal([]byte(tc.Function.Arguments), &args)
+		args, err := parseToolArguments(tc.Function.Arguments)
+		if err != nil {
+			// Discarding this error used to mean a response truncated
+			// mid-arguments (finish_reason "length") produced a tool call
+			// with the right name, NIL arguments and no error — the loop
+			// then ran the tool with nothing (set_title with no title)
+			// and called it a success. Failing loudly is the only safe
+			// option: the caller can retry, a wrong mutation can't be
+			// undone.
+			return nil, fmt.Errorf("openai: tool call %q has unparseable arguments: %w", tc.Function.Name, err)
+		}
 		cr.ToolCalls = append(cr.ToolCalls, ToolCall{
 			ID:        tc.ID,
 			Name:      tc.Function.Name,

@@ -1,0 +1,33 @@
+{
+  "id": "chatcmpl-B9MJdbslfkBeAs8l4bebGdFOJ6QqZ",
+  "object": "chat.completion",
+  "created": 1741570390,
+  "model": "gpt-4o-2024-08-06",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_truncated1",
+            "type": "function",
+            "function": {
+              "name": "set_title",
+              "arguments": "{\"title\":\"Ship the web clip"
+            }
+          }
+        ],
+        "refusal": null
+      },
+      "logprobs": null,
+      "finish_reason": "length"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 2764,
+    "completion_tokens": 4096,
+    "total_tokens": 6860
+  }
+}

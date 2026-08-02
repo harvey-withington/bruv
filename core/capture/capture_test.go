@@ -230,7 +230,7 @@ func TestRedditResolveShareLinkAndGallery(t *testing.T) {
 		"www.reddit.com /r/pics/s/AbCd1234": respond(302, "", http.Header{
 			"Location": []string{"https://www.reddit.com/r/pics/comments/xyz789/gallery_title/?share_id=q"},
 		}),
-		"www.reddit.com /r/pics/comments/xyz789/gallery_title/": respond(200, "", nil),
+		"www.reddit.com /r/pics/comments/xyz789/gallery_title/":     respond(200, "", nil),
 		"www.reddit.com /r/pics/comments/xyz789/gallery_title.json": respond(200, fixture(t, "reddit_gallery.json"), nil),
 	})
 	clip, err := Resolve(context.Background(), c, "https://www.reddit.com/r/pics/s/AbCd1234")

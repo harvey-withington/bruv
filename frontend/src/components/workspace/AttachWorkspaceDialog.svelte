@@ -6,7 +6,10 @@
   import { showToast } from '../../lib/toast.svelte'
   import { showConfirm } from '../../lib/confirm.svelte'
   import { focusTrap } from '../../lib/actions'
+  import { activeConnectionLabel, isLocalActive } from '../../lib/connections.svelte'
+  import { formatBytes } from '../../lib/format'
   import TemplateEditorDialog from './TemplateEditorDialog.svelte'
+  import ServerFolderStep from './ServerFolderStep.svelte'
 
   let { brandSlug, streamSlug, projectSlug, onAttached, onClose }: {
     brandSlug: string
@@ -16,7 +19,13 @@
     onClose: () => void
   } = $props()
 
-  type Step = 'choose' | 'template' | 'params'
+  type Step = 'choose' | 'template' | 'params' | 'server-folder'
+
+  // The folder is opened by whichever machine runs the vault. On a remote
+  // connection that isn't this one, so the native picker — which browses
+  // THIS disk — would hand the server a path it can't see.
+  const serverIsThisMachine = isLocalActive()
+  const serverName = activeConnectionLabel()
   let step = $state<Step>('choose')
   let busy = $state(false)
 
@@ -30,10 +39,25 @@
   const visibleParams = $derived(selected?.parameters?.filter(p => p.name && p.prompt) ?? [])
 
   async function attachExisting() {
+    if (!serverIsThisMachine) {
+      step = 'server-folder'
+      return
+    }
     busy = true
     try {
       const path = await PickFolder(t('workspace.pick_folder_title'))
       if (!path) return
+      await attachPath(path)
+    } catch (e) {
+      showToast(t('workspace.attach_failed', { error: e instanceof Error ? e.message : String(e) }), 'error')
+    } finally {
+      busy = false
+    }
+  }
+
+  async function attachPath(path: string) {
+    busy = true
+    try {
       const ws = await AttachWorkspace(brandSlug, streamSlug, projectSlug, path)
       showToast(t('workspace.attached'), 'success')
       onAttached(ws)
@@ -73,7 +97,7 @@
         return
       }
       if (insp.large_warning) {
-        const size = `${Math.round(insp.size_bytes / (1024 * 1024))} MB`
+        const size = formatBytes(insp.size_bytes)
         if (!await showConfirm(t('workspace.import_large_confirm', { size }))) return
       }
       await ImportWorkspaceTemplate(src, '')
@@ -148,7 +172,7 @@
         <button class="choice" disabled={busy} onclick={attachExisting}>
           <FolderOpen size={22} />
           <strong>{t('workspace.attach_existing')}</strong>
-          <span>{t('workspace.attach_existing_hint')}</span>
+          <span>{serverIsThisMachine ? t('workspace.attach_existing_hint') : t('workspace.attach_existing_hint_remote', { server: serverName })}</span>
         </button>
         <button class="choice" disabled={busy} onclick={openTemplates}>
           <LayoutTemplate size={22} />
@@ -156,6 +180,9 @@
           <span>{t('workspace.from_template_hint')}</span>
         </button>
       </div>
+
+    {:else if step === 'server-folder'}
+      <ServerFolderStep {serverName} {busy} onAttach={attachPath} />
 
     {:else if step === 'template'}
       <div class="list">

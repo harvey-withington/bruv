@@ -62,6 +62,25 @@ type WorkspaceClaim struct {
 	LastSeen time.Time `json:"last_seen"`
 }
 
+// Git-serve lifecycle: the states of "the host holding this workspace's
+// files publishes them as a git repository other devices can clone".
+//
+// The states are vault-side on purpose. Initializing a large folder means a
+// git init + full commit that can run for minutes, and every connected
+// client — including the phone, which never materializes — should see that
+// the workspace is being prepared rather than silently missing features.
+const (
+	// GitServeOff is the zero value: the files are reachable only by
+	// whichever machine holds them.
+	GitServeOff = ""
+	// GitServeInitializing means the host is git-ifying the folder.
+	GitServeInitializing = "initializing"
+	// GitServeReady means clients may clone the workspace.
+	GitServeReady = "ready"
+	// GitServeError means initialization failed; GitServeError carries why.
+	GitServeError = "error"
+)
+
 // Workspace is the vault-side config record (workspace/workspace.json).
 type Workspace struct {
 	ID            string          `json:"id"`
@@ -70,8 +89,16 @@ type Workspace struct {
 	Adapter       string          `json:"adapter"` // "plain-folder" | "git-repo" | "obsidian-vault"
 	LaunchCommand string          `json:"launch_command,omitempty"`
 	Claim         *WorkspaceClaim `json:"claim,omitempty"`
-	CreatedAt     time.Time       `json:"created_at"`
-	UpdatedAt     time.Time       `json:"updated_at"`
+	// GitServe is the publishing state (GitServeOff/Initializing/Ready/
+	// Error). When Ready, devices that can't see Origin.URL themselves
+	// clone a working copy from the host over the BRUV connection.
+	GitServe string `json:"git_serve,omitempty"`
+	// GitServeError explains a GitServeError state in plain language.
+	GitServeError string `json:"git_serve_error,omitempty"`
+	// DefaultBranch is the branch clients clone and track.
+	DefaultBranch string    `json:"default_branch,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // WorkspaceEntry is one node of the indexed file tree.

@@ -41,6 +41,34 @@ func (r *Runtime) AttachWorkspace(ctx context.Context, brandSlug, streamSlug, pr
 	return r.Workspace.Attach(ctx, brandSlug, streamSlug, projectSlug, dirPath)
 }
 
+// InspectWorkspaceGitServe reports what publishing this workspace as git
+// would involve — repo state, and the size of the initial commit — without
+// writing anything. The device calls it before offering to set up a local
+// copy, so the user sees "12,431 files (2.1 GB)" before agreeing to it.
+func (r *Runtime) InspectWorkspaceGitServe(ctx context.Context, brandSlug, streamSlug, projectSlug string) (*workspacesvc.GitServeReport, error) {
+	return r.Workspace.InspectGitServe(ctx, brandSlug, streamSlug, projectSlug)
+}
+
+// EnableWorkspaceGitServe publishes the workspace so other devices can
+// clone it. Returns as soon as the work is under way; the workspace record
+// carries the lifecycle state and every transition is announced.
+func (r *Runtime) EnableWorkspaceGitServe(ctx context.Context, brandSlug, streamSlug, projectSlug string) (*model.Workspace, error) {
+	return r.Workspace.EnableGitServe(ctx, brandSlug, streamSlug, projectSlug)
+}
+
+// DisableWorkspaceGitServe stops publishing the workspace. The repository
+// and its history are left untouched.
+func (r *Runtime) DisableWorkspaceGitServe(brandSlug, streamSlug, projectSlug string) (*model.Workspace, error) {
+	return r.Workspace.DisableGitServe(brandSlug, streamSlug, projectSlug)
+}
+
+// WorkspaceGitServeDir backs the smart-HTTP transport's workspace lookup.
+// Not an RPC in spirit — the HTTP adapter passes it to the transport — but
+// it lives here because the transport's window onto a repo is the Runtime.
+func (r *Runtime) WorkspaceGitServeDir(workspaceID string) (string, bool) {
+	return r.Workspace.GitServeDir(workspaceID)
+}
+
 // DetachWorkspace removes the workspace config from the vault (files untouched).
 func (r *Runtime) DetachWorkspace(brandSlug, streamSlug, projectSlug string) error {
 	return r.Workspace.Detach(brandSlug, streamSlug, projectSlug)

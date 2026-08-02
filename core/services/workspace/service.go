@@ -78,8 +78,14 @@ func (s *Service) GetIndex(brandSlug, streamSlug, projectSlug string) (*model.Wo
 
 // Attach connects an existing local folder to the project (0 or 1 workspace
 // per project): detects the best adapter, indexes, persists, announces.
-// The path must be visible to this backend — the UI gates attach on
-// hasLocalFilesystem for exactly that reason.
+//
+// The path is resolved by the machine running this backend, which is not
+// necessarily the machine the user is sitting at. On a remote connection
+// the user types a path the SERVER can see; the desktop then clones a
+// working copy for itself (git_serve.go + app_workspace_checkout.go).
+// Failure to open the folder therefore has to name whose disk was searched
+// — otherwise "the system cannot find the path" reads as "your folder is
+// missing" when the folder is right there on the user's own machine.
 func (s *Service) Attach(ctx context.Context, brandSlug, streamSlug, projectSlug, dirPath string) (*model.Workspace, error) {
 	r, err := s.repo()
 	if err != nil {
@@ -94,6 +100,13 @@ func (s *Service) Attach(ctx context.Context, brandSlug, streamSlug, projectSlug
 	}
 	fs, err := wsengine.NewLocalFS(dirPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			host, _ := os.Hostname()
+			if host == "" {
+				host = "the machine running this vault"
+			}
+			return nil, fmt.Errorf("%s has no folder at %s — the path must exist on %s, which is where this vault is served from", host, dirPath, host)
+		}
 		return nil, fmt.Errorf("open workspace folder: %w", err)
 	}
 	tree, _, err := fs.List(ctx)

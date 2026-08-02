@@ -41,17 +41,20 @@ func (b *stubBackend) Remove(string) error         { return nil }
 // buildTestServer spins up a real multi-repo transport with a stub
 // backend + a MachineService-style mockApp behind /server/rpc, and
 // issues a fresh device token so tests can authenticate without
-// ceremony.
-func buildTestServer(t *testing.T) (*Server, string, string, *events.MemBus) {
+// ceremony. Optional customisers configure the stub repo target (e.g.
+// wiring GitRepos for the workspace transport).
+func buildTestServer(t *testing.T, customise ...func(*RepoTarget)) (*Server, string, string, *events.MemBus) {
 	t.Helper()
 	cfgDir := t.TempDir()
 	bus := events.NewMemBus(64)
-	backend := &stubBackend{
-		target: &RepoTarget{
-			Target: &mockApp{},
-			Bus:    bus,
-		},
+	target := &RepoTarget{
+		Target: &mockApp{},
+		Bus:    bus,
 	}
+	for _, c := range customise {
+		c(target)
+	}
+	backend := &stubBackend{target: target}
 	srv, err := NewMulti(Config{
 		Addr:          "127.0.0.1:0",
 		ConfigDir:     cfgDir,

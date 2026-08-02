@@ -106,6 +106,13 @@ type RepoTarget struct {
 	Target      any
 	Bus         *events.MemBus
 	Attachments *AttachmentConfig
+	// GitRepos resolves a published workspace ID to the git repository
+	// directory on this host, for the smart-HTTP routes (git.go). ok is
+	// false for workspaces that don't exist, aren't published, or haven't
+	// finished initializing — the transport turns that into a 404, so an
+	// unpublished workspace is simply not on the network. Leave nil to
+	// serve no workspaces at all.
+	GitRepos func(workspaceID string) (dir string, ok bool)
 }
 
 // RepoBackend is the transport's window onto the host's per-repo

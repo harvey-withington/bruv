@@ -47,6 +47,7 @@ func (a *HTTPAdapter) Resolve(id string) *transporthttp.RepoTarget {
 			Secret:  a.Sup.Secret(),
 			Resolve: rt.ResolveAttachment,
 		},
+		GitRepos: rt.WorkspaceGitServeDir,
 	}
 }
 

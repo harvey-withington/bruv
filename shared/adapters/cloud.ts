@@ -429,6 +429,13 @@ const SHELL_METHODS = new Set<string>([
   'OpenWorkspacePath',
   'RevealWorkspacePath',
   'RunWorkspaceLaunchCommand',
+  // Workspace checkouts — cloning lands files on THIS device, and where
+  // they land is device-local state the server never sees.
+  'GetWorkspaceCheckout',
+  'MaterializeWorkspace',
+  'PullWorkspaceCheckout',
+  'PushWorkspaceCheckout',
+  'ForgetWorkspaceCheckout',
   'ForceQuit',
   // Build info / version — report on the running desktop binary, so they
   // live on the Wails shell rather than the per-repo RPC surface.

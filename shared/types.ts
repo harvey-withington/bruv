@@ -1270,11 +1270,27 @@ export interface BackendAdapter {
   ReadWorkspaceFile(brandSlug: string, streamSlug: string, projectSlug: string, rel: string): Promise<string>
   WriteWorkspaceFile(brandSlug: string, streamSlug: string, projectSlug: string, rel: string, content: string): Promise<void>
 
+  // Publishing a workspace as git so other devices can clone it. Runs on
+  // the machine holding the files; EnableWorkspaceGitServe returns as soon
+  // as the work starts and reports progress through Workspace.git_serve.
+  InspectWorkspaceGitServe(brandSlug: string, streamSlug: string, projectSlug: string): Promise<GitServeReport>
+  EnableWorkspaceGitServe(brandSlug: string, streamSlug: string, projectSlug: string): Promise<Workspace>
+  DisableWorkspaceGitServe(brandSlug: string, streamSlug: string, projectSlug: string): Promise<Workspace>
+
   // Workspace Tier 1 actions — SHELL_METHODS, device-local only.
   // root = the workspace's on-disk root (origin.url for local origins).
   OpenWorkspacePath(root: string, rel: string): Promise<void>
   RevealWorkspacePath(root: string, rel: string): Promise<void>
   RunWorkspaceLaunchCommand(root: string, command: string): Promise<void>
+
+  // Workspace checkouts — SHELL_METHODS. Cloning puts files on THIS
+  // device, so the whole lifecycle runs in the desktop shell.
+  GetWorkspaceCheckout(workspaceID: string): Promise<WorkspaceCheckoutInfo>
+  MaterializeWorkspace(workspaceID: string, brandSlug: string, streamSlug: string, projectSlug: string, destOverride: string): Promise<void>
+  PullWorkspaceCheckout(workspaceID: string): Promise<string>
+  PushWorkspaceCheckout(workspaceID: string): Promise<string>
+  /** Drops BRUV's record of the copy; never touches the files. */
+  ForgetWorkspaceCheckout(workspaceID: string): Promise<void>
 
   // Workspace folder templates (vault content; ref = vault-relative id or absolute path)
   ListWorkspaceTemplates(): Promise<WorkspaceTemplateEntry[]>
@@ -1443,8 +1459,53 @@ export interface Workspace {
   adapter: string
   launch_command?: string
   claim?: WorkspaceClaim
+  /**
+   * Publishing state: '' (not published), 'initializing', 'ready', 'error'.
+   * When ready, devices that can't see origin.url themselves clone a
+   * working copy from the host over the BRUV connection.
+   */
+  git_serve?: GitServeState
+  git_serve_error?: string
+  default_branch?: string
   created_at: string
   updated_at: string
+}
+
+export type GitServeState = '' | 'initializing' | 'ready' | 'error'
+
+/** What publishing a workspace as git would involve — read-only report. */
+export interface GitServeReport {
+  path: string
+  git_available: boolean
+  git_version?: string
+  state: GitServeState
+  error?: string
+  is_repo: boolean
+  has_commits: boolean
+  branch?: string
+  /** Work in an existing repo that isn't committed — clones won't see it. */
+  uncommitted_paths: number
+  has_gitignore: boolean
+  /** Estimated size of the initial commit, honouring .gitignore. */
+  files: number
+  bytes: number
+  truncated: boolean
+}
+
+/** This device's working copy of a workspace (SHELL_METHOD result). */
+export interface WorkspaceCheckoutInfo {
+  workspace_id: string
+  has_copy: boolean
+  local_path?: string
+  branch?: string
+  status: 'idle' | 'cloning' | 'error'
+  /** git's own progress line while cloning. */
+  progress?: string
+  error?: string
+  dirty: boolean
+  ahead: number
+  behind: number
+  git_available: boolean
 }
 
 export interface WorkspaceEntry {

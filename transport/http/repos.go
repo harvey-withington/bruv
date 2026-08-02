@@ -177,6 +177,21 @@ func (s *Server) repoRouter() nethttp.Handler {
 			dispatcher.Handler().ServeHTTP(w, r)
 		case sub == "events":
 			sseHandler(target.Bus).ServeHTTP(w, r)
+		case strings.HasPrefix(sub, "workspaces/"):
+			// workspaces/<wsID>/git/<git-sub> — the smart-HTTP transport
+			// for published workspaces (git.go).
+			rest := strings.TrimPrefix(sub, "workspaces/")
+			marker := strings.Index(rest, "/git/")
+			if marker < 0 || target.GitRepos == nil {
+				nethttp.NotFound(w, r)
+				return
+			}
+			dir, ok := target.GitRepos(rest[:marker])
+			if !ok {
+				nethttp.NotFound(w, r)
+				return
+			}
+			gitHandler(dir, rest[marker+len("/git/"):]).ServeHTTP(w, r)
 		case strings.HasPrefix(sub, "attachments/"):
 			if target.Attachments == nil {
 				nethttp.NotFound(w, r)

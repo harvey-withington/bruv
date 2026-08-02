@@ -438,6 +438,23 @@ The Workspace panel content (`components/workspace/WorkspacePanel.svelte`) rende
 
 It self-imports for recursion (never `<svelte:self>` — deprecated). Keyboard: rows are real `<button>`s, so Tab/Enter work for free.
 
+**`WorkspaceLocalCopy.svelte`** — this device's working copy, rendered inside the Workspace panel **only on a remote connection** (`isLocalActive()` is false). On a remote connection the workspace's files are on the server, so Tier 1 actions have nothing local to act on until the device clones a copy. The component owns that whole lifecycle: report → confirm → the host publishes (`Workspace.git_serve`: `initializing` → `ready`/`error`, vault-side so every client sees it) → this device clones (shell-side status, polled ONLY while a clone runs) → pull/push/forget.
+
+| Prop | Type | Notes |
+|---|---|---|
+| `ws` | `Workspace` | Carries `git_serve` — the host-side half of the lifecycle |
+| `brandSlug` / `streamSlug` / `projectSlug` | `string` | Project coordinates for the publish RPCs |
+| `serverName` | `string` | `activeConnectionLabel()` — every message names the machine |
+| `onCheckoutChange` | `(info: WorkspaceCheckoutInfo \| null) => void` | Lets the panel point Tier 1 actions at the clone |
+
+**Two machines means saying which one.** Every string in this section interpolates `{server}` — "Preparing the workspace on RIPPED", "git isn't installed on RIPPED". The bug this feature fixes was an error that read as "your folder is missing" when the folder was on the user's own disk and the *server* couldn't see it. Applies to the attach error too, which now names the machine it searched.
+
+**Tier 1 actions follow the files, and hide when there are none.** `WorkspacePanel` derives `deviceRoot` — the origin path when the vault is served from this machine, otherwise the clone's path, `undefined` when neither. Open-folder and the launch command are hidden rather than offered-and-failing.
+
+**`ServerFolderStep.svelte`** is the remote half of `AttachWorkspaceDialog`: the native picker browses THIS disk, but `AttachWorkspace` opens the path on the machine running the vault, so on a remote connection the dialog asks the user to type a path the server knows. Gate on `isLocalActive()`, **not** `capabilities.hasLocalFilesystem` — that one is set from `wailsShellAvailable` and answers "is a Wails shell present", which is true on the desktop against every connection.
+
+**`lib/format.ts` — `formatBytes(bytes)`** is the one way BRUV writes a size the user is asked to agree to (template import, published-workspace initial commit). Whole units up to 100, one decimal where it carries meaning ("1.4 GB", "150 MB"). Use it rather than dividing by 1024 at the call site.
+
 **Workspace file links**: markdown `workspace://<ws-id>/<path>` renders via `shared/markdown.ts` as `.bruv-link[data-workspace]`; the `main.ts` click interceptor dispatches `bruv:navigate {type: ''workspace-file''}` and App opens the panel + viewer. Same chain as `bruv:card:` links.
 
 ---

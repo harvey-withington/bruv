@@ -79,6 +79,32 @@ func (s *ShellAPI) RunWorkspaceLaunchCommand(root, command string) error {
 	return s.app.RunWorkspaceLaunchCommand(root, command)
 }
 
+// --- Workspace checkouts (device-side by definition) ---
+//
+// Cloning a published workspace puts files on THIS machine, so the whole
+// lifecycle runs in the shell process. See app_workspace_checkout.go.
+
+func (s *ShellAPI) GetWorkspaceCheckout(workspaceID string) (*WorkspaceCheckoutInfo, error) {
+	return s.app.GetWorkspaceCheckout(workspaceID)
+}
+
+func (s *ShellAPI) MaterializeWorkspace(workspaceID, brandSlug, streamSlug, projectSlug, destOverride string) error {
+	return s.app.MaterializeWorkspace(workspaceID, brandSlug, streamSlug, projectSlug, destOverride)
+}
+
+func (s *ShellAPI) PullWorkspaceCheckout(workspaceID string) (string, error) {
+	return s.app.PullWorkspaceCheckout(workspaceID)
+}
+
+func (s *ShellAPI) PushWorkspaceCheckout(workspaceID string) (string, error) {
+	return s.app.PushWorkspaceCheckout(workspaceID)
+}
+
+func (s *ShellAPI) ForgetWorkspaceCheckout(workspaceID string) error {
+	return s.app.ForgetWorkspaceCheckout(workspaceID)
+}
+
+
 // --- Process control ---
 
 // ForceQuit stays Shell-bound because it mutates the forceQuit flag

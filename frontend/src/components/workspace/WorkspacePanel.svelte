@@ -1,7 +1,7 @@
 <script lang="ts">
   import { RefreshCw, Unlink, Briefcase, Plus, AlertTriangle, FolderOpen, Play, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree } from 'lucide-svelte'
   import { DetachWorkspace, GetWorkspaceState, ListWorkspaceDir, OpenWorkspacePath, RefreshWorkspaceIndex, RunWorkspaceLaunchCommand, SetWorkspaceLaunchCommand } from '@shared/api'
-  import type { Workspace, WorkspaceState } from '@shared/types'
+  import type { Workspace, WorkspaceCheckoutInfo, WorkspaceState } from '@shared/types'
   import { t } from '../../lib/i18n.svelte'
   import { showToast } from '../../lib/toast.svelte'
   import { showConfirm } from '../../lib/confirm.svelte'
@@ -11,6 +11,8 @@
   import WorkspaceFileTree from './WorkspaceFileTree.svelte'
   import WorkspaceFileViewer from './WorkspaceFileViewer.svelte'
   import AttachWorkspaceDialog from './AttachWorkspaceDialog.svelte'
+  import WorkspaceLocalCopy from './WorkspaceLocalCopy.svelte'
+  import { activeConnectionLabel, isLocalActive } from '../../lib/connections.svelte'
 
   // Geometry-less: fills its host (SidePanel tab pane), which owns width,
   // resize, slide animations, and closing.
@@ -27,6 +29,13 @@
   let refreshing = $state(false)
   let showAttach = $state(false)
   let openFilePath = $state<string | null>(null)
+
+  // On a remote connection the workspace's files sit on the server, so this
+  // device's Tier 1 actions need its own working copy — which may or may not
+  // exist yet. WorkspaceLocalCopy owns that lifecycle and reports it here.
+  const serverIsThisMachine = isLocalActive()
+  const serverName = activeConnectionLabel()
+  let checkout = $state<WorkspaceCheckoutInfo | null>(null)
 
   // Details expando — the meta section is reference info, the tree is the
   // working surface; let the former fold away. Persisted per device.
@@ -143,18 +152,18 @@
   }
 
   async function openFolder() {
-    if (!ws?.origin.url) return
+    if (!deviceRoot) return
     try {
-      await OpenWorkspacePath(ws.origin.url, '')
+      await OpenWorkspacePath(deviceRoot, '')
     } catch (e) {
       showToast(t('workspace.open_failed', { error: e instanceof Error ? e.message : String(e) }), 'error')
     }
   }
 
   async function runLaunch() {
-    if (!ws?.origin.url || !ws.launch_command) return
+    if (!deviceRoot || !ws?.launch_command) return
     try {
-      await RunWorkspaceLaunchCommand(ws.origin.url, ws.launch_command)
+      await RunWorkspaceLaunchCommand(deviceRoot, ws.launch_command)
     } catch (e) {
       showToast(t('workspace.launch_failed', { error: e instanceof Error ? e.message : String(e) }), 'error')
     }
@@ -162,6 +171,14 @@
 
   const ws = $derived(wsState?.workspace)
   const idx = $derived(wsState?.index)
+
+  // The folder THIS device can open: the origin itself when the vault is
+  // served from this machine, otherwise this device's clone. Undefined
+  // means there is nothing local to act on, and the actions that would need
+  // it are hidden rather than offered and then failing.
+  const deviceRoot = $derived(
+    serverIsThisMachine ? ws?.origin.url : (checkout?.has_copy ? checkout.local_path : undefined),
+  )
 
   // Pick-to-fill launch suggestions, ordered by adapter (an Obsidian vault
   // most likely opens in Obsidian; a repo in an editor). Free text stays
@@ -226,7 +243,7 @@
         {#if !metaCollapsed}
         <div class="badge-row">
           <span class="badge adapter">{ws.adapter}</span>
-          <span class="badge tier">{t('workspace.tier_local')}</span>
+          <span class="badge tier">{serverIsThisMachine || checkout?.has_copy ? t('workspace.tier_local') : t('workspace.tier_remote', { server: serverName })}</span>
         </div>
         <div class="meta-card">
           {#if idx?.summary}
@@ -244,12 +261,24 @@
         {/if}
         <!-- Open/Launch stay reachable with Details collapsed — they're
              the two actions in constant rotation. -->
+        {#if deviceRoot}
         <div class="action-row">
           <button class="btn" onclick={openFolder}><FolderOpen size={13} /> {t('workspace.open_folder')}</button>
           {#if ws.launch_command}
             <button class="btn" onclick={runLaunch} title={ws.launch_command}><Play size={13} /> {t('workspace.launch')}</button>
           {/if}
         </div>
+        {/if}
+        {#if !serverIsThisMachine}
+          <WorkspaceLocalCopy
+            {ws}
+            {brandSlug}
+            {streamSlug}
+            {projectSlug}
+            {serverName}
+            onCheckoutChange={(info) => checkout = info}
+          />
+        {/if}
         {#if !metaCollapsed}
         <div class="launch">
           <span class="label">{t('workspace.launch_command')}</span>

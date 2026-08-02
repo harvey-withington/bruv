@@ -9,13 +9,19 @@
 // the result to CompleteCapture. See lib/pending.ts.
 
 import type {
+  CaptureChoices,
+  CaptureDialogRequest,
+  CaptureDialogResponse,
   ClipExtractedMessage,
   ClipPageRequestMessage,
   ClipPageResponse,
   ClipRequestMessage,
   ClipResult,
+  ClipperSettings,
   CompleteRequestMessage,
   CompleteResponse,
+  DialogAliveMessage,
+  OpenOptionsMessage,
   ToastMessage,
 } from './lib/types'
 import { loadSettings, isNetworkError, repoRPC } from './lib/api'
@@ -23,9 +29,21 @@ import { pluginById } from './lib/plugins/registry'
 import { buildJob, executeJob } from './lib/clip'
 import { enqueue, drainQueue, listQueue } from './lib/queue'
 import { refreshPendingBadge } from './lib/pending'
+import {
+  buildDialogRequest,
+  defaultChoices,
+  fallbackPrefs,
+  loadCapturePrefs,
+  previewCapture,
+  shouldAsk,
+} from './lib/captureOptions'
 
 const MENU_CLIP = 'bruv-clip'
 const MENU_CLIP_DECK = 'bruv-clip-deck'
+// Third menu item rather than a modifier key: Chrome's context-menu click
+// data carries no modifier state (Firefox's does), so a Shift+click trigger
+// would be undiscoverable AND unimplementable. This one says what it does.
+const MENU_CLIP_OPTIONS = 'bruv-clip-options'
 
 const ALARM_QUEUE = 'bruv-queue'
 const ALARM_PENDING = 'bruv-pending'
@@ -35,6 +53,7 @@ chrome.runtime.onInstalled.addListener(() => {
     const contexts: chrome.contextMenus.ContextType[] = ['page', 'selection', 'image', 'video', 'link']
     chrome.contextMenus.create({ id: MENU_CLIP, title: chrome.i18n.getMessage('menu_clip'), contexts })
     chrome.contextMenus.create({ id: MENU_CLIP_DECK, title: chrome.i18n.getMessage('menu_clip_deck'), contexts })
+    chrome.contextMenus.create({ id: MENU_CLIP_OPTIONS, title: chrome.i18n.getMessage('menu_clip_options'), contexts })
   })
   chrome.alarms.create(ALARM_QUEUE, { periodInMinutes: 1 })
   chrome.alarms.create(ALARM_PENDING, { periodInMinutes: 30 })
@@ -50,8 +69,13 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (!tab?.id) return
-  if (info.menuItemId !== MENU_CLIP && info.menuItemId !== MENU_CLIP_DECK) return
-  const msg: ClipRequestMessage = { type: 'BRUV_CLIP', includeInDeck: info.menuItemId === MENU_CLIP_DECK }
+  const id = info.menuItemId
+  if (id !== MENU_CLIP && id !== MENU_CLIP_DECK && id !== MENU_CLIP_OPTIONS) return
+  const msg: ClipRequestMessage = {
+    type: 'BRUV_CLIP',
+    includeInDeck: id === MENU_CLIP_DECK,
+    withOptions: id === MENU_CLIP_OPTIONS,
+  }
   void chrome.tabs.sendMessage(tab.id, msg)
 })
 
@@ -63,12 +87,21 @@ function toast(tabId: number | undefined, text: string, ok: boolean): void {
 
 chrome.runtime.onMessage.addListener(
   (
-    message: ClipExtractedMessage | CompleteRequestMessage,
+    message: ClipExtractedMessage | CompleteRequestMessage | DialogAliveMessage | OpenOptionsMessage,
     sender,
     sendResponse: (response: CompleteResponse) => void,
   ) => {
     if (message?.type === 'BRUV_EXTRACTED') {
       void handleExtracted(message, sender.tab?.id)
+      return
+    }
+    if (message?.type === 'BRUV_DIALOG_ALIVE') {
+      // Nothing to do — receiving it is the point (it resets this worker's
+      // idle timer while a capture dialog waits on the user).
+      return
+    }
+    if (message?.type === 'BRUV_OPEN_OPTIONS') {
+      void chrome.runtime.openOptionsPage()
       return
     }
     if (message?.type === 'BRUV_COMPLETE') {
@@ -77,6 +110,54 @@ chrome.runtime.onMessage.addListener(
     }
   },
 )
+
+// askForChoices shows the in-page dialog and waits for the answer. Returns
+// null when the dialog couldn't be shown at all (no content script in that
+// tab, tab closed) — the caller then falls back to the vault's defaults
+// rather than dropping a capture the user asked for.
+async function askForChoices(tabId: number, request: CaptureDialogRequest): Promise<CaptureDialogResponse | null> {
+  try {
+    return await chrome.tabs.sendMessage<CaptureDialogRequest, CaptureDialogResponse>(tabId, request)
+  } catch (err) {
+    console.warn('capture dialog unavailable:', err)
+    return null
+  }
+}
+
+// resolveChoices is the options step in front of the pipeline: read the
+// vault's defaults + the server's preview of this URL, decide whether the
+// decision is the user's to make, and (when it is) ask them.
+//
+// Returns null when the user cancelled. Undefined choices mean "behave
+// exactly as the extension did before options existed" — the path taken
+// when the server can't be reached for prefs at all.
+async function resolveChoices(
+  settings: ClipperSettings,
+  clip: ClipResult,
+  message: ClipExtractedMessage,
+  tabId: number | undefined,
+): Promise<{ choices?: CaptureChoices } | null> {
+  // Explicitly asking for the dialog must show one even when the vault's
+  // prefs can't be read; the silent path stays byte-for-byte as before.
+  const prefs = (await loadCapturePrefs(settings)) ?? (message.withOptions ? fallbackPrefs() : null)
+  if (!prefs) return {}
+
+  // A vault set to never ask doesn't need the server's preview: it exists to
+  // fill a dialog that won't open, and resolving the post server-side is the
+  // one slow step in a flow whose whole appeal is one click. Such a capture
+  // uses whatever ladder the plugin itself resolved.
+  const wantPreview = message.withOptions || (prefs.askMode ?? 'triggers') !== 'never'
+  const preview = wantPreview ? await previewCapture(settings, clip.canonicalUrl, message.withOptions) : null
+
+  const defaults = defaultChoices(clip, preview, prefs, message.includeInDeck)
+  if (!message.withOptions && !shouldAsk(clip, preview, prefs)) return { choices: defaults }
+  if (tabId == null) return { choices: defaults }
+
+  const answer = await askForChoices(tabId, buildDialogRequest(clip, preview, prefs, settings, message.includeInDeck))
+  if (!answer) return { choices: defaults }
+  if (!answer.ok) return null
+  return { choices: answer.choices ?? defaults }
+}
 
 async function handleExtracted(message: ClipExtractedMessage, tabId: number | undefined): Promise<void> {
   const settings = await loadSettings()
@@ -92,10 +173,24 @@ async function handleExtracted(message: ClipExtractedMessage, tabId: number | un
   let clip = message.clip
   const plugin = pluginById(clip.platform)
   if (plugin?.enrich && clip.needsEnrichment) {
+    // Enrichment first: the dialog can't offer a video quality ladder for a
+    // video whose URL hasn't been resolved yet.
     clip = await plugin.enrich(clip)
   }
 
-  const job = await buildJob(clip, message.includeInDeck)
+  const resolved = await resolveChoices(settings, clip, message, tabId)
+  if (!resolved) {
+    toast(tabId, chrome.i18n.getMessage('dialog_cancelled'), true)
+    return
+  }
+  const choices = resolved.choices
+  const includeInDeck = choices ? choices.includeInDeck : message.includeInDeck
+  if (includeInDeck && !settings.deckTarget) {
+    toast(tabId, chrome.i18n.getMessage('toast_no_deck'), false)
+    return
+  }
+
+  const job = await buildJob(clip, includeInDeck, choices)
   try {
     const outcome = await executeJob(settings, job)
     if (outcome.pinFailed) {

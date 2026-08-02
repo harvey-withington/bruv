@@ -6,12 +6,27 @@
 
 export type ClipMediaKind = 'image' | 'video'
 
+// One rung of a video quality ladder. Field-for-field the server's
+// MediaVariant (shared/types.ts), so a ladder resolved by a plugin and one
+// resolved by the server are interchangeable in the capture dialog.
+export type ClipMediaVariant = {
+  id: string
+  label: string
+  url: string
+  bitrate?: number
+  estBytes?: number
+}
+
 export type ClipMedia = {
   url: string
   kind: ClipMediaKind
   // Poster/preview for videos — used as the fallback when video resolution
   // fails, and as the attachment thumbnail source.
   posterUrl?: string
+  // Every quality the plugin found, ASCENDING (cheapest first). Optional:
+  // most platforms serve one rendition. `url` stays the plugin's own pick
+  // so nothing downstream has to understand ladders.
+  variants?: ClipMediaVariant[]
 }
 
 export type ClipResult = {
@@ -72,16 +87,150 @@ export type ClipJob = {
   clip: ClipResult
   includeInDeck: boolean
   media: Array<{ name: string; base64: string; kind: ClipMediaKind }>
+  // Media the user chose to KEEP AS A LINK (or a video that wouldn't
+  // download): the URL goes into the block instead of an attachment. Absent
+  // on jobs queued before capture options existed.
+  linkMedia?: Array<{ url: string; kind: ClipMediaKind }>
+  // Title the user typed in the capture dialog; empty/absent = derive it
+  // from the clip as usual.
+  title?: string
   avatarBase64?: string
   avatarName?: string
   attempts: number
   lastError?: string
 }
 
+// --- capture options ------------------------------------------------------
+//
+// Capture decisions are the USER'S, made at capture time and pre-populated
+// from their (per-vault, server-side) defaults — Harvey's 2026-08-02 ruling;
+// design in `plan/2026-08-02 capture options at capture time.md`. The types
+// below mirror the server's, so the extension shows the same facts the phone
+// would show for the same URL.
+
+export type VideoMode = 'fit' | 'best' | 'smallest' | 'link' | 'skip'
+export type ImageMode = 'all' | 'first' | 'link' | 'skip'
+export type AskMode = 'always' | 'triggers' | 'never'
+
+// The user's own definition of "consequential" — a zero/false entry turns
+// that trigger off.
+export type CaptureTriggers = {
+  videoOverMB?: number
+  galleryOverCount?: number
+  unsupportedUrl?: boolean
+  blocked?: boolean
+  pinMayReject?: boolean
+}
+
+// Per-VAULT capture defaults (GetCapturePrefs/SetCapturePrefs) — read from
+// the server, never from chrome.storage: the phone and the clipper must
+// agree about what happens to a 3.5 GB video.
+export type CapturePrefs = {
+  videoMode?: VideoMode
+  videoBudgetMB?: number
+  imageMode?: ImageMode
+  askMode?: AskMode
+  triggers: CaptureTriggers
+}
+
+export type CaptureMediaPreview = {
+  kind: ClipMediaKind
+  url: string
+  posterUrl?: string
+  estBytes?: number
+  variants?: ClipMediaVariant[]
+  defaultVariantId?: string
+  note?: string
+}
+
+// PreviewCapture(url) — what capturing this URL WOULD do, server-side.
+// Writes nothing. `blocked`/`supported` describe the SERVER's reach, not
+// the browser's: the extension captures from the live DOM either way.
+export type CapturePreview = {
+  url: string
+  platform: string
+  supported: boolean
+  blocked: boolean
+  blockedError?: string
+  title: string
+  author?: string
+  handle?: string
+  text?: string
+  publishedAt?: string
+  media?: CaptureMediaPreview[]
+  prefs: CapturePrefs
+  shouldAsk: boolean
+  askReasons?: string[]
+}
+
+export type VideoChoice = 'store' | 'link' | 'skip'
+export type ImageChoice = ImageMode
+
+// What the user actually chose (dialog) or what their defaults imply (no
+// dialog). Consumed by buildJob/executeJob.
+export type CaptureChoices = {
+  // Card title. Empty = derive it from the clip as usual.
+  title: string
+  includeInDeck: boolean
+  video: VideoChoice
+  // The chosen rung's URL, replacing whatever the plugin resolved for the
+  // clip's first video. Empty = keep the plugin's pick.
+  videoUrl: string
+  images: ImageChoice
+}
+
+// Sentinel option ids for the two non-storing video rows. Real rungs use
+// their variant id.
+export const VIDEO_OPTION_LINK = '__link__'
+export const VIDEO_OPTION_SKIP = '__skip__'
+
+// One row of the dialog's video radio list. `estBytes` is formatted by the
+// dialog (presentation lives with the renderer).
+export type CaptureDialogVideoOption = { id: string; label: string; url: string; estBytes?: number }
+
+// Everything the in-page dialog renders. Built background-side so the
+// content script needs no settings, no RPC and no prefs logic.
+export type CaptureDialogRequest = {
+  type: 'BRUV_OPTIONS'
+  platform: string
+  // "Author · @handle", already composed; empty when the clip has neither.
+  byline: string
+  imageCount: number
+  // Empty when there's nothing downloadable to decide about (text-only
+  // post, or a platform BRUV embeds rather than stores).
+  videoOptions: CaptureDialogVideoOption[]
+  // Plain-language facts about what WILL happen, already localized.
+  notes: string[]
+  deckName: string
+  pinName: string
+  canDeck: boolean
+  defaults: {
+    title: string
+    includeInDeck: boolean
+    videoOptionId: string
+    images: ImageChoice
+  }
+}
+
+export type CaptureDialogResponse = { ok: boolean; choices?: CaptureChoices }
+
 // Messages between content script and background.
-export type ClipRequestMessage = { type: 'BRUV_CLIP'; includeInDeck: boolean }
-export type ClipExtractedMessage = { type: 'BRUV_EXTRACTED'; clip: ClipResult; includeInDeck: boolean }
+export type ClipRequestMessage = { type: 'BRUV_CLIP'; includeInDeck: boolean; withOptions: boolean }
+export type ClipExtractedMessage = {
+  type: 'BRUV_EXTRACTED'
+  clip: ClipResult
+  includeInDeck: boolean
+  // The user picked "Add to BRUV (options…)" — show the dialog whatever the
+  // vault's ask-mode says.
+  withOptions: boolean
+}
 export type ToastMessage = { type: 'BRUV_TOAST'; text: string; ok: boolean }
+// Keeps the service worker's idle timer from expiring while a dialog waits
+// on a human (inbound messages reset it). No payload, no reply.
+export type DialogAliveMessage = { type: 'BRUV_DIALOG_ALIVE' }
+// The dialog's "Change in Options" link — only the worker can open the
+// options page.
+export type OpenOptionsMessage = { type: 'BRUV_OPEN_OPTIONS' }
 
 // Completion flow (background → content): capture the page's PRIMARY unit
 // with no click target. The tab is transient and unattended, so the reply

@@ -122,6 +122,12 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     MatchCaptureURL: async () => '',
     CaptureFromURL: async () => ({ cardId: 'card-1', slideAppended: false, platform: '', pending: false }),
     RetryCapture: async () => ({ cardId: 'card-1', slideAppended: false, platform: '', pending: false }),
+    PreviewCapture: async () => ({
+      url: '', platform: '', supported: false, blocked: false, title: '',
+      prefs: { triggers: {} }, shouldAsk: false,
+    }),
+    GetCapturePrefs: async () => ({ triggers: {} }),
+    SetCapturePrefs: async () => {},
     GetTemplatePrefs: async () => ({}),
     SetTemplatePrefs: async () => {},
     ListPresentingCards: async () => [],

@@ -4,11 +4,27 @@
 // DOM only exposes blob: URLs for video.
 
 import type { ClipperPlugin } from './registry'
-import type { ClipMedia, ClipResult } from '../types'
+import type { ClipMedia, ClipMediaVariant, ClipResult } from '../types'
 
 function statusIdFromUrl(url: string): string {
   const m = url.match(/\/status\/(\d+)/)
   return m ? m[1] : ''
+}
+
+// X serves its mp4s from paths like /vid/avc1/1280x720/…, which is the only
+// place the rendition's dimensions appear. Bitrate is the fallback label.
+function variantLabel(url: string, bitrate: number | undefined): string {
+  const dims = url.match(/\/(\d+)x(\d+)\//)
+  if (dims) return `${dims[1]}×${dims[2]}`
+  return bitrate ? `${Math.round(bitrate / 1000)} kbps` : url.split('/').pop() ?? url
+}
+
+// Size is arithmetic, not a guess: bitrate × duration. Without a duration
+// there is no honest estimate, so the ladder says nothing rather than
+// inventing a number.
+function estimateBytes(bitrate: number | undefined, durationMs: number): number | undefined {
+  if (!bitrate || durationMs <= 0) return undefined
+  return Math.round((bitrate / 8) * (durationMs / 1000))
 }
 
 // Token derivation used by X's own embed endpoint (public knowledge via
@@ -101,6 +117,12 @@ export const twitterPlugin: ClipperPlugin = {
 
   // Resolve video mp4 URLs via cdn.syndication.twimg.com. Degrades to the
   // poster image on any failure — a clip must never die here.
+  //
+  // The WHOLE ladder is recorded, not just the pick: X bot-walls BRUV's
+  // server, so a server-side PreviewCapture of the same tweet comes back
+  // blocked — this is the only place the capture dialog can learn that the
+  // 1080p rung is 3.5 GB. `url` still holds the best rendition, so nothing
+  // downstream changes when no choice is made.
   async enrich(clip: ClipResult): Promise<ClipResult> {
     const id = clip.extras.statusId
     const pendingVideo = clip.media.find((m) => m.kind === 'video' && !m.url)
@@ -113,18 +135,30 @@ export const twitterPlugin: ClipperPlugin = {
       const data = (await res.json()) as {
         mediaDetails?: Array<{
           type?: string
-          video_info?: { variants?: Array<{ content_type?: string; bitrate?: number; url?: string }> }
+          video_info?: {
+            duration_millis?: number
+            variants?: Array<{ content_type?: string; bitrate?: number; url?: string }>
+          }
         }>
       }
-      const variants =
-        data.mediaDetails
-          ?.find((m) => m.type === 'video' || m.type === 'animated_gif')
-          ?.video_info?.variants?.filter((v) => v.content_type === 'video/mp4' && v.url) ?? []
-      // Highest-bitrate mp4 wins.
-      variants.sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))
-      const best = variants[0]?.url
+      const info = data.mediaDetails?.find((m) => m.type === 'video' || m.type === 'animated_gif')?.video_info
+      const mp4s = (info?.variants ?? []).filter(
+        (v): v is { content_type: string; bitrate?: number; url: string } =>
+          v.content_type === 'video/mp4' && typeof v.url === 'string' && v.url.length > 0,
+      )
+      // Ascending (cheapest first) — the order every ladder consumer assumes.
+      mp4s.sort((a, b) => (a.bitrate ?? 0) - (b.bitrate ?? 0))
+      const ladder: ClipMediaVariant[] = mp4s.map((v, i) => ({
+        id: `tw-${v.bitrate ?? i}`,
+        label: variantLabel(v.url, v.bitrate),
+        url: v.url,
+        bitrate: v.bitrate,
+        estBytes: estimateBytes(v.bitrate, info?.duration_millis ?? 0),
+      }))
+      // Highest-bitrate mp4 remains the default rendition.
+      const best = ladder[ladder.length - 1]?.url
       const media = clip.media.map((m) =>
-        m === pendingVideo && best ? { ...m, url: best } : m,
+        m === pendingVideo && best ? { ...m, url: best, variants: ladder } : m,
       )
       // No mp4 found → degrade the video entry to its poster image.
       return {

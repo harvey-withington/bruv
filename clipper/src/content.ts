@@ -4,13 +4,18 @@
 // background worker. Also renders the in-page toast.
 
 import type {
+  CaptureDialogRequest,
+  CaptureDialogResponse,
   ClipExtractedMessage,
   ClipPageRequestMessage,
   ClipPageResponse,
   ClipRequestMessage,
+  DialogAliveMessage,
+  OpenOptionsMessage,
   ToastMessage,
 } from './lib/types'
 import { pluginForUrl } from './lib/plugins/registry'
+import { showCaptureDialog } from './lib/captureDialog'
 
 let lastContextTarget: Element | null = null
 
@@ -68,8 +73,39 @@ function handleClipRequest(msg: ClipRequestMessage): void {
   }
 
   showToast(chrome.i18n.getMessage('toast_clipping'), true)
-  const out: ClipExtractedMessage = { type: 'BRUV_EXTRACTED', clip, includeInDeck: msg.includeInDeck }
+  const out: ClipExtractedMessage = {
+    type: 'BRUV_EXTRACTED',
+    clip,
+    includeInDeck: msg.includeInDeck,
+    withOptions: msg.withOptions,
+  }
   void chrome.runtime.sendMessage(out)
+}
+
+// The worker asks for the user's capture choices. It waits on this answer,
+// so ping it while the dialog is open: an inbound message resets the
+// service worker's idle timer, which would otherwise expire mid-decision.
+const KEEPALIVE_MS = 20_000
+
+async function handleOptionsRequest(request: CaptureDialogRequest): Promise<CaptureDialogResponse> {
+  // The "Clipping…" toast is now a lie — the dialog is the status.
+  document.querySelector('.bruv-clip-toast')?.remove()
+  const ping = setInterval(() => {
+    const alive: DialogAliveMessage = { type: 'BRUV_DIALOG_ALIVE' }
+    void chrome.runtime.sendMessage<DialogAliveMessage, void>(alive).catch(() => undefined)
+  }, KEEPALIVE_MS)
+  try {
+    const outcome = await showCaptureDialog(request)
+    if (outcome.openOptions) {
+      // Only the worker can open the options page.
+      const open: OpenOptionsMessage = { type: 'BRUV_OPEN_OPTIONS' }
+      void chrome.runtime.sendMessage<OpenOptionsMessage, void>(open).catch(() => undefined)
+    }
+    if (outcome.ok) showToast(chrome.i18n.getMessage('toast_clipping'), true)
+    return { ok: outcome.ok, choices: outcome.choices }
+  } finally {
+    clearInterval(ping)
+  }
 }
 
 // Completion capture: no click target, no toast. The background worker
@@ -85,14 +121,17 @@ function handleClipPageRequest(): ClipPageResponse {
 
 chrome.runtime.onMessage.addListener(
   (
-    message: ClipRequestMessage | ToastMessage | ClipPageRequestMessage,
+    message: ClipRequestMessage | ToastMessage | ClipPageRequestMessage | CaptureDialogRequest,
     _sender,
-    sendResponse: (response: ClipPageResponse) => void,
+    sendResponse: (response: ClipPageResponse | CaptureDialogResponse) => void,
   ) => {
     if (message?.type === 'BRUV_CLIP') handleClipRequest(message)
     else if (message?.type === 'BRUV_TOAST') showToast(message.text, message.ok)
     else if (message?.type === 'BRUV_CLIP_PAGE') {
       sendResponse(handleClipPageRequest())
+      return true
+    } else if (message?.type === 'BRUV_OPTIONS') {
+      void handleOptionsRequest(message).then(sendResponse)
       return true
     }
   },

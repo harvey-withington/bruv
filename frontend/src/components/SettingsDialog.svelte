@@ -2,17 +2,18 @@
   import { X, Eye, EyeOff, Search, Bell } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
-  import { GetPreferences, SetPreferences, GetUIPreferences, SetUIPreferences, GetLLMConfig, SetLLMConfig, GetNotifyConfig, SetNotifyConfig, GetLLMAccounts, SaveLLMAccounts, TestSystemNotification, GetDueDateSettings, SaveDueDateSettings } from '@shared/api'
+  import { GetPreferences, SetPreferences, GetUIPreferences, SetUIPreferences, GetLLMConfig, SetLLMConfig, GetNotifyConfig, SetNotifyConfig, GetLLMAccounts, SaveLLMAccounts, TestSystemNotification, GetDueDateSettings, SaveDueDateSettings, GetCapturePrefs, SetCapturePrefs } from '@shared/api'
   import LLMAccountsManager from './LLMAccountsManager.svelte'
   import SlideTemplatePrefsSection from './SlideTemplatePrefsSection.svelte'
-  import type { LLMAccount } from '@shared/types'
+  import CaptureSettingsSection from './CaptureSettingsSection.svelte'
+  import type { LLMAccount, CapturePrefs } from '@shared/types'
   import { theme, setTheme } from '../lib/theme.svelte'
   import { setLocale, availableLocales } from '../lib/i18n.svelte'
   import { nav, prefs as prefsStore } from '../lib/store.svelte'
   import { draggable } from '../lib/draggable'
   import { fade } from 'svelte/transition'
   import { focusTrap } from '../lib/actions'
-  type TabId = 'general' | 'ai' | 'notifications' | 'templates'
+  type TabId = 'general' | 'ai' | 'notifications' | 'templates' | 'capture'
 
   let { onClose, initialTab }: { onClose: () => void; initialTab?: TabId } = $props()
 
@@ -78,6 +79,23 @@
     webhook: false,
   })
 
+  // --- Capture defaults (per-vault, mirrors internal/repo/capture_prefs.go
+  // DefaultCapturePrefs — these fallbacks only matter until the first
+  // GetCapturePrefs response arrives, since the server always fills blanks) ---
+  let capturePrefs = $state<CapturePrefs>({
+    videoMode: 'fit',
+    videoBudgetMB: 50,
+    imageMode: 'all',
+    askMode: 'triggers',
+    triggers: {
+      videoOverMB: 50,
+      galleryOverCount: 8,
+      unsupportedUrl: true,
+      blocked: true,
+      pinMayReject: true,
+    },
+  })
+
   let loaded = $state(false)
 
   $effect(() => { loadAll() })
@@ -87,13 +105,14 @@
       // Server-zone prefs (default category name, due-date config) come
       // over RPC; per-device prefs (theme, locale, layout) come from the
       // local shell / localStorage. One form, two stores.
-      const [p, ui, c, nc, accts, dd] = await Promise.all([
+      const [p, ui, c, nc, accts, dd, cp] = await Promise.all([
         GetPreferences(),
         GetUIPreferences(),
         GetLLMConfig(),
         GetNotifyConfig(),
         GetLLMAccounts(),
         GetDueDateSettings(),
+        GetCapturePrefs(),
       ])
       llmAccounts = accts || []
       if (p) {
@@ -142,6 +161,19 @@
         const ch = (dd.channels || 'in-app,system').split(',').map((s: string) => s.trim())
         dueDateChannels = { system: ch.includes('system'), email: ch.includes('email'), webhook: ch.includes('webhook') }
       }
+      if (cp) {
+        capturePrefs.videoMode = cp.videoMode ?? 'fit'
+        capturePrefs.videoBudgetMB = cp.videoBudgetMB ?? 50
+        capturePrefs.imageMode = cp.imageMode ?? 'all'
+        capturePrefs.askMode = cp.askMode ?? 'triggers'
+        capturePrefs.triggers = {
+          videoOverMB: cp.triggers?.videoOverMB ?? 50,
+          galleryOverCount: cp.triggers?.galleryOverCount ?? 8,
+          unsupportedUrl: cp.triggers?.unsupportedUrl ?? true,
+          blocked: cp.triggers?.blocked ?? true,
+          pinMayReject: cp.triggers?.pinMayReject ?? true,
+        }
+      }
     } catch { /* use defaults */ }
     loaded = true
   }
@@ -166,6 +198,7 @@
         SetNotifyConfig(notifCfg),
         SaveLLMAccounts(llmAccounts),
         SaveDueDateSettings(dueDateEnabled, ddThresholds, ddChannelStr),
+        SetCapturePrefs(capturePrefs),
       ])
       setLocale(prefs.locale)
       nav.sidebarWidth = prefs.sidebar_width
@@ -217,7 +250,16 @@
     { tab: 'notifications', key: 'webhook_url', label: 'webhook url post' },
     { tab: 'notifications', key: 'due_date', label: 'due date notifications reminder overdue' },
     { tab: 'templates', key: 'slide_templates', label: 'slide templates auto matching priority url pattern regex social post clipper' },
+    { tab: 'capture', key: 'capture_video', label: 'capture video quality mode best fit smallest link skip budget mb size' },
+    { tab: 'capture', key: 'capture_images', label: 'capture images gallery all first only link skip' },
+    { tab: 'capture', key: 'capture_ask', label: 'capture ask before dialog always never triggers when it matters' },
+    { tab: 'capture', key: 'capture_triggers', label: 'capture triggers consequential video size gallery count unsupported platform blocked' },
   ]
+
+  // Fields owned by CaptureSettingsSection, gated as one unit (the child
+  // has no fieldVisible plumbing of its own — mirrors how the Templates
+  // tab gates SlideTemplatePrefsSection on a single key).
+  const CAPTURE_KEYS = ['capture_video', 'capture_images', 'capture_ask', 'capture_triggers']
 
   let matchingKeys = $derived.by(() => {
     const q = searchQuery.trim().toLowerCase()
@@ -245,7 +287,7 @@
   // Auto-switch to first matching tab when searching
   $effect(() => {
     if (matchingTabs && !matchingTabs.has(activeTab)) {
-      const first = (['general', 'ai', 'notifications', 'templates'] as TabId[]).find(t => matchingTabs!.has(t))
+      const first = (['general', 'ai', 'notifications', 'templates', 'capture'] as TabId[]).find(t => matchingTabs!.has(t))
       if (first) activeTab = first
     }
   })
@@ -255,6 +297,7 @@
     { id: 'ai', labelKey: 'prefs.tab_ai' },
     { id: 'notifications', labelKey: 'prefs.tab_notifications' },
     { id: 'templates', labelKey: 'prefs.tab_templates' },
+    { id: 'capture', labelKey: 'prefs.tab_capture' },
   ]
 
   function handleOverlayClick(e: MouseEvent) {
@@ -570,6 +613,16 @@
         {#if activeTab === 'templates'}
           {#if fieldVisible('slide_templates')}
             <SlideTemplatePrefsSection />
+          {/if}
+        {/if}
+
+        <!-- CAPTURE TAB — vault-level defaults for what web/mobile clips
+             store and when they prompt. Bound into this dialog's normal
+             Save flow (unlike Templates, nothing here needs to persist
+             mid-edit). -->
+        {#if activeTab === 'capture'}
+          {#if CAPTURE_KEYS.some(fieldVisible)}
+            <CaptureSettingsSection bind:prefs={capturePrefs} />
           {/if}
         {/if}
 

@@ -39,6 +39,7 @@ import (
 	"bruv/internal/config"
 	"bruv/internal/model"
 	inotify "bruv/internal/notify"
+	"bruv/internal/repo"
 )
 
 const (
@@ -67,6 +68,20 @@ type CaptureOpts struct {
 	DeckCardID    string `json:"deckCardID"`
 	DeckBlockID   string `json:"deckBlockID"`
 	CategoryID    string `json:"categoryID"`
+
+	// --- the user's capture-time choices (see capture_preview.go) ---
+	// Empty/zero means "whatever this vault's CapturePrefs say", so a
+	// caller that doesn't present a dialog still behaves as configured.
+
+	// Title overrides the derived card title.
+	Title string `json:"title,omitempty"`
+	// VideoVariantID selects a rung from the preview's ladder.
+	VideoVariantID string `json:"videoVariantId,omitempty"`
+	// VideoMode overrides the vault default for THIS capture:
+	// "link" (don't store, point at the platform) or "skip" (no video).
+	VideoMode string `json:"videoMode,omitempty"`
+	// ImageMode overrides the vault default: all | first | link | skip.
+	ImageMode string `json:"imageMode,omitempty"`
 }
 
 // CaptureResult mirrors the clipper's ClipOutcome, widened with the
@@ -140,8 +155,74 @@ func (r *Runtime) CaptureFromURL(rawURL string, opts CaptureOpts) (*CaptureResul
 		return res, nil
 	}
 
+	// Apply the user's choices (or the vault's defaults) BEFORE anything
+	// is downloaded — that's the whole point of asking first.
+	prefs, prefsErr := r.GetCapturePrefs()
+	if prefsErr != nil {
+		prefs = repo.DefaultCapturePrefs()
+	}
+	applyCaptureChoices(clip, opts, prefs)
+
 	media, avatar := downloadClipMedia(ctx, clip)
 	return r.ingestClip(ctx, "", clip, media, avatar, opts, false)
+}
+
+// applyCaptureChoices rewrites a resolved clip's media to match what the
+// user asked for, falling back to the vault's defaults for anything they
+// didn't specify. Mutates clip in place.
+func applyCaptureChoices(clip *capture.Clip, opts CaptureOpts, prefs CapturePrefs) {
+	videoMode := opts.VideoMode
+	if videoMode == "" {
+		videoMode = prefs.VideoMode
+	}
+	imageMode := opts.ImageMode
+	if imageMode == "" {
+		imageMode = prefs.ImageMode
+	}
+
+	out := make([]capture.Media, 0, len(clip.Media))
+	imagesKept := 0
+	for _, m := range clip.Media {
+		switch m.Kind {
+		case capture.MediaVideo:
+			switch videoMode {
+			case repo.VideoModeSkip:
+				continue
+			case repo.VideoModeLink:
+				m.LinkOnly = true
+				m.Note = "Video linked to the platform rather than stored (your capture setting) — it will stop working if the platform removes it."
+			default:
+				// An explicit rung wins; otherwise whatever the resolver
+				// pre-selected stands.
+				if opts.VideoVariantID != "" {
+					for _, v := range m.Variants {
+						if v.ID == opts.VideoVariantID {
+							m.URL, m.EstBytes = v.URL, v.EstBytes
+							// An explicit choice overrides a size-based
+							// link-only default: if the user picked
+							// 3.5 GB, they meant it.
+							m.LinkOnly, m.Note = false, ""
+							break
+						}
+					}
+				}
+			}
+		case capture.MediaImage:
+			switch imageMode {
+			case repo.ImageModeSkip:
+				continue
+			case repo.ImageModeFirst:
+				if imagesKept >= 1 {
+					continue
+				}
+			case repo.ImageModeLink:
+				m.LinkOnly = true
+			}
+			imagesKept++
+		}
+		out = append(out, m)
+	}
+	clip.Media = out
 }
 
 // RetryCapture re-resolves an existing (typically pending) clip card
@@ -226,7 +307,13 @@ func (r *Runtime) ingestClip(ctx context.Context, existingID string, clip *captu
 	} else {
 		// Failure to provision the type degrades to an untyped card —
 		// never blocks a clip (clipper parity).
-		card, err = r.Card.Create(r.ensureSocialPostType(), captureCardTitle(clip))
+		// A title the user typed in the capture dialog wins over the
+		// derived one.
+		title := strings.TrimSpace(opts.Title)
+		if title == "" {
+			title = captureCardTitle(clip)
+		}
+		card, err = r.Card.Create(r.ensureSocialPostType(), title)
 	}
 	if err != nil {
 		return nil, err

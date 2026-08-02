@@ -45,6 +45,27 @@ type Media struct {
 	LinkOnly bool `json:"linkOnly,omitempty"`
 	// Note explains a degrade in plain words, surfaced to the user.
 	Note string `json:"note,omitempty"`
+	// Variants is every downloadable form the platform offers for this
+	// item (video quality ladder). Carried so the CHOICE can be the
+	// user's at capture time rather than a rule baked in here — the
+	// resolver reports what exists, prefs and the capture dialog decide
+	// what to take. Empty for media with only one form.
+	Variants []MediaVariant `json:"variants,omitempty"`
+	// EstBytes is the estimated size of URL, 0 when unknowable.
+	EstBytes int64 `json:"estBytes,omitempty"`
+}
+
+// MediaVariant is one downloadable form of a media item — a video quality
+// rung. EstBytes is computed from bitrate × duration where the platform
+// reports both, which is what lets the capture dialog show real numbers
+// ("1280×720 · ~725 MB") instead of asking the user to guess.
+type MediaVariant struct {
+	// ID is stable within one preview so the UI can name a choice back.
+	ID       string `json:"id"`
+	Label    string `json:"label"` // "1280×720"
+	URL      string `json:"url"`
+	Bitrate  int64  `json:"bitrate,omitempty"`
+	EstBytes int64  `json:"estBytes,omitempty"`
 }
 
 // EmbedVideo references playback via the platform's official player for

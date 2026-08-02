@@ -1,22 +1,16 @@
 <script lang="ts">
   import { Share2 } from 'lucide-svelte'
-  import { repoRPC } from '../lib/auth'
-  import { navigate, cardURL } from '../lib/router.svelte'
+  import { navigate } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
-  import { showToast } from '../lib/toast.svelte'
-  import {
-    loadCapturePrefs,
-    saveCapturePrefs,
-    captureOptsFrom,
-    type CapturePrefs,
-  } from '../lib/capturePrefs'
-  import { savePlainShare, seedShareParams } from '../lib/shareCapture'
+  import { loadCapturePrefs, saveCapturePrefs, type CapturePrefs } from '../lib/capturePrefs'
+  import { seedShareParams } from '../lib/shareCapture'
   import { createPreflight } from '../lib/capturePreflight.svelte'
+  import { createShareFlow } from '../lib/shareFlow.svelte'
   import ShareFields from '../components/ShareFields.svelte'
   import ClipTargetControls from '../components/ClipTargetControls.svelte'
   import ClipOutcomePanel from '../components/ClipOutcomePanel.svelte'
   import ShareActions from '../components/ShareActions.svelte'
-  import type { CaptureResult } from '@shared/types'
+  import CaptureOptionsSheet from '../components/CaptureOptionsSheet.svelte'
 
   // Landing page for shares from the Android system share sheet, and the
   // home "Clip a link" tile.
@@ -25,6 +19,11 @@
   // into CLIP MODE (BRUV resolves the post itself and builds the card),
   // anything else stays in PLAIN MODE (title/text/url → a plain card).
   // Both modes can append a slide to a sticky deck target.
+  //
+  // A capture the vault calls consequential (an oversized video, a big
+  // gallery, a blocked or unsupported link — thresholds are the user's,
+  // in Settings → Capture) opens the Capture Options sheet first instead
+  // of deciding for them. Options is always reachable by hand.
 
   function readParam(name: string): string {
     if (typeof window === 'undefined') return ''
@@ -40,11 +39,17 @@
   let text = $state(seeded.text)
   let url = $state(seeded.url)
 
-  const preflight = createPreflight()
-  let saving = $state(false)
-  let errorMsg = $state<string | null>(null)
-  let outcome = $state<CaptureResult | null>(null)
   let prefs = $state<CapturePrefs>(loadCapturePrefs())
+
+  const preflight = createPreflight()
+  // Save/Options and everything they can end in live in lib/shareFlow —
+  // the branches there are the load-bearing part, and the page shouldn't
+  // bury them.
+  const flow = createShareFlow(
+    preflight,
+    () => ({ title, text, url, prefs }),
+    (next) => (title = next),
+  )
 
   const platform = $derived(preflight.platform)
   const platformLabel = $derived(platform ? platform[0].toUpperCase() + platform.slice(1) : '')
@@ -98,81 +103,8 @@
     return () => preflight.cancel()
   })
 
-  // --- Saving ---------------------------------------------------------
-
-  async function saveClip() {
-    const u = url.trim()
-    const opts = captureOptsFrom(prefs)
-    const result = await repoRPC<CaptureResult>('CaptureFromURL', [u, opts])
-    // A bounced pin (accepted-types gate, stale category, unpinned deck
-    // mirror) lands the card in the Inbox — say so, with the server's
-    // reason, instead of celebrating a destination that was ignored.
-    if (result.pinFailed) {
-      showToast(t('share.pin_failed', { error: result.pinError ?? '' }), 'warning', 7000)
-    }
-    // A video kept as a platform link rather than stored: the card works,
-    // but it depends on the platform now — say so rather than let the
-    // user find out when it stops playing.
-    for (const note of result.mediaNotes ?? []) {
-      showToast(note, 'warning', 9000)
-    }
-    if (result.pending) {
-      // Never navigate away like a success — the clip is half-done and
-      // the user needs to know where to finish it.
-      outcome = result
-      return
-    }
-    showToast(t('share.clipped'), 'success')
-    if (opts.includeInDeck && !result.slideAppended) {
-      showToast(t('share.deck_append_failed'), 'warning')
-    }
-    navigate(cardURL(result.cardId))
-  }
-
-  async function savePlain() {
-    const result = await savePlainShare({ title, text, url, prefs })
-    if (result.deckFailed) showToast(t('share.deck_append_failed'), 'warning')
-    navigate(cardURL(result.cardID))
-  }
-
-  async function save() {
-    if (saving || !canSave) return
-    saving = true
-    errorMsg = null
-    try {
-      const u = url.trim()
-      // Never let a fast Save beat the check: without a verdict about
-      // THIS url we'd silently take the plain path and save a clippable
-      // link as a bare card (a YouTube share did exactly that on
-      // 2026-08-02). Await the answer first.
-      if (u && !preflight.hasVerdictFor(u)) {
-        preflight.cancel()
-        await preflight.check(u)
-      }
-      if (platform) await saveClip()
-      else if (u && preflight.failed) await saveClipOrPlain()
-      else await savePlain()
-    } catch (err) {
-      errorMsg = err instanceof Error ? err.message : t(platform ? 'share.err_capture' : 'share.err_save')
-    } finally {
-      saving = false
-    }
-  }
-
-  /** The check couldn't run, so we don't know whether this URL is
-   *  clippable. Ask the server to capture it — it's the authority — and
-   *  fall back to a plain card only when it says it has no plugin.
-   *  Guessing "plain" here is the expensive mistake: a bare card for a
-   *  supported post is tedious to fix, an error message isn't. */
-  async function saveClipOrPlain() {
-    try {
-      await saveClip()
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      // Matches the server's own wording in supervisor/capture.go.
-      if (msg.includes('no capture support')) await savePlain()
-      else throw err
-    }
+  function save() {
+    if (canSave) void flow.save()
   }
 
   function cancel() {
@@ -189,11 +121,11 @@
 </header>
 
 <main>
-  {#if outcome}
+  {#if flow.outcome}
     <ClipOutcomePanel
-      platform={platformLabel || outcome.platform}
-      cardId={outcome.cardId}
-      slideAppended={outcome.slideAppended}
+      platform={platformLabel || flow.outcome.platform}
+      cardId={flow.outcome.cardId}
+      slideAppended={flow.outcome.slideAppended}
     />
   {:else}
     {#if !platform && !unsupportedHost}
@@ -206,8 +138,8 @@
       bind:title
       bind:text
       bind:url
-      disabled={saving}
-      onPasteError={(msg) => (errorMsg = msg)}
+      disabled={flow.saving}
+      onPasteError={(msg) => flow.setError(msg)}
     />
 
     {#if preflight.checking}
@@ -221,20 +153,32 @@
     <ClipTargetControls
       {prefs}
       onChange={updatePrefs}
-      disabled={saving}
+      disabled={flow.saving}
       showPin={!!platform}
     />
 
     <ShareActions
-      {errorMsg}
-      {saving}
+      errorMsg={flow.errorMsg}
+      saving={flow.saving}
       {canSave}
       isClip={!!platform}
+      showOptions={!!url.trim()}
       onCancel={cancel}
+      onOptions={() => void flow.openOptions()}
       onSave={save}
     />
   {/if}
 </main>
+
+{#if flow.optionsPreview}
+  <CaptureOptionsSheet
+    preview={flow.optionsPreview}
+    {prefs}
+    onPrefsChange={updatePrefs}
+    onConfirm={(choices) => void flow.confirmOptions(choices)}
+    onClose={() => flow.closeOptions()}
+  />
+{/if}
 
 <style>
   .topbar {

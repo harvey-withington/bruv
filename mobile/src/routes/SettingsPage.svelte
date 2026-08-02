@@ -8,10 +8,11 @@
   import * as push from '../lib/push.svelte'
   import { t } from '../lib/i18n.svelte'
   import ConfirmDialog from '../components/ConfirmDialog.svelte'
+  import CaptureSettings from '../components/CaptureSettings.svelte'
 
   // Mobile settings page. Phone-shaped: a flat scroll of grouped rows,
   // tap-to-act. No nested screens — every setting fits on this page.
-  // Sections: Display / Notifications / Account / About.
+  // Sections: Display / Notifications / Capture / Activity / Account.
 
   let pushStatus = $state<push.PushStatus>('unsupported')
   let pushBusy = $state(false)
@@ -128,6 +129,12 @@
     {#if pushError}
       <p class="error" role="alert">{pushError}</p>
     {/if}
+  </section>
+
+  <!-- Capture (per vault, shared with the desktop clipper) -->
+  <section class="group">
+    <h2 class="group-title">{t('settings.capture')}</h2>
+    <CaptureSettings />
   </section>
 
   <!-- Activity & history -->

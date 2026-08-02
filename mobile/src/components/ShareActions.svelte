@@ -1,17 +1,24 @@
 <script lang="ts">
+  import { SlidersHorizontal } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
 
   // The share page's commit bar: the inline error rail plus Cancel /
-  // Save. Extracted so SharePage stays a view — the button label is the
-  // only place the two modes differ down here (Clip vs Save), and the
-  // error rail belongs with the action that produces it.
+  // Options / Save. Extracted so SharePage stays a view — the button
+  // label is the only place the two modes differ down here (Clip vs
+  // Save), and the error rail belongs with the action that produces it.
+  //
+  // Options is always on offer, not just when a trigger fires: the
+  // capture choices belong to the user (Harvey, 2026-08-02), so there
+  // must be a way to reach them without waiting to be asked.
 
   let {
     errorMsg = null,
     saving = false,
     canSave = false,
     isClip = false,
+    showOptions = false,
     onCancel,
+    onOptions,
     onSave,
   }: {
     errorMsg?: string | null
@@ -19,7 +26,9 @@
     canSave?: boolean
     /** Clip mode relabels the primary action — same button, honest verb. */
     isClip?: boolean
+    showOptions?: boolean
     onCancel: () => void
+    onOptions?: () => void
     onSave: () => void
   } = $props()
 </script>
@@ -32,6 +41,12 @@
   <button type="button" class="ghost" onclick={onCancel} disabled={saving}>
     {t('common.cancel')}
   </button>
+  {#if showOptions && onOptions}
+    <button type="button" class="ghost options" onclick={onOptions} disabled={saving}>
+      <SlidersHorizontal size={14} />
+      {t('share.options')}
+    </button>
+  {/if}
   <button type="button" class="primary" onclick={onSave} disabled={saving || !canSave}>
     {#if isClip}
       {saving ? t('share.clipping') : t('share.clip')}
@@ -73,6 +88,13 @@
     background: transparent;
     color: var(--text-muted);
     border-color: var(--border);
+  }
+
+  .options {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding-inline: 0.85rem;
   }
   .ghost:hover:not(:disabled),
   .ghost:focus-visible:not(:disabled) {

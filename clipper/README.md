@@ -79,6 +79,39 @@ so nothing rots) and drain automatically once it's back — or via **Retry
 now** in the popup. While the server is down the popup greys out what it
 can't do, rather than pretending.
 
+## Capture options (the dialog)
+
+Capture decisions are yours, made at capture time and pre-filled from your
+vault's capture defaults (BRUV → Settings → Capture; they live in the vault,
+so the phone and this extension agree). Design:
+`plan/2026-08-02 capture options at capture time.md`.
+
+**Right-click → "Add to BRUV (options…)"** always shows the dialog. The other
+two menu items show it only when your own triggers say the decision is
+consequential — an oversized video, a gallery over N images, a platform that
+blocks BRUV's server — and capture silently otherwise. Set
+Settings → Capture → "Show the capture dialog" to *always* or *never* to move
+that line. (It's a third menu item rather than Shift+click because Chrome's
+context-menu events don't report modifier keys.)
+
+The dialog offers:
+
+- **Title** — pre-filled, editable.
+- **Video** — every quality as a real choice, each with its estimated size
+  (`1280×720 · ~725 MB`), plus *Link only* and *Skip*. The ladder comes from
+  the plugin when it has one (X's syndication API) and from the server's
+  `PreviewCapture` otherwise. Downloading happens **here**, in your
+  logged-in browser — so "store the 3.5 GB rung" means exactly that.
+- **Images** — all / first only / link only / skip.
+- **Destination** — the deck and pin targets shown read-only (they're sticky
+  settings: deck in the popup, pin in Options), plus a live *Add a slide to
+  this deck* checkbox for this capture.
+
+Honesty rules: when BRUV's server can't read the URL (X blocks it) or has no
+reader for the site, the dialog says so — the capture still runs from the
+page in front of you, but the size estimates then come from the page alone.
+Escape or a click outside cancels and nothing is written.
+
 ## Pending clips (completing a phone capture)
 
 When you share a URL to BRUV from your phone and the platform blocks the
@@ -118,6 +151,34 @@ browser that's already logged in.
       (or wait a minute) → card + slide appear.
 - [ ] Present the deck → slides render on the x-post template with avatar,
       name, @handle, text, media, date.
+
+### Capture options dialog
+
+- [ ] Clip a **video tweet** with defaults (ask on video over 50 MB) → the
+      dialog appears listing every quality with a size; Capture stores the
+      pre-selected one.
+- [ ] Pick the **largest** rung on a long video → it downloads (slowly) and
+      lands as an attachment, not a poster image.
+- [ ] Pick **Link only** → the card's Video block holds the platform URL and
+      no video attachment is created; the slide still plays.
+- [ ] Pick **Skip** → no video at all, and the rest of the card is intact.
+- [ ] Clip a **gallery** over the gallery trigger → dialog says how many
+      images; *First image only* attaches exactly one.
+- [ ] Edit the **title** → the created card uses the edited title.
+- [ ] **Escape**, a click on the backdrop, and **Cancel** each close the
+      dialog and create nothing (toast says so).
+- [ ] Keystrokes in the title field don't trigger the host page's shortcuts
+      (test on x.com, which binds single-key shortcuts).
+- [ ] The dialog looks right on a light-themed site and on X — no inherited
+      page styling, nothing clipped off-screen at small window sizes.
+- [ ] "Add to BRUV (options…)" on a **text-only** post → dialog shows title
+      and destination only (no video/images sections).
+- [ ] Leave the dialog open for a few minutes, then Capture → it still lands
+      (the content script pings the service worker to keep it alive).
+- [ ] Settings → Capture → "never" → right-click capture never shows the
+      dialog and applies the defaults.
+- [ ] Stop the server → "Add to BRUV (options…)" → the dialog still appears
+      (defaults, no size estimates) and the clip queues after Capture.
 
 ### Truth Social
 

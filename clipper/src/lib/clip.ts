@@ -8,7 +8,14 @@
 // URLs can't rot while a job waits offline — attachments are the durable
 // home, never remote links.
 
-import { PIN_WITH_DECK, type ClipJob, type ClipMediaKind, type ClipResult, type ClipperSettings } from './types'
+import {
+  PIN_WITH_DECK,
+  type CaptureChoices,
+  type ClipJob,
+  type ClipMediaKind,
+  type ClipResult,
+  type ClipperSettings,
+} from './types'
 import { repoRPC } from './api'
 
 type Card = {
@@ -39,16 +46,58 @@ async function toBase64(blob: Blob): Promise<string> {
   return btoa(bin)
 }
 
-// downloadMedia fetches every media item + the avatar into the job so it is
-// fully self-contained. Individual failures drop that item, never the clip.
-export async function buildJob(clip: ClipResult, includeInDeck: boolean): Promise<ClipJob> {
+// buildJob fetches the media the user asked for (plus the avatar) into the
+// job so it is fully self-contained. Individual failures drop that item,
+// never the clip.
+//
+// `choices` carries the user's capture-time decisions (or the vault
+// defaults when the dialog wasn't shown). Absent = store everything, which
+// is what the extension did before capture options existed — and what a
+// job queued by an older build still expects. Downloading stays HERE, in
+// the logged-in browser: that authenticated context is the extension's
+// whole reason to exist, so "store the 3.5 GB rung" means store it.
+export async function buildJob(
+  clip: ClipResult,
+  includeInDeck: boolean,
+  choices?: CaptureChoices,
+): Promise<ClipJob> {
+  const imageChoice = choices?.images ?? 'all'
+  const videoChoice = choices?.video ?? 'store'
   const media: ClipJob['media'] = []
+  const linkMedia: NonNullable<ClipJob['linkMedia']> = []
   let n = 0
+  let images = 0
+  let videos = 0
+
   for (const m of clip.media) {
-    if (!m.url) continue
+    const isVideo = m.kind === 'video'
+    // A chosen rung replaces the plugin's own pick — but only for the FIRST
+    // video, since a ladder describes one video and nothing we capture
+    // serves two. Counters advance only for items that HAVE a URL, so an
+    // unresolved entry can't make "first image only" skip a real one.
+    const url = isVideo && videos === 0 && choices?.videoUrl ? choices.videoUrl : m.url
+    if (!url) continue
+    if (isVideo) videos++
+    else images++
+
+    if (isVideo) {
+      if (videoChoice === 'skip') continue
+      if (videoChoice === 'link') {
+        linkMedia.push({ url, kind: 'video' })
+        continue
+      }
+    } else {
+      if (imageChoice === 'skip') continue
+      if (imageChoice === 'first' && images > 1) continue
+      if (imageChoice === 'link') {
+        linkMedia.push({ url, kind: 'image' })
+        continue
+      }
+    }
+
     try {
-      const res = await fetch(m.url)
-      if (!res.ok) continue
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const blob = await res.blob()
       n++
       media.push({
@@ -57,7 +106,11 @@ export async function buildJob(clip: ClipResult, includeInDeck: boolean): Promis
         kind: m.kind,
       })
     } catch {
-      // Unreachable media item — skip it; text + link still carry the clip.
+      // A video that won't download is kept as a platform link rather than
+      // vanishing (the same rule the server applies) — the slide still
+      // plays, it just depends on the platform's CDN. An unreachable image
+      // is dropped; text + link still carry the clip.
+      if (isVideo) linkMedia.push({ url, kind: 'video' })
     }
   }
 
@@ -80,13 +133,17 @@ export async function buildJob(clip: ClipResult, includeInDeck: boolean): Promis
     clip,
     includeInDeck,
     media,
+    linkMedia: linkMedia.length > 0 ? linkMedia : undefined,
+    title: choices?.title?.trim() || undefined,
     avatarBase64,
     avatarName,
     attempts: 0,
   }
 }
 
-function cardTitle(clip: ClipResult): string {
+// cardTitle is the derived title — the capture dialog pre-fills its title
+// field with it (and the user's edit wins, via ClipJob.title).
+export function cardTitle(clip: ClipResult): string {
   const who = clip.handle || clip.author || clip.platform
   const text = clip.text.replace(/\s+/g, ' ').trim()
   return text ? `${who}: ${text.slice(0, 60)}${text.length > 60 ? '…' : ''}` : who
@@ -181,7 +238,8 @@ export async function executeJob(s: ClipperSettings, job: ClipJob): Promise<Clip
   // rather than baking values in. "Add to BRUV" alone loses nothing, and a
   // card-only clip can be linked into a slide later via the Slide Editor.
   const typeID = await ensureSocialPostType(s)
-  const card = await repoRPC<Card>(s, 'CreateCard', [typeID, cardTitle(clip)])
+  // The title the user typed in the capture dialog wins; otherwise derive it.
+  const card = await repoRPC<Card>(s, 'CreateCard', [typeID, job.title?.trim() || cardTitle(clip)])
   const cardID = card.id
 
   // Attachments first — the blocks reference them. EVERY image ref is
@@ -197,6 +255,18 @@ export async function executeJob(s: ClipperSettings, job: ClipJob): Promise<Clip
     if (m.kind === 'video' && !firstVideoRef) firstVideoRef = ref
     if (m.kind === 'image') imageRefs.push(ref)
   }
+  // Media the user chose to keep as a link (or a video that wouldn't
+  // download) goes into the block as its URL. A choice applies to a whole
+  // kind at once, so appending after the attachment refs can never
+  // interleave a gallery out of order.
+  for (const lm of job.linkMedia ?? []) {
+    if (lm.kind === 'video') {
+      if (!firstVideoRef) firstVideoRef = lm.url
+    } else {
+      imageRefs.push(lm.url)
+    }
+  }
+
   let avatarRef = ''
   if (job.avatarBase64 && job.avatarName) {
     const attID = await addAttachment(s, cardID, known, job.avatarName, job.avatarBase64)

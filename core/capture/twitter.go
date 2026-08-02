@@ -123,7 +123,16 @@ func (r twitterResolver) Resolve(ctx context.Context, c *Client, rawURL string) 
 				durationMS = m.Video.DurationMS
 			}
 			if picked, ok := pickVideoVariant(variants, durationMS); ok {
-				clip.Media = append(clip.Media, picked.media(m.MediaURL))
+				media := picked.media(m.MediaURL)
+				// Report the whole ladder so the capture dialog can offer
+				// it; the pick above is only the DEFAULT.
+				media.Variants = videoVariantLadder(variants, durationMS)
+				for _, v := range media.Variants {
+					if v.URL == media.URL {
+						media.EstBytes = v.EstBytes
+					}
+				}
+				clip.Media = append(clip.Media, media)
 			} else if m.MediaURL != "" {
 				// Genuinely no mp4 (HLS-only) — the poster is all there is.
 				clip.Media = append(clip.Media, Media{URL: m.MediaURL, Kind: MediaImage})
@@ -168,6 +177,60 @@ func (p videoPick) media(posterURL string) Media {
 // the transport's hard cap, because the whole file is held in memory (and
 // base64'd, +33%) on the way into attachment storage.
 const videoBudgetBytes = 48 << 20
+
+// videoVariantLadder reports every mp4 rung the platform offers, cheapest
+// first, with sizes where they can be computed. The capture dialog shows
+// this so "1280×720 · ~725 MB" is a real, informed choice rather than a
+// preference BRUV expresses on the user's behalf.
+func videoVariantLadder(variants []syndicationVariant, durationMS int64) []MediaVariant {
+	var out []MediaVariant
+	for _, v := range variants {
+		if v.ContentType != "video/mp4" || v.URL == "" {
+			continue
+		}
+		out = append(out, MediaVariant{
+			ID:       variantIDFromURL(v.URL),
+			Label:    variantLabelFromURL(v.URL),
+			URL:      v.URL,
+			Bitrate:  v.Bitrate,
+			EstBytes: estimateBytes(v.Bitrate, durationMS),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Bitrate < out[j].Bitrate })
+	return out
+}
+
+// estimateBytes turns bitrate + duration into a size; 0 when either is
+// unknown (the download cap stays the backstop in that case).
+func estimateBytes(bitrate, durationMS int64) int64 {
+	if bitrate <= 0 || durationMS <= 0 {
+		return 0
+	}
+	return bitrate / 8 * durationMS / 1000
+}
+
+// Twitter encodes the resolution in the variant path
+// (…/vid/avc1/1280x720/Abc.mp4), which is the most human-meaningful label
+// available without probing the file.
+var variantDimsRe = regexp.MustCompile(`/(\d+)x(\d+)/`)
+
+func variantLabelFromURL(u string) string {
+	if m := variantDimsRe.FindStringSubmatch(u); m != nil {
+		return m[1] + "×" + m[2]
+	}
+	return "Video"
+}
+
+func variantIDFromURL(u string) string {
+	if m := variantDimsRe.FindStringSubmatch(u); m != nil {
+		return m[1] + "x" + m[2]
+	}
+	// Stable enough within one preview: the filename.
+	if i := strings.LastIndex(u, "/"); i >= 0 && i+1 < len(u) {
+		return u[i+1:]
+	}
+	return u
+}
 
 // pickVideoVariant chooses which mp4 to take.
 //

@@ -292,6 +292,13 @@ export type CaptureOpts = {
   deckCardID?: string
   deckBlockID?: string
   categoryID?: string
+  /** The user's capture-time choices. Anything omitted falls back to the
+   *  vault's CapturePrefs, so a caller with no dialog still behaves as
+   *  configured. */
+  title?: string
+  videoVariantId?: string
+  videoMode?: VideoMode
+  imageMode?: ImageMode
 }
 
 // Result of CaptureFromURL/RetryCapture. pending=true means the resolver
@@ -317,6 +324,84 @@ export type CaptureResult = {
 // The clip-pending marker tag — user-visible chip by design (searchable
 // on every surface); the extension polls it for badge + pending list.
 export const CLIP_PENDING_TAG = 'clip-pending'
+
+// --- Capture options (plan/2026-08-02 capture options at capture time) ---
+//
+// Every capture defect in the 07-31/08-02 build was BRUV deciding for the
+// user — which video rung, what "too large" means, thumbnail-vs-video.
+// These types exist so the decision is theirs, pre-populated but never
+// assumed. Defaults live per VAULT so phone, extension and desktop agree.
+
+export type VideoMode = 'fit' | 'best' | 'smallest' | 'link' | 'skip'
+export type ImageMode = 'all' | 'first' | 'link' | 'skip'
+export type AskMode = 'always' | 'triggers' | 'never'
+
+/** The user's own definition of "consequential" — a zero/false entry
+ *  turns that trigger off. Asked for explicitly (Harvey, 2026-08-02:
+ *  "How do we define consequential? That would need to come from the
+ *  user in a setting."). */
+export type CaptureTriggers = {
+  videoOverMB?: number
+  galleryOverCount?: number
+  unsupportedUrl?: boolean
+  blocked?: boolean
+  pinMayReject?: boolean
+}
+
+export type CapturePrefs = {
+  videoMode?: VideoMode
+  /** Bounds 'fit'. Separate from videoOverMB on purpose: how much you'll
+   *  STORE and when you want to be ASKED are different questions. */
+  videoBudgetMB?: number
+  imageMode?: ImageMode
+  askMode?: AskMode
+  triggers: CaptureTriggers
+}
+
+/** One rung of a video quality ladder, with the size worked out from
+ *  bitrate × duration so the dialog can show "1280×720 · ~725 MB". */
+export type MediaVariant = {
+  id: string
+  label: string
+  url: string
+  bitrate?: number
+  estBytes?: number
+}
+
+export type CaptureMediaPreview = {
+  kind: 'image' | 'video'
+  url: string
+  posterUrl?: string
+  estBytes?: number
+  variants?: MediaVariant[]
+  /** The rung this vault's prefs would take — pre-select it so the
+   *  common case stays one tap. Empty means "link, don't store". */
+  defaultVariantId?: string
+  note?: string
+}
+
+/** What capturing this URL WOULD do. Writes nothing. */
+export type CapturePreview = {
+  url: string
+  platform: string
+  supported: boolean
+  /** A resolver claimed it but the platform refused the server — capture
+   *  would land a pending clip for the desktop extension to complete. */
+  blocked: boolean
+  blockedError?: string
+  title: string
+  author?: string
+  handle?: string
+  text?: string
+  publishedAt?: string
+  media?: CaptureMediaPreview[]
+  prefs: CapturePrefs
+  /** The vault's own answer to "is this consequential?", computed from
+   *  the user's thresholds. askReasons names which trigger fired
+   *  ('video_large' | 'gallery_large' | 'unsupported' | 'blocked'). */
+  shouldAsk: boolean
+  askReasons?: string[]
+}
 
 // Result of GetLocalServerStatus — see the BackendAdapter entry.
 export type LocalServerStatus = {
@@ -975,6 +1060,12 @@ export interface BackendAdapter {
   MatchCaptureURL(url: string): Promise<string>
   CaptureFromURL(url: string, opts: CaptureOpts): Promise<CaptureResult>
   RetryCapture(cardID: string): Promise<CaptureResult>
+  /** Resolve a URL and report what capturing it WOULD do — media
+   *  inventory, video ladder with sizes, and whether the user's own
+   *  triggers say to show the dialog. Writes nothing. */
+  PreviewCapture(url: string): Promise<CapturePreview>
+  GetCapturePrefs(): Promise<CapturePrefs>
+  SetCapturePrefs(prefs: CapturePrefs): Promise<void>
 
   // Vault-level slide-template preferences (Auto priority order +
   // per-template urlHint regex overrides). Stored blindly server-side;

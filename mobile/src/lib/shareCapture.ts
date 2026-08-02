@@ -1,13 +1,14 @@
-// Persistence for the share page's PLAIN mode (the clip mode path is a
-// single CaptureFromURL call and lives in the page).
+// Persistence for the share page — both modes.
 //
 // Kept out of the component so SharePage stays a view: the ordering
 // rules here — description vs bound URL block, card-first-then-slide —
-// are data concerns, and they're the part worth reading on its own.
+// are data concerns, and they're the part worth reading on its own. The
+// clip path lives here too because the same question applies to it: what
+// did the server actually do, and what must the user be told about it?
 
 import { repoRPC } from './auth'
 import { t } from './i18n.svelte'
-import type { Block, Card, Slide } from '@shared/types'
+import type { Block, Card, CaptureOpts, CaptureResult, Slide } from '@shared/types'
 import type { CapturePrefs, DeckTarget } from './capturePrefs'
 
 /** First http(s) token in a blob of shared text. */
@@ -36,6 +37,43 @@ export function seedShareParams(
   const lifted = match[0].replace(/[)\].,!?'"]+$/, '')
   const remaining = text.replace(match[0], '').replace(/\s{2,}/g, ' ').trim()
   return { title, text: remaining, url: lifted }
+}
+
+/** A thing the user must be told after a capture, already localized.
+ *  `ms` overrides the toast's default dwell for the long ones. */
+export type CaptureWarning = { text: string; ms?: number }
+
+export type ClipReport = {
+  result: CaptureResult
+  warnings: CaptureWarning[]
+  /** The clip is half-done (the platform blocked the server): show the
+   *  pending panel, never navigate away like a success. */
+  pending: boolean
+}
+
+/**
+ * Capture a URL server-side and work out what the user has to hear about
+ * it. Every warning here is a case where BRUV did something OTHER than
+ * what was asked — a bounced pin, a video kept as a link, a deck slide
+ * that didn't land. Silence on any of them is the bug this whole feature
+ * exists to kill.
+ */
+export async function saveClipShare(url: string, opts: CaptureOpts): Promise<ClipReport> {
+  const result = await repoRPC<CaptureResult>('CaptureFromURL', [url, opts])
+  const warnings: CaptureWarning[] = []
+  // A bounced pin (accepted-types gate, stale category, unpinned deck
+  // mirror) lands the card in the Inbox — say so, with the server's
+  // reason, instead of celebrating a destination that was ignored.
+  if (result.pinFailed) {
+    warnings.push({ text: t('share.pin_failed', { error: result.pinError ?? '' }), ms: 7000 })
+  }
+  // Media kept in a degraded form (a video linked rather than stored):
+  // the card works, but it depends on the platform now.
+  for (const note of result.mediaNotes ?? []) warnings.push({ text: note, ms: 9000 })
+  if (!result.pending && opts.includeInDeck && !result.slideAppended) {
+    warnings.push({ text: t('share.deck_append_failed') })
+  }
+  return { result, warnings, pending: result.pending }
 }
 
 export type PlainShareInput = {

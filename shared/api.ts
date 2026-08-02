@@ -38,6 +38,9 @@ export const AppendDeckSlide = (...args: Parameters<ReturnType<typeof getBackend
 export const MatchCaptureURL = (...args: Parameters<ReturnType<typeof getBackend>['MatchCaptureURL']>) => getBackend().MatchCaptureURL(...args)
 export const CaptureFromURL = (...args: Parameters<ReturnType<typeof getBackend>['CaptureFromURL']>) => getBackend().CaptureFromURL(...args)
 export const RetryCapture = (...args: Parameters<ReturnType<typeof getBackend>['RetryCapture']>) => getBackend().RetryCapture(...args)
+export const PreviewCapture = (...args: Parameters<ReturnType<typeof getBackend>['PreviewCapture']>) => getBackend().PreviewCapture(...args)
+export const GetCapturePrefs = () => getBackend().GetCapturePrefs()
+export const SetCapturePrefs = (...args: Parameters<ReturnType<typeof getBackend>['SetCapturePrefs']>) => getBackend().SetCapturePrefs(...args)
 
 // Vault-level slide-template preferences (Auto matching)
 export const GetTemplatePrefs = () => getBackend().GetTemplatePrefs()

@@ -1,83 +1,335 @@
 {
-  "ext_name": { "message": "BRUV Clipper" },
-  "ext_description": { "message": "Capture posts into BRUV cards and slide decks" },
-
-  "menu_clip": { "message": "Add to BRUV" },
-  "menu_clip_deck": { "message": "Add to BRUV + slide deck" },
-
-  "toast_clipping": { "message": "Clipping…" },
-  "toast_clipped": { "message": "Added to BRUV" },
-  "toast_clipped_deck": { "message": "Added to BRUV — slide appended" },
-  "toast_clipped_no_pin": { "message": "Clipped, but couldn't pin — the card is in the Inbox. Check the pin target in Options (the category may not accept this card type, or belongs to another vault)." },
-  "toast_queued": { "message": "Server unreachable — clip queued, will retry" },
-  "toast_failed": { "message": "Clip failed — see the extension console" },
-  "toast_not_paired": { "message": "BRUV Clipper isn't paired yet — open its options" },
-  "toast_no_deck": { "message": "No deck target set — pick one in the BRUV Clipper popup" },
-  "toast_no_plugin": { "message": "Nothing clippable on this site yet" },
-  "toast_no_unit": { "message": "Couldn't find a post here — right-click directly on one" },
-  "toast_extract_failed": { "message": "Couldn't read this post" },
-
-  "popup_title": { "message": "BRUV Clipper" },
-  "popup_not_paired": { "message": "Not paired with a BRUV server." },
-  "popup_options": { "message": "Options" },
-  "popup_no_results": { "message": "No matching cards" },
-  "popup_offline": { "message": "Can't reach BRUV at {url}. Deck and pending clips are unavailable until it's back — for a local server, start the desktop app. Clips you make now are queued and sent automatically." },
-  "popup_offline_retry": { "message": "Try again" },
-  "popup_deck_target": { "message": "Slide deck target" },
-  "popup_no_deck": { "message": "No deck selected — clips become cards only" },
-  "popup_untitled": { "message": "Untitled" },
-  "popup_card_has_no_deck": { "message": "That card has no slide deck block" },
-  "popup_deck_set": { "message": "Deck target set" },
-  "popup_new_deck": { "message": "New deck…" },
-  "popup_new_deck_create": { "message": "Create" },
-  "popup_cancel": { "message": "Cancel" },
-  "popup_deck_created": { "message": "Deck created and targeted" },
-  "popup_queue_empty": { "message": "No queued clips" },
-  "popup_queue_count": { "message": "{n} clip(s) waiting to sync" },
-  "popup_queue_failed": { "message": "{n} failing" },
-  "popup_retry": { "message": "Retry now" },
-  "popup_retry_done": { "message": "Synced {n} clip(s)" },
-  "popup_discard": { "message": "Discard all" },
-  "popup_discard_confirm": { "message": "Really discard?" },
-  "popup_pending_title": { "message": "Pending clips" },
-  "popup_pending_complete": { "message": "Complete" },
-  "popup_pending_complete_all": { "message": "Complete all" },
-  "popup_pending_running": { "message": "Completing…" },
-  "popup_pending_done": { "message": "Done" },
-  "popup_pending_failed": { "message": "Failed" },
-  "popup_pending_delete": { "message": "Delete this clip" },
-  "popup_pending_delete_confirm": { "message": "Delete?" },
-  "popup_pending_deleted": { "message": "Clip deleted. A slide added for it stays in its deck — remove it there." },
-  "popup_pending_no_url": { "message": "no url" },
-  "popup_pending_error_no_tab": { "message": "Couldn't open a tab for that clip" },
-  "popup_pending_error_no_clip": { "message": "Couldn't read the post on that page" },
-
-  "options_title": { "message": "BRUV Clipper — Options" },
-  "options_pairing": { "message": "Server pairing" },
-  "options_server_url": { "message": "BRUV server URL" },
-  "options_bootstrap": { "message": "Bootstrap token (from the server's bootstrap-token.txt / QR page)" },
-  "options_pair": { "message": "Pair" },
-  "options_paired_ok": { "message": "Paired — now pick a repo below" },
-  "options_pair_local": { "message": "Pair automatically (this machine — no token needed)" },
-  "options_pair_with_token": { "message": "Pair with a token instead" },
-  "options_detect": { "message": "Find the server on this machine" },
-  "options_detect_running": { "message": "Looking for a BRUV server on this machine…" },
-  "options_detected": { "message": "Found BRUV {version} at {url} — now pair below." },
-  "options_detect_multi": { "message": "Found BRUV servers on ports {ports} — using {url}. Edit the URL if you meant a different one." },
-  "options_detect_none": { "message": "No BRUV server answered on ports 9870-9879. Start the desktop app (or bruv-server) and try again — if the app is set to a fixed port outside that range, type its URL instead (Settings → General → local server port)." },
-  "options_err_url_and_token": { "message": "Enter the server URL and a bootstrap token — or use \"Pair automatically\" for a server on this machine." },
-  "options_err_url_required": { "message": "Enter the BRUV server URL." },
-  "options_err_unreachable": { "message": "Can't reach the BRUV server at {url}. For a local pairing, make sure the desktop app (or the BRUV service) is running — the local server stops with the app, and its port can change if the fixed port was taken at startup." },
-  "options_category_stale": { "message": "The saved pin target doesn't exist in this repo — clips will land in the Inbox until you pick a new one." },
-  "options_paired_with": { "message": "Paired with" },
-  "options_unpair": { "message": "Unpair" },
-  "options_unpaired": { "message": "Unpaired" },
-  "options_targets": { "message": "Clip target" },
-  "options_repo": { "message": "Repository" },
-  "options_category": { "message": "Pin clipped cards to" },
-  "options_category_inbox": { "message": "Inbox (no pin)" },
-  "options_category_deck": { "message": "Same location(s) as the deck target" },
-  "options_category_placeholder": { "message": "Search categories…" },
-  "options_save": { "message": "Save" },
-  "options_saved": { "message": "Saved" }
+  "ext_name": {
+    "message": "BRUV Clipper"
+  },
+  "ext_description": {
+    "message": "Capture posts into BRUV cards and slide decks"
+  },
+  "menu_clip": {
+    "message": "Add to BRUV"
+  },
+  "menu_clip_deck": {
+    "message": "Add to BRUV + slide deck"
+  },
+  "menu_clip_options": {
+    "message": "Add to BRUV (options…)"
+  },
+  "dialog_title": {
+    "message": "Capture options"
+  },
+  "dialog_field_title": {
+    "message": "Title"
+  },
+  "dialog_video": {
+    "message": "Video"
+  },
+  "dialog_video_original": {
+    "message": "Store the video"
+  },
+  "dialog_video_link": {
+    "message": "Link only — don't store"
+  },
+  "dialog_video_link_note": {
+    "message": "The slide plays from the platform's link, which can stop working later."
+  },
+  "dialog_video_skip": {
+    "message": "Skip video"
+  },
+  "dialog_option_size": {
+    "message": "{label} · ~{size}"
+  },
+  "dialog_size_unknown": {
+    "message": "size unknown until it downloads"
+  },
+  "dialog_images": {
+    "message": "Images"
+  },
+  "dialog_images_all": {
+    "message": "Store all ({n})"
+  },
+  "dialog_images_first": {
+    "message": "First image only"
+  },
+  "dialog_images_link": {
+    "message": "Link only — don't store"
+  },
+  "dialog_images_skip": {
+    "message": "Skip images"
+  },
+  "dialog_link_note": {
+    "message": "Not stored in BRUV; platform links expire."
+  },
+  "dialog_destination": {
+    "message": "Destination"
+  },
+  "dialog_deck": {
+    "message": "Slide deck"
+  },
+  "dialog_deck_none": {
+    "message": "None"
+  },
+  "dialog_pin": {
+    "message": "Pin to"
+  },
+  "dialog_include_deck": {
+    "message": "Add a slide to this deck"
+  },
+  "dialog_deck_hint": {
+    "message": "Pick a deck target in the BRUV Clipper popup first."
+  },
+  "dialog_open_options": {
+    "message": "Change these in Options"
+  },
+  "dialog_capture": {
+    "message": "Capture"
+  },
+  "dialog_cancel": {
+    "message": "Cancel"
+  },
+  "dialog_cancelled": {
+    "message": "Capture cancelled — nothing was saved"
+  },
+  "dialog_note_no_preview": {
+    "message": "BRUV's server didn't answer in time, so there are no size estimates from it. The capture still runs here, from this page."
+  },
+  "dialog_note_unsupported": {
+    "message": "BRUV's server has no reader for this site — a link shared from your phone would land as a plain link card. This capture reads the page directly, so the post lands in full."
+  },
+  "dialog_note_blocked": {
+    "message": "{platform} blocks BRUV's server (a link shared from your phone would land as a pending clip). This capture reads the page in your logged-in browser, so it lands complete — but sizes below come from this page only."
+  },
+  "dialog_note_embed": {
+    "message": "The slide plays this with the platform's own embedded player — no video file is stored."
+  },
+  "dialog_note_video_large": {
+    "message": "The pre-selected video quality is about {size}. Pick a smaller one below if you'd rather not store that."
+  },
+  "dialog_note_video_budget": {
+    "message": "This video is about {size} even at its smallest quality — over the {budget} MB budget in your capture defaults — so nothing is pre-selected to store. Pick a quality below to store it anyway; your browser can download it even when BRUV's server can't."
+  },
+  "dialog_note_gallery": {
+    "message": "This post has {n} images."
+  },
+  "dialog_note_no_video": {
+    "message": "This post's video couldn't be resolved, so only its poster image is available."
+  },
+  "toast_clipping": {
+    "message": "Clipping…"
+  },
+  "toast_clipped": {
+    "message": "Added to BRUV"
+  },
+  "toast_clipped_deck": {
+    "message": "Added to BRUV — slide appended"
+  },
+  "toast_clipped_no_pin": {
+    "message": "Clipped, but couldn't pin — the card is in the Inbox. Check the pin target in Options (the category may not accept this card type, or belongs to another vault)."
+  },
+  "toast_queued": {
+    "message": "Server unreachable — clip queued, will retry"
+  },
+  "toast_failed": {
+    "message": "Clip failed — see the extension console"
+  },
+  "toast_not_paired": {
+    "message": "BRUV Clipper isn't paired yet — open its options"
+  },
+  "toast_no_deck": {
+    "message": "No deck target set — pick one in the BRUV Clipper popup"
+  },
+  "toast_no_plugin": {
+    "message": "Nothing clippable on this site yet"
+  },
+  "toast_no_unit": {
+    "message": "Couldn't find a post here — right-click directly on one"
+  },
+  "toast_extract_failed": {
+    "message": "Couldn't read this post"
+  },
+  "popup_title": {
+    "message": "BRUV Clipper"
+  },
+  "popup_not_paired": {
+    "message": "Not paired with a BRUV server."
+  },
+  "popup_options": {
+    "message": "Options"
+  },
+  "popup_no_results": {
+    "message": "No matching cards"
+  },
+  "popup_offline": {
+    "message": "Can't reach BRUV at {url}. Deck and pending clips are unavailable until it's back — for a local server, start the desktop app. Clips you make now are queued and sent automatically."
+  },
+  "popup_offline_retry": {
+    "message": "Try again"
+  },
+  "popup_deck_target": {
+    "message": "Slide deck target"
+  },
+  "popup_no_deck": {
+    "message": "No deck selected — clips become cards only"
+  },
+  "popup_untitled": {
+    "message": "Untitled"
+  },
+  "popup_card_has_no_deck": {
+    "message": "That card has no slide deck block"
+  },
+  "popup_deck_set": {
+    "message": "Deck target set"
+  },
+  "popup_new_deck": {
+    "message": "New deck…"
+  },
+  "popup_new_deck_create": {
+    "message": "Create"
+  },
+  "popup_cancel": {
+    "message": "Cancel"
+  },
+  "popup_deck_created": {
+    "message": "Deck created and targeted"
+  },
+  "popup_queue_empty": {
+    "message": "No queued clips"
+  },
+  "popup_queue_count": {
+    "message": "{n} clip(s) waiting to sync"
+  },
+  "popup_queue_failed": {
+    "message": "{n} failing"
+  },
+  "popup_retry": {
+    "message": "Retry now"
+  },
+  "popup_retry_done": {
+    "message": "Synced {n} clip(s)"
+  },
+  "popup_discard": {
+    "message": "Discard all"
+  },
+  "popup_discard_confirm": {
+    "message": "Really discard?"
+  },
+  "popup_pending_title": {
+    "message": "Pending clips"
+  },
+  "popup_pending_complete": {
+    "message": "Complete"
+  },
+  "popup_pending_complete_all": {
+    "message": "Complete all"
+  },
+  "popup_pending_running": {
+    "message": "Completing…"
+  },
+  "popup_pending_done": {
+    "message": "Done"
+  },
+  "popup_pending_failed": {
+    "message": "Failed"
+  },
+  "popup_pending_delete": {
+    "message": "Delete this clip"
+  },
+  "popup_pending_delete_confirm": {
+    "message": "Delete?"
+  },
+  "popup_pending_deleted": {
+    "message": "Clip deleted. A slide added for it stays in its deck — remove it there."
+  },
+  "popup_pending_no_url": {
+    "message": "no url"
+  },
+  "popup_pending_error_no_tab": {
+    "message": "Couldn't open a tab for that clip"
+  },
+  "popup_pending_error_no_clip": {
+    "message": "Couldn't read the post on that page"
+  },
+  "options_title": {
+    "message": "BRUV Clipper — Options"
+  },
+  "options_pairing": {
+    "message": "Server pairing"
+  },
+  "options_server_url": {
+    "message": "BRUV server URL"
+  },
+  "options_bootstrap": {
+    "message": "Bootstrap token (from the server's bootstrap-token.txt / QR page)"
+  },
+  "options_pair": {
+    "message": "Pair"
+  },
+  "options_paired_ok": {
+    "message": "Paired — now pick a repo below"
+  },
+  "options_pair_local": {
+    "message": "Pair automatically (this machine — no token needed)"
+  },
+  "options_pair_with_token": {
+    "message": "Pair with a token instead"
+  },
+  "options_detect": {
+    "message": "Find the server on this machine"
+  },
+  "options_detect_running": {
+    "message": "Looking for a BRUV server on this machine…"
+  },
+  "options_detected": {
+    "message": "Found BRUV {version} at {url} — now pair below."
+  },
+  "options_detect_multi": {
+    "message": "Found BRUV servers on ports {ports} — using {url}. Edit the URL if you meant a different one."
+  },
+  "options_detect_none": {
+    "message": "No BRUV server answered on ports 9870-9879. Start the desktop app (or bruv-server) and try again — if the app is set to a fixed port outside that range, type its URL instead (Settings → General → local server port)."
+  },
+  "options_err_url_and_token": {
+    "message": "Enter the server URL and a bootstrap token — or use \"Pair automatically\" for a server on this machine."
+  },
+  "options_err_url_required": {
+    "message": "Enter the BRUV server URL."
+  },
+  "options_err_unreachable": {
+    "message": "Can't reach the BRUV server at {url}. For a local pairing, make sure the desktop app (or the BRUV service) is running — the local server stops with the app, and its port can change if the fixed port was taken at startup."
+  },
+  "options_category_stale": {
+    "message": "The saved pin target doesn't exist in this repo — clips will land in the Inbox until you pick a new one."
+  },
+  "options_paired_with": {
+    "message": "Paired with"
+  },
+  "options_unpair": {
+    "message": "Unpair"
+  },
+  "options_unpaired": {
+    "message": "Unpaired"
+  },
+  "options_targets": {
+    "message": "Clip target"
+  },
+  "options_repo": {
+    "message": "Repository"
+  },
+  "options_category": {
+    "message": "Pin clipped cards to"
+  },
+  "options_category_inbox": {
+    "message": "Inbox (no pin)"
+  },
+  "options_category_deck": {
+    "message": "Same location(s) as the deck target"
+  },
+  "options_category_placeholder": {
+    "message": "Search categories…"
+  },
+  "options_save": {
+    "message": "Save"
+  },
+  "options_saved": {
+    "message": "Saved"
+  }
 }

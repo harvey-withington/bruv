@@ -50,7 +50,7 @@
   <p class="note">{t('workspace.server_path_note')}</p>
   <div class="actions">
     <button class="btn primary" disabled={!canSubmit} onclick={submit}>
-      <FolderInput size={14} /> {t('workspace.attach_action')}
+      <FolderInput size={14} /> {t('common.attach')}
     </button>
   </div>
 </div>

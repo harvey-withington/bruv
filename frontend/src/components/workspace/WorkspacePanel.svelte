@@ -547,18 +547,4 @@
     padding: 0.3rem;
   }
   .muted { color: var(--text-faint); font-size: 0.78rem; padding: 0.6rem 0.75rem; }
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    border: 1px solid var(--border);
-    background: var(--bg-elevated);
-    color: var(--text-secondary);
-    border-radius: 6px;
-    padding: 0.4rem 0.8rem;
-    font-size: 0.78rem;
-    cursor: pointer;
-  }
-  .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
-  .btn.primary:hover { filter: brightness(1.08); }
 </style>

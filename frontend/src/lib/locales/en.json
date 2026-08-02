@@ -480,6 +480,7 @@
   "common.duplicate": "Duplicate",
   "common.confirm": "Confirm",
   "common.apply": "Apply",
+  "common.attach": "Attach",
   "common.clear": "Clear",
   "common.loading": "Loading…",
   "common.retry": "Try again",

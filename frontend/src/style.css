@@ -507,6 +507,58 @@ button:not(:disabled):active,
 }
 
 /*
+ * .btn: the standard app button — the one every dialog footer, panel action
+ * row, and inline action uses.
+ *
+ * Global rather than per-component because Svelte scopes styles: a component
+ * that renders a `.btn` inside a CHILD component gets none of the parent's
+ * rules, so the child's buttons render unstyled. That bit ServerFolderStep
+ * and WorkspaceLocalCopy, and it would bite every future extraction the same
+ * way — the whole point of pulling a section into its own component is that
+ * it keeps looking like the app.
+ *
+ * Modifiers: .primary (accent fill), .subtle (quieter, for the third action
+ * in a row). Components with a deliberate local variant still win on
+ * specificity (Svelte adds a scoping class), so this is a default, not a
+ * lock.
+ */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    border: 1px solid var(--border);
+    background: var(--bg-base);
+    color: var(--text-secondary);
+    border-radius: 6px;
+    padding: 0.35rem 0.75rem;
+    font-family: inherit;
+    font-size: 0.78rem;
+    cursor: pointer;
+}
+.btn:hover:not(:disabled) {
+    color: var(--text-primary);
+    background: var(--bg-subtle-hover);
+}
+.btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+.btn.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+}
+.btn.primary:hover:not(:disabled) {
+    filter: brightness(1.08);
+    color: white;
+}
+.btn.subtle {
+    border-color: transparent;
+    background: none;
+    color: var(--text-muted);
+}
+
+/*
  * .inline-edit-input: Consistent styling for inline text edit inputs.
  * Used by EditableText, EditableChecklist, and anywhere click-to-edit appears.
  */

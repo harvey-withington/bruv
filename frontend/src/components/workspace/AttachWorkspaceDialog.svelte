@@ -356,21 +356,6 @@
     gap: 0.5rem;
     padding-top: 0.25rem;
   }
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    border: 1px solid var(--border);
-    background: var(--bg-base);
-    color: var(--text-secondary);
-    border-radius: 6px;
-    padding: 0.35rem 0.75rem;
-    font-size: 0.78rem;
-    cursor: pointer;
-  }
-  .btn:hover { color: var(--text-primary); background: var(--bg-subtle-hover); }
-  .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
-  .btn.primary:disabled { opacity: 0.6; cursor: default; }
   .icon-btn {
     background: none;
     border: none;

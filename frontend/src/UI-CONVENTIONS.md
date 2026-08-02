@@ -125,6 +125,16 @@ Use these when building custom editable fields that don't use the `EditableText`
 
 ---
 
+## 4.5 `.btn` — the standard app button (GLOBAL)
+
+`.btn` lives in **`style.css`**, not in each component. Modifiers: `.primary` (accent fill), `.subtle` (quiet third action). Sizing, padding and hover are the app's, once.
+
+**Why global matters here:** Svelte scopes component styles, so a `.btn` rendered inside a **child** component gets none of the parent's rules and comes out unstyled. That is exactly what happened when the Workspace panel's local-copy section and the remote-attach step were extracted into their own components (2026-08-02) — the buttons rendered as bare browser buttons. Any future extraction would hit it identically, which is the opposite of what extracting a component is for.
+
+A component with a genuinely different button still wins: Svelte adds a scoping class, so a local `.btn` outranks the global one. Treat the global as the default, not a lock — but don't re-declare it just to restate the same values (the workspace dialogs and panel had four near-identical copies; they're gone).
+
+---
+
 ## 5. ConfirmDialog — Destructive Action Confirmation
 
 **Files:** `components/ConfirmDialog.svelte`, `lib/confirm.svelte.ts`

@@ -56,6 +56,14 @@ func (r *Runtime) SetWorkspaceLaunchCommand(brandSlug, streamSlug, projectSlug, 
 	return r.Workspace.SetLaunchCommand(brandSlug, streamSlug, projectSlug, command)
 }
 
+// ListWorkspaceDir returns the immediate children of one workspace
+// directory (rel "" = root). The file tree calls this per folder as the
+// user expands it, so browsing never pays for the whole tree — see
+// workspace.Service.ListDir.
+func (r *Runtime) ListWorkspaceDir(ctx context.Context, brandSlug, streamSlug, projectSlug, rel string) ([]model.WorkspaceEntry, error) {
+	return r.Workspace.ListDir(ctx, brandSlug, streamSlug, projectSlug, rel)
+}
+
 // ReadWorkspaceFile returns one text file's content (Tier 1/2 read).
 func (r *Runtime) ReadWorkspaceFile(ctx context.Context, brandSlug, streamSlug, projectSlug, rel string) (string, error) {
 	return r.Workspace.ReadFile(ctx, brandSlug, streamSlug, projectSlug, rel)

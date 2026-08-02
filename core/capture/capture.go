@@ -36,6 +36,15 @@ type Media struct {
 	URL       string    `json:"url"`
 	Kind      MediaKind `json:"kind"`
 	PosterURL string    `json:"posterUrl,omitempty"`
+	// LinkOnly marks media that is too large to store as an attachment
+	// (a 44-minute tweet video's smallest variant is ~85 MB; its largest
+	// is 3.5 GB). The pipeline keeps the source URL as the block value
+	// instead of downloading it — the slide still PLAYS, at the cost of
+	// depending on the platform's CDN, which is a trade the user is told
+	// about rather than one made silently behind a thumbnail.
+	LinkOnly bool `json:"linkOnly,omitempty"`
+	// Note explains a degrade in plain words, surfaced to the user.
+	Note string `json:"note,omitempty"`
 }
 
 // EmbedVideo references playback via the platform's official player for

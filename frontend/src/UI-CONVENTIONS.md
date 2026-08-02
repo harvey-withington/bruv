@@ -413,20 +413,28 @@ Future-layout note: SidePanel is the deliberate seam for a horizontal split or a
 
 The Workspace panel content (`components/workspace/WorkspacePanel.svelte`) renders inside a SidePanel tab. Sub-dialogs (attach, template editor, file viewer) are self-contained overlay components in `components/workspace/`.
 
-**`WorkspaceFileTree.svelte`** is the reusable recursive collapsible tree:
+**`WorkspaceFileTree.svelte`** is the reusable recursive collapsible tree. It is **lazy**: one instance renders one directory level, and mounting it is what loads that directory.
 
 | Prop | Type | Notes |
 |---|---|---|
-| `tree` | `WorkspaceTree` | Prebuilt index from `lib/workspaceTree.ts` (`buildWorkspaceTree(entries)`), built ONCE by the root consumer |
+| `cache` | `WorkspaceDirCache` | Per-directory cache from `lib/workspaceTree.svelte.ts` (`createWorkspaceDirCache(loader)`), created ONCE by the root consumer |
 | `dir` | `string` | Directory this instance renders the children of (`''` = root) |
 | `onOpenFile` | `(path: string) => void` | File row click |
 | `depth` | `number` | Indentation level (self-incremented on recursion) |
-| `collapsed` | `Record<string, boolean>` | Shared expand state owned by the root consumer — what makes Expand/Collapse All and accordion mode global |
+| `collapsed` | `Record<string, boolean>` | Shared expand state owned by the root consumer — what makes Expand/Collapse All and accordion mode global. **A folder is expanded only when `collapsed[path] === false`; absent = collapsed**, so the tree opens closed |
 | `mode` | `'single' \| 'multi'` | `single` = accordion (expanding collapses siblings) |
 
-**Never hand the flat entry list down the recursion.** Each level used to re-filter all n entries to find its own children — O(n × levels) of string work per render, redone on every expand/collapse because `collapsed` is one shared reactive record; at the 20k-entry server cap that choked. `buildWorkspaceTree` does one O(n) pass into parent → children buckets and each level does a single Map lookup. Sibling order is the server's (path-ascending, files and folders interleaved — *not* folders-first). Children mount only while expanded. `WorkspacePanel` builds the index off the paint path and shows `common.loading` in the Files section meanwhile.
+**Never load the whole tree.** Rendering from one whole-workspace index made opening the panel cost everything on disk — one `node_modules`, a nested `.git`, or a folder of 80k photos anywhere under the root choked it. A server-side blocklist of heavy directory names was rejected (Harvey, 2026-08-02): *"a band-aid, not a solution — this issue would apply to a .git folder or many others neither you nor I can predict. The tree should load collapsed and load incrementally."* So the tree opens **collapsed**, and expanding a folder calls **`ListWorkspaceDir(brand, stream, project, rel)`** for that one folder. A directory nobody opens is never read.
 
-Directories flagged `not_indexed` (dependency/build caches the indexer records but never walks) render with no expander and a muted `workspace.not_indexed` tag — never as an empty folder.
+`createWorkspaceDirCache(loader)` is the store: keyed by directory path (`''` = root), each entry a `WorkspaceDirState` union — `{status:'loading'}` / `{status:'ready', children, isTemplateRoot}` / `{status:'error', error}`. `ensure(dir)` fetches on a miss and is a no-op on ANY cached entry, so collapse + re-expand never refetches and a failed folder keeps its error until retried; `reload(dir)` is the retry; `clear()` drops everything and discards in-flight responses (generation counter) so a Refresh can't be overwritten by a stale listing. Sibling order is the server's (path-ascending, files and folders interleaved — *not* folders-first).
+
+**Three distinct states per level, never conflated**: `common.loading` row while in flight, a `workspace.dir_failed` row with a `common.retry` button on failure, and *nothing at all* for a genuinely empty directory. A folder that failed to list must never render as empty.
+
+**Expand All is bounded.** "Expand everything" would re-walk the whole workspace — the exact cost lazy loading exists to remove. The button expands only directories already in the cache and fetches nothing, and is labelled `workspace.expand_loaded` ("Expand loaded folders") rather than `sidebar.expandAll` so the label doesn't promise the tree. Collapse All stays global and is just `treeCollapsed = {}` (absent = collapsed).
+
+**Folder-Template roots** get the cyan `LayoutTemplate` icon when *known*: lazily, a directory is only classifiable once its own children are loaded, so the rule is "a loaded directory whose children include a `.ft` folder". The icon appears when the folder is opened; nothing blocks on it.
+
+`WorkspacePanel` owns the cache and calls `resetTree()` (clear + drop expand state) on Refresh and on project change; mounted levels re-fetch themselves because each level's `$effect` reads its cache entry and reloads when it goes missing — so a refresh costs what's on screen, not the tree.
 
 It self-imports for recursion (never `<svelte:self>` — deprecated). Keyboard: rows are real `<button>`s, so Tab/Enter work for free.
 

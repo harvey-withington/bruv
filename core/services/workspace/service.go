@@ -214,6 +214,27 @@ func (s *Service) ReadFile(ctx context.Context, brandSlug, streamSlug, projectSl
 	return string(raw), nil
 }
 
+// ListDir returns the immediate children of one workspace directory
+// (rel "" = the root). This is what the file tree browses with: the cost
+// is proportional to the ONE directory opened, never to the tree beneath
+// it, so a workspace containing node_modules, a nested .git, or a folder
+// of 80k photos costs nothing until someone actually opens that folder.
+//
+// Deliberately NOT served from the cached index: the index is a whole-tree
+// snapshot for the adapter summary + AI, capped and refreshed explicitly.
+// Browsing reads the real directory, so it's also never stale.
+func (s *Service) ListDir(ctx context.Context, brandSlug, streamSlug, projectSlug, rel string) ([]model.WorkspaceEntry, error) {
+	_, root, err := s.localRoot(brandSlug, streamSlug, projectSlug)
+	if err != nil {
+		return nil, err
+	}
+	fsys, err := wsengine.NewLocalFS(root)
+	if err != nil {
+		return nil, err
+	}
+	return fsys.ListDir(ctx, rel)
+}
+
 // WriteFile saves one text file (Tier 2 editor). User-initiated writes only —
 // no AI tool calls this (AI write access is out of scope by spec). Atomic
 // tmp+rename; the parent directory must already exist.

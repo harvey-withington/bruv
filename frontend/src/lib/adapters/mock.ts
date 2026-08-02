@@ -248,6 +248,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     DetachWorkspace: async () => {},
     RefreshWorkspaceIndex: async (): Promise<WorkspaceIndex> => ({ workspace_id: 'ws-1', generated_at: '', adapter: 'plain-folder', summary: '', tree: [] }),
     SetWorkspaceLaunchCommand: async (): Promise<Workspace> => mockWorkspace(),
+    ListWorkspaceDir: async () => [],
     ReadWorkspaceFile: async (): Promise<string> => '',
     WriteWorkspaceFile: async () => {},
     OpenWorkspacePath: async () => {},

@@ -86,6 +86,11 @@ type CaptureResult struct {
 	// (e.g. "category only accepts: livestream").
 	PinFailed bool   `json:"pinFailed,omitempty"`
 	PinError  string `json:"pinError,omitempty"`
+	// MediaNotes explain media that landed in a degraded form — an
+	// oversized video kept as a platform link rather than stored. The
+	// card is still useful; the user just needs to know the video isn't
+	// theirs to keep.
+	MediaNotes []string `json:"mediaNotes,omitempty"`
 }
 
 // CompleteMedia is one already-downloaded media item posted by the
@@ -198,6 +203,12 @@ type ingestMedia struct {
 	Name   string
 	Base64 string
 	Kind   capture.MediaKind
+	// RemoteURL is set instead of Base64 when the media is kept as a link
+	// rather than stored (oversized video). The block points at the
+	// platform URL: it plays now, and may rot later — which is why it
+	// comes with a Note the user actually sees.
+	RemoteURL string
+	Note      string
 }
 
 // ingestClip is the platform-blind pipeline: card → attachments → blocks
@@ -247,7 +258,19 @@ func (r *Runtime) ingestClip(ctx context.Context, existingID string, clip *captu
 
 	var imageRefs []string
 	firstVideoRef := ""
+	mediaNotes := []string{}
 	for i := range media {
+		// Link-only media (oversized video) skips attachment storage: the
+		// block points straight at the platform URL.
+		if media[i].RemoteURL != "" {
+			if media[i].Kind == capture.MediaVideo && firstVideoRef == "" {
+				firstVideoRef = media[i].RemoteURL
+			}
+			if media[i].Note != "" {
+				mediaNotes = append(mediaNotes, media[i].Note)
+			}
+			continue
+		}
 		ref := addAttachment(&media[i])
 		if ref == "" {
 			continue
@@ -475,6 +498,7 @@ func (r *Runtime) ingestClip(ctx context.Context, existingID string, clip *captu
 		SlideAppended: slideAppended,
 		Platform:      clip.Platform,
 		Pending:       pending,
+		MediaNotes:    mediaNotes,
 	}
 	if pinRequested && !pinLanded {
 		res.PinFailed = true
@@ -546,13 +570,26 @@ func downloadClipMedia(ctx context.Context, clip *capture.Clip) ([]ingestMedia, 
 		if m.URL == "" {
 			continue
 		}
+		// Known-oversized: don't even try to download it.
+		if m.LinkOnly {
+			out = append(out, ingestMedia{Kind: m.Kind, RemoteURL: m.URL, Note: m.Note})
+			continue
+		}
 		data, mime, err := captureHTTP.Download(ctx, m.URL)
 		if err != nil {
 			slog.Warn("capture: media download failed", "url", m.URL, "err", err)
-			if m.Kind == capture.MediaVideo && m.PosterURL != "" {
-				if pdata, pmime, perr := captureHTTP.Download(ctx, m.PosterURL); perr == nil {
-					push(pdata, pmime, capture.MediaImage)
-				}
+			if m.Kind == capture.MediaVideo {
+				// A video that wouldn't download used to be replaced by
+				// its poster image, so the card showed a thumbnail and
+				// nothing said the video was missing (Harvey, 2026-08-02:
+				// "it doesn't seem to make it to the capture card at
+				// all"). Keep it as a link instead — the slide plays —
+				// and say what happened.
+				out = append(out, ingestMedia{
+					Kind:      m.Kind,
+					RemoteURL: m.URL,
+					Note:      "Video couldn't be stored in the card, so it's linked to the platform — it will stop working if the platform removes it.",
+				})
 			}
 			continue
 		}

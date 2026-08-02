@@ -110,6 +110,12 @@
     if (result.pinFailed) {
       showToast(t('share.pin_failed', { error: result.pinError ?? '' }), 'warning', 7000)
     }
+    // A video kept as a platform link rather than stored: the card works,
+    // but it depends on the platform now — say so rather than let the
+    // user find out when it stops playing.
+    for (const note of result.mediaNotes ?? []) {
+      showToast(note, 'warning', 9000)
+    }
     if (result.pending) {
       // Never navigate away like a success — the clip is half-done and
       // the user needs to know where to finish it.

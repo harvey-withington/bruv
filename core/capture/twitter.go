@@ -17,6 +17,7 @@ import (
 	"math"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -60,6 +61,9 @@ type syndicationMedia struct {
 	MediaURL string `json:"media_url_https"`
 	Video    *struct {
 		Variants []syndicationVariant `json:"variants"`
+		// Duration is what makes variant sizes predictable — bitrate
+		// alone says nothing about how big the file will be.
+		DurationMS int64 `json:"duration_millis"`
 	} `json:"video_info"`
 }
 
@@ -112,19 +116,16 @@ func (r twitterResolver) Resolve(ctx context.Context, c *Client, rawURL string) 
 		case "photo":
 			clip.Media = append(clip.Media, Media{URL: largePhotoURL(m.MediaURL), Kind: MediaImage})
 		case "video", "animated_gif":
-			// Highest-bitrate mp4 wins (mirrors twitter.ts). No mp4 →
-			// degrade the entry to its poster, same as the extension.
-			var best syndicationVariant
+			var variants []syndicationVariant
+			durationMS := int64(0)
 			if m.Video != nil {
-				for _, v := range m.Video.Variants {
-					if v.ContentType == "video/mp4" && v.URL != "" && v.Bitrate >= best.Bitrate {
-						best = v
-					}
-				}
+				variants = m.Video.Variants
+				durationMS = m.Video.DurationMS
 			}
-			if best.URL != "" {
-				clip.Media = append(clip.Media, Media{URL: best.URL, Kind: MediaVideo, PosterURL: m.MediaURL})
+			if picked, ok := pickVideoVariant(variants, durationMS); ok {
+				clip.Media = append(clip.Media, picked.media(m.MediaURL))
 			} else if m.MediaURL != "" {
+				// Genuinely no mp4 (HLS-only) — the poster is all there is.
 				clip.Media = append(clip.Media, Media{URL: m.MediaURL, Kind: MediaImage})
 			}
 		}
@@ -142,6 +143,80 @@ func (r twitterResolver) Resolve(ctx context.Context, c *Client, rawURL string) 
 		return nil, fmt.Errorf("twitter syndication: tweet %s resolved empty", id)
 	}
 	return clip, nil
+}
+
+// --- video variant selection ----------------------------------------------
+
+// videoPick is a chosen mp4 variant plus how it should be stored.
+type videoPick struct {
+	url      string
+	linkOnly bool
+	note     string
+}
+
+func (p videoPick) media(posterURL string) Media {
+	return Media{
+		URL:       p.url,
+		Kind:      MediaVideo,
+		PosterURL: posterURL,
+		LinkOnly:  p.linkOnly,
+		Note:      p.note,
+	}
+}
+
+// videoBudgetBytes is the most we'll spend attaching one video. Well under
+// the transport's hard cap, because the whole file is held in memory (and
+// base64'd, +33%) on the way into attachment storage.
+const videoBudgetBytes = 48 << 20
+
+// pickVideoVariant chooses which mp4 to take.
+//
+// Taking the highest bitrate — what this did until 2026-08-02 — is wrong
+// twice over: a 44-minute tweet offered 480x270@256k (~85 MB) through
+// 1920x1080@10.4M (~3.5 GB), so the "best" variant was unusable AND a
+// 30-second clip needlessly pulled 1080p when 720p is plenty for a slide.
+//
+// Twitter gives bitrate and duration, so file size is arithmetic rather
+// than guesswork: pick the richest variant that fits the budget. When even
+// the smallest doesn't fit (long videos), keep the SMALLEST as a link
+// instead of downloading it — a slide that plays beats a thumbnail — and
+// carry a note so the user learns why it wasn't stored.
+func pickVideoVariant(variants []syndicationVariant, durationMS int64) (videoPick, bool) {
+	type cand struct {
+		v    syndicationVariant
+		size int64 // estimated bytes; 0 when duration is unknown
+	}
+	var mp4s []cand
+	for _, v := range variants {
+		if v.ContentType != "video/mp4" || v.URL == "" {
+			continue
+		}
+		var size int64
+		if durationMS > 0 && v.Bitrate > 0 {
+			size = v.Bitrate / 8 * durationMS / 1000
+		}
+		mp4s = append(mp4s, cand{v: v, size: size})
+	}
+	if len(mp4s) == 0 {
+		return videoPick{}, false
+	}
+	sort.Slice(mp4s, func(i, j int) bool { return mp4s[i].v.Bitrate < mp4s[j].v.Bitrate })
+
+	// Richest variant that fits. An unknown size (no duration) is treated
+	// as fitting — the download's own cap is the backstop.
+	for i := len(mp4s) - 1; i >= 0; i-- {
+		if mp4s[i].size == 0 || mp4s[i].size <= videoBudgetBytes {
+			return videoPick{url: mp4s[i].v.URL}, true
+		}
+	}
+
+	smallest := mp4s[0]
+	return videoPick{
+		url:      smallest.v.URL,
+		linkOnly: true,
+		note: fmt.Sprintf("Video is ~%d MB even at its lowest quality, so it's linked to the platform rather than stored in the card — it will stop working if the platform removes it.",
+			smallest.size>>20),
+	}, true
 }
 
 // largePhotoURL upgrades a pbs.twimg.com media URL to its large variant,

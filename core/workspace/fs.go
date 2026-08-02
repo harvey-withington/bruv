@@ -27,6 +27,14 @@ const MaxIndexEntries = 20000
 // transports, at the workspace root.
 const BruvIgnoreFile = ".bruvignore"
 
+// GitIgnoreFile is honoured too, when the workspace happens to be a repo.
+// A project's own .gitignore is the best available statement of "this is
+// generated junk, not my work" — written by the person whose workspace it
+// is, kept current by them, and already excluding the node_modules /
+// build-output / cache directories that BRUV has no business indexing.
+// Far better than guessing directory names centrally (ruled 2026-08-02).
+const GitIgnoreFile = ".gitignore"
+
 // osJunk is always ignored regardless of .bruvignore.
 var osJunk = map[string]bool{
 	".DS_Store":   true,
@@ -43,33 +51,12 @@ var noDescendDirs = map[string]bool{
 	".obsidian": true,
 }
 
-// generatedDirs are dependency/build caches. They're recorded (so you can
-// see the folder is there) and flagged NotIndexed, but never walked.
-//
-// A single node_modules routinely holds 30k+ files — on its own enough to
-// exhaust MaxIndexEntries, which didn't just make the tree slow, it
-// TRUNCATED the user's actual work out of the index (Harvey, 2026-08-02:
-// "any folder that contains a node_modules is going to choke it").
-//
-// Deliberately conservative: only names that are definitionally machine-
-// generated. Ambiguous ones — dist, build, target, bin, obj, vendor — can
-// hold real content a user wants to browse, so they stay walkable and
-// `.bruvignore` remains the escape hatch for those.
-var generatedDirs = map[string]bool{
-	"node_modules":  true,
-	"__pycache__":   true,
-	".venv":         true,
-	"venv":          true,
-	".mypy_cache":   true,
-	".pytest_cache": true,
-	".ruff_cache":   true,
-	".next":         true,
-	".nuxt":         true,
-	".svelte-kit":   true,
-	".turbo":        true,
-	".gradle":       true,
-	".tox":          true,
-}
+// NOTE (2026-08-02): a blocklist of "heavy" directory names (node_modules,
+// .venv, …) briefly lived here. Harvey rejected it as a band-aid, and he
+// was right: the same problem arrives via a nested .git, a Rust target/, a
+// folder of 80k photos — the set is unguessable. The browse tree now lists
+// ONE directory at a time (ListDir below), so the cost of a directory is
+// paid only when a user actually opens it, whatever it's called.
 
 // FS abstracts "local directory" vs "remote listing + on-demand fetch" so the
 // same adapter works at Tier 0 and Tier 1. M1 ships the local implementation;
@@ -78,7 +65,17 @@ type FS interface {
 	// List returns the tree: slash-relative, sorted, .bruvignore and OS junk
 	// excluded, no-descend dirs as bare entries, symlinks recorded not
 	// followed. truncated is true when MaxIndexEntries was hit.
+	//
+	// This walks EVERYTHING and is therefore only for the adapter index
+	// (summary + AI). Browsing uses ListDir.
 	List(ctx context.Context) (entries []model.WorkspaceEntry, truncated bool, err error)
+	// ListDir returns the immediate children of one directory (rel "" or
+	// "." = the workspace root), same exclusions as List, sorted the same
+	// way. Cost is proportional to that ONE directory, never to the tree
+	// beneath it — which is what lets the UI browse a workspace containing
+	// node_modules, a nested .git, or 80k photos without paying for them
+	// until someone actually opens the folder.
+	ListDir(ctx context.Context, rel string) ([]model.WorkspaceEntry, error)
 	// Read returns up to maxBytes of one file. It must reject reads outside
 	// the workspace root.
 	Read(ctx context.Context, rel string, maxBytes int64) ([]byte, error)
@@ -90,10 +87,17 @@ type FS interface {
 // LocalFS is the Tier 1 FS over an on-disk directory.
 type LocalFS struct {
 	dir    string
-	ignore *gitignore.GitIgnore // nil when no .bruvignore
+	ignore *gitignore.GitIgnore // nil when neither ignore file is present
 }
 
-// NewLocalFS opens dir, loading .bruvignore if present.
+// NewLocalFS opens dir, honouring the workspace root's .gitignore and
+// .bruvignore.
+//
+// Both compile into ONE matcher, .gitignore first, so .bruvignore is the
+// override layer: gitignore syntax's negation means `!dist/` in
+// .bruvignore un-hides something .gitignore excluded. That ordering is
+// the whole point — the repo's rules are the sensible default, and BRUV's
+// own file is how you disagree with them.
 func NewLocalFS(dir string) (*LocalFS, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
@@ -107,10 +111,43 @@ func NewLocalFS(dir string) (*LocalFS, error) {
 		return nil, fmt.Errorf("%s is not a directory", dir)
 	}
 	l := &LocalFS{dir: abs}
-	if ign, err := gitignore.CompileIgnoreFile(filepath.Join(abs, BruvIgnoreFile)); err == nil {
-		l.ignore = ign
-	}
+	l.ignore = compileIgnores(abs)
 	return l, nil
+}
+
+// isIgnored reports whether a path is excluded by the compiled ignore
+// rules.
+//
+// Directories are tested BOTH bare and with a trailing slash: a
+// `node_modules/` rule (the overwhelmingly common way people write it)
+// does not match the bare path "node_modules", so without this the
+// directory itself stayed visible and only its contents were hidden —
+// i.e. an ignored folder you could still open and find empty.
+func (l *LocalFS) isIgnored(slashRel string, isDir bool) bool {
+	if l.ignore == nil {
+		return false
+	}
+	if l.ignore.MatchesPath(slashRel) {
+		return true
+	}
+	return isDir && l.ignore.MatchesPath(slashRel+"/")
+}
+
+// compileIgnores reads the root's ignore files into a single matcher.
+// Returns nil when neither exists (no matcher = nothing excluded).
+func compileIgnores(root string) *gitignore.GitIgnore {
+	var lines []string
+	for _, name := range []string{GitIgnoreFile, BruvIgnoreFile} {
+		raw, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			continue // absent or unreadable: that file simply contributes nothing
+		}
+		lines = append(lines, strings.Split(string(raw), "\n")...)
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	return gitignore.CompileIgnoreLines(lines...)
 }
 
 // LocalDir implements FS.
@@ -140,7 +177,7 @@ func (l *LocalFS) List(ctx context.Context) ([]model.WorkspaceEntry, bool, error
 		if osJunk[name] {
 			return nil
 		}
-		if l.ignore != nil && l.ignore.MatchesPath(slashRel) {
+		if l.isIgnored(slashRel, d.IsDir()) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -162,13 +199,6 @@ func (l *LocalFS) List(ctx context.Context) ([]model.WorkspaceEntry, bool, error
 				e.Size = info.Size()
 			}
 		}
-		if d.IsDir() && generatedDirs[name] {
-			// Visible, honest, and cheap: the folder is listed as
-			// unindexed rather than walked (or silently hidden).
-			e.NotIndexed = true
-			entries = append(entries, e)
-			return filepath.SkipDir
-		}
 		entries = append(entries, e)
 		if d.IsDir() && noDescendDirs[name] {
 			return filepath.SkipDir
@@ -185,6 +215,57 @@ func (l *LocalFS) List(ctx context.Context) ([]model.WorkspaceEntry, bool, error
 // Read implements FS. rel goes through the path-safety rules indirectly: the
 // caller (service) resolves via internal/workspace.Resolve before handing
 // paths to anything else, but LocalFS defends itself too.
+// ListDir implements FS. One directory, no recursion.
+func (l *LocalFS) ListDir(ctx context.Context, rel string) ([]model.WorkspaceEntry, error) {
+	clean := filepath.Clean(filepath.FromSlash(rel))
+	if clean == "." || clean == string(filepath.Separator) {
+		clean = ""
+	}
+	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("path %q escapes the workspace", rel)
+	}
+	dir := filepath.Join(l.dir, clean)
+	items, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	slashDir := filepath.ToSlash(clean)
+	entries := make([]model.WorkspaceEntry, 0, len(items))
+	for _, d := range items {
+		name := d.Name()
+		if osJunk[name] {
+			continue
+		}
+		slashRel := name
+		if slashDir != "" {
+			slashRel = slashDir + "/" + name
+		}
+		if l.isIgnored(slashRel, d.IsDir()) {
+			continue
+		}
+		e := model.WorkspaceEntry{Path: slashRel, IsDir: d.IsDir()}
+		if d.Type()&fs.ModeSymlink != 0 {
+			e.Symlink = true // recorded, never followed
+			entries = append(entries, e)
+			continue
+		}
+		if !d.IsDir() {
+			if info, err := d.Info(); err == nil {
+				e.Size = info.Size()
+			}
+		}
+		entries = append(entries, e)
+	}
+	// Same ordering as List: full path ascending, so a lazily-loaded level
+	// reads identically to the eager tree it replaced.
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	return entries, nil
+}
+
 func (l *LocalFS) Read(ctx context.Context, rel string, maxBytes int64) ([]byte, error) {
 	clean := filepath.Clean(filepath.FromSlash(rel))
 	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {

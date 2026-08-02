@@ -197,6 +197,7 @@ export const AttachWorkspace = (...args: Parameters<ReturnType<typeof getBackend
 export const DetachWorkspace = (...args: Parameters<ReturnType<typeof getBackend>['DetachWorkspace']>) => getBackend().DetachWorkspace(...args)
 export const RefreshWorkspaceIndex = (...args: Parameters<ReturnType<typeof getBackend>['RefreshWorkspaceIndex']>) => getBackend().RefreshWorkspaceIndex(...args)
 export const SetWorkspaceLaunchCommand = (...args: Parameters<ReturnType<typeof getBackend>['SetWorkspaceLaunchCommand']>) => getBackend().SetWorkspaceLaunchCommand(...args)
+export const ListWorkspaceDir = (...args: Parameters<ReturnType<typeof getBackend>['ListWorkspaceDir']>) => getBackend().ListWorkspaceDir(...args)
 export const ReadWorkspaceFile = (...args: Parameters<ReturnType<typeof getBackend>['ReadWorkspaceFile']>) => getBackend().ReadWorkspaceFile(...args)
 export const WriteWorkspaceFile = (...args: Parameters<ReturnType<typeof getBackend>['WriteWorkspaceFile']>) => getBackend().WriteWorkspaceFile(...args)
 export const OpenWorkspacePath = (...args: Parameters<ReturnType<typeof getBackend>['OpenWorkspacePath']>) => getBackend().OpenWorkspacePath(...args)

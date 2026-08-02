@@ -308,6 +308,10 @@ export type CaptureResult = {
   pending: boolean
   pinFailed?: boolean
   pinError?: string
+  /** Media that landed in a degraded form — e.g. a video too large to
+   *  store, kept as a platform link instead. The card still works; the
+   *  user needs to know the video isn't theirs to keep. */
+  mediaNotes?: string[]
 }
 
 // The clip-pending marker tag — user-visible chip by design (searchable
@@ -1165,6 +1169,13 @@ export interface BackendAdapter {
   DetachWorkspace(brandSlug: string, streamSlug: string, projectSlug: string): Promise<void>
   RefreshWorkspaceIndex(brandSlug: string, streamSlug: string, projectSlug: string): Promise<WorkspaceIndex>
   SetWorkspaceLaunchCommand(brandSlug: string, streamSlug: string, projectSlug: string, command: string): Promise<Workspace>
+  // Immediate children of ONE workspace directory (rel '' = root). The
+  // file tree calls this per folder on expand, so browsing costs only the
+  // folder you opened — a workspace holding node_modules, a nested .git,
+  // or 80k photos never pays for them until asked. Reads the real
+  // directory, so it's never stale (unlike the cached whole-tree index,
+  // which exists for the adapter summary + AI).
+  ListWorkspaceDir(brandSlug: string, streamSlug: string, projectSlug: string, rel: string): Promise<WorkspaceEntry[]>
   ReadWorkspaceFile(brandSlug: string, streamSlug: string, projectSlug: string, rel: string): Promise<string>
   WriteWorkspaceFile(brandSlug: string, streamSlug: string, projectSlug: string, rel: string, content: string): Promise<void>
 
@@ -1350,13 +1361,6 @@ export interface WorkspaceEntry {
   is_dir?: boolean
   size?: number
   symlink?: boolean
-  /** A directory that exists but was deliberately not walked — dependency
-   *  and build caches (node_modules, __pycache__, .venv, .svelte-kit …).
-   *  One node_modules can hold 30k+ files, enough to exhaust the server's
-   *  20k index cap on its own and truncate the real workspace out of the
-   *  tree. Render it WITHOUT an expander and say it isn't indexed —
-   *  showing it as an empty folder would be a lie. */
-  not_indexed?: boolean
 }
 
 export interface WorkspaceIndex {

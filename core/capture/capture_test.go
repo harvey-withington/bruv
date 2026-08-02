@@ -192,6 +192,74 @@ func TestTwitterResolve(t *testing.T) {
 	}
 }
 
+// Real variants from the tweet that exposed this (2026-08-02): a
+// 44-minute video whose largest variant is ~3.5 GB. Taking the highest
+// bitrate downloaded nothing and silently left a thumbnail behind.
+func twitterVariants() []syndicationVariant {
+	return []syndicationVariant{
+		{ContentType: "application/x-mpegURL", URL: "https://video.twimg.com/pl.m3u8"},
+		{ContentType: "video/mp4", Bitrate: 256000, URL: "https://v/480x270.mp4"},
+		{ContentType: "video/mp4", Bitrate: 832000, URL: "https://v/640x360.mp4"},
+		{ContentType: "video/mp4", Bitrate: 2176000, URL: "https://v/1280x720.mp4"},
+		{ContentType: "video/mp4", Bitrate: 10368000, URL: "https://v/1920x1080.mp4"},
+	}
+}
+
+func TestPickVideoVariantChoosesRichestThatFits(t *testing.T) {
+	// A 30-second clip: 720p ≈ 8 MB fits, 1080p ≈ 39 MB also fits, so the
+	// richest wins.
+	got, ok := pickVideoVariant(twitterVariants(), 30_000)
+	if !ok || got.linkOnly {
+		t.Fatalf("30s clip should download, got %+v ok=%v", got, ok)
+	}
+	if got.url != "https://v/1920x1080.mp4" {
+		t.Errorf("url = %s, want the 1080p variant", got.url)
+	}
+
+	// Five minutes: 1080p ≈ 389 MB blows the budget, 720p ≈ 82 MB too,
+	// 640x360 ≈ 31 MB fits — so quality steps down instead of failing.
+	got, ok = pickVideoVariant(twitterVariants(), 5*60*1000)
+	if !ok || got.linkOnly {
+		t.Fatalf("5m clip should still download a smaller variant, got %+v", got)
+	}
+	if got.url != "https://v/640x360.mp4" {
+		t.Errorf("url = %s, want the 640x360 variant", got.url)
+	}
+}
+
+func TestPickVideoVariantLinksOversizedInsteadOfDroppingIt(t *testing.T) {
+	// The real case: 44 minutes, smallest variant ≈ 85 MB.
+	got, ok := pickVideoVariant(twitterVariants(), 2_667_166)
+	if !ok {
+		t.Fatal("an oversized video must still produce a pick, not nothing")
+	}
+	if !got.linkOnly {
+		t.Error("a video too big to store must be kept as a link, not downloaded")
+	}
+	if got.url != "https://v/480x270.mp4" {
+		t.Errorf("url = %s, want the SMALLEST variant when linking", got.url)
+	}
+	if got.note == "" {
+		t.Error("a degraded video must carry a note the user can be shown")
+	}
+}
+
+func TestPickVideoVariantWithoutDuration(t *testing.T) {
+	// No duration means no estimate; take the best and let the download
+	// cap be the backstop.
+	got, ok := pickVideoVariant(twitterVariants(), 0)
+	if !ok || got.linkOnly || got.url != "https://v/1920x1080.mp4" {
+		t.Errorf("unknown duration should take the richest variant, got %+v", got)
+	}
+}
+
+func TestPickVideoVariantNoMP4(t *testing.T) {
+	only := []syndicationVariant{{ContentType: "application/x-mpegURL", URL: "https://v/pl.m3u8"}}
+	if _, ok := pickVideoVariant(only, 1000); ok {
+		t.Error("HLS-only media has no downloadable mp4 — caller falls back to the poster")
+	}
+}
+
 func TestTwitterResolveTombstone(t *testing.T) {
 	c := testClient(t, map[string]routeFn{
 		"cdn.syndication.twimg.com /tweet-result": respond(200, `{"tombstone":true}`, nil),

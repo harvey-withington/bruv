@@ -1,12 +1,12 @@
 <script lang="ts">
   import { RefreshCw, Unlink, Briefcase, Plus, AlertTriangle, FolderOpen, Play, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree } from 'lucide-svelte'
-  import { DetachWorkspace, GetWorkspaceState, OpenWorkspacePath, RefreshWorkspaceIndex, RunWorkspaceLaunchCommand, SetWorkspaceLaunchCommand } from '@shared/api'
+  import { DetachWorkspace, GetWorkspaceState, ListWorkspaceDir, OpenWorkspacePath, RefreshWorkspaceIndex, RunWorkspaceLaunchCommand, SetWorkspaceLaunchCommand } from '@shared/api'
   import type { Workspace, WorkspaceState } from '@shared/types'
   import { t } from '../../lib/i18n.svelte'
   import { showToast } from '../../lib/toast.svelte'
   import { showConfirm } from '../../lib/confirm.svelte'
   import { onEvent } from '../../lib/events'
-  import { buildWorkspaceTree, type WorkspaceTree } from '../../lib/workspaceTree'
+  import { createWorkspaceDirCache } from '../../lib/workspaceTree.svelte'
   import EditableText from '../EditableText.svelte'
   import WorkspaceFileTree from './WorkspaceFileTree.svelte'
   import WorkspaceFileViewer from './WorkspaceFileViewer.svelte'
@@ -37,9 +37,17 @@
     localStorage.setItem(META_COLLAPSED_KEY, metaCollapsed ? '1' : '0')
   }
 
+  // The file tree browses lazily: one RPC per directory, on first expand.
+  // The cache lives here (root consumer) so Refresh can drop it wholesale and
+  // every level shares one store. The loader reads the slug props at call
+  // time, so it always targets the project currently on screen.
+  const dirCache = createWorkspaceDirCache((rel) => ListWorkspaceDir(brandSlug, streamSlug, projectSlug, rel))
+
   // Tree expand state, hoisted here so Expand All / Collapse All / the
   // single-multi accordion mode work across the whole recursive tree.
-  // Same semantics + persistence key style as the Sidebar's project tree.
+  // Same persistence key style as the Sidebar's project tree. NOTE the
+  // polarity: a folder is expanded only when `treeCollapsed[path] === false`,
+  // so the default (absent) is COLLAPSED and the tree opens closed.
   const TREE_MODE_KEY = 'bruv:wsTreeAccordion'
   let treeCollapsed = $state<Record<string, boolean>>({})
   let treeMode = $state<'single' | 'multi'>(localStorage.getItem(TREE_MODE_KEY) === 'single' ? 'single' : 'multi')
@@ -47,15 +55,20 @@
     treeMode = treeMode === 'single' ? 'multi' : 'single'
     localStorage.setItem(TREE_MODE_KEY, treeMode)
   }
-  function expandAllTree() {
-    treeCollapsed = {}
-  }
-  function collapseAllTree() {
-    const m: Record<string, boolean> = {}
-    for (const e of idx?.tree ?? []) {
-      if (e.is_dir) m[e.path] = true
+  // BOUNDED BY DESIGN: "expand everything" would mean walking the whole
+  // workspace again — the exact cost lazy loading exists to avoid. So this
+  // expands only the levels already in the cache and fetches nothing; the
+  // button is labelled "Expand loaded folders" to say so.
+  function expandLoadedTree() {
+    const m: Record<string, boolean> = { ...treeCollapsed }
+    for (const d of dirCache.loadedDirs()) {
+      if (d !== '') m[d] = false
     }
     treeCollapsed = m
+  }
+  // Absent = collapsed, so collapsing everything is just dropping the record.
+  function collapseAllTree() {
+    treeCollapsed = {}
   }
 
   async function load() {
@@ -69,6 +82,9 @@
   $effect(() => {
     // Reload when the project changes and on live workspace events.
     void brandSlug; void streamSlug; void projectSlug
+    // A different project is a different filesystem — drop the cached
+    // directories (and the expand state that indexed them) before reloading.
+    resetTree()
     load()
     const off = onEvent<{ brand_slug?: string; project_slug?: string }>('workspace:updated', (ev) => {
       if (!ev.project_slug || ev.project_slug === projectSlug) load()
@@ -79,10 +95,19 @@
     return () => { off(); offDel() }
   })
 
+  // Refresh re-reads from disk: the cached directory listings are exactly
+  // what must not survive it. Mounted levels reload themselves on the next
+  // render, so only what's visible is refetched.
+  function resetTree() {
+    dirCache.clear()
+    treeCollapsed = {}
+  }
+
   async function refresh() {
     refreshing = true
     try {
       await RefreshWorkspaceIndex(brandSlug, streamSlug, projectSlug)
+      resetTree()
       await load()
     } catch (e) {
       showToast(t('workspace.refresh_failed', { error: e instanceof Error ? e.message : String(e) }), 'error')
@@ -137,31 +162,6 @@
 
   const ws = $derived(wsState?.workspace)
   const idx = $derived(wsState?.index)
-
-  // The file tree renders from a prebuilt index, not the raw entry list —
-  // see lib/workspaceTree.ts for why. Building it is a single O(n) pass, but
-  // it runs on a macrotask rather than inline in the derivation so opening
-  // the panel (and the meta section above) paints immediately even on a
-  // capped 20k-entry index; the Files section shows the loading row until
-  // the index lands.
-  let fileTree = $state<WorkspaceTree | null>(null)
-  let treeBuilding = $state(false)
-
-  $effect(() => {
-    const entries = idx?.tree
-    if (!entries || entries.length === 0) {
-      fileTree = null
-      treeBuilding = false
-      return
-    }
-    treeBuilding = true
-    const timer = setTimeout(() => {
-      fileTree = buildWorkspaceTree(entries)
-      treeBuilding = false
-    })
-    // A refresh landing mid-build must not stamp the stale tree afterwards.
-    return () => clearTimeout(timer)
-  })
 
   // Pick-to-fill launch suggestions, ordered by adapter (an Obsidian vault
   // most likely opens in Obsidian; a repo in an editor). Free text stays
@@ -271,8 +271,10 @@
         <!-- Straddles the meta/files divider, same as the Sidebar's
              cluster over the project-tree divider. -->
         <div class="tree-ctrl-group">
-          <button class="tree-ctrl-btn" onclick={expandAllTree} title={t('sidebar.expandAll')}><ChevronsUpDown size={12} /></button>
-          <button class="tree-ctrl-btn" onclick={collapseAllTree} title={t('sidebar.collapseAll')}><ChevronsDownUp size={12} /></button>
+          <!-- Not `sidebar.expandAll`: this one can only expand cached
+               levels, and the label must not promise the whole tree. -->
+          <button class="tree-ctrl-btn" onclick={expandLoadedTree} title={t('workspace.expand_loaded')} aria-label={t('workspace.expand_loaded')}><ChevronsUpDown size={12} /></button>
+          <button class="tree-ctrl-btn" onclick={collapseAllTree} title={t('sidebar.collapseAll')} aria-label={t('sidebar.collapseAll')}><ChevronsDownUp size={12} /></button>
           <button
             class="tree-ctrl-btn"
             onclick={toggleTreeMode}
@@ -288,17 +290,13 @@
         </div>
       </section>
 
+      <!-- The tree owns its own loading/error rows per directory, so the
+           panel paints immediately and the root listing streams in. -->
       <section class="files">
         <span class="label">{t('workspace.files')}</span>
-        {#if treeBuilding}
-          <p class="muted">{t('common.loading')}</p>
-        {:else if fileTree}
-          <div class="tree-scroll">
-            <WorkspaceFileTree tree={fileTree} collapsed={treeCollapsed} mode={treeMode} onOpenFile={(p) => openFilePath = p} />
-          </div>
-        {:else}
-          <p class="muted">{t('workspace.no_index')}</p>
-        {/if}
+        <div class="tree-scroll">
+          <WorkspaceFileTree cache={dirCache} collapsed={treeCollapsed} mode={treeMode} onOpenFile={(p) => openFilePath = p} />
+        </div>
       </section>
     </div>
   {/if}

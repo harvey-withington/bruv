@@ -213,6 +213,7 @@ export const GetWorkspaceCheckout = (...args: Parameters<ReturnType<typeof getBa
 export const MaterializeWorkspace = (...args: Parameters<ReturnType<typeof getBackend>['MaterializeWorkspace']>) => getBackend().MaterializeWorkspace(...args)
 export const PullWorkspaceCheckout = (...args: Parameters<ReturnType<typeof getBackend>['PullWorkspaceCheckout']>) => getBackend().PullWorkspaceCheckout(...args)
 export const PushWorkspaceCheckout = (...args: Parameters<ReturnType<typeof getBackend>['PushWorkspaceCheckout']>) => getBackend().PushWorkspaceCheckout(...args)
+export const MergeWorkspaceCheckout = (...args: Parameters<ReturnType<typeof getBackend>['MergeWorkspaceCheckout']>) => getBackend().MergeWorkspaceCheckout(...args)
 export const ForgetWorkspaceCheckout = (...args: Parameters<ReturnType<typeof getBackend>['ForgetWorkspaceCheckout']>) => getBackend().ForgetWorkspaceCheckout(...args)
 export const ListWorkspaceTemplates = () => getBackend().ListWorkspaceTemplates()
 export const GetWorkspaceTemplateParams = (...args: Parameters<ReturnType<typeof getBackend>['GetWorkspaceTemplateParams']>) => getBackend().GetWorkspaceTemplateParams(...args)

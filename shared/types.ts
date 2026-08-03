@@ -1287,8 +1287,10 @@ export interface BackendAdapter {
   // device, so the whole lifecycle runs in the desktop shell.
   GetWorkspaceCheckout(workspaceID: string): Promise<WorkspaceCheckoutInfo>
   MaterializeWorkspace(workspaceID: string, brandSlug: string, streamSlug: string, projectSlug: string, destOverride: string): Promise<void>
-  PullWorkspaceCheckout(workspaceID: string): Promise<string>
-  PushWorkspaceCheckout(workspaceID: string): Promise<string>
+  PullWorkspaceCheckout(workspaceID: string): Promise<WorkspaceSyncResult>
+  PushWorkspaceCheckout(workspaceID: string): Promise<WorkspaceSyncResult>
+  /** Combines the two sides after they've diverged. Aborts on conflict. */
+  MergeWorkspaceCheckout(workspaceID: string): Promise<WorkspaceSyncResult>
   /** Drops BRUV's record of the copy; never touches the files. */
   ForgetWorkspaceCheckout(workspaceID: string): Promise<void>
 
@@ -1505,7 +1507,24 @@ export interface WorkspaceCheckoutInfo {
   dirty: boolean
   ahead: number
   behind: number
+  /**
+   * Both machines have commits the other doesn't, so neither getting nor
+   * sending can proceed until they're merged. Counts are as of the last
+   * fetch; the sync operations fetch first and see live numbers.
+   */
+  diverged: boolean
   git_available: boolean
+}
+
+/**
+ * What a pull/push/merge actually did. A status rather than prose: the two
+ * machines can be in several perfectly normal relationships, and each needs
+ * naming in the user's language with the server's name in it.
+ */
+export interface WorkspaceSyncResult {
+  status: 'ok' | 'up_to_date' | 'diverged' | 'server_dirty' | 'conflict'
+  /** Supporting text — git's own words, or the files a merge couldn't reconcile. */
+  detail?: string
 }
 
 export interface WorkspaceEntry {

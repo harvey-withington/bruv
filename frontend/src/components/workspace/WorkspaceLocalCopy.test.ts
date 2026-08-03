@@ -16,8 +16,10 @@ const api = vi.hoisted(() => ({
   MaterializeWorkspace: vi.fn(),
   PullWorkspaceCheckout: vi.fn(),
   PushWorkspaceCheckout: vi.fn(),
+  MergeWorkspaceCheckout: vi.fn(),
   ForgetWorkspaceCheckout: vi.fn(),
   OpenWorkspacePath: vi.fn(),
+  PickFolder: vi.fn(),
 }))
 vi.mock('@shared/api', () => api)
 
@@ -29,6 +31,7 @@ vi.mock('../../lib/toast.svelte', () => ({ showToast: vi.fn() }))
 
 const { default: WorkspaceLocalCopy } = await import('./WorkspaceLocalCopy.svelte')
 const { showConfirm } = await import('../../lib/confirm.svelte')
+const { showToast } = await import('../../lib/toast.svelte')
 
 function workspace(overrides: Partial<Workspace> = {}): Workspace {
   return {
@@ -50,6 +53,7 @@ function checkout(overrides: Partial<WorkspaceCheckoutInfo> = {}): WorkspaceChec
     dirty: false,
     ahead: 0,
     behind: 0,
+    diverged: false,
     git_available: true,
     ...overrides,
   }
@@ -219,5 +223,79 @@ describe('WorkspaceLocalCopy — forgetting never deletes', () => {
     await settle()
     expect(vi.mocked(showConfirm).mock.calls[0][0]).toContain('C:\\bruv-workspaces\\song-alpha')
     expect(api.ForgetWorkspaceCheckout).toHaveBeenCalledWith('ws-1')
+  })
+})
+
+describe('WorkspaceLocalCopy — two machines that both moved', () => {
+  const divergedCopy = () =>
+    checkout({ has_copy: true, local_path: 'C:\copy', branch: 'main', ahead: 1, behind: 1, diverged: true })
+
+  it('names the situation and offers the one action that resolves it', async () => {
+    // Without this the user faces two buttons that each refuse for their own
+    // separate reason — which is what git alone gives you.
+    api.GetWorkspaceCheckout.mockResolvedValue(divergedCopy())
+    mount(workspace({ git_serve: 'ready' }))
+    await settle()
+    expect(screen.getByText(/This copy and RIPPED have both changed/)).toBeTruthy()
+    expect(screen.getByText('Merge')).toBeTruthy()
+  })
+
+  it('offers no merge when only one side moved', async () => {
+    api.GetWorkspaceCheckout.mockResolvedValue(
+      checkout({ has_copy: true, local_path: 'C:\copy', branch: 'main', ahead: 2 }),
+    )
+    mount(workspace({ git_serve: 'ready' }))
+    await settle()
+    expect(screen.queryByText('Merge')).toBeNull()
+  })
+
+  it('reports a conflict by naming the files and leaving the copy alone', async () => {
+    api.GetWorkspaceCheckout.mockResolvedValue(divergedCopy())
+    api.MergeWorkspaceCheckout.mockResolvedValue({ status: 'conflict', detail: 'song.md, notes.md' })
+    mount(workspace({ git_serve: 'ready' }))
+    await settle()
+    screen.getByText('Merge').click()
+    await settle()
+    const said = vi.mocked(showToast).mock.calls.at(-1)
+    expect(said?.[0]).toContain('song.md')
+    expect(said?.[1]).toBe('error')
+  })
+})
+
+describe('WorkspaceLocalCopy — sync refusals read as situations, not git errors', () => {
+  const copy = () => checkout({ has_copy: true, local_path: 'C:\copy', branch: 'main', ahead: 1 })
+
+  it('explains a host with uncommitted edits, and says nothing was lost', async () => {
+    api.GetWorkspaceCheckout.mockResolvedValue(copy())
+    api.PushWorkspaceCheckout.mockResolvedValue({ status: 'server_dirty' })
+    mount(workspace({ git_serve: 'ready' }))
+    await settle()
+    screen.getByText('Send changes').click()
+    await settle()
+    const said = vi.mocked(showToast).mock.calls.at(-1)
+    expect(said?.[0]).toContain('RIPPED has edits in the folder')
+    expect(said?.[0]).toContain('Nothing was lost')
+  })
+
+  it('tells the user to merge rather than surfacing "fetch first"', async () => {
+    api.GetWorkspaceCheckout.mockResolvedValue(copy())
+    api.PushWorkspaceCheckout.mockResolvedValue({ status: 'diverged' })
+    mount(workspace({ git_serve: 'ready' }))
+    await settle()
+    screen.getByText('Send changes').click()
+    await settle()
+    expect(vi.mocked(showToast).mock.calls.at(-1)?.[0]).toContain('merge them first')
+  })
+
+  it('says "already up to date" instead of claiming it did something', async () => {
+    api.GetWorkspaceCheckout.mockResolvedValue(copy())
+    api.PullWorkspaceCheckout.mockResolvedValue({ status: 'up_to_date' })
+    mount(workspace({ git_serve: 'ready' }))
+    await settle()
+    screen.getByText('Get changes').click()
+    await settle()
+    const said = vi.mocked(showToast).mock.calls.at(-1)
+    expect(said?.[0]).toBe('Already up to date')
+    expect(said?.[1]).toBe('success')
   })
 })

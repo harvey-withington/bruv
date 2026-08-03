@@ -435,6 +435,7 @@ const SHELL_METHODS = new Set<string>([
   'MaterializeWorkspace',
   'PullWorkspaceCheckout',
   'PushWorkspaceCheckout',
+  'MergeWorkspaceCheckout',
   'ForgetWorkspaceCheckout',
   'ForceQuit',
   // Build info / version — report on the running desktop binary, so they

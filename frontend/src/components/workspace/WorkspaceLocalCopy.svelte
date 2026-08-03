@@ -10,7 +10,7 @@
   // Two phases, both visible: the host prepares (git init + initial commit,
   // reported through Workspace.git_serve so every client sees it), then
   // this device clones (reported by the shell's checkout status).
-  import { HardDriveDownload, FolderOpen, ArrowDownToLine, ArrowUpFromLine, Unlink, Loader, AlertTriangle } from 'lucide-svelte'
+  import { HardDriveDownload, FolderOpen, ArrowDownToLine, ArrowUpFromLine, Unlink, Loader, AlertTriangle, GitMerge } from 'lucide-svelte'
   import {
     DisableWorkspaceGitServe,
     EnableWorkspaceGitServe,
@@ -18,12 +18,13 @@
     GetWorkspaceCheckout,
     InspectWorkspaceGitServe,
     MaterializeWorkspace,
+    MergeWorkspaceCheckout,
     OpenWorkspacePath,
     PickFolder,
     PullWorkspaceCheckout,
     PushWorkspaceCheckout,
   } from '@shared/api'
-  import type { Workspace, WorkspaceCheckoutInfo } from '@shared/types'
+  import type { Workspace, WorkspaceCheckoutInfo, WorkspaceSyncResult } from '@shared/types'
   import { t } from '../../lib/i18n.svelte'
   import { showToast } from '../../lib/toast.svelte'
   import { showConfirm } from '../../lib/confirm.svelte'
@@ -161,31 +162,44 @@
     }
   }
 
-  async function pull() {
+  // Every sync outcome is a status, so each gets its own sentence with the
+  // server's name in it. Reporting git's raw refusal here would put "hint:
+  // See the 'Note about fast-forwards'" in front of someone whose actual
+  // situation is "your laptop and RIPPED have both changed".
+  function reportSync(result: WorkspaceSyncResult, okKey: string) {
+    switch (result.status) {
+      case 'diverged':
+        showToast(t('workspace.sync_diverged', { server: serverName }), 'error')
+        break
+      case 'server_dirty':
+        showToast(t('workspace.sync_server_dirty', { server: serverName }), 'error')
+        break
+      case 'conflict':
+        showToast(t('workspace.sync_conflict', { files: result.detail ?? '' }), 'error')
+        break
+      case 'up_to_date':
+        showToast(t('workspace.sync_up_to_date'), 'success')
+        break
+      default:
+        showToast(t(okKey, { server: serverName }), 'success')
+    }
+  }
+
+  async function runSync(op: () => Promise<WorkspaceSyncResult>, okKey: string, failKey: string) {
     busy = true
     try {
-      await PullWorkspaceCheckout(ws.id)
-      showToast(t('workspace.pull_done'), 'success')
+      reportSync(await op(), okKey)
       await refresh()
     } catch (e) {
-      showToast(t('workspace.pull_failed', { error: message(e) }), 'error')
+      showToast(t(failKey, { error: message(e) }), 'error')
     } finally {
       busy = false
     }
   }
 
-  async function push() {
-    busy = true
-    try {
-      await PushWorkspaceCheckout(ws.id)
-      showToast(t('workspace.push_done', { server: serverName }), 'success')
-      await refresh()
-    } catch (e) {
-      showToast(t('workspace.push_failed', { error: message(e) }), 'error')
-    } finally {
-      busy = false
-    }
-  }
+  const pull = () => runSync(() => PullWorkspaceCheckout(ws.id), 'workspace.pull_done', 'workspace.pull_failed')
+  const push = () => runSync(() => PushWorkspaceCheckout(ws.id), 'workspace.push_done', 'workspace.push_failed')
+  const merge = () => runSync(() => MergeWorkspaceCheckout(ws.id), 'workspace.merge_done', 'workspace.merge_failed')
 
   async function forget() {
     if (!await showConfirm(t('workspace.forget_copy_confirm', { path: checkout?.local_path ?? '' }))) return
@@ -236,6 +250,15 @@
         <span class="chip clean">{t('workspace.copy_in_sync')}</span>
       {/if}
     </p>
+    {#if checkout?.diverged}
+      <!-- Both sides moved. Neither Get nor Send can proceed, so say that
+           once and offer the thing that resolves it, rather than leaving two
+           buttons that each refuse for their own separate reason. -->
+      <p class="warning"><AlertTriangle size={12} /> {t('workspace.diverged_hint', { server: serverName })}</p>
+      <div class="action-row">
+        <button class="btn primary" disabled={busy} onclick={merge}><GitMerge size={13} /> {t('workspace.merge')}</button>
+      </div>
+    {/if}
     <div class="action-row">
       <button class="btn" onclick={openCopy}><FolderOpen size={13} /> {t('workspace.open_copy')}</button>
       <button class="btn" disabled={busy} onclick={pull}><ArrowDownToLine size={13} /> {t('workspace.pull')}</button>

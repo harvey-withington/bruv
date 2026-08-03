@@ -92,12 +92,16 @@ func (s *ShellAPI) MaterializeWorkspace(workspaceID, brandSlug, streamSlug, proj
 	return s.app.MaterializeWorkspace(workspaceID, brandSlug, streamSlug, projectSlug, destOverride)
 }
 
-func (s *ShellAPI) PullWorkspaceCheckout(workspaceID string) (string, error) {
+func (s *ShellAPI) PullWorkspaceCheckout(workspaceID string) (*WorkspaceSyncResult, error) {
 	return s.app.PullWorkspaceCheckout(workspaceID)
 }
 
-func (s *ShellAPI) PushWorkspaceCheckout(workspaceID string) (string, error) {
+func (s *ShellAPI) PushWorkspaceCheckout(workspaceID string) (*WorkspaceSyncResult, error) {
 	return s.app.PushWorkspaceCheckout(workspaceID)
+}
+
+func (s *ShellAPI) MergeWorkspaceCheckout(workspaceID string) (*WorkspaceSyncResult, error) {
+	return s.app.MergeWorkspaceCheckout(workspaceID)
 }
 
 func (s *ShellAPI) ForgetWorkspaceCheckout(workspaceID string) error {

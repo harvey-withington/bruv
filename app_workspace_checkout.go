@@ -62,6 +62,10 @@ type WorkspaceCheckoutInfo struct {
 	Dirty  bool `json:"dirty"`
 	Ahead  int  `json:"ahead"`
 	Behind int  `json:"behind"`
+	// Diverged is ahead AND behind: both machines have commits the other
+	// doesn't, so neither getting nor sending can proceed until they're
+	// merged. Counts are as of the last fetch.
+	Diverged bool `json:"diverged"`
 	// GitAvailable is false when this device has no git binary, which the
 	// UI must say plainly rather than offering an action that can't work.
 	GitAvailable bool `json:"git_available"`
@@ -144,13 +148,30 @@ func describeCheckout(info *WorkspaceCheckoutInfo, dir string) {
 	}
 	// Counts are against the last fetch, not the live origin — asking the
 	// server on every poll would put network traffic behind a UI refresh.
-	if counts, ok := gitQuery(ctx, dir, "rev-list", "--left-right", "--count", "@{upstream}...HEAD"); ok {
-		fields := strings.Fields(counts)
-		if len(fields) == 2 {
-			info.Behind, _ = strconv.Atoi(fields[0])
-			info.Ahead, _ = strconv.Atoi(fields[1])
-		}
+	// The sync operations fetch first, so THEY see live numbers.
+	if ahead, behind, ok := divergence(ctx, dir); ok {
+		info.Ahead, info.Behind = ahead, behind
+		// Both sides moved: neither a pull nor a push can proceed until
+		// they're combined, and the UI needs to say so rather than let the
+		// user press two buttons that both refuse.
+		info.Diverged = ahead > 0 && behind > 0
 	}
+}
+
+// divergence counts commits each side has that the other doesn't. ok is
+// false when there's no upstream to compare against.
+func divergence(ctx context.Context, dir string) (ahead, behind int, ok bool) {
+	counts, ok := gitQuery(ctx, dir, "rev-list", "--left-right", "--count", "@{upstream}...HEAD")
+	if !ok {
+		return 0, 0, false
+	}
+	fields := strings.Fields(counts)
+	if len(fields) != 2 {
+		return 0, 0, false
+	}
+	behind, _ = strconv.Atoi(fields[0])
+	ahead, _ = strconv.Atoi(fields[1])
+	return ahead, behind, true
 }
 
 // MaterializeWorkspace clones a published workspace onto this device and
@@ -224,31 +245,137 @@ func (a *App) MaterializeWorkspace(workspaceID, brandSlug, streamSlug, projectSl
 	return nil
 }
 
-// PullWorkspaceCheckout brings this device's copy up to date. Returns git's
-// own summary so the panel can show what changed.
-func (a *App) PullWorkspaceCheckout(workspaceID string) (string, error) {
-	dir, token, err := checkoutDirFor(workspaceID)
-	if err != nil {
-		return "", err
-	}
-	out, err := gitAuthed(context.Background(), dir, token, 0, "pull", "--ff-only")
-	if err != nil {
-		return "", err
-	}
-	return out, nil
+// Sync outcomes. These are STATUSES, not prose: the two machines can be in
+// several perfectly normal relationships, and the UI has to name each one in
+// the user's language with the server's name in it. Returning git's raw
+// output would put "hint: See the 'Note about fast-forwards'" in front of a
+// person whose actual situation is "your laptop and RIPPED have both
+// changed".
+const (
+	syncOK          = "ok"           // work moved
+	syncUpToDate    = "up_to_date"   // nothing to do
+	syncDiverged    = "diverged"     // both sides have commits the other lacks
+	syncServerDirty = "server_dirty" // the host has uncommitted edits of its own
+	syncConflict    = "conflict"     // a merge needs a human
+)
+
+// WorkspaceSyncResult is what a pull/push/merge actually did.
+type WorkspaceSyncResult struct {
+	Status string `json:"status"`
+	// Detail is supporting text — git's own words, cleaned of hints, or the
+	// list of files a merge couldn't reconcile. Never the whole message.
+	Detail string `json:"detail,omitempty"`
 }
 
-// PushWorkspaceCheckout sends committed work back to the machine holding
-// the workspace. The host accepts it into its working tree when that tree
-// is clean (receive.denyCurrentBranch=updateInstead), so edits made
-// directly on the host are never silently overwritten — git refuses the
-// push instead, and the message says so.
-func (a *App) PushWorkspaceCheckout(workspaceID string) (string, error) {
+// PullWorkspaceCheckout brings this device's copy up to date.
+//
+// It fetches FIRST and then decides, rather than asking git to pull and
+// interpreting the wreckage: after a fetch the relationship between the two
+// copies is a fact (two counts), so "you're both ahead" can be reported as
+// the ordinary situation it is instead of as a fast-forward failure.
+func (a *App) PullWorkspaceCheckout(workspaceID string) (*WorkspaceSyncResult, error) {
 	dir, token, err := checkoutDirFor(workspaceID)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return gitAuthed(context.Background(), dir, token, 0, "push")
+	ctx := context.Background()
+	if _, err := gitAuthed(ctx, dir, token, 0, "fetch", "--prune", "origin"); err != nil {
+		return nil, err
+	}
+	ahead, behind, ok := divergence(ctx, dir)
+	if !ok {
+		// No upstream configured (someone rebuilt the remote by hand).
+		// Let git judge; its error here is a real one worth showing.
+		out, err := gitAuthed(ctx, dir, token, 0, "pull", "--ff-only")
+		if err != nil {
+			return nil, err
+		}
+		return &WorkspaceSyncResult{Status: syncOK, Detail: firstMeaningfulLine(out)}, nil
+	}
+	switch {
+	case ahead > 0 && behind > 0:
+		return &WorkspaceSyncResult{Status: syncDiverged}, nil
+	case behind == 0:
+		return &WorkspaceSyncResult{Status: syncUpToDate}, nil
+	}
+	out, err := gitAuthed(ctx, dir, token, 0, "merge", "--ff-only", "@{upstream}")
+	if err != nil {
+		return nil, err
+	}
+	return &WorkspaceSyncResult{Status: syncOK, Detail: firstMeaningfulLine(out)}, nil
+}
+
+// PushWorkspaceCheckout sends committed work back to the machine holding the
+// workspace. Two refusals are ordinary rather than exceptional, and both are
+// reported as statuses: the host has its own commits (diverged), or the host
+// has uncommitted edits in the folder itself (server_dirty — the protection
+// that stops a push overwriting work someone typed straight onto the server).
+func (a *App) PushWorkspaceCheckout(workspaceID string) (*WorkspaceSyncResult, error) {
+	dir, token, err := checkoutDirFor(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	ctx := context.Background()
+	if ahead, _, ok := divergence(ctx, dir); ok && ahead == 0 {
+		return &WorkspaceSyncResult{Status: syncUpToDate}, nil
+	}
+	out, err := gitAuthed(ctx, dir, token, 0, "push")
+	if err == nil {
+		return &WorkspaceSyncResult{Status: syncOK, Detail: firstMeaningfulLine(out)}, nil
+	}
+	switch reason := err.Error(); {
+	case strings.Contains(reason, "fetch first"),
+		strings.Contains(reason, "non-fast-forward"),
+		strings.Contains(reason, "behind its remote"):
+		return &WorkspaceSyncResult{Status: syncDiverged}, nil
+	case strings.Contains(reason, "unstaged changes"),
+		strings.Contains(reason, "uncommitted changes"),
+		strings.Contains(reason, "denyCurrentBranch"),
+		strings.Contains(reason, "not up to date"):
+		return &WorkspaceSyncResult{Status: syncServerDirty}, nil
+	}
+	return nil, err
+}
+
+// MergeWorkspaceCheckout combines the two sides after they've diverged.
+//
+// A merge, not a rebase: rebasing rewrites commits the user already made,
+// and a mid-rebase conflict in a folder of documents is a bad place to
+// strand anyone. On conflict the merge is ABORTED and the files are named —
+// BRUV has no conflict-resolution surface, so leaving the copy full of
+// conflict markers with no way to finish would be worse than saying plainly
+// that this one needs a human.
+func (a *App) MergeWorkspaceCheckout(workspaceID string) (*WorkspaceSyncResult, error) {
+	dir, token, err := checkoutDirFor(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	ctx := context.Background()
+	if _, err := gitAuthed(ctx, dir, token, 0, "fetch", "--prune", "origin"); err != nil {
+		return nil, err
+	}
+	args := append(mergeIdentity, "merge", "--no-edit", "@{upstream}")
+	out, mergeErr := gitAuthed(ctx, dir, token, 0, args...)
+	if mergeErr == nil {
+		return &WorkspaceSyncResult{Status: syncOK, Detail: firstMeaningfulLine(out)}, nil
+	}
+	conflicts, _ := gitQuery(ctx, dir, "diff", "--name-only", "--diff-filter=U")
+	if strings.TrimSpace(conflicts) == "" {
+		return nil, mergeErr // a real failure, not a content conflict
+	}
+	// Put the copy back to a state the user can act on.
+	if _, err := gitAuthed(ctx, dir, token, gitQuickTimeout, "merge", "--abort"); err != nil {
+		return nil, fmt.Errorf("merge failed and couldn't be undone: %w", err)
+	}
+	return &WorkspaceSyncResult{Status: syncConflict, Detail: strings.TrimSpace(conflicts)}, nil
+}
+
+// mergeIdentity names BRUV as the author of a merge commit, so the merge
+// doesn't fail on a device with no global git identity configured.
+var mergeIdentity = []string{
+	"-c", "user.name=BRUV",
+	"-c", "user.email=bruv@localhost",
+	"-c", "commit.gpgsign=false",
 }
 
 // ForgetWorkspaceCheckout drops BRUV's record of the copy. The folder and
@@ -455,7 +582,7 @@ func gitAuthed(ctx context.Context, dir, token string, timeout time.Duration, ar
 		if detail == "" {
 			detail = err.Error()
 		}
-		return "", fmt.Errorf("git %s: %s", args[0], lastLine(detail))
+		return "", fmt.Errorf("git %s: %s", args[0], gitReason(detail))
 	}
 	return combined, nil
 }
@@ -472,14 +599,84 @@ func gitQuery(ctx context.Context, dir string, args ...string) (string, bool) {
 	return strings.TrimSpace(string(out)), true
 }
 
-// lastLine keeps the most specific part of a multi-line git error — git
-// puts the actual reason at the end ("fatal: …" after the hints).
-func lastLine(s string) string {
-	lines := strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		if line := strings.TrimSpace(lines[i]); line != "" {
-			return line
+// splitLines splits git output on either line ending, so parsing behaves
+// the same whether git wrote CRLF (Windows) or LF.
+func splitLines(out string) []string {
+	return strings.FieldsFunc(out, func(r rune) bool { return r == 0x0A || r == 0x0D })
+}
+
+// gitReason pulls the one useful sentence out of a git failure.
+//
+// The naive "last non-empty line" is wrong for the case that matters most: a
+// rejected push puts the reason in its `!` line and then FIVE lines of hints
+// after it, so the last line is "hint: See the 'Note about fast-forwards' in
+// 'git push --help' for details" — advice about a manual page, handed to
+// someone whose actual problem is that a second laptop got there first.
+//
+// Preference order: the rejection line's parenthesised reason, then fatal:,
+// then error: (skipping git's generic "failed to push some refs" wrapper),
+// then the first line that isn't noise.
+func gitReason(out string) string {
+	var rejected, fatal, errLine, first string
+	for _, raw := range splitLines(out) {
+		line := strings.TrimSpace(raw)
+		switch {
+		case line == "",
+			strings.HasPrefix(line, "hint:"),
+			strings.HasPrefix(line, "warning:"),
+			strings.HasPrefix(line, "Warning:"),
+			strings.HasPrefix(line, "To "): // the remote URL echo
+			continue
+		}
+		if rejected == "" && strings.Contains(line, "! [") && strings.Contains(line, "rejected]") {
+			rejected = parenthesised(line)
+			continue
+		}
+		if fatal == "" && strings.HasPrefix(line, "fatal:") {
+			fatal = strings.TrimSpace(strings.TrimPrefix(line, "fatal:"))
+			continue
+		}
+		if errLine == "" && strings.HasPrefix(line, "error:") {
+			detail := strings.TrimSpace(strings.TrimPrefix(line, "error:"))
+			// "failed to push some refs to '<url>'" restates the exit code.
+			if !strings.HasPrefix(detail, "failed to push some refs") {
+				errLine = detail
+			}
+			continue
+		}
+		if first == "" {
+			first = line
 		}
 	}
-	return s
+	for _, candidate := range []string{rejected, fatal, errLine, first} {
+		if candidate != "" {
+			return candidate
+		}
+	}
+	return strings.TrimSpace(out)
+}
+
+// parenthesised returns the text inside the last (…) of a git rejection
+// line — "! [remote rejected] main -> main (Working directory has unstaged
+// changes)" — falling back to the whole line when there is none.
+func parenthesised(line string) string {
+	open := strings.LastIndex(line, "(")
+	closed := strings.LastIndex(line, ")")
+	if open >= 0 && closed > open {
+		return strings.TrimSpace(line[open+1 : closed])
+	}
+	return line
+}
+
+// firstMeaningfulLine summarises a SUCCESSFUL git run for the UI ("Fast
+// forward", "Updating a1b2c3..d4e5f6"). Same noise filter, no error shapes.
+func firstMeaningfulLine(out string) string {
+	for _, raw := range splitLines(out) {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "hint:") || strings.HasPrefix(line, "warning:") {
+			continue
+		}
+		return line
+	}
+	return ""
 }

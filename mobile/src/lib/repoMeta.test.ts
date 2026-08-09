@@ -15,7 +15,7 @@ vi.mock('./auth', async (importOriginal) => {
   return { ...actual, repoRPC: (...args: unknown[]) => repoRPC(...args) }
 })
 
-const { repoMeta, loadRepoMeta, ensureRepoMeta, resetRepoMeta } = await import('./repoMeta.svelte')
+const { repoMeta, loadRepoMeta, ensureRepoMeta, loadProjectTags, resetRepoMeta } = await import('./repoMeta.svelte')
 
 const TYPES = [{ id: 'home-todo', label: 'Home-Todo', color: '#f59e0b' }]
 const COLORS = { urgent: '#ef4444' }
@@ -79,6 +79,32 @@ describe('ensureRepoMeta', () => {
     respondWith(TYPES, COLORS)
     await ensureRepoMeta()
     expect(repoMeta.loaded).toBe(true)
+  })
+})
+
+describe('loadProjectTags failure semantics (same class as the registry bug)', () => {
+  it('a failed load is NOT cached — the next call retries and succeeds', async () => {
+    repoRPC.mockRejectedValueOnce(new Error('offline'))
+    await loadProjectTags('b', 's', 'p')
+    expect(repoMeta.tagColor('urgent', 'b/s/p')).toBe('var(--border)')
+
+    repoRPC.mockResolvedValueOnce([{ name: 'urgent', color: '#ef4444' }])
+    await loadProjectTags('b', 's', 'p')
+    expect(repoMeta.tagColor('urgent', 'b/s/p')).toBe('#ef4444')
+  })
+
+  it('a successful load latches — no refetch on the next call', async () => {
+    repoRPC.mockResolvedValueOnce([{ name: 'urgent', color: '#ef4444' }])
+    await loadProjectTags('b', 's', 'p')
+    repoRPC.mockClear()
+    await loadProjectTags('b', 's', 'p')
+    expect(repoRPC).not.toHaveBeenCalled()
+  })
+
+  it('concurrent calls for one project share the fetch', async () => {
+    repoRPC.mockResolvedValue([])
+    await Promise.all([loadProjectTags('b', 's', 'p'), loadProjectTags('b', 's', 'p')])
+    expect(repoRPC).toHaveBeenCalledTimes(1)
   })
 })
 

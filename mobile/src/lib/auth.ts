@@ -241,7 +241,12 @@ function serverVersion(): Promise<string> {
     _serverVersion = apiFetch('/version')
       .then(r => (r.ok ? r.json() : null))
       .then(v => (v && typeof v.version === 'string' ? v.version : ''))
-      .catch(() => '')
+      .catch(() => {
+        // Don't cache the failure — the next stale-server error can
+        // name the version once the link is back.
+        _serverVersion = null
+        return ''
+      })
   }
   return _serverVersion
 }

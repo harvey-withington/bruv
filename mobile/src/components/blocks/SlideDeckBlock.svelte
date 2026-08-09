@@ -23,12 +23,17 @@
   const requestedTitleIds = new Set<string>()
   function loadLinkedTitle(id: string): void {
     // A failed load (e.g. deleted linked card) leaves the label on its
-    // value/content-type fallback — nothing to surface.
+    // value/content-type fallback — nothing to surface. But un-mark the
+    // id so a later effect pass (slides change, card:updated) retries —
+    // a transient network failure shouldn't pin the fallback label for
+    // the component's lifetime.
     repoRPC<{ title?: string }>('GetCard', [id])
       .then((c) => {
         if (c?.title) linkedTitles[id] = c.title
       })
-      .catch(() => {})
+      .catch(() => {
+        requestedTitleIds.delete(id)
+      })
   }
   $effect(() => {
     for (const s of deck.slides) {

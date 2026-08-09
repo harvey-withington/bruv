@@ -132,18 +132,27 @@ export function loadRepoMeta(): Promise<void> {
   return inFlight
 }
 
+const tagsInFlight = new Set<string>()
+
 /**
- * Lazy-load the tag definitions for a given project. Idempotent — a
- * second call for the same project is a no-op until `resetRepoMeta`.
+ * Lazy-load the tag definitions for a given project. Idempotent once
+ * LOADED — a failure is never cached (same class as the card-type
+ * registry bug, 2026-08-10: caching the failure-empty left that
+ * project's tag colours grey and autocomplete empty for the whole
+ * session), so the next caller — page revisit, reconnect refresh —
+ * retries. Concurrent calls for one project share the fetch.
  */
 export async function loadProjectTags(brand: string, stream: string, project: string): Promise<void> {
   const key = projectKey(brand, stream, project)
-  if (key in _state.projectTagsByKey) return
+  if (key in _state.projectTagsByKey || tagsInFlight.has(key)) return
+  tagsInFlight.add(key)
   try {
     const tags = await repoRPC<ProjectTag[]>('GetProjectLabels', [brand, stream, project])
     _state.projectTagsByKey[key] = tags ?? []
   } catch {
-    _state.projectTagsByKey[key] = []
+    // Quiet — tag colours are decorative — but NOT cached.
+  } finally {
+    tagsInFlight.delete(key)
   }
 }
 
@@ -153,4 +162,5 @@ export function resetRepoMeta(): void {
   _state.globalTagColors = {}
   _state.projectTagsByKey = {}
   _state.loaded = false
+  tagsInFlight.clear()
 }

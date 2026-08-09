@@ -25,7 +25,7 @@
   import PromoteCardSheet from '../components/PromoteCardSheet.svelte'
   import ChatButton from '../components/chat/ChatButton.svelte'
   import { getCardTypeColor, getCardTypeTextColor, getCardTypeLabel } from '@shared/cardTypes'
-  import { repoMeta, loadProjectTags, projectKey as makeProjectKey } from '../lib/repoMeta.svelte'
+  import { repoMeta, ensureRepoMeta, loadProjectTags, projectKey as makeProjectKey } from '../lib/repoMeta.svelte'
   import { onEvent } from '../lib/events.svelte'
   import { dragSortable, type DragMoveDetail } from '../lib/actions/dnd.svelte'
   import { CLIP_PENDING_TAG } from '@shared/types'
@@ -338,6 +338,10 @@
 
   onMount(() => {
     void loadCard()
+    // Deep links land here without passing a page that loads the type
+    // registry; if the boot-time load failed, retry so the type badge
+    // colours in.
+    void ensureRepoMeta()
     window.addEventListener('popstate', handlePopstate)
     // On reconnect: if the card never loaded, fetch it; otherwise keep the
     // on-screen edit session and flush any saves that failed while offline.

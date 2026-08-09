@@ -2,6 +2,8 @@
   import { route, replace } from './lib/router.svelte'
   import { isEnrolled, hasActiveRepo } from './lib/auth'
   import { startEvents, stopEvents } from './lib/events.svelte'
+  import { onReconnect } from './lib/connectivity.svelte'
+  import { repoMeta, loadRepoMeta } from './lib/repoMeta.svelte'
   import { t } from './lib/i18n.svelte'
   import EnrolPage from './routes/EnrolPage.svelte'
   import RepoPickerPage from './routes/RepoPickerPage.svelte'
@@ -48,6 +50,15 @@
   // (CaptureButton / ChatButton) — Browse/Inbox/Project get capture,
   // Card/Project get chat. No app-level floating buttons: they don't
   // suit small screens and overlaid page content.
+
+  // App-level reconnect handler (pages register their own for page
+  // data; this one owns the GLOBAL per-repo metadata): if the boot-time
+  // card-type/tag-colour load failed — offline start, flaky link — the
+  // registry heals as soon as the server is reachable again, instead of
+  // leaving grey badges and an empty type picker for the session.
+  $effect(() => onReconnect(() => {
+    if (!repoMeta.loaded && isEnrolled() && hasActiveRepo()) void loadRepoMeta()
+  }))
 </script>
 
 {#if route.current.name === 'enrol'}

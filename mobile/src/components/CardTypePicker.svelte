@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { X, Check } from 'lucide-svelte'
-  import { repoMeta } from '../lib/repoMeta.svelte'
+  import { repoMeta, ensureRepoMeta } from '../lib/repoMeta.svelte'
   import { getCardTypeColor, getCardTypeTextColor } from '@shared/cardTypes'
   import { t } from '../lib/i18n.svelte'
   import DynamicIcon from './DynamicIcon.svelte'
@@ -27,6 +27,9 @@
   let translateY = $state(0)
 
   onMount(() => {
+    // Heal a failed boot-time registry load right when the user needs
+    // the list — the {#each repoMeta.cardTypes} below fills in live.
+    void ensureRepoMeta()
     history.pushState({ typePicker: true }, '')
     const onPop = () => onClose()
     window.addEventListener('popstate', onPop)

@@ -91,23 +91,45 @@ export function projectKey(brand: string, stream: string, project: string): stri
   return `${brand}/${stream}/${project}`
 }
 
+let inFlight: Promise<void> | null = null
+
+/**
+ * Load the static per-repo metadata if it isn't loaded yet. Cheap
+ * no-op once loaded — surfaces that depend on the registry (CardPage
+ * badge, CardTypePicker) call this on mount so a failed boot-time load
+ * heals the moment the data is actually needed.
+ */
+export function ensureRepoMeta(): Promise<void> {
+  if (_state.loaded) return Promise.resolve()
+  return loadRepoMeta()
+}
+
 /**
  * Load (or refresh) the static per-repo metadata: the card-type
- * registry and the global tag colour map. Both fail open — quiet
- * defaults keep the app usable even if either RPC errors.
+ * registry and the global tag colour map. Failures stay quiet (the
+ * metadata is decorative — never block the app on it) but are NOT
+ * cached: `loaded` latches only when both halves arrive, so
+ * ensureRepoMeta / the reconnect hook retry later. The old
+ * fail-open-and-latch version cached an empty registry for the whole
+ * session after one bad moment at app start — grey type badges and an
+ * empty type picker with no way back (Harvey, Cambodia, 2026-08-10).
+ * Concurrent calls share one in-flight request.
  */
-export async function loadRepoMeta(): Promise<void> {
-  try {
-    const [cardTypes, globalTagColors] = await Promise.all([
-      repoRPC<CardTypeInfo[]>('ListCardTypes').catch(() => [] as CardTypeInfo[]),
-      repoRPC<Record<string, string>>('GetTagColors').catch(() => ({})),
+export function loadRepoMeta(): Promise<void> {
+  if (inFlight) return inFlight
+  inFlight = (async () => {
+    const [types, colors] = await Promise.allSettled([
+      repoRPC<CardTypeInfo[]>('ListCardTypes'),
+      repoRPC<Record<string, string>>('GetTagColors'),
     ])
-    _state.cardTypes = cardTypes ?? []
-    _state.globalTagColors = globalTagColors ?? {}
-    _state.loaded = true
-  } catch {
-    // Static metadata is decorative — never block the app on it.
-  }
+    // Store whatever DID arrive — partial success renders immediately.
+    if (types.status === 'fulfilled') _state.cardTypes = types.value ?? []
+    if (colors.status === 'fulfilled') _state.globalTagColors = colors.value ?? {}
+    _state.loaded = types.status === 'fulfilled' && colors.status === 'fulfilled'
+  })().finally(() => {
+    inFlight = null
+  })
+  return inFlight
 }
 
 /**

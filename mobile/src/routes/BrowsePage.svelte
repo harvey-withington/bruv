@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy, tick } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { Inbox, Link2, Search, Bell, Settings, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, Plus, MoreVertical, Pencil, Trash2 } from 'lucide-svelte'
   import {
     browse,
@@ -92,17 +92,56 @@
   }
   let renamingKeyValue = $derived(renaming ? targetKey(renaming.target) : null)
 
-  async function focusRenameInput() {
-    await tick()
-    renameInputEl?.focus()
-    renameInputEl?.select()
+  // Focus follows the input element, not just the rename start, so an
+  // SSE-driven row remount mid-rename gets focus back (same fix as
+  // ProjectPage's category rename).
+  $effect(() => {
+    if (renaming && renameInputEl) {
+      renameInputEl.focus()
+      renameInputEl.select()
+    }
+  })
+
+  // Back = Escape for renames (§8) — sentinel-entry variant. Browse sits
+  // at the BOTTOM of the history stack, so a popstate intercept alone
+  // can't help: on a fresh launch there is no entry beneath, Back never
+  // fires popstate, and Android exits the PWA mid-rename (the blur
+  // commit deleted the fresh create on the way out, but the user was
+  // dumped out of the app). So a rename session owns a history entry:
+  // Back pops the sentinel → cancel the rename (deleting a fresh
+  // create) → stay in the app.
+  //
+  // The sentinel is deliberately NEVER popped programmatically — a
+  // queued history.back() on rename end races any navigation the user
+  // taps next (the sheet-navigate bug, 2026-08-09). Instead it stays
+  // armed: the next rename reuses it, a navigation stacks on top of it
+  // (it's a plain browse-URL entry, so backing into it later is just
+  // "back to Browse"), and when Back consumes it with no rename active
+  // the page doesn't change — the only cost is that the first Back
+  // right after a rename doesn't exit the app.
+  function armRenameGuard() {
+    if (!history.state?.renameGuard) history.pushState({ renameGuard: true }, '')
+  }
+
+  function onPopstate() {
+    if (!renaming) return
+    cancelRename()
+  }
+
+  // Window-level Escape fallback: inlineEdit's Escape is node-scoped and
+  // mobile WebViews sometimes refuse the programmatic focus — without
+  // this, Escape on an unfocused rename input does nothing.
+  function onWindowKeydown(e: KeyboardEvent) {
+    if (e.key !== 'Escape' || !renaming) return
+    e.preventDefault()
+    cancelRename()
   }
 
   function startRename(target: RowTarget, currentName: string, isCreate = false) {
     closeMenu()
     renaming = { target, isCreate }
     renameDraft = currentName
-    void focusRenameInput()
+    armRenameGuard()
   }
 
   async function commitRename() {
@@ -598,7 +637,7 @@
   }
 </script>
 
-<svelte:window onpointerdown={onWindowPointerDown} />
+<svelte:window onpointerdown={onWindowPointerDown} onkeydown={onWindowKeydown} onpopstate={onPopstate} />
 
 <header class="topbar">
   <button type="button" class="vault-button" onclick={() => navigate('/repos')} title={t('browse.switch_vault')}>

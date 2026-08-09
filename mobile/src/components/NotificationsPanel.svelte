@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte'
   import { X, Trash2, CheckCheck, Bell } from 'lucide-svelte'
   import { machineRPC, repoRPC } from '../lib/auth'
-  import { navigate, cardURL } from '../lib/router.svelte'
+  import { replace, cardURL } from '../lib/router.svelte'
   import { onEvent } from '../lib/events.svelte'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
@@ -37,6 +37,13 @@
     }
   }
 
+  // Set when a notification tap navigates: the unmount cleanup must NOT
+  // history.back() then — replace() consumes the panel's synthetic entry
+  // instead, so a queued back-traversal can't race the navigation and
+  // bounce the user to the underlying page (navigatedAway pattern from
+  // PromoteCardSheet).
+  let navigatedAway = false
+
   onMount(() => {
     void reload()
     history.pushState({ notifications: true }, '')
@@ -44,7 +51,7 @@
     window.addEventListener('popstate', onPop)
     return () => {
       window.removeEventListener('popstate', onPop)
-      if (history.state?.notifications) history.back()
+      if (!navigatedAway && history.state?.notifications) history.back()
     }
   })
 
@@ -68,8 +75,9 @@
       }
     }
     if (n.card_id) {
+      navigatedAway = true
       onClose()
-      navigate(cardURL(n.card_id))
+      replace(cardURL(n.card_id))
     }
   }
 

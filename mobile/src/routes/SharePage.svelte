@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Share2 } from 'lucide-svelte'
-  import { navigate } from '../lib/router.svelte'
+  import { replace } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
   import { loadCapturePrefs, saveCapturePrefs, type CapturePrefs } from '../lib/capturePrefs'
   import { seedShareParams } from '../lib/shareCapture'
@@ -108,7 +108,10 @@
   }
 
   function cancel() {
-    navigate('/')
+    // The share page is an OS share-sheet landing — the entry behind it
+    // is usually outside the app, so popping is wrong and pushing home
+    // grows the stack. Replace the share entry with home instead.
+    replace('/')
   }
 </script>
 

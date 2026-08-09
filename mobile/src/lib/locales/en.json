@@ -118,6 +118,7 @@
   "project.err_create_category": "Couldn't add the category.",
   "project.err_rename_category": "Couldn't save the new name.",
   "project.err_delete_category": "Couldn't delete the category.",
+  "project.err_restore_card": "Couldn't move the card back to its category.",
   "project.default_category_name": "New Category",
   "project.cant_delete_last": "Can't delete the last category — a project needs at least one.",
   "project.add_card_to": "Add a card to {name}",

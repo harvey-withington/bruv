@@ -3,11 +3,21 @@
   import { Square, CheckSquare, X, Plus, GripVertical } from 'lucide-svelte'
   import { t } from '../../lib/i18n.svelte'
   import type { Block, ChecklistItem } from '@shared/types'
-  import { asChecklist, withValue, newID } from './narrow'
+  import { asChecklist, withValue, newID, type ChecklistCrossMove } from './narrow'
   import { dragSortable, type DragMoveDetail } from '../../lib/actions/dnd.svelte'
   import EditableItemText from './EditableItemText.svelte'
 
-  let { block, onChange }: { block: Block; onChange: (next: Block) => void } = $props()
+  let {
+    block,
+    onChange,
+    onCrossMove,
+  }: {
+    block: Block
+    onChange: (next: Block) => void
+    /** Fired when an item is dropped on ANOTHER checklist block — the
+     *  blocks host owns the cross-block move (see ChecklistCrossMove). */
+    onCrossMove?: (detail: ChecklistCrossMove) => void
+  } = $props()
 
   const items = $derived(asChecklist(block.value))
 
@@ -51,10 +61,18 @@
 
   // Reorder via shared dragSortable action. The action mutates the DOM
   // during drag for visual feedback and fires onMove with the new
-  // position once the user releases. We treat it as a single-list
-  // reorder — cross-container moves don't apply to checklist items.
+  // position once the user releases. The drop-target selector matches
+  // EVERY checklist block on the page, so the drop may land on a
+  // sibling checklist: that case is a cross-block move and belongs to
+  // the blocks host — treating it as a same-list reorder here moved
+  // the item to a destination-computed index within the SOURCE list.
   function handleReorder(detail: DragMoveDetail) {
     const itemID = detail.cardID
+    const toBlockID = detail.toTarget.getAttribute('data-block-id')
+    if (toBlockID && toBlockID !== block.id) {
+      onCrossMove?.({ itemID, toBlockID, toPosition: detail.toPosition })
+      return
+    }
     const fromIdx = items.findIndex((it) => it.id === itemID)
     if (fromIdx === -1) return
     const toIdx = Math.max(0, Math.min(detail.toPosition, items.length - 1))
@@ -69,6 +87,7 @@
 <ul
   class="list"
   data-drop-target="checklist-items"
+  data-block-id={block.id}
   use:dragSortable={{
     onMove: handleReorder,
     rowSelector: '.row[data-checklist-id]',

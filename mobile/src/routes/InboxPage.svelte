@@ -49,6 +49,15 @@
 
   const selectedCount = $derived(Object.values(selected).filter(Boolean).length)
 
+  /** Pop back to wherever the user came from; fall back to home for
+   *  deep links with no history (same pattern as CardPage.closePage).
+   *  navigate('/') here PUSHED a fresh home entry, so hardware Back
+   *  from the tree re-entered the inbox the user had just left. */
+  function goBack() {
+    if (window.history.length > 1) history.back()
+    else navigate('/')
+  }
+
   function isSelected(id: string): boolean {
     return selected[id] === true
   }
@@ -192,7 +201,7 @@
     <h1>{t('inbox.selected_n', { n: selectedCount })}</h1>
     <span class="spacer"></span>
   {:else}
-    <button type="button" class="back" onclick={() => navigate('/')}>
+    <button type="button" class="back" onclick={goBack}>
       <span aria-hidden="true">‹</span> {t('common.back')}
     </button>
     <h1>{t('inbox.title')}</h1>

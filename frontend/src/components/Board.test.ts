@@ -112,6 +112,54 @@ describe('Board smoke', () => {
     expect(board.categories[0].cards.map(c => c.id)).toEqual(['card-b', 'card-a'])
   })
 
+  // REGRESSION (2026-08-09): cancelRenameCategory was gated on the draft
+  // being unchanged — typing into a fresh-create's name prompt and then
+  // pressing Escape left a default-named "New Category" behind. The
+  // create-then-rename ruling (UI-CONVENTIONS §12.5) requires Escape on a
+  // fresh create to delete the object UNCONDITIONALLY.
+  it('Escape on a fresh-created category deletes it even after typing', async () => {
+    const cat = (id: string, name: string, slug: string, position: number) => ({
+      id, name, slug, position,
+      project_id: 'proj-1', created_at: '2026-08-09T00:00:00Z', updated_at: '2026-08-09T00:00:00Z',
+    })
+    const newCat = cat('cat-new', 'New Category', 'new-category', 2)
+    adapter.CreateCategory = vi.fn(async () => newCat)
+    adapter.DeleteCategory = vi.fn(async () => {})
+    adapter.ListCategories = vi.fn(async () => [
+      cat('cat-1', 'Todo', 'todo', 0),
+      cat('cat-2', 'Done', 'done', 1),
+      newCat,
+    ])
+    adapter.ListCardIDsInCategory = vi.fn(async () => [])
+
+    const { container, findByDisplayValue } = render(Board)
+    await fireEvent.click(container.querySelector('.add-column-btn')!)
+
+    // The fresh category's rename input is auto-armed after the refresh.
+    const input = await findByDisplayValue('New Category')
+    await fireEvent.input(input, { target: { value: 'Half-typed na' } })
+    await fireEvent.keyDown(input, { key: 'Escape' })
+
+    expect(adapter.DeleteCategory).toHaveBeenCalledTimes(1)
+    expect(adapter.DeleteCategory).toHaveBeenCalledWith(
+      'test-brand', 'test-stream', 'test-project', 'new-category',
+    )
+  })
+
+  it('Escape on an EXISTING category rename never deletes', async () => {
+    adapter.DeleteCategory = vi.fn(async () => {})
+    const { container } = render(Board)
+
+    // Clicking a column's title enters rename (Column.onStartRename).
+    await fireEvent.click(container.querySelector('.column-title-btn')!)
+    const input = container.querySelector('.column-rename-input')
+    expect(input).not.toBeNull()
+    await fireEvent.input(input!, { target: { value: 'Renamed' } })
+    await fireEvent.keyDown(input!, { key: 'Escape' })
+
+    expect(adapter.DeleteCategory).not.toHaveBeenCalled()
+  })
+
   it('drop onto a type-restricted category that rejects the card is a no-op', async () => {
     board.categories[1].accepted_types = ['story']
     board.categories[0].cards[0] = makeCard('card-a', 'Alpha', 'task')

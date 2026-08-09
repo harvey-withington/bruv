@@ -225,7 +225,15 @@
   // a Rename / Delete menu. Delete is gated by ConfirmDialog and
   // disabled when only one category remains (backend rejects).
 
-  let renaming = $state<{ categorySlug: string; isCreate: boolean } | null>(null)
+  let renaming = $state<{
+    categorySlug: string
+    isCreate: boolean
+    /** Set for drop-created categories: cancelling the create must first
+     *  re-pin this card to the category it was dragged from — deleting
+     *  the fresh category unpins everything it holds, which silently
+     *  removed the just-dropped card from the board (ruling 2026-08-09). */
+    restoreCard?: { cardID: string; fromCategoryID: string }
+  } | null>(null)
   let renameDraft = $state('')
   let renameInputEl = $state<HTMLInputElement | null>(null)
   let renameBusy = $state(false)
@@ -235,17 +243,38 @@
 
   function targetKey(slug: string): string { return `cat:${slug}` }
 
-  async function focusRenameInput() {
-    await tick()
-    renameInputEl?.focus()
-    renameInputEl?.select()
+  /** Pop back to wherever the user came from; fall back to home for
+   *  deep links with no history (same pattern as CardPage.closePage).
+   *  navigate('/') here PUSHED a fresh home entry, so hardware Back
+   *  from the tree re-entered the project the user had just left. */
+  function goBack() {
+    if (window.history.length > 1) history.back()
+    else navigate('/')
   }
 
-  function startRename(categorySlug: string, currentName: string, isCreate = false) {
+  // Focus follows the input element, not just the rename start: the
+  // SSE-driven reloadProject() can replace the category rows MID-rename,
+  // remounting the input — a one-shot focus() left the new instance
+  // unfocused, making the keyboard cancel/commit paths unreachable
+  // (worse on high-latency remote connections). The effect re-fires on
+  // every rebind, so a remounted input gets focus back.
+  $effect(() => {
+    if (renaming && renameInputEl) {
+      renameInputEl.focus()
+      renameInputEl.select()
+    }
+  })
+
+  function startRename(
+    categorySlug: string,
+    currentName: string,
+    isCreate = false,
+    restoreCard?: { cardID: string; fromCategoryID: string },
+  ) {
     closeMenu()
-    renaming = { categorySlug, isCreate }
+    renameReturnURL = location.pathname + location.hash
+    renaming = { categorySlug, isCreate, restoreCard }
     renameDraft = currentName
-    void focusRenameInput()
   }
 
   async function commitRename() {
@@ -254,9 +283,11 @@
     const next = renameDraft.trim()
     const current = categories.find((c) => c.slug === categorySlug)?.name ?? ''
     if (!next || next === current) {
+      const restore = renaming.restoreCard
       renaming = null
-      // Cancel-on-empty for a fresh-create deletes the just-created row.
-      if (isCreate) await silentDelete(categorySlug)
+      // Cancel-on-empty for a fresh-create deletes the just-created row
+      // (re-pinning the dropped card first, for drop-creates).
+      if (isCreate) await cancelFreshCreate(categorySlug, restore)
       return
     }
     renameBusy = true
@@ -280,8 +311,36 @@
   function cancelRename() {
     const wasCreate = renaming?.isCreate
     const slug = renaming?.categorySlug
+    const restore = renaming?.restoreCard
     renaming = null
-    if (wasCreate && slug) void silentDelete(slug)
+    if (wasCreate && slug) void cancelFreshCreate(slug, restore)
+  }
+
+  /** Undo a cancelled create. For drop-created categories the dropped
+   *  card goes back to its source category FIRST — deleting while it's
+   *  still pinned here would unpin it off the board. If the re-pin
+   *  fails, the fresh category is kept (with the card) rather than
+   *  cascading into a silent unpin; the inline error explains. */
+  async function cancelFreshCreate(
+    categorySlug: string,
+    restore?: { cardID: string; fromCategoryID: string },
+  ) {
+    if (restore) {
+      const freshID = categories.find((c) => c.slug === categorySlug)?.id
+      if (freshID) {
+        const home = categories.find((c) => c.id === restore.fromCategoryID)
+        try {
+          await repoRPC('MoveCardToCategory', [
+            restore.cardID, freshID, restore.fromCategoryID, home ? home.cards.length : 0,
+          ])
+        } catch (err) {
+          mutationError = `${t('project.err_restore_card')} ${err instanceof Error ? err.message : ''}`.trim()
+          void reloadProject()
+          return
+        }
+      }
+    }
+    await silentDelete(categorySlug)
   }
 
   async function silentDelete(categorySlug: string) {
@@ -296,6 +355,42 @@
   // Rename keyboard behaviour comes from the shared inlineEdit action
   // (Enter/blur commit, Escape cancels — deleting a fresh-create row).
   // ProjectPage isn't a closable container, so no EditScope is passed.
+  //
+  // Two safety nets around the action, because its Escape listener is
+  // node-scoped and mobile WebViews sometimes refuse the programmatic
+  // focus (leaving no focused node to deliver Escape to):
+  //
+  //  • Window-level Escape: cancels the rename even when the input
+  //    never got focus. When the input IS focused, inlineEdit consumes
+  //    the key (stopPropagation) so this never double-fires; the
+  //    `renaming` guard also makes a second call a no-op.
+  //  • Back = Escape (§8): system/gesture Back during a rename cancels
+  //    it (deleting a fresh create) and stays on the project —
+  //    CardPage's stateless repush, simplified. Without this, Back
+  //    navigated away mid-prompt and the default-named category
+  //    survived. renameReturnURL is captured at rename start so the
+  //    repush keeps the #cat= hash.
+
+  let renameReturnURL = ''
+  let suppressPopstate = false
+
+  function onWindowKeydown(e: KeyboardEvent) {
+    if (e.key !== 'Escape' || !renaming) return
+    e.preventDefault()
+    cancelRename()
+  }
+
+  function onPopstate() {
+    if (suppressPopstate) {
+      suppressPopstate = false
+      return
+    }
+    if (!renaming) return
+    cancelRename()
+    suppressPopstate = true
+    window.history.pushState({}, '', renameReturnURL)
+    window.dispatchEvent(new PopStateEvent('popstate'))
+  }
 
   async function handleAddCategory() {
     if (renaming) await commitRename()
@@ -587,7 +682,10 @@
       } else {
         expandCategory(created.project_id, created.id)
       }
-      startRename(created.slug, created.name, true)
+      startRename(created.slug, created.name, true, {
+        cardID: detail.cardID,
+        fromCategoryID: detail.fromCategoryID,
+      })
     } catch (err) {
       showToast(`${t('project.err_create_category')} ${err instanceof Error ? err.message : ''}`.trim(), 'error')
       void reloadProject()
@@ -696,10 +794,10 @@
   }
 </script>
 
-<svelte:window onpointerdown={onWindowPointerDown} />
+<svelte:window onpointerdown={onWindowPointerDown} onkeydown={onWindowKeydown} onpopstate={onPopstate} />
 
 <header class="topbar">
-  <button type="button" class="back" onclick={() => navigate('/')}>
+  <button type="button" class="back" onclick={goBack}>
     <span aria-hidden="true">‹</span> {t('common.back')}
   </button>
   <h1 title={projectName}>{@html renderInline(projectName)}</h1>

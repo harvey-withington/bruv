@@ -29,7 +29,15 @@
 
   onMount(() => {
     history.pushState({ [historyKey]: true }, '')
-    const onPop = () => onClose()
+    // Close only when OUR entry was the one popped. A DESCENDANT
+    // sheet's cleanup also fires popstate (its history.back() lands
+    // back on our entry, so our key is current again) — reacting to
+    // that cascaded a nested sheet's close into ours, eating two
+    // entries per tap and tearing down a dialog the user never
+    // dismissed.
+    const onPop = () => {
+      if (!history.state?.[historyKey]) onClose()
+    }
     window.addEventListener('popstate', onPop)
     return () => {
       window.removeEventListener('popstate', onPop)
@@ -42,7 +50,15 @@
   }
 
   function onKey(e: KeyboardEvent) {
-    if (e.key === 'Escape') onClose()
+    if (e.key !== 'Escape') return
+    // Only the TOPMOST sheet may react — with nested sheets every
+    // instance hears the same window keydown, and one Escape used to
+    // close them all. The topmost sheet is the one whose synthetic
+    // entry is current. Deliberately bubble-phase: ConfirmDialog's
+    // capture-phase shield keeps owning Escape when layered above us.
+    if (!history.state?.[historyKey]) return
+    e.preventDefault()
+    onClose()
   }
 </script>
 

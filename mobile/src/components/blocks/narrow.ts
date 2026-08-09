@@ -65,6 +65,45 @@ export function asSlideDeck(v: unknown): SlideDeckValue {
 // by older desktop edits rendered empty here).
 export { asUrlValue } from '@shared/blockValues'
 
+/** A checklist item dropped onto a DIFFERENT checklist block. Emitted by
+ *  ChecklistBlock's drag handler; one block's onChange can't edit a
+ *  sibling block, so the blocks host (CardPage) performs the move and
+ *  persists both blocks in a single save. */
+export interface ChecklistCrossMove {
+  itemID: string
+  toBlockID: string
+  /** Insertion index within the destination checklist. */
+  toPosition: number
+}
+
+/** Apply a cross-block checklist move to a blocks array. Returns the new
+ *  array, or null when the move can't apply (unknown blocks, destination
+ *  not a checklist, item missing) — callers skip the save then. Pure:
+ *  never mutates the input; source and destination change in the SAME
+ *  returned array so the caller can persist both in one save. */
+export function applyChecklistCrossMove(
+  blocks: Block[],
+  fromBlockID: string,
+  move: ChecklistCrossMove,
+): Block[] | null {
+  const from = blocks.find((b) => b.id === fromBlockID)
+  const to = blocks.find((b) => b.id === move.toBlockID)
+  if (!from || !to || to.type !== 'checklist') return null
+  const fromItems = asChecklist(from.value)
+  const moved = fromItems.find((it) => it.id === move.itemID)
+  if (!moved) return null
+  const toItems = asChecklist(to.value)
+  const insertAt = Math.max(0, Math.min(move.toPosition, toItems.length))
+  const nextTo = [...toItems]
+  nextTo.splice(insertAt, 0, moved)
+  const nextFrom = fromItems.filter((it) => it.id !== move.itemID)
+  return blocks.map((b) => {
+    if (b.id === from.id) return { ...b, value: nextFrom }
+    if (b.id === to.id) return { ...b, value: nextTo }
+    return b
+  })
+}
+
 /** Construct a copy of `block` with a new value. Helper for editors that
  *  fire onChange — keeps immutability tidy and centralises any future
  *  shape-level validation. */

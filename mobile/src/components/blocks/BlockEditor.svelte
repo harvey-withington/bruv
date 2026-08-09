@@ -16,6 +16,7 @@
   import { inlineEdit } from '@shared/inlineEdit'
   import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import type { Block } from '@shared/types'
+  import type { ChecklistCrossMove } from './narrow'
   import { t } from '../../lib/i18n.svelte'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import TextBlock from './TextBlock.svelte'
@@ -44,6 +45,7 @@
     onChange,
     onDelete,
     onToggleCollapse,
+    onMoveChecklistItem,
   }: {
     block: Block
     /** Card ID — passed to ImageBlock for attachment uploads. */
@@ -59,6 +61,10 @@
      *  can implement single/multi-expand modes. Omit on blocks that
      *  can't collapse (e.g. divider) to hide the chevron. */
     onToggleCollapse?: () => void
+    /** Checklist item dropped on a DIFFERENT checklist block. The
+     *  parent owns card.blocks, so only it can move an item between
+     *  two blocks and persist both in one save. */
+    onMoveChecklistItem?: (detail: ChecklistCrossMove) => void
   } = $props()
 
   // Block types that show the BlockEditor's own label header. Divider
@@ -180,7 +186,7 @@
     {#if block.type === 'text'}
       <TextBlock {block} mode={textMode} {onChange} />
     {:else if block.type === 'checklist'}
-      <ChecklistBlock {block} {onChange} />
+      <ChecklistBlock {block} {onChange} onCrossMove={onMoveChecklistItem} />
     {:else if block.type === 'list'}
       <ListBlock {block} {onChange} />
     {:else if block.type === 'divider'}

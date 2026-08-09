@@ -5,7 +5,7 @@
   import { inlineEdit } from '@shared/inlineEdit'
   import { EditScope } from '@shared/editScope'
   import { t } from '../../lib/i18n.svelte'
-  import { navigate, cardURL } from '../../lib/router.svelte'
+  import { replace, cardURL } from '../../lib/router.svelte'
   import ChatMessage from './ChatMessage.svelte'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import type { ChatScope } from './scope'
@@ -319,13 +319,21 @@
     return () => {
       window.removeEventListener('popstate', onPop)
       window.removeEventListener('keydown', onWindowKeydownCapture, true)
-      if (history.state?.chat) history.back()
+      if (!navigatedAway && history.state?.chat) history.back()
     }
   })
 
+  // Set when a card link navigates: the unmount cleanup must NOT
+  // history.back() then — replace() consumes the sheet's synthetic
+  // entry instead, so a queued back-traversal can't race the navigation
+  // and bounce the user to the underlying page (navigatedAway pattern
+  // from PromoteCardSheet).
+  let navigatedAway = false
+
   function openCard(id: string) {
+    navigatedAway = true
     onClose()
-    navigate(cardURL(id))
+    replace(cardURL(id))
   }
 </script>
 

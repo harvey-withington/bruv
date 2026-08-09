@@ -3,7 +3,7 @@
   import { Search, X } from 'lucide-svelte'
   import { EditScope } from '@shared/editScope'
   import { repoRPC } from '../lib/auth'
-  import { navigate, cardURL } from '../lib/router.svelte'
+  import { replace, cardURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
   import { renderInline } from '@shared/markdown'
   import { repoMeta } from '../lib/repoMeta.svelte'
@@ -79,9 +79,17 @@
     inputEl?.focus()
   }
 
+  // Set when a result navigates: the unmount cleanup must NOT
+  // history.back() then — replace() consumes the sheet's synthetic
+  // entry instead, so a queued back-traversal can't race the navigation
+  // and bounce the user to the underlying page (navigatedAway pattern
+  // from PromoteCardSheet).
+  let navigatedAway = false
+
   function open(hit: SearchHit) {
+    navigatedAway = true
     onClose()
-    navigate(cardURL(hit.CardID))
+    replace(cardURL(hit.CardID))
   }
 
   onMount(() => {
@@ -92,7 +100,7 @@
     return () => {
       window.removeEventListener('popstate', onPop)
       if (timer) clearTimeout(timer)
-      if (history.state?.search) history.back()
+      if (!navigatedAway && history.state?.search) history.back()
     }
   })
 </script>

@@ -595,10 +595,12 @@
 
   async function cancelRename() {
     if (!renaming) return
-    const { type, name: rawName, original, isCreate, brandSlug, streamSlug, projectSlug } = renaming
-    const unchanged = rawName.trim() === original
+    const { type, isCreate, brandSlug, streamSlug, projectSlug } = renaming
     renaming = null
-    if (isCreate && unchanged) {
+    // Escape on a fresh-create deletes the object regardless of what
+    // was typed — a cancelled create must leave nothing behind
+    // (UI-CONVENTIONS §12.5, ruling 2026-08-09).
+    if (isCreate) {
       try {
         if (type === 'brand') {
           await DeleteBrand(brandSlug)

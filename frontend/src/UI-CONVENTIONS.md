@@ -403,6 +403,8 @@ The design metaphor is **"everything you expect to be draggable is"** — dragga
 
 The boundary (Harvey, 2026-07-10): confirmation applies to deleting an **object** (card, category, brand/stream/project, tag, template, agent, attachment, comment, notification list). Removing a **row inside an editing surface** — a checklist/list item, media item, tag chip on a card, select option, survey question, MCP arg, template param, a single notification — is an *edit to the containing object*, not a delete, and stays promptless.
 
+**Create-then-rename (ruling, 2026-08-09):** a create action that drops the user straight into a name prompt must leave **no object behind on cancel**. Escape — or system Back on mobile, which is the same key per §8 — deletes the fresh object **unconditionally**, whether or not the user typed into the draft first; a cancelled create never survives with its default name. Flows that show an input *first* (quick capture, tag add, deck create) satisfy the rule by creating nothing until commit. The §8 "cancelling a just-added blank row removes it" rule is the row-level special case of this. Reference implementations: mobile `BrowsePage` brand/stream/project create (unconditional `silentDelete` from `cancelRename`); desktop `Sidebar`/`Board` fresh-create cancels (same shape, gate removed 2026-08-09). Create flows whose name prompt lives on a **page** (not a focused dialog) also need a window-level Escape fallback and a Back-cancels-rename popstate intercept — the shared `inlineEdit` action's Escape is node-scoped and mobile WebViews may refuse the programmatic focus (see ProjectPage's category rename for the pattern).
+
 ---
 
 ## 12.7 Action-Button Labels

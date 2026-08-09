@@ -432,10 +432,12 @@
   }
 
   async function cancelRenameCategory(slug: string) {
-    const unchanged = renamingCategoryName.trim() === renamingCategoryOriginal
     renameCatCancelled = true
     renamingCategorySlug = null
-    if (renameCatIsNew && unchanged && nav.brandSlug && nav.streamSlug && nav.projectSlug) {
+    // Escape on a fresh-create deletes the category regardless of what
+    // was typed — a cancelled create must leave nothing behind
+    // (UI-CONVENTIONS §12.5, ruling 2026-08-09).
+    if (renameCatIsNew && nav.brandSlug && nav.streamSlug && nav.projectSlug) {
       try {
         await DeleteCategory(nav.brandSlug, nav.streamSlug, nav.projectSlug, slug)
         await refreshBoard()

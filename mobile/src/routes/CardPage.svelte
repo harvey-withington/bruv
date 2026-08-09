@@ -12,6 +12,7 @@
   import EditableDescription from '../components/EditableDescription.svelte'
   import TagsEditor from '../components/TagsEditor.svelte'
   import BlockEditor from '../components/blocks/BlockEditor.svelte'
+  import { applyChecklistCrossMove, type ChecklistCrossMove } from '../components/blocks/narrow'
   import BlockTypePicker from '../components/BlockTypePicker.svelte'
   import ConfirmDialog from '../components/ConfirmDialog.svelte'
   import ErrorState from '../components/ErrorState.svelte'
@@ -468,6 +469,21 @@
     scheduleSave()
   }
 
+  // Checklist item dragged onto a DIFFERENT checklist block. Lives here
+  // because a block component's onChange can only rewrite its own block —
+  // a cross-block move must update source and destination together and
+  // persist them in ONE UpdateCardBlocks call (two racing per-block
+  // saves of the same array is the lost-update shape the checklist is
+  // already prone to).
+  async function moveChecklistItem(fromBlockID: string, detail: ChecklistCrossMove) {
+    if (!card) return
+    const next = applyChecklistCrossMove(card.blocks, fromBlockID, detail)
+    if (!next) return
+    card.blocks = next
+    saveError = null
+    await saveBlocksNow()
+  }
+
   async function deleteBlock(blockID: string) {
     if (!card) return
     card.blocks = card.blocks.filter((b) => b.id !== blockID)
@@ -662,6 +678,13 @@
       // LLM-suggestion-accept (or any cross-device pin change) too.
       void refreshPins()
     } else if (ev.topic === 'card:deleted') {
+      // Only for EXTERNAL deletes (desktop/agent). Our own delete
+      // navigates from deleteCard's success path; reacting to the SSE
+      // echo too would pop the stack twice and land one page too far
+      // back (Project → tree). The flag is set before the RPC is
+      // awaited, so the guard holds whichever of the echo and the
+      // response arrives first.
+      if (deletingLocally) return
       // Cancel any in-flight edit first — the Back = Escape popstate
       // layer would otherwise treat this programmatic back() as a
       // cancel-and-stay and strand the user on a deleted card.
@@ -746,9 +769,12 @@
   // --- Delete ---
 
   let confirmingDelete = $state(false)
+  // Guards the card:deleted SSE handler against our own delete's echo.
+  let deletingLocally = false
 
   async function deleteCard() {
     if (!card) return
+    deletingLocally = true
     try {
       await repoRPC<void>('DeleteCard', [card.id])
       // Pop the route stack so the user lands wherever they came from
@@ -761,6 +787,9 @@
         navigate('/')
       }
     } catch (err) {
+      // Delete didn't happen — re-arm the SSE handler for real
+      // external deletes.
+      deletingLocally = false
       // Offline is shown by the global overlay; don't auto-retry a delete.
       if (!(err instanceof NetworkError)) {
         saveError = err instanceof Error ? err.message : t('card.err_delete')
@@ -984,6 +1013,7 @@
             cardId={card.id}
             collapsed={collapsedBlocks.has(block.id)}
             onChange={(next) => updateBlock(block.id, next)}
+            onMoveChecklistItem={(detail) => void moveChecklistItem(block.id, detail)}
             onDelete={() => deleteBlock(block.id)}
             onToggleCollapse={isCollapsibleBlock(block) ? () => toggleBlockCollapse(block.id) : undefined}
           />

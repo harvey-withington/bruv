@@ -486,7 +486,7 @@
       const card = await repoRPC<{ id: string }>('CreateCard', [cardType, t('project.default_card_name')])
       await repoRPC('PinCard', [card.id, cat.id])
       mutationError = null
-      navigate(cardURL(card.id))
+      navigate(cardURL(card.id), { fromProject: pkey })
     } catch (err) {
       mutationError = `${t('project.err_create_card')} ${err instanceof Error ? err.message : ''}`.trim()
     }
@@ -541,7 +541,7 @@
       if (result.failedAttachments.length || result.failedComments.length) {
         showToast(t('card.import_partial'), 'warning')
       }
-      navigate(cardURL(result.cardId))
+      navigate(cardURL(result.cardId), { fromProject: pkey })
     } catch (err) {
       if (err instanceof ImportError) {
         showToast(t(`card.import_err_${err.code}`), 'error')
@@ -973,7 +973,7 @@
               <ul class="cards" data-card-list>
                 {#each cat.cards as card (card.id)}
                   <li data-card-id={card.id}>
-                    <CardRow {card} projectKey={pkey} onClick={() => navigate(cardURL(card.id))} />
+                    <CardRow {card} projectKey={pkey} onClick={() => navigate(cardURL(card.id), { fromProject: pkey })} />
                   </li>
                 {/each}
                 <!-- Always rendered; CSS hides it whenever the list holds

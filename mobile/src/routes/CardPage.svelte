@@ -167,6 +167,20 @@
 
   let card = $state<Card | null>(null)
   let projectKey = $state<string | undefined>(undefined)
+  // Tag-colour precedence for multi-pinned cards (ruling 2026-08-10):
+  // the project the card was OPENED FROM wins, then the primary pin,
+  // then the global map. The opened-from key rides the navigation's
+  // history state (ProjectPage passes { fromProject }); deep links —
+  // search, notifications, chat, inbox, activity — have none and start
+  // at the primary pin. Captured once at init: overlays and the
+  // Back = Escape repush rewrite history.state later.
+  const fromProjectKey = ((): string | undefined => {
+    const s = history.state as { fromProject?: unknown } | null
+    return typeof s?.fromProject === 'string' ? s.fromProject : undefined
+  })()
+  const tagKeys = $derived(
+    [fromProjectKey, projectKey].filter((k): k is string => !!k),
+  )
   let pins = $state<CardPin[]>([])
   let pinPickerOpen = $state(false)
   let loading = $state(true)
@@ -342,6 +356,12 @@
     // registry; if the boot-time load failed, retry so the type badge
     // colours in.
     void ensureRepoMeta()
+    // Opened-from project's tag definitions (they take precedence —
+    // see tagKeys above). The primary pin's load rides loadCard.
+    if (fromProjectKey) {
+      const [b, s, p] = fromProjectKey.split('/')
+      if (b && s && p) void loadProjectTags(b, s, p)
+    }
     window.addEventListener('popstate', handlePopstate)
     // On reconnect: if the card never loaded, fetch it; otherwise keep the
     // on-screen edit session and flush any saves that failed while offline.
@@ -908,7 +928,7 @@
         </div>
       </div>
 
-      <TagsEditor tags={card.tags ?? []} {projectKey} onChange={saveTags} />
+      <TagsEditor tags={card.tags ?? []} projectKey={tagKeys} onChange={saveTags} />
 
       <section class="pins">
         <h3 class="pins-label">

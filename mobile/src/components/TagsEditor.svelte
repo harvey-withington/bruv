@@ -21,7 +21,11 @@
     onChange,
   }: {
     tags: string[]
-    projectKey?: string
+    /** Ordered tag-definition precedence — a single project key, or a
+     *  list for multi-pinned cards (opened-from project first, then the
+     *  primary pin; ruling 2026-08-10). Passed straight through to
+     *  repoMeta.tagColor / knownTags. */
+    projectKey?: string | string[]
     onChange: (next: string[]) => void | Promise<void>
   } = $props()
 

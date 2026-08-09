@@ -43,16 +43,17 @@ export const repoMeta = {
   /**
    * Resolve a tag's display colour.
    *
-   * When `projectKey` is provided, the project's tag definitions win
-   * over the global map (matching the desktop's precedence). Falls
-   * back to a neutral border colour when the tag is unconfigured.
+   * `projectKeys` is an ORDERED precedence list (ruling 2026-08-10 for
+   * multi-pinned cards: the project the card was opened from wins, then
+   * the primary pin) — the first project defining the tag decides its
+   * colour, then the global map, then a neutral border colour. A single
+   * string still works for the common one-project surfaces.
    */
-  tagColor(tag: string, projectKey?: string): string {
+  tagColor(tag: string, projectKeys?: string | string[]): string {
     if (!tag) return 'var(--border)'
     const lower = tag.toLowerCase()
-    if (projectKey) {
-      const projectTags = _state.projectTagsByKey[projectKey] ?? []
-      const match = projectTags.find((t) => t.name.toLowerCase() === lower)
+    for (const key of normalizeKeys(projectKeys)) {
+      const match = (_state.projectTagsByKey[key] ?? []).find((t) => t.name.toLowerCase() === lower)
       if (match?.color) return match.color
     }
     return _state.globalTagColors[tag] || _state.globalTagColors[lower] || 'var(--border)'
@@ -60,28 +61,24 @@ export const repoMeta = {
 
   /**
    * Snapshot of every tag the user is likely to want to autocomplete
-   * against: the project's tag definitions (winning) plus the global
-   * tag colour map's keys (falling back). De-duplicated case-
-   * insensitively. Cheap to call — derived from already-loaded state.
+   * against: each project's tag definitions in precedence order, then
+   * the global tag colour map's keys. De-duplicated case-insensitively
+   * (first occurrence wins). Cheap to call — derived from already-
+   * loaded state.
    */
-  knownTags(projectKey?: string): string[] {
+  knownTags(projectKeys?: string | string[]): string[] {
     const seen = new Set<string>()
     const out: string[] = []
-    if (projectKey) {
-      const projectTags = _state.projectTagsByKey[projectKey] ?? []
-      for (const t of projectTags) {
-        const key = t.name.toLowerCase()
-        if (seen.has(key)) continue
-        seen.add(key)
-        out.push(t.name)
-      }
-    }
-    for (const name of Object.keys(_state.globalTagColors)) {
+    const add = (name: string) => {
       const key = name.toLowerCase()
-      if (seen.has(key)) continue
+      if (seen.has(key)) return
       seen.add(key)
       out.push(name)
     }
+    for (const key of normalizeKeys(projectKeys)) {
+      for (const t of _state.projectTagsByKey[key] ?? []) add(t.name)
+    }
+    for (const name of Object.keys(_state.globalTagColors)) add(name)
     return out
   },
 }
@@ -89,6 +86,11 @@ export const repoMeta = {
 /** Build the canonical project key — same shape used by the cache. */
 export function projectKey(brand: string, stream: string, project: string): string {
   return `${brand}/${stream}/${project}`
+}
+
+function normalizeKeys(keys?: string | string[]): string[] {
+  if (!keys) return []
+  return Array.isArray(keys) ? keys : [keys]
 }
 
 let inFlight: Promise<void> | null = null

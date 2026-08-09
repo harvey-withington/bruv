@@ -108,6 +108,36 @@ describe('loadProjectTags failure semantics (same class as the registry bug)', (
   })
 })
 
+describe('tagColor precedence for multi-pinned cards (ruling 2026-08-10)', () => {
+  // Opened-from project wins, then primary pin, then global map.
+  beforeEach(async () => {
+    respondWith(TYPES, { urgent: '#111111' })
+    await loadRepoMeta()
+    repoRPC.mockResolvedValueOnce([{ name: 'urgent', color: '#222222' }])
+    await loadProjectTags('opened', 'from', 'here')
+    repoRPC.mockResolvedValueOnce([{ name: 'urgent', color: '#333333' }, { name: 'other', color: '#444444' }])
+    await loadProjectTags('primary', 'pin', 'proj')
+  })
+
+  it('the FIRST project in the key list defining the tag wins', () => {
+    expect(repoMeta.tagColor('urgent', ['opened/from/here', 'primary/pin/proj'])).toBe('#222222')
+  })
+
+  it('later projects fill gaps the first does not define', () => {
+    expect(repoMeta.tagColor('other', ['opened/from/here', 'primary/pin/proj'])).toBe('#444444')
+  })
+
+  it('global map is the last resort; unknown tags get the neutral border', () => {
+    expect(repoMeta.tagColor('urgent', ['no/such/project'])).toBe('#111111')
+    expect(repoMeta.tagColor('mystery', ['opened/from/here', 'primary/pin/proj'])).toBe('var(--border)')
+  })
+
+  it('knownTags unions across the key list in precedence order', () => {
+    const known = repoMeta.knownTags(['opened/from/here', 'primary/pin/proj'])
+    expect(known).toEqual(['urgent', 'other'])
+  })
+})
+
 describe('concurrent loads', () => {
   it('share a single in-flight request', async () => {
     respondWith(TYPES, COLORS)

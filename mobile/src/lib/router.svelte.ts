@@ -156,13 +156,17 @@ export const route = {
 /**
  * Programmatic navigation. Pushes a new history entry and updates the
  * reactive route. Pass a path *within* the mobile scope (e.g. '/inbox')
- * — the BASE prefix is added automatically.
+ * — the BASE prefix is added automatically. Optional `state` rides the
+ * history entry (e.g. `{ fromProject }` context for a card open); the
+ * destination page reads it via history.state at init. Keys must not
+ * collide with overlay history keys (search/chat/…), which live on the
+ * overlays' own synthetic entries, not the page entry.
  */
-export function navigate(to: string): void {
+export function navigate(to: string, state?: Record<string, unknown>): void {
   const path = to.startsWith('/') ? to : `/${to}`
   const full = `${BASE.replace(/\/$/, '')}${path}`
   withViewTransition(() => {
-    window.history.pushState({}, '', full)
+    window.history.pushState(state ?? {}, '', full)
     _route = parse(full)
   })
 }

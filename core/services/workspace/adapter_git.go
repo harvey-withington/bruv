@@ -83,7 +83,9 @@ func (*gitAdapter) Index(ctx context.Context, fs wsengine.FS) (*model.WorkspaceI
 func gitOut(ctx context.Context, dir string, args ...string) (string, bool) {
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(cctx, "git", append([]string{"-C", dir}, args...)...)
+	// safe.directory: see gitRunArgs — the service user often doesn't own
+	// the workspace folder, and the ownership guard would fail every query.
+	cmd := exec.CommandContext(cctx, "git", append([]string{"-C", dir, "-c", "safe.directory=*"}, args...)...)
 	hideWindow(cmd)
 	out, err := cmd.Output()
 	if err != nil {

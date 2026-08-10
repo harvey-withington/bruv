@@ -122,7 +122,11 @@ func servicePack(w nethttp.ResponseWriter, r *nethttp.Request, dir, service stri
 // the negotiated protocol version so protocol v2 clients (git 2.26+, where
 // v2 is the default) get v2 rather than silently falling back.
 func gitPackCommand(r *nethttp.Request, dir, service string, extra ...string) *exec.Cmd {
-	args := append([]string{strings.TrimPrefix(service, "git-"), "--stateless-rpc"}, extra...)
+	// safe.directory: the service user often doesn't own the workspace
+	// folder (Windows service vs. the user who created it), and git's
+	// dubious-ownership guard would refuse to serve the repo. Scoped to
+	// this child process; see workspace.gitRunArgs for the full note.
+	args := append([]string{"-c", "safe.directory=*", strings.TrimPrefix(service, "git-"), "--stateless-rpc"}, extra...)
 	args = append(args, dir)
 	cmd := exec.CommandContext(r.Context(), "git", args...)
 	cmd.Dir = dir

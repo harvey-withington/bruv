@@ -329,10 +329,19 @@ func gitRun(ctx context.Context, dir string, timeout time.Duration, args ...stri
 }
 
 // gitRunArgs is gitRun with leading `-c key=value` configuration.
+//
+// safe.directory: as a Windows service BRUV commonly runs as a different
+// user (LocalSystem) than the workspace folder's owner, and git refuses
+// to touch a repo owned by someone else ("detected dubious ownership").
+// The exception is per-invocation — command-line config is trusted by
+// git and nothing is written to any config file. `*` rather than the
+// exact path because git compares path FORMS (slash direction, case) on
+// Windows; the child process only ever targets the directory BRUV's own
+// workspace registry handed it, so the wildcard grants nothing broader.
 func gitRunArgs(ctx context.Context, dir string, timeout time.Duration, config []string, args ...string) (string, error) {
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	full := append([]string{"-C", dir}, config...)
+	full := append([]string{"-C", dir, "-c", "safe.directory=*"}, config...)
 	full = append(full, args...)
 	cmd := exec.CommandContext(cctx, "git", full...)
 	hideWindow(cmd)

@@ -110,6 +110,16 @@ func TestListDirRefusesEscapes(t *testing.T) {
 	}
 }
 
+// REGRESSION (2026-08-11): a freshly published workspace's browse tree
+// showed its .git folder — noDescendDirs was dropped by the eager walk's
+// adapter but not by the lazy ListDir path.
+func TestListDirHidesNoDescendDirs(t *testing.T) {
+	dir := t.TempDir()
+	mkTree(t, dir, "keep.md", ".git/HEAD", ".git/objects/x", ".obsidian/app.json")
+	fsys := newFS(t, dir)
+	eq(t, listDirPaths(t, fsys, ""), []string{"keep.md"}, "root listing")
+}
+
 func TestListDirHonoursIgnoresAndJunk(t *testing.T) {
 	dir := t.TempDir()
 	mkTree(t, dir, "keep.md", "secret/pw.txt", ".DS_Store", "logs/app.log")

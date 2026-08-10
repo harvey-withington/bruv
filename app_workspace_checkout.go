@@ -305,8 +305,16 @@ func (a *App) PullWorkspaceCheckout(workspaceID string) (*WorkspaceSyncResult, e
 	return &WorkspaceSyncResult{Status: syncOK, Detail: firstMeaningfulLine(out)}, nil
 }
 
-// PushWorkspaceCheckout sends committed work back to the machine holding the
-// workspace. Two refusals are ordinary rather than exceptional, and both are
+// PushWorkspaceCheckout sends the copy's work back to the machine holding
+// the workspace. Uncommitted edits are committed first — "Send changes"
+// must mean the FILES, not "whatever was already committed with your own
+// git": the status chip says "uncommitted changes" and this button is the
+// only affordance most users have (field report 2026-08-11: create a file,
+// press Send, get "Already up to date"). Auto-committing here honours
+// "BRUV never rewrites a repo it didn't make" — the clone is BRUV's own
+// sync vehicle; the server's folder is untouched by this.
+//
+// Two refusals are ordinary rather than exceptional, and both are
 // reported as statuses: the host has its own commits (diverged), or the host
 // has uncommitted edits in the folder itself (server_dirty — the protection
 // that stops a push overwriting work someone typed straight onto the server).
@@ -316,6 +324,15 @@ func (a *App) PushWorkspaceCheckout(workspaceID string) (*WorkspaceSyncResult, e
 		return nil, err
 	}
 	ctx := context.Background()
+	if status, ok := gitQuery(ctx, dir, "status", "--porcelain"); ok && status != "" {
+		if _, err := gitAuthed(ctx, dir, token, gitQuickTimeout, "add", "-A"); err != nil {
+			return nil, err
+		}
+		args := append(mergeIdentity, "commit", "-m", sendCommitMessage())
+		if _, err := gitAuthed(ctx, dir, token, 0, args...); err != nil {
+			return nil, err
+		}
+	}
 	if ahead, _, ok := divergence(ctx, dir); ok && ahead == 0 {
 		return &WorkspaceSyncResult{Status: syncUpToDate}, nil
 	}
@@ -376,6 +393,15 @@ var mergeIdentity = []string{
 	"-c", "user.name=BRUV",
 	"-c", "user.email=bruv@localhost",
 	"-c", "commit.gpgsign=false",
+}
+
+// sendCommitMessage names the auto-commit "Send changes" makes for the
+// copy's edits. The device name makes multi-device histories readable.
+func sendCommitMessage() string {
+	if host, err := os.Hostname(); err == nil && host != "" {
+		return fmt.Sprintf("Changes from %s", host)
+	}
+	return "Changes sent from BRUV"
 }
 
 // ForgetWorkspaceCheckout drops BRUV's record of the copy. The folder and

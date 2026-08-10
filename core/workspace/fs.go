@@ -237,7 +237,11 @@ func (l *LocalFS) ListDir(ctx context.Context, rel string) ([]model.WorkspaceEnt
 	entries := make([]model.WorkspaceEntry, 0, len(items))
 	for _, d := range items {
 		name := d.Name()
-		if osJunk[name] {
+		// noDescendDirs too: the eager walk records them as bare entries
+		// for adapter detection and the adapter drops them from the stored
+		// tree — this lazy path feeds the browse tree directly, so without
+		// the same drop a published workspace showed its .git folder.
+		if osJunk[name] || noDescendDirs[name] {
 			continue
 		}
 		slashRel := name

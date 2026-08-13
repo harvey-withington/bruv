@@ -123,6 +123,11 @@ func FormatCardContent(card *model.Card) string {
 	if card.DueDate != nil {
 		sb.WriteString(fmt.Sprintf("Due: %s\n", card.DueDate.Format("2006-01-02")))
 	}
+	// Intrinsic since the 2026-05-02 description refactor — not in Blocks,
+	// so it must be written explicitly or the LLM never sees it.
+	if card.Description != "" {
+		sb.WriteString(fmt.Sprintf("Description: %s\n", card.Description))
+	}
 	for _, b := range card.Blocks {
 		label := b.Label
 		if label == "" {

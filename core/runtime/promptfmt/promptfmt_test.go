@@ -143,15 +143,18 @@ func TestCollectAgentFieldsCustomTracking(t *testing.T) {
 
 func TestFormatCardContentBasics(t *testing.T) {
 	card := &model.Card{
-		Title: "Test card",
-		Type:  "task",
-		Tags:  []string{"urgent", "wip"},
+		Title:       "Test card",
+		Type:        "task",
+		Tags:        []string{"urgent", "wip"},
+		Description: "The idea in one paragraph.",
 		Blocks: []model.Block{
 			{Key: "notes", Label: "Notes", Value: "some content"},
 		},
 	}
 	out := FormatCardContent(card)
-	for _, want := range []string{"Test card", "task", "urgent, wip", "Notes", "some content"} {
+	// Description is INTRINSIC (2026-05-02 refactor), not a block — it went
+	// invisible to every prompt until 2026-08-13. Keep it pinned here.
+	for _, want := range []string{"Test card", "task", "urgent, wip", "The idea in one paragraph.", "Notes", "some content"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("formatted content missing %q:\n%s", want, out)
 		}

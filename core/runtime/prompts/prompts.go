@@ -385,6 +385,13 @@ TOOLS:
 	if card.DueDate != nil {
 		cardParts = append(cardParts, fmt.Sprintf("Due: %s", card.DueDate.Format("2006-01-02")))
 	}
+	// Description is intrinsic since the 2026-05-02 refactor — it is NOT
+	// in Blocks, so without this line the chat model never saw it (field
+	// report 2026-08-13: "it seems to have no idea the description
+	// field exists").
+	if card.Description != "" {
+		cardParts = append(cardParts, "Description:\n"+card.Description)
+	}
 	// Include ALL fields — show empty ones so the LLM knows to fill them
 	var emptyFields []string
 	for _, b := range card.Blocks {
@@ -635,6 +642,10 @@ after completing the Goal's other deliverables.
 	}
 	if len(card.Tags) > 0 {
 		sb.WriteString(fmt.Sprintf("Tags: %s\n", strings.Join(card.Tags, ", ")))
+	}
+	// Intrinsic, not a block — see the card-chat builder's note.
+	if card.Description != "" {
+		sb.WriteString(fmt.Sprintf("Description: %s\n", card.Description))
 	}
 	if len(card.Blocks) > 0 {
 		// Render each block with its type and key so the LLM knows how

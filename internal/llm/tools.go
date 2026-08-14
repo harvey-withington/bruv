@@ -54,6 +54,20 @@ func CardTools(cardTypes []string, categories []map[string]string, mcpToolIDs []
 			},
 		},
 		{
+			Name:        "set_description",
+			Description: "Set or update the card's description — the free-text summary under the title. This is an intrinsic card property, NOT a field/block. Pass an empty string to clear it.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"description": map[string]any{
+						"type":        "string",
+						"description": "The new description (markdown allowed), or empty string to clear",
+					},
+				},
+				"required": []string{"description"},
+			},
+		},
+		{
 			Name:        "set_due_date",
 			Description: "Set or clear the card's due date. Use ISO 8601 format (YYYY-MM-DD). Pass an empty string to clear the due date.",
 			Parameters: map[string]any{

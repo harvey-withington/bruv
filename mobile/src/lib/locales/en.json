@@ -508,6 +508,8 @@
   "chat.err_send": "Couldn't send the message.",
   "chat.err_apply": "Couldn't apply some edits.",
   "chat.action_title": "Title: {title}",
+  "chat.action_set_description": "Updated the description",
+  "chat.action_description_cleared": "Cleared the description",
   "chat.action_due_date": "Due: {date}",
   "chat.action_due_date_cleared": "Cleared due date",
   "chat.action_set_type": "Set type: {type}",

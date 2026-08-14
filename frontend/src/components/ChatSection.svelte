@@ -425,6 +425,7 @@
     const inp = (action.input ?? {}) as Record<string, unknown>
     switch (action.tool) {
       case 'set_title': return t('chat.action_title', { title: (inp.title as string) || '?' })
+      case 'set_description': return inp.description ? t('chat.action_set_description') : t('chat.action_description_cleared')
       case 'set_due_date': return inp.due_date ? t('chat.action_due_date', { date: inp.due_date as string }) : t('chat.action_due_date_cleared')
       case 'set_card_type': return t('chat.action_set_type', { type: (inp.card_type as string) || '?' })
       case 'set_fields':

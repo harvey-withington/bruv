@@ -511,6 +511,7 @@ type cardToolHandler func(d *Dispatcher, cardID string, card *model.Card, tc llm
 // one ran the real 400-line card-mutation logic the audit called out.
 var cardToolHandlers = map[string]cardToolHandler{
 	"set_title":       (*Dispatcher).toolSetTitle,
+	"set_description": (*Dispatcher).toolSetDescription,
 	"set_due_date":    (*Dispatcher).toolSetDueDate,
 	"set_card_type":   (*Dispatcher).toolSetCardType,
 	"set_fields":      (*Dispatcher).toolSetFields,
@@ -545,6 +546,26 @@ func (d *Dispatcher) toolSetTitle(cardID string, card *model.Card, tc llm.ToolCa
 	}
 	action := &model.ToolAction{Tool: "set_title", Input: tc.Arguments, Result: "Title set to " + title}
 	return "Card title set to " + title, action, nil
+}
+
+func (d *Dispatcher) toolSetDescription(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath) (string, *model.ToolAction, *model.PinSuggestion) {
+	// Present-but-empty clears (like set_due_date); absent is an error.
+	desc, ok := tc.Arguments["description"].(string)
+	if !ok {
+		return "error: description is required (empty string clears it)", nil, nil
+	}
+	if card != nil && card.Description == desc {
+		return "Description is already up to date — no change needed", nil, nil
+	}
+	if _, err := d.deps.Card().UpdateDescription(cardID, desc); err != nil {
+		return "error: " + err.Error(), nil, nil
+	}
+	result := "Description updated"
+	if desc == "" {
+		result = "Description cleared"
+	}
+	action := &model.ToolAction{Tool: "set_description", Input: tc.Arguments, Result: result}
+	return result, action, nil
 }
 
 func (d *Dispatcher) toolSetDueDate(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath) (string, *model.ToolAction, *model.PinSuggestion) {
@@ -632,7 +653,39 @@ func (d *Dispatcher) toolSetFields(cardID string, card *model.Card, tc llm.ToolC
 			}
 		}
 	}
+	// Intrinsic-description redirect: "description" hasn't been a block
+	// since the 2026-05-02 refactor, but it's the LLM's most natural key
+	// for it (and project scope's update_card accepts it). Unless the card
+	// genuinely has a block keyed "description" (legacy/typed cards), route
+	// the value to the intrinsic field instead of erroring — set_description
+	// is the dedicated tool, this keeps the guess correct too.
+	descVal, hasDesc := fieldsMap["description"].(string)
+	if !hasDesc {
+		descVal, hasDesc = tc.Arguments["description"].(string)
+	}
+	descSet := false
+	if hasDesc {
+		if cc, err := d.deps.Repo().GetCard(cardID); err == nil {
+			hasDescBlock := false
+			for _, b := range cc.Blocks {
+				if b.Key == "description" {
+					hasDescBlock = true
+					break
+				}
+			}
+			if !hasDescBlock {
+				if _, err := d.deps.Card().UpdateDescription(cardID, descVal); err == nil {
+					descSet = true
+					delete(fieldsMap, "description")
+				}
+			}
+		}
+	}
 	if len(fieldsMap) == 0 {
+		if descSet {
+			result := "Updated the card's intrinsic description (not a block)"
+			return result, &model.ToolAction{Tool: "set_fields", Input: tc.Arguments, Result: result}, nil
+		}
 		return "error: fields map is empty", nil, nil
 	}
 	currentCard, err := d.deps.Repo().GetCard(cardID)
@@ -668,6 +721,10 @@ func (d *Dispatcher) toolSetFields(cardID string, card *model.Card, tc llm.ToolC
 		}
 	}
 	if !updated {
+		if descSet {
+			result := "Updated the card's intrinsic description; the other keys matched no fields"
+			return result, &model.ToolAction{Tool: "set_fields", Input: tc.Arguments, Result: result}, nil
+		}
 		var available []string
 		for _, b := range currentCard.Blocks {
 			if b.Key != "" {
@@ -675,6 +732,9 @@ func (d *Dispatcher) toolSetFields(cardID string, card *model.Card, tc llm.ToolC
 			}
 		}
 		return "error: no matching field keys found. Available keys: " + strings.Join(available, ", "), nil, nil
+	}
+	if descSet {
+		updatedKeys = append([]string{"description (intrinsic)"}, updatedKeys...)
 	}
 	d.deps.Card().UpdateBlocks(cardID, currentCard.Blocks)
 	result := "Updated fields: " + strings.Join(updatedKeys, ", ")
@@ -1843,6 +1903,14 @@ func (d *Dispatcher) StageCard(tc llm.ToolCall, allCats []CategoryPath) (string,
 	case "set_title":
 		title, _ := tc.Arguments["title"].(string)
 		return "Title will be set to " + title, one(tc.Name, tc.Arguments, "Set title", `"`+title+`"`)
+
+	case "set_description":
+		desc, _ := tc.Arguments["description"].(string)
+		label, detail := "Set description", desc
+		if desc == "" {
+			label, detail = "Clear description", "Remove existing description"
+		}
+		return "Description staged", one(tc.Name, tc.Arguments, label, detail)
 
 	case "set_due_date":
 		dueDate, _ := tc.Arguments["due_date"].(string)

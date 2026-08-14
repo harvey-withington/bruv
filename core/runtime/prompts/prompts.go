@@ -328,6 +328,7 @@ TOOLS:
 - set_card_type — Pick the best type. Only if type is not set or wrong.
 - set_fields — Fill field values with real content from the user's message. ALWAYS call this when fields are empty.
 - set_title — Write a clear, specific title. Only if title is "New Card" or generic.
+- set_description — Set the card's description (the free-text summary under the title). It is an intrinsic card property, NOT a field — never create a "description" field for it. Empty string clears.
 - set_due_date — YYYY-MM-DD format. Resolve relative dates from today (%s).
 - suggest_pin — ALWAYS pin the card. STRONGLY prefer an existing category_id from the list below. The hierarchy is: Brand > Stream > Project > Category (e.g. "Big Ideas / YouTube Channels / Channel Brainstorm / Ideas"). Do NOT use the card title as a brand name. Only create new names if NOTHING existing fits.
 - add_tags — Add relevant tags. Prefer existing project tags listed below, but you may create new short, descriptive tags if none fit.
@@ -388,9 +389,12 @@ TOOLS:
 	// Description is intrinsic since the 2026-05-02 refactor — it is NOT
 	// in Blocks, so without this line the chat model never saw it (field
 	// report 2026-08-13: "it seems to have no idea the description
-	// field exists").
+	// field exists"). "(not set)" mirrors Type so the model knows
+	// set_description is applicable.
 	if card.Description != "" {
 		cardParts = append(cardParts, "Description:\n"+card.Description)
+	} else {
+		cardParts = append(cardParts, "Description: (not set)")
 	}
 	// Include ALL fields — show empty ones so the LLM knows to fill them
 	var emptyFields []string

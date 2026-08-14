@@ -6,11 +6,11 @@ import (
 
 func TestCardToolsBaseCount(t *testing.T) {
 	tools := CardTools(nil, nil, nil)
-	// Base tools: set_title, set_due_date, set_card_type, set_fields,
-	// add_tags, add_field, suggest_pin, configure_agent, web_fetch,
-	// web_search.
-	if len(tools) != 10 {
-		t.Errorf("expected 10 base tools, got %d", len(tools))
+	// Base tools: set_title, set_description, set_due_date, set_card_type,
+	// set_fields, add_tags, add_field, suggest_pin, configure_agent,
+	// web_fetch, web_search.
+	if len(tools) != 11 {
+		t.Errorf("expected 11 base tools, got %d", len(tools))
 	}
 }
 
@@ -161,6 +161,7 @@ func TestCardToolsExpectedNames(t *testing.T) {
 	tools := CardTools([]string{"feature"}, []map[string]string{{"id": "c1", "name": "Cat"}}, nil)
 	expected := map[string]bool{
 		"set_title":       true,
+		"set_description": true,
 		"set_due_date":    true,
 		"set_card_type":   true,
 		"set_fields":      true,

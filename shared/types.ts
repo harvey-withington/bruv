@@ -486,6 +486,8 @@ export type ChatMessage = {
   tool_actions?: ToolAction[]
   pin_suggestion?: PinSuggestion
   pending_edits?: PendingEdit[]
+  /** Jump-back marker for the chat panel's bookmark navigation. */
+  bookmarked?: boolean
 }
 
 // ChatHistory mirrors Go's model.ChatFile — the unit returned by the
@@ -1369,6 +1371,8 @@ export interface BackendAdapter {
   SendProjectChatMessage(brandSlug: string, streamSlug: string, projectSlug: string, userMessage: string, contextLevel: string): Promise<ChatHistory>
   ClearProjectChatHistory(brandSlug: string, streamSlug: string, projectSlug: string): Promise<void>
   ClearCardChatHistory(cardID: string): Promise<void>
+  ToggleChatBookmark(cardID: string, messageID: string): Promise<ChatHistory>
+  ToggleProjectChatBookmark(brandSlug: string, streamSlug: string, projectSlug: string, messageID: string): Promise<ChatHistory>
 
   // LLM accounts
   GetLLMAccounts(): Promise<LLMAccount[]>

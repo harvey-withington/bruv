@@ -335,6 +335,17 @@ func (r *Runtime) LoadProjectChatHistory(brandSlug, streamSlug, projectSlug stri
 	return r.Chat.LoadProjectHistory(brandSlug, streamSlug, projectSlug)
 }
 
+// ToggleChatBookmark flips the bookmark flag on one card-chat message
+// and returns the updated chat file.
+func (r *Runtime) ToggleChatBookmark(cardID, messageID string) (*model.ChatFile, error) {
+	return r.Chat.ToggleCardBookmark(cardID, messageID)
+}
+
+// ToggleProjectChatBookmark is the project-chat variant.
+func (r *Runtime) ToggleProjectChatBookmark(brandSlug, streamSlug, projectSlug, messageID string) (*model.ChatFile, error) {
+	return r.Chat.ToggleProjectBookmark(brandSlug, streamSlug, projectSlug, messageID)
+}
+
 func (r *Runtime) ClearProjectChatHistory(brandSlug, streamSlug, projectSlug string) error {
 	return r.Chat.ClearProjectHistory(brandSlug, streamSlug, projectSlug)
 }

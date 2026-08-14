@@ -58,6 +58,29 @@ func (s *Service) LoadProjectHistory(brandSlug, streamSlug, projectSlug string) 
 	return config.LoadChatFor(r.Manifest.ID, ProjectChatID(project.ID))
 }
 
+// ToggleCardBookmark flips the bookmark flag on one card-chat message.
+func (s *Service) ToggleCardBookmark(cardID, messageID string) (*model.ChatFile, error) {
+	r := s.deps.Repo()
+	if r == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	return config.ToggleChatBookmark(r.Manifest.ID, cardID, messageID)
+}
+
+// ToggleProjectBookmark flips the bookmark flag on one project-chat
+// message, resolving the project's UUID from its slug path.
+func (s *Service) ToggleProjectBookmark(brandSlug, streamSlug, projectSlug, messageID string) (*model.ChatFile, error) {
+	r := s.deps.Repo()
+	if r == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	project, err := r.GetProject(brandSlug, streamSlug, projectSlug)
+	if err != nil {
+		return nil, err
+	}
+	return config.ToggleChatBookmark(r.Manifest.ID, ProjectChatID(project.ID), messageID)
+}
+
 // ClearProjectHistory wipes the project's chat to a fresh empty file.
 func (s *Service) ClearProjectHistory(brandSlug, streamSlug, projectSlug string) error {
 	r := s.deps.Repo()

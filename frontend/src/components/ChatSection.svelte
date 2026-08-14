@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte'
-  import { Send, MapPin, Check, X, Wrench, ChevronUp, ChevronDown, MessageCircle, PencilLine, ListChecks, Trash2, BotMessageSquare } from 'lucide-svelte'
-  import { LoadChatHistory, SendChatMessage, IsLLMConfigured, AcceptPinSuggestion, RejectPinSuggestion, GetLLMConfig, SetLLMConfig, ApplyPendingEdits, ClearCardChatHistory } from '@shared/api'
+  import { Send, MapPin, Check, X, Wrench, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Bookmark, MessageCircle, PencilLine, ListChecks, Trash2, BotMessageSquare } from 'lucide-svelte'
+  import { LoadChatHistory, SendChatMessage, IsLLMConfigured, AcceptPinSuggestion, RejectPinSuggestion, GetLLMConfig, SetLLMConfig, ApplyPendingEdits, ClearCardChatHistory, ToggleChatBookmark } from '@shared/api'
   import type { ChatHistory, ChatMessage, ToolAction } from '@shared/types'
   import { showConfirm } from '../lib/confirm.svelte'
   import { renderMarkdown } from '@shared/markdown'
@@ -50,6 +50,7 @@
     reloadKey,
     clearFn,
     applyFn,
+    bookmarkFn,
   }: {
     cardId: string
     visible: boolean
@@ -72,6 +73,10 @@
      *  card chat's ApplyPendingEdits flow but routes through the project
      *  apply endpoint so the right tool executor runs. */
     applyFn?: (msgID: string, acceptIDs: string[]) => Promise<ChatHistory>
+    /** bookmarkFn toggles a message bookmark in projectMode (routes to
+     *  ToggleProjectChatBookmark). Card mode uses ToggleChatBookmark
+     *  directly. */
+    bookmarkFn?: (messageID: string) => Promise<ChatHistory>
   } = $props()
 
   // --- Project chat: context level (persisted globally in localStorage) ---
@@ -536,6 +541,75 @@
     scrollToBottom()
   }
 
+  // --- Bookmarks (Harvey's pattern, 2026-08-14): the double-chevron
+  // buttons jump between BOOKMARKED questions, falling back to the
+  // first/last question when no bookmark remains in that direction —
+  // so with zero bookmarks they double as jump-to-start/end. Toggle
+  // marks the CURRENT question (the one at the top of the viewport).
+  // Flags persist on the chat file via ToggleChatBookmark.
+
+  function isBookmarked(id: string | undefined): boolean {
+    if (!id) return false
+    return !!messages.find((m) => m.id === id)?.bookmarked
+  }
+
+  /** The user message the reader is "at": the last one whose top is at
+   *  or above the viewport top; the first message when scrolled above
+   *  them all. */
+  function currentQuestionEl(): HTMLElement | null {
+    const els = getUserMessageEls()
+    if (els.length === 0) return null
+    const scrollTop = messagesContainerEl?.scrollTop ?? 0
+    for (let i = els.length - 1; i >= 0; i--) {
+      if (userMsgOffsetFromContainerTop(els[i]) <= scrollTop + 2) return els[i]
+    }
+    return els[0]
+  }
+
+  async function toggleBookmark() {
+    const id = currentQuestionEl()?.dataset.msgId
+    if (!id) return
+    // Optimistic flip; the RPC result is authoritative on success.
+    const flip = (list: ChatMessage[]) =>
+      list.map((m) => (m.id === id ? { ...m, bookmarked: !m.bookmarked } : m))
+    messages = flip(messages)
+    try {
+      const result = projectMode && bookmarkFn
+        ? await bookmarkFn(id)
+        : await ToggleChatBookmark(cardId, id)
+      if (result?.messages) messages = result.messages
+    } catch {
+      messages = flip(messages)
+      showToast(t('chat.bookmark_failed'), 'error')
+    }
+  }
+
+  function scrollToPrevBookmark() {
+    const els = getUserMessageEls()
+    if (els.length === 0) return
+    const scrollTop = messagesContainerEl?.scrollTop ?? 0
+    for (let i = els.length - 1; i >= 0; i--) {
+      if (userMsgOffsetFromContainerTop(els[i]) < scrollTop - 2 && isBookmarked(els[i].dataset.msgId)) {
+        els[i].scrollIntoView({ behavior: 'smooth', block: 'start' })
+        return
+      }
+    }
+    els[0].scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  function scrollToNextBookmark() {
+    const els = getUserMessageEls()
+    if (els.length === 0) return
+    const scrollTop = messagesContainerEl?.scrollTop ?? 0
+    for (let i = 0; i < els.length; i++) {
+      if (userMsgOffsetFromContainerTop(els[i]) > scrollTop + 2 && isBookmarked(els[i].dataset.msgId)) {
+        els[i].scrollIntoView({ behavior: 'smooth', block: 'start' })
+        return
+      }
+    }
+    els[els.length - 1].scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   // Auto-scroll to bottom when messages change or sending state changes.
   // GUARD: only follow the new message if the user was already near the
   // bottom. Otherwise they've manually scrolled up (e.g. via the prev-
@@ -621,7 +695,10 @@
         <div class="chat-empty">{t('chat.empty')}</div>
       {:else}
         {#each messages as msg (msg.id)}
-          <div class="chat-msg chat-msg-{msg.role}">
+          <div class="chat-msg chat-msg-{msg.role}" data-msg-id={msg.id}>
+            {#if msg.bookmarked}
+              <span class="chat-msg-bookmark" title={t('chat.bookmarked')}><Bookmark size={11} /></span>
+            {/if}
             <div class="chat-msg-content">{@html renderMarkdown(msg.content)}</div>
 
             {#if msg.tool_actions?.length}
@@ -742,11 +819,20 @@
 
     <div class="chat-input-wrapper">
       <div class="chat-nav-row">
+        <button class="chat-nav-btn" onclick={scrollToPrevBookmark} title={t('chat.prev_bookmark')}>
+          <ChevronsUp size={14} />
+        </button>
         <button class="chat-nav-btn" onclick={scrollToPrevQuestion} title={t('chat.prev_question')}>
           <ChevronUp size={14} />
         </button>
         <button class="chat-nav-btn" onclick={scrollToNextQuestion} title={t('chat.next_question')}>
           <ChevronDown size={14} />
+        </button>
+        <button class="chat-nav-btn" onclick={scrollToNextBookmark} title={t('chat.next_bookmark')}>
+          <ChevronsDown size={14} />
+        </button>
+        <button class="chat-nav-btn" onclick={toggleBookmark} title={t('chat.toggle_bookmark')}>
+          <Bookmark size={14} />
         </button>
         {#if messages.length > 0}
           <button class="chat-nav-btn chat-nav-clear" onclick={clearChat} title={t('chat.clear')}>
@@ -1031,6 +1117,30 @@
     align-self: flex-end;
     background: var(--accent);
     color: #fff;
+  }
+
+  /* Bookmark marker — pinned to the bubble's top corner, outside the
+     text flow. Panel-background disc so it reads on both the accent
+     user bubble and the elevated assistant bubble. */
+  .chat-msg {
+    position: relative;
+  }
+  .chat-msg-bookmark {
+    position: absolute;
+    top: -7px;
+    left: -7px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px;
+    border-radius: 50%;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    color: var(--accent);
+  }
+  .chat-msg-user .chat-msg-bookmark {
+    left: auto;
+    right: -7px;
   }
   .chat-msg-assistant {
     align-self: flex-start;

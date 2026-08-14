@@ -117,6 +117,28 @@ func AppendChatMessage(repoID, chatID string, msg model.ChatMessage) (*model.Cha
 	return cf, nil
 }
 
+// ToggleChatBookmark flips the Bookmarked flag on one message and saves.
+// Same locked load-modify-save shape as AppendChatMessage so a toggle
+// can't race an append and drop either change. Returns the saved file.
+func ToggleChatBookmark(repoID, chatID, messageID string) (*model.ChatFile, error) {
+	chatsMu.Lock()
+	defer chatsMu.Unlock()
+	cf, err := LoadChatFor(repoID, chatID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range cf.Messages {
+		if cf.Messages[i].ID == messageID {
+			cf.Messages[i].Bookmarked = !cf.Messages[i].Bookmarked
+			if err := SaveChatFor(repoID, cf); err != nil {
+				return nil, err
+			}
+			return cf, nil
+		}
+	}
+	return nil, fmt.Errorf("message %q not found in chat %q", messageID, chatID)
+}
+
 // DeleteChatFor removes a chat file. Missing files are not an error —
 // the operation is idempotent so callers can use it as a cleanup hook
 // without checking for existence first.

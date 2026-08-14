@@ -298,6 +298,9 @@ type ChatMessage struct {
 	ToolActions   []ToolAction   `json:"tool_actions,omitempty"`
 	PinSuggestion *PinSuggestion `json:"pin_suggestion,omitempty"`
 	PendingEdits  []PendingEdit  `json:"pending_edits,omitempty"`
+	// Bookmarked marks a message the user wants to jump back to via the
+	// chat panel's bookmark navigation. Persisted with the chat file.
+	Bookmarked bool `json:"bookmarked,omitempty"`
 }
 
 // ChatFile is the on-disk format for cards/<card-uuid>.messages.json.

@@ -50,6 +50,51 @@ func TestSaveLoadChatRoundTrip(t *testing.T) {
 	}
 }
 
+func TestToggleChatBookmark(t *testing.T) {
+	redirectConfig(t)
+
+	cf := &model.ChatFile{
+		CardID: "card-bm",
+		Messages: []model.ChatMessage{
+			{ID: "m1", Role: "user", Content: "important question"},
+			{ID: "m2", Role: "assistant", Content: "answer"},
+		},
+	}
+	if err := SaveChatFor("repo-1", cf); err != nil {
+		t.Fatalf("SaveChatFor: %v", err)
+	}
+
+	// Toggle on: flag set and PERSISTED.
+	out, err := ToggleChatBookmark("repo-1", "card-bm", "m1")
+	if err != nil {
+		t.Fatalf("ToggleChatBookmark: %v", err)
+	}
+	if !out.Messages[0].Bookmarked {
+		t.Error("expected m1 bookmarked after first toggle")
+	}
+	loaded, _ := LoadChatFor("repo-1", "card-bm")
+	if !loaded.Messages[0].Bookmarked {
+		t.Error("bookmark did not persist to disk")
+	}
+	if loaded.Messages[1].Bookmarked {
+		t.Error("m2 must be untouched")
+	}
+
+	// Toggle off: back to clean.
+	if _, err := ToggleChatBookmark("repo-1", "card-bm", "m1"); err != nil {
+		t.Fatalf("second toggle: %v", err)
+	}
+	loaded, _ = LoadChatFor("repo-1", "card-bm")
+	if loaded.Messages[0].Bookmarked {
+		t.Error("expected bookmark cleared after second toggle")
+	}
+
+	// Unknown message id errors and writes nothing.
+	if _, err := ToggleChatBookmark("repo-1", "card-bm", "nope"); err == nil {
+		t.Error("expected error for unknown message id")
+	}
+}
+
 // Chats are keyed by repo ID so two repos on the same machine keep
 // independent chat histories for cards that happen to share an ID.
 func TestChatFilesAreIsolatedPerRepo(t *testing.T) {

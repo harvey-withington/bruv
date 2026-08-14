@@ -31,7 +31,7 @@
   import { installResilience } from './lib/connectivity.svelte'
   import { resolveTransportInfo } from '@shared/adapters/cloud'
 
-  import { GetUIPreferences, SetUIPreferences, GetCurrentRepo, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, IsLLMConfigured, GetLocalServerStatus } from '@shared/api'
+  import { GetUIPreferences, SetUIPreferences, GetCurrentRepo, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, ToggleProjectChatBookmark, IsLLMConfigured, GetLocalServerStatus } from '@shared/api'
 
   // Restore persisted preferences
   loadTheme()
@@ -470,6 +470,7 @@
                   sendFn={(text, contextLevel) => SendProjectChatMessage(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, text, contextLevel ?? 'all')}
                   clearFn={() => ClearProjectChatHistory(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!)}
                   applyFn={(msgID, acceptIDs) => ApplyProjectPendingEdits(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, msgID, acceptIDs)}
+                  bookmarkFn={(messageID) => ToggleProjectChatBookmark(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, messageID)}
                 />
               </div>
               <div class="sp-tab-pane" class:pane-hidden={active !== 'workspace'}>

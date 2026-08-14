@@ -407,6 +407,17 @@ The boundary (Harvey, 2026-07-10): confirmation applies to deleting an **object*
 
 ---
 
+## 12.6 Stepper Navigation with Graceful Fallback
+
+Harvey's pattern (2026-08-14, chat bookmarks — bottled by request): when a
+"jump to next/previous X" control would be a dead button because no X exists
+in that direction, it falls back to the nearest meaningful boundary instead
+of no-oping. The chat panel's bookmark chevrons jump between bookmarked
+questions and fall through to the first/last question when no bookmark
+remains — so with zero bookmarks the same two buttons are jump-to-start/end.
+Three buttons, five jobs, nothing to explain. Prefer this shape for any
+future stepper over disabled states or extra button pairs.
+
 ## 12.7 Action-Button Labels
 
 **Short verb labels; tooltips carry the explanation (ruling, 2026-07-17).** Action buttons are labelled with the bare verb — "Delete", "Share", "Promote" — not verb + object ("Delete Card"). The surrounding context already names the object; the `title` tooltip holds the longer explanatory text (e.g. the card footer's delete button: `common.delete` label + `tooltip.delete_card` = "Delete this card permanently").

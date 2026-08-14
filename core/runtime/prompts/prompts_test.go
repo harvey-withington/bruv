@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"bruv/core/services/card"
+	"bruv/core/services/catalog"
 	"bruv/core/services/search"
 	"bruv/internal/config"
 	"bruv/internal/model"
@@ -28,6 +29,7 @@ func (s stubDeps) Repo() *repo.Repository     { return s.repo }
 func (s stubDeps) Registry() *schema.Registry { return s.registry }
 func (s stubDeps) Card() *card.Service        { return s.card }
 func (s stubDeps) Search() *search.Service    { return s.search }
+func (s stubDeps) Catalog() *catalog.Service  { return nil }
 
 func TestAgentPromptIncludesGoal(t *testing.T) {
 	b := New(stubDeps{})

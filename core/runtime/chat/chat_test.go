@@ -7,6 +7,7 @@ import (
 
 	"bruv/core/runtime/prompts"
 	"bruv/core/runtime/tools"
+	"bruv/core/services/catalog"
 	"bruv/core/services/card"
 	llmsvc "bruv/core/services/llm"
 	"bruv/internal/mcp"
@@ -28,6 +29,7 @@ func (s *stubDeps) Registry() *schema.Registry { return nil }
 func (s *stubDeps) Ctx() context.Context       { return context.Background() }
 func (s *stubDeps) LLM() *llmsvc.Service       { return nil }
 func (s *stubDeps) Card() *card.Service        { return nil }
+func (s *stubDeps) Catalog() *catalog.Service  { return nil }
 func (s *stubDeps) Tools() *tools.Dispatcher   { return nil }
 func (s *stubDeps) Prompts() *prompts.Builder  { return nil }
 func (s *stubDeps) MCPRegistry() *mcp.Registry { return nil }

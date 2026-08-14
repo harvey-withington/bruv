@@ -1,5 +1,7 @@
 package llm
 
+import "strings"
+
 // builtinAgentToolNames is the static list of tool names an agent can be
 // granted via configure_agent. MCP tools are appended dynamically at call
 // time by buildAllowedToolsEnum.
@@ -27,11 +29,6 @@ func buildAllowedToolsEnum(mcpToolIDs []string) []string {
 // registry is active.
 func CardTools(cardTypes []string, categories []map[string]string, mcpToolIDs []string) []ToolDef {
 	// Build enum for card types
-	typeEnum := make([]any, len(cardTypes))
-	for i, t := range cardTypes {
-		typeEnum[i] = t
-	}
-
 	// Build enum for category IDs + descriptions for the LLM
 	catIDs := make([]any, len(categories))
 	for i, c := range categories {
@@ -89,8 +86,7 @@ func CardTools(cardTypes []string, categories []map[string]string, mcpToolIDs []
 				"properties": map[string]any{
 					"card_type": map[string]any{
 						"type":        "string",
-						"enum":        typeEnum,
-						"description": "The card type to set",
+						"description": cardTypeDesc(cardTypes),
 					},
 				},
 				"required": []string{"card_type"},
@@ -253,12 +249,28 @@ func CardTools(cardTypes []string, categories []map[string]string, mcpToolIDs []
 	return tools
 }
 
+// cardTypeDesc describes a card_type parameter. Deliberately NOT an
+// enum: an unknown name is CREATED as a new user card type by the
+// dispatcher (ruling 2026-08-14), and a hard enum would forbid exactly
+// that. Existing ids are listed so the model matches before inventing.
+func cardTypeDesc(cardTypes []string) string {
+	if len(cardTypes) == 0 {
+		return "The card type: an existing type id, or a new short descriptive name to create one."
+	}
+	return "The card type. Existing type ids: " + strings.Join(cardTypes, ", ") +
+		". Pass one of these (labels are matched too), or a new short descriptive name to create a new type."
+}
+
 // ProjectTools returns the tool definitions for project-level AI chat.
 // The LLM can create cards, bulk-tag, move cards between categories, etc.
 func ProjectTools(cardTypes []string, categories []map[string]string) []ToolDef {
-	typeEnum := make([]any, len(cardTypes))
+	// accepted_types keeps a hard enum — restricting a category only makes
+	// sense against EXISTING types. card_type params deliberately don't:
+	// an unknown type name is CREATED by the dispatcher (ruling 2026-08-14),
+	// and an enum would forbid exactly that.
+	typeIDs := make([]any, len(cardTypes))
 	for i, t := range cardTypes {
-		typeEnum[i] = t
+		typeIDs[i] = t
 	}
 
 	catIDs := make([]any, len(categories))
@@ -279,8 +291,7 @@ func ProjectTools(cardTypes []string, categories []map[string]string) []ToolDef 
 					},
 					"card_type": map[string]any{
 						"type":        "string",
-						"enum":        typeEnum,
-						"description": "Card type (optional)",
+						"description": "Card type (optional). " + cardTypeDesc(cardTypes),
 					},
 					"category_id": map[string]any{
 						"type":        "string",
@@ -352,7 +363,7 @@ func ProjectTools(cardTypes []string, categories []map[string]string) []ToolDef 
 		{
 			Name:        "update_card",
 			Description: "Update one card's title, type, tags, due date, description, or blocks. All fields are optional — only the supplied ones change. Use `update_cards` instead when changing multiple cards.",
-			Parameters:  cardUpdateParameters(typeEnum, false),
+			Parameters:  cardUpdateParameters(cardTypes, false),
 		},
 		{
 			Name:        "update_cards",
@@ -363,7 +374,7 @@ func ProjectTools(cardTypes []string, categories []map[string]string) []ToolDef 
 					"updates": map[string]any{
 						"type":        "array",
 						"description": "List of per-card updates",
-						"items":       cardUpdateParameters(typeEnum, true),
+						"items":       cardUpdateParameters(cardTypes, true),
 					},
 				},
 				"required": []string{"updates"},
@@ -541,7 +552,7 @@ func ProjectTools(cardTypes []string, categories []map[string]string) []ToolDef 
 					},
 					"accepted_types": map[string]any{
 						"type":        "array",
-						"items":       map[string]any{"type": "string", "enum": typeEnum},
+						"items":       map[string]any{"type": "string", "enum": typeIDs},
 						"description": "Restrict the category to these card types. Empty array means accept all types. (optional)",
 					},
 				},
@@ -579,7 +590,7 @@ func ProjectTools(cardTypes []string, categories []map[string]string) []ToolDef 
 //
 // When `forArrayItem` is true, the schema doesn't carry the outer "type:object"
 // wrapper at the top level — the caller embeds this inside an `items` field.
-func cardUpdateParameters(typeEnum []any, forArrayItem bool) map[string]any {
+func cardUpdateParameters(cardTypes []string, forArrayItem bool) map[string]any {
 	props := map[string]any{
 		"card_id": map[string]any{
 			"type":        "string",
@@ -591,8 +602,7 @@ func cardUpdateParameters(typeEnum []any, forArrayItem bool) map[string]any {
 		},
 		"card_type": map[string]any{
 			"type":        "string",
-			"enum":        typeEnum,
-			"description": "New card type (optional)",
+			"description": "New card type (optional). " + cardTypeDesc(cardTypes),
 		},
 		"tags": map[string]any{
 			"type":        "array",

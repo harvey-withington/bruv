@@ -32,6 +32,7 @@ import (
 	"bruv/internal/llm"
 	"bruv/internal/model"
 	"fmt"
+	"hash/fnv"
 	"strconv"
 	"strings"
 	"time"
@@ -586,20 +587,27 @@ func (d *Dispatcher) toolSetDueDate(cardID string, card *model.Card, tc llm.Tool
 }
 
 func (d *Dispatcher) toolSetCardType(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath) (string, *model.ToolAction, *model.PinSuggestion) {
-	cardType, _ := tc.Arguments["card_type"].(string)
-	if cardType == "" {
+	rawType, _ := tc.Arguments["card_type"].(string)
+	if rawType == "" {
 		return "error: card_type is required", nil, nil
+	}
+	cardType, createdType, err := d.resolveCardType(rawType)
+	if err != nil {
+		return "error: " + err.Error(), nil, nil
 	}
 	if card != nil && card.Type == cardType {
 		return "Type is already " + cardType + " — no change needed. Use update_blocks to fill in block values.", nil, nil
 	}
-	_, err := d.deps.Card().UpdateType(cardID, cardType)
+	_, err = d.deps.Card().UpdateType(cardID, cardType)
 	if err != nil {
 		return "error: " + err.Error(), nil, nil
 	}
 	// Block application is handled by UpdateCardType via applyTypeBlocks
 	// Build a helpful result listing available block keys
 	resultMsg := "Card type set to " + cardType + ". "
+	if createdType {
+		resultMsg = "Created new card type '" + cardType + "' and set it on the card. "
+	}
 	updatedCard, _ := d.deps.Repo().GetCard(cardID)
 	if updatedCard != nil && len(updatedCard.Blocks) > 0 {
 		var blockKeys []string
@@ -612,8 +620,47 @@ func (d *Dispatcher) toolSetCardType(cardID string, card *model.Card, tc llm.Too
 			resultMsg += "NOW call set_fields to fill these field keys: " + strings.Join(blockKeys, ", ")
 		}
 	}
-	action := &model.ToolAction{Tool: "set_card_type", Input: tc.Arguments, Result: "Set type to " + cardType}
+	actionResult := "Set type to " + cardType
+	if createdType {
+		actionResult = "Created type '" + cardType + "' and set it"
+	}
+	action := &model.ToolAction{Tool: "set_card_type", Input: tc.Arguments, Result: actionResult}
 	return resultMsg, action, nil
+}
+
+// aiTypePalette colours AI-created card types deterministically — a type
+// the model just created must never render as the grey unknown-type
+// fallback. Hues match the builtin/seed families.
+var aiTypePalette = []string{
+	"#6366f1", "#ec4899", "#38bdf8", "#fb923c",
+	"#22c55e", "#eab308", "#a855f7", "#14b8a6",
+}
+
+// resolveCardType canonicalises an LLM-supplied card type (ruling
+// 2026-08-14: "if it assigns a type that doesn't exist, create it first;
+// if it assigns one that does exist, it should match"). Case-insensitive
+// match on the ID or LABEL of any existing type (built-in or user) wins
+// and returns the canonical id; anything else creates a user card type
+// with the input as its label and a palette colour picked by name hash.
+func (d *Dispatcher) resolveCardType(input string) (id string, created bool, err error) {
+	name := strings.TrimSpace(input)
+	if name == "" {
+		return "", false, nil
+	}
+	lower := strings.ToLower(name)
+	for _, t := range d.deps.Catalog().ListCardTypes() {
+		if strings.ToLower(t.ID) == lower || strings.ToLower(t.Label) == lower {
+			return t.ID, false, nil
+		}
+	}
+	h := fnv.New32a()
+	h.Write([]byte(lower))
+	color := aiTypePalette[int(h.Sum32())%len(aiTypePalette)]
+	t, err := d.deps.Catalog().CreateUserCardType(name, color, "", "", "")
+	if err != nil {
+		return "", false, fmt.Errorf("create card type %q: %w", name, err)
+	}
+	return t.ID, true, nil
 }
 
 func (d *Dispatcher) toolSetFields(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath) (string, *model.ToolAction, *model.PinSuggestion) {
@@ -1061,6 +1108,10 @@ func (d *Dispatcher) ExecuteProject(tc llm.ToolCall, scope ProjectChatScope) (st
 		cardType, _ := tc.Arguments["card_type"].(string)
 		if cardType == "" {
 			cardType = "idea"
+		}
+		// Match by id or label, create when unknown (ruling 2026-08-14).
+		if resolved, _, err := d.resolveCardType(cardType); err == nil && resolved != "" {
+			cardType = resolved
 		}
 		card, err := d.deps.Card().Create(cardType, title)
 		if err != nil {
@@ -1641,8 +1692,18 @@ func (d *Dispatcher) applyCardUpdate(cardID string, args map[string]any) ([]stri
 		}
 	}
 	if cardType, ok := args["card_type"].(string); ok && cardType != "" {
-		if _, err := d.deps.Card().UpdateType(cardID, cardType); err == nil {
-			changes = append(changes, "type")
+		// Resolve against the real roster (match by id OR label, create
+		// when unknown — ruling 2026-08-14) so the card never carries a
+		// type id that doesn't exist.
+		resolved, createdType, err := d.resolveCardType(cardType)
+		if err == nil && resolved != "" {
+			if _, err := d.deps.Card().UpdateType(cardID, resolved); err == nil {
+				if createdType {
+					changes = append(changes, fmt.Sprintf("type (created %q)", resolved))
+				} else {
+					changes = append(changes, "type")
+				}
+			}
 		}
 	}
 

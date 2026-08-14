@@ -198,6 +198,20 @@ func (rt *Runtime) RunLoop(ctx context.Context, provider llm.Provider, modelName
 	return cf, nil
 }
 
+// catalogTypeIDs returns every card type id the user can actually see —
+// built-ins + user-created — for tool definitions. NOT Registry().List():
+// the schema registry only knows embedded/external schemas.
+func catalogTypeIDs(rt *Runtime) []string {
+	var ids []string
+	if rt.deps.Catalog() == nil {
+		return ids
+	}
+	for _, t := range rt.deps.Catalog().ListCardTypes() {
+		ids = append(ids, t.ID)
+	}
+	return ids
+}
+
 func (rt *Runtime) SendProject(brandSlug, streamSlug, projectSlug, userMessage, contextLevel string) (*model.ChatFile, error) {
 	if rt.deps.Repo() == nil {
 		return nil, fmt.Errorf("no repository open")
@@ -235,13 +249,14 @@ func (rt *Runtime) SendProject(brandSlug, streamSlug, projectSlug, userMessage, 
 	stream, _ := rt.deps.Repo().GetStream(brandSlug, streamSlug)
 	systemPrompt := rt.deps.Prompts().Project(brandSlug, streamSlug, projectSlug, brand, stream, project, categories, cfg, model.ProjectChatContextLevel(contextLevel))
 
-	// Build tool definitions
+	// Build tool definitions. Card types come from the CATALOG (built-ins
+	// + user types), not the schema registry — the registry misses every
+	// user-created type (field report 2026-08-14).
 	var catMaps []map[string]string
 	for _, cat := range categories {
 		catMaps = append(catMaps, map[string]string{"id": cat.ID, "breadcrumb": cat.Name})
 	}
-	cardTypes := rt.deps.Registry().List()
-	toolDefs := llm.ProjectTools(cardTypes, catMaps)
+	toolDefs := llm.ProjectTools(catalogTypeIDs(rt), catMaps)
 
 	// Workspace tools, offered only when a workspace is attached and gated
 	// by the session context level: `all` → everything incl. file reads;
@@ -354,8 +369,9 @@ func (rt *Runtime) SendCard(cardID, userMessage string) (*model.ChatFile, error)
 
 	systemPrompt := rt.deps.Prompts().Card(card, cfg)
 
-	// Build tool definitions
-	cardTypes := rt.deps.Registry().List()
+	// Build tool definitions. Types from the catalog, not the registry —
+	// see the project-chat note.
+	cardTypes := catalogTypeIDs(rt)
 	allCats, _ := rt.deps.Card().ListAllCategories()
 	var catMaps []map[string]string
 	for _, c := range allCats {

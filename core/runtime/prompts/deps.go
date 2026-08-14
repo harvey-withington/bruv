@@ -2,6 +2,7 @@ package prompts
 
 import (
 	"bruv/core/services/card"
+	"bruv/core/services/catalog"
 	"bruv/core/services/search"
 	"bruv/internal/repo"
 	"bruv/internal/schema"
@@ -18,6 +19,11 @@ type Deps interface {
 	Registry() *schema.Registry
 	Card() *card.Service
 	Search() *search.Service
+	// Catalog is the AUTHORITATIVE card-type roster (built-ins + user
+	// types). The Registry above holds only embedded/external schemas —
+	// prompts that listed types from it were blind to every user-created
+	// type (field report 2026-08-14).
+	Catalog() *catalog.Service
 }
 
 // CategoryPath is the prompt-layer alias for card.CategoryPath.

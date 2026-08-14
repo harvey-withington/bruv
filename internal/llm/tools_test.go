@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -31,7 +32,11 @@ func TestCardToolsAllHaveNameAndDescription(t *testing.T) {
 	}
 }
 
-func TestCardToolsSetCardTypeEnum(t *testing.T) {
+// REGRESSION (2026-08-14): card_type params must NOT be a hard enum —
+// an unknown name is CREATED as a new user type by the dispatcher, and
+// an enum forbids exactly that. The existing ids ride in the property
+// description instead so the model matches before inventing.
+func TestCardToolsSetCardTypeListsIdsWithoutEnum(t *testing.T) {
 	types := []string{"feature", "task", "brainstorm"}
 	tools := CardTools(types, nil, nil)
 
@@ -48,14 +53,13 @@ func TestCardToolsSetCardTypeEnum(t *testing.T) {
 
 	props := setCardType.Parameters["properties"].(map[string]any)
 	cardTypeProp := props["card_type"].(map[string]any)
-	enum := cardTypeProp["enum"].([]any)
-
-	if len(enum) != len(types) {
-		t.Fatalf("expected %d enum values, got %d", len(types), len(enum))
+	if _, hasEnum := cardTypeProp["enum"]; hasEnum {
+		t.Fatal("card_type must not carry an enum — it forbids creating new types")
 	}
-	for i, want := range types {
-		if enum[i] != want {
-			t.Errorf("enum[%d] = %q, want %q", i, enum[i], want)
+	desc := cardTypeProp["description"].(string)
+	for _, want := range types {
+		if !strings.Contains(desc, want) {
+			t.Errorf("card_type description missing existing id %q:\n%s", want, desc)
 		}
 	}
 }
@@ -76,9 +80,11 @@ func TestCardToolsEmptyCardTypes(t *testing.T) {
 
 	props := setCardType.Parameters["properties"].(map[string]any)
 	cardTypeProp := props["card_type"].(map[string]any)
-	enum := cardTypeProp["enum"].([]any)
-	if len(enum) != 0 {
-		t.Errorf("expected empty enum, got %d values", len(enum))
+	if _, hasEnum := cardTypeProp["enum"]; hasEnum {
+		t.Error("card_type must not carry an enum even with no types")
+	}
+	if desc := cardTypeProp["description"].(string); desc == "" {
+		t.Error("card_type description should still guide the model with no types")
 	}
 }
 

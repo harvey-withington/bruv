@@ -509,6 +509,7 @@ func (d promptsRTDeps) Repo() *repo.Repository     { return d.r.repo }
 func (d promptsRTDeps) Registry() *schema.Registry { return d.r.registry }
 func (d promptsRTDeps) Card() *card.Service        { return d.r.Card }
 func (d promptsRTDeps) Search() *search.Service    { return d.r.Search }
+func (d promptsRTDeps) Catalog() *catalog.Service  { return d.r.Catalog }
 
 type chatRTDeps struct{ r *Runtime }
 
@@ -517,6 +518,7 @@ func (d chatRTDeps) Registry() *schema.Registry { return d.r.registry }
 func (d chatRTDeps) Ctx() context.Context       { return d.r.ctx }
 func (d chatRTDeps) LLM() *llmsvc.Service       { return d.r.LLM }
 func (d chatRTDeps) Card() *card.Service        { return d.r.Card }
+func (d chatRTDeps) Catalog() *catalog.Service  { return d.r.Catalog }
 func (d chatRTDeps) Tools() *tools.Dispatcher   { return d.r.tools }
 func (d chatRTDeps) Prompts() *prompts.Builder  { return d.r.prompts }
 func (d chatRTDeps) MCPRegistry() *mcp.Registry { return d.r.mcpRegistry }

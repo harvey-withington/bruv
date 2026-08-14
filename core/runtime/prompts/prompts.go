@@ -10,6 +10,48 @@ import (
 	"time"
 )
 
+// cardTypeRoster renders the authoritative card-type list for a system
+// prompt: the CATALOG (built-ins + user-created types), with the schema
+// registry contributing extra field detail where a schema exists. Both
+// chat scopes use it. Never list types from Registry().List() — that's
+// only embedded/external schemas and misses every user-created type.
+func (b *Builder) cardTypeRoster() string {
+	if b.deps.Catalog() == nil {
+		return ""
+	}
+	infos := b.deps.Catalog().ListCardTypes()
+	if len(infos) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("Available card types — use the id when setting a type (labels are matched too). If none fit, pass a new short descriptive name and it will be created as a new type:\n")
+	for _, ti := range infos {
+		line := fmt.Sprintf("- %s — %q", ti.ID, ti.Label)
+		desc := strings.TrimSpace(strings.TrimSpace(ti.Description) + " " + strings.TrimSpace(ti.AIHint))
+		if desc != "" {
+			line += ": " + desc
+		}
+		sb.WriteString(line + "\n")
+		if reg := b.deps.Registry(); reg != nil {
+			if s := reg.Get(ti.ID); s != nil && len(s.Properties) > 0 {
+				var fields []string
+				for key, prop := range s.Properties {
+					f := key
+					if prop.Description != "" {
+						f += " (" + prop.Description + ")"
+					}
+					if len(prop.Enum) > 0 {
+						f += " [" + strings.Join(prop.Enum, "/") + "]"
+					}
+					fields = append(fields, f)
+				}
+				sb.WriteString("  Fields: " + strings.Join(fields, ", ") + "\n")
+			}
+		}
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
 func (b *Builder) Project(brandSlug, streamSlug, projectSlug string, brand *model.Brand, stream *model.Stream, project *model.Project, categories []model.Category, cfg config.LLMConfig, level model.ProjectChatContextLevel) string {
 	// Default to full context if empty/unrecognised.
 	if level != model.ProjectChatContextMetadata && level != model.ProjectChatContextNone {
@@ -71,6 +113,14 @@ func (b *Builder) Project(brandSlug, streamSlug, projectSlug string, brand *mode
 
 	if cfg.Context != "" {
 		sb.WriteString("## User context\n" + cfg.Context + "\n\n")
+	}
+
+	// Card type roster. Project chat previously had NO type list at all —
+	// its only type knowledge was a tool enum fed from the schema registry,
+	// which misses every user-created type (field report 2026-08-14: the
+	// LLM invented a type, then couldn't match the one the user created).
+	if roster := b.cardTypeRoster(); roster != "" {
+		sb.WriteString("## Card types\n" + roster + "\n\n")
 	}
 
 	// Project tag vocabulary. Each line includes the tag's name, current
@@ -341,35 +391,10 @@ TOOLS:
 		parts = append(parts, "User context:\n"+cfg.Context)
 	}
 
-	// Available card types with their schemas
-	if b.deps.Registry() != nil {
-		typeNames := b.deps.Registry().List()
-		if len(typeNames) > 0 {
-			var typeDescs []string
-			for _, tn := range typeNames {
-				s := b.deps.Registry().Get(tn)
-				if s == nil {
-					continue
-				}
-				desc := fmt.Sprintf("- %s: %s", tn, s.Description)
-				var fields []string
-				for key, prop := range s.Properties {
-					f := key
-					if prop.Description != "" {
-						f += " (" + prop.Description + ")"
-					}
-					if len(prop.Enum) > 0 {
-						f += " [" + strings.Join(prop.Enum, "/") + "]"
-					}
-					fields = append(fields, f)
-				}
-				if len(fields) > 0 {
-					desc += "\n  Fields: " + strings.Join(fields, ", ")
-				}
-				typeDescs = append(typeDescs, desc)
-			}
-			parts = append(parts, "Available card types:\n"+strings.Join(typeDescs, "\n"))
-		}
+	// Available card types — the CATALOG roster (built-ins + user types),
+	// not the schema registry, which misses every user-created type.
+	if roster := b.cardTypeRoster(); roster != "" {
+		parts = append(parts, roster)
 	}
 
 	// Card context (always included)

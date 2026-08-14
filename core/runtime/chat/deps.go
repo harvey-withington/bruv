@@ -7,6 +7,7 @@ import (
 	"bruv/core/runtime/prompts"
 	"bruv/core/runtime/tools"
 	"bruv/core/services/card"
+	"bruv/core/services/catalog"
 	llmsvc "bruv/core/services/llm"
 	"bruv/internal/mcp"
 	"bruv/internal/repo"
@@ -26,6 +27,10 @@ type Deps interface {
 
 	LLM() *llmsvc.Service
 	Card() *card.Service
+	// Catalog is the authoritative card-type roster (built-ins + user
+	// types) — tool enums built from Registry().List() missed every
+	// user-created type.
+	Catalog() *catalog.Service
 	Tools() *tools.Dispatcher
 	Prompts() *prompts.Builder
 

@@ -263,6 +263,19 @@
     (card?.blocks ?? []).filter(isCollapsibleBlock).length,
   )
 
+  // Default collapse state honours the accordion preference (ruling
+  // 2026-08-17): in single mode a card OPENS with only its first
+  // collapsible block expanded — previously everything arrived expanded
+  // and the preference only bit on the first toggle. Multi mode keeps
+  // the all-expanded default. Called once per card load; SSE refetches
+  // never touch collapse state.
+  function initBlockCollapse() {
+    if (!card || blockAccordionMode !== 'single') return
+    const collapsible = card.blocks.filter(isCollapsibleBlock)
+    if (collapsible.length <= 1) return
+    collapsedBlocks = new Set(collapsible.slice(1).map((b) => b.id))
+  }
+
   function toggleBlockCollapse(blockID: string) {
     const next = new Set(collapsedBlocks)
     if (next.has(blockID)) {
@@ -320,6 +333,7 @@
     try {
       card = await repoRPC<Card>('GetCard', [id])
       lastSavedBlocks = card?.blocks ?? []
+      initBlockCollapse()
       // Resolve the card's primary pin so we can load that project's
       // tag definitions for accurate chip colours. Orphaned cards (no
       // pin) fall back to the global tag colour map. Best-effort —

@@ -345,6 +345,11 @@
       if (b.meta?.collapsed) set.add(b.id)
     }
     collapsedBlocks = set
+    // Single mode binds the INITIAL state too (ruling 2026-08-17): a
+    // card opens with only its first open block expanded — previously
+    // everything meta left open arrived expanded and the preference
+    // only bit on the first toggle. Multi is a superset; no-op there.
+    if (blockAccordionMode === 'single') applySingleModeCollapse()
   }
 
   // --- Text block overflow detection ---

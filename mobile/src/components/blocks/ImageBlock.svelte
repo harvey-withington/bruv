@@ -4,6 +4,7 @@
   import { repoRPC, readEnrolment } from '../../lib/auth'
   import { t } from '../../lib/i18n.svelte'
   import type { Block, Card } from '@shared/types'
+  import { parseAttachmentRef } from '@shared/attachmentRefs'
   import { asString, withValue } from './narrow'
 
   let {
@@ -16,9 +17,20 @@
     onChange: (next: Block) => void
   } = $props()
 
-  // The image block's value is an attachment ID (string) — the
-  // resolved URL is fetched via SignAttachmentURL on mount.
-  const attachmentID = $derived(asString(block.value))
+  // The image block's value comes in three shapes: a bare attachment ID
+  // (string — mobile/desktop uploads), a `{url, caption?}` map whose url
+  // may be a plain URL or a durable `attachment:<cardID>/<attID>` ref
+  // (the capture pipeline), or a plain URL string. Attachment-backed
+  // forms resolve via SignAttachmentURL at view time; the ref carries
+  // its own card id.
+  const rawValue = $derived.by((): string => {
+    const v = block.value
+    if (typeof v === 'string') return v
+    if (v && typeof v === 'object' && !Array.isArray(v) && 'url' in v) {
+      return asString((v as { url?: unknown }).url)
+    }
+    return ''
+  })
 
   let resolvedURL = $state<string | null>(null)
   let uploading = $state(false)
@@ -26,12 +38,21 @@
   let fileInput: HTMLInputElement | null = $state(null)
 
   async function resolve() {
-    if (!attachmentID) {
+    const raw = rawValue
+    if (!raw) {
       resolvedURL = null
       return
     }
+    const ref = parseAttachmentRef(raw)
+    const isBareID = !ref && !raw.includes('://') && !raw.startsWith('/')
+    if (!ref && !isBareID) {
+      resolvedURL = raw // plain URL — use as-is
+      return
+    }
     try {
-      const path = await repoRPC<string>('SignAttachmentURL', [cardId, attachmentID])
+      const path = ref
+        ? await repoRPC<string>('SignAttachmentURL', [ref.cardID, ref.attachmentID])
+        : await repoRPC<string>('SignAttachmentURL', [cardId, raw])
       // The signed URL from the runtime is server-relative; prepend
       // the enrolled server origin so <img src> can load it.
       const enrol = readEnrolment()
@@ -43,7 +64,7 @@
 
   onMount(resolve)
   $effect(() => {
-    void attachmentID
+    void rawValue
     void resolve()
   })
 
@@ -95,7 +116,7 @@
 <div class="image-block">
   {#if resolvedURL}
     <img src={resolvedURL} alt={block.label} class="img" />
-  {:else if attachmentID}
+  {:else if rawValue}
     <div class="placeholder">
       <ImageIcon size={20} />
     </div>
@@ -114,7 +135,7 @@
     <Upload size={14} />
     {#if uploading}
       {t('block.image.uploading')}
-    {:else if attachmentID}
+    {:else if rawValue}
       {t('block.image.replace')}
     {:else}
       {t('block.image.upload')}

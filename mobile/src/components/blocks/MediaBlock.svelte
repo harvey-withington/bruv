@@ -5,12 +5,36 @@
   // for the simpler render path.
 
   import { t } from '../../lib/i18n.svelte'
-  import type { Block } from '@shared/types'
+  import type { Block, MediaItem } from '@shared/types'
+  import { parseAttachmentRef } from '@shared/attachmentRefs'
+  import { repoRPC, readEnrolment } from '../../lib/auth'
   import { asMedia } from './narrow'
 
   let { block }: { block: Block } = $props()
 
   const items = $derived(asMedia(block.value))
+
+  // Captured media stores durable `attachment:` refs (see
+  // shared/attachmentRefs.ts) — resolve to signed URLs at view time.
+  // The signed path is server-relative; prepend the enrolled origin
+  // (same as ImageBlock).
+  let signedRefUrls = $state<Record<string, string>>({})
+  $effect(() => {
+    for (const item of items) {
+      const ref = parseAttachmentRef(item.url)
+      if (!ref || item.url in signedRefUrls) continue
+      const key = item.url
+      repoRPC<string>('SignAttachmentURL', [ref.cardID, ref.attachmentID])
+        .then((path) => {
+          const enrol = readEnrolment()
+          signedRefUrls = { ...signedRefUrls, [key]: enrol ? `${enrol.serverURL}${path}` : path }
+        })
+        .catch(() => {})
+    }
+  })
+  function displayUrl(item: MediaItem): string {
+    return signedRefUrls[item.url] ?? item.url
+  }
 </script>
 
 {#if items.length === 0}
@@ -21,9 +45,9 @@
       <li>
         {#if item.mime?.startsWith('video')}
           <!-- svelte-ignore a11y_media_has_caption -->
-          <video src={item.url} controls preload="metadata" class="media"></video>
+          <video src={displayUrl(item)} controls preload="metadata" class="media"></video>
         {:else}
-          <img src={item.url} alt={item.caption ?? ''} class="media" />
+          <img src={displayUrl(item)} alt={item.caption ?? ''} class="media" />
         {/if}
         {#if item.caption}
           <p class="caption">{item.caption}</p>

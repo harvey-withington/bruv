@@ -3,6 +3,8 @@
   import { t } from '../lib/i18n.svelte'
   import { getContext } from 'svelte'
   import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
+  import { parseAttachmentRef } from '@shared/attachmentRefs'
+  import { SignAttachmentURL } from '@shared/api'
   import { inlineEdit } from '../lib/actions'
 
   type MediaItem = { id: string; url: string; caption?: string; mime?: string }
@@ -52,6 +54,24 @@
     return 'image'
   }
 
+  // Captured media stores durable `attachment:` refs, not URLs (see
+  // shared/attachmentRefs.ts) — resolve each to a signed URL at view
+  // time, cached per ref. Unresolvable refs keep the raw value; the
+  // broken-image state is at least honest.
+  let signedRefUrls = $state<Record<string, string>>({})
+  $effect(() => {
+    for (const item of items) {
+      const ref = parseAttachmentRef(item.url)
+      if (!ref || item.url in signedRefUrls) continue
+      SignAttachmentURL(ref.cardID, ref.attachmentID)
+        .then((url) => { signedRefUrls = { ...signedRefUrls, [item.url]: url } })
+        .catch(() => {})
+    }
+  })
+  function displayUrl(item: MediaItem): string {
+    return signedRefUrls[item.url] ?? item.url
+  }
+
   function isVideo(item: MediaItem): boolean {
     // Match both the short 'video' guessMime returns and real types like
     // 'video/mp4' that imports / signed-URL attachments store. The URL
@@ -77,13 +97,13 @@
         <div class="media-preview" class:expanded={expandedId === item.id}>
           {#if isVideo(item)}
             <!-- svelte-ignore a11y_media_has_caption -->
-            <video src={item.url} controls preload="metadata" class="media-content"></video>
+            <video src={displayUrl(item)} controls preload="metadata" class="media-content"></video>
           {:else}
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <img
-              src={item.url}
+              src={displayUrl(item)}
               alt={item.caption || ''}
               class="media-content"
               loading="lazy"
@@ -100,7 +120,7 @@
             placeholder={t('block.media_caption_placeholder')}
           />
           <div class="media-actions">
-            <a href={item.url} target="_blank" rel="noopener" class="media-action-btn" title={t('block.media_open')}><ExternalLink size={12} /></a>
+            <a href={displayUrl(item)} target="_blank" rel="noopener" class="media-action-btn" title={t('block.media_open')}><ExternalLink size={12} /></a>
             <button class="media-action-btn action-reveal action-reveal--danger" onclick={() => removeMedia(item.id)} title={t('common.remove')}><Trash2 size={12} /></button>
           </div>
         </div>

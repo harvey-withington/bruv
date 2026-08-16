@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t } from '../lib/i18n.svelte'
   import { SignAttachmentURL } from '@shared/api'
+  import { parseAttachmentRef } from '@shared/attachmentRefs'
 
   let {
     value,
@@ -23,7 +24,20 @@
 
   $effect(() => {
     const url = imgData.url
-    if (url && url.startsWith('att-')) {
+    // Two attachment-backed forms: a bare `att-` id (uploads write the
+    // id with the block's own card implied) and a durable
+    // `attachment:<cardID>/<attID>` ref (the capture pipeline — the ref
+    // carries its own card id, use it).
+    const ref = parseAttachmentRef(url)
+    if (ref) {
+      SignAttachmentURL(ref.cardID, ref.attachmentID)
+        .then(path => {
+          resolvedURL = path
+        })
+        .catch(() => {
+          resolvedURL = ''
+        })
+    } else if (url && url.startsWith('att-')) {
       SignAttachmentURL(cardId, url)
         .then(path => {
           resolvedURL = path

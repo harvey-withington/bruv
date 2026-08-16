@@ -15,7 +15,7 @@
 // Everything the server did OTHER than what was asked gets toasted; a
 // half-done clip never navigates away like a success.
 
-import { navigate, cardURL } from './router.svelte'
+import { replace, cardURL } from './router.svelte'
 import { t } from './i18n.svelte'
 import { showToast } from './toast.svelte'
 import { captureOptsFrom, type CapturePrefs } from './capturePrefs'
@@ -69,14 +69,19 @@ export function createShareFlow(
       return
     }
     showToast(t('share.clipped'), 'success')
-    navigate(cardURL(report.result.cardId))
+    // replace(), not navigate(): the capture screen's history entry is
+    // CONSUMED by the card — Back from a captured card must never land
+    // on a stale capture form (ruling 2026-08-16; CardPage then
+    // synthesizes the hierarchy beneath).
+    replace(cardURL(report.result.cardId))
   }
 
   async function savePlain() {
     const { title, text, url, prefs } = read()
     const result = await savePlainShare({ title, text, url, prefs })
     if (result.deckFailed) showToast(t('share.deck_append_failed'), 'warning')
-    navigate(cardURL(result.cardID))
+    // Same entry-consuming replace as saveClip.
+    replace(cardURL(result.cardID))
   }
 
   /**

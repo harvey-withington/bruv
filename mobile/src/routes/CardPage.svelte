@@ -3,7 +3,7 @@
   import { EditScope, EDIT_SCOPE_KEY } from '@shared/editScope'
   import { repoRPC, NetworkError } from '../lib/auth'
   import { onReconnect } from '../lib/connectivity.svelte'
-  import { navigate, projectURL } from '../lib/router.svelte'
+  import { navigate, projectURL, cardURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
   import { renderInline } from '@shared/markdown'
   import { Trash2, MapPin, Plus, X, RefreshCw, Search, Paperclip, MessageSquare, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, ArrowUpRight, MonitorUp } from 'lucide-svelte'
@@ -324,8 +324,9 @@
       // tag definitions for accurate chip colours. Orphaned cards (no
       // pin) fall back to the global tag colour map. Best-effort —
       // failures here just mean grey tags.
+      let loc: { brandSlug: string; streamSlug: string; projectSlug: string } | null = null
       try {
-        const loc = await repoRPC<{ brandSlug: string; streamSlug: string; projectSlug: string }>(
+        loc = await repoRPC<{ brandSlug: string; streamSlug: string; projectSlug: string }>(
           'GetCardLocation',
           [id],
         )
@@ -336,6 +337,7 @@
       } catch {
         /* unpinned card or RPC error — global tag colours only */
       }
+      synthesizeBackStack(loc)
       // Pin breadcrumbs power the "Pinned in" section + per-pin unpin.
       // Orphan cards just get an empty array.
       try {
@@ -348,6 +350,36 @@
     } finally {
       loading = false
     }
+  }
+
+  // Back from a card walks the HIERARCHY (ruling 2026-08-16): parent
+  // project (Inbox for unpinned cards), then the tree — no matter how
+  // the card was opened. When the card arrived from its natural parent
+  // in-app, history already reads that way and the opener marked its
+  // entry ({fromProject}/{fromInbox}) — nothing to do. Every other
+  // arrival (share capture, notification, search, chat link, deep link)
+  // would Back into something confusing — a stale capture form, the
+  // page an overlay happened to cover — so the card's single history
+  // entry is split in place into [tree, parent, card]. The History API
+  // can't touch entries BENEATH the top, so anything older stays deeper
+  // in the stack; the walk the user actually experiences is the
+  // hierarchy.
+  function synthesizeBackStack(loc: { brandSlug: string; streamSlug: string; projectSlug: string } | null) {
+    const st = (history.state ?? {}) as Record<string, unknown>
+    if (st.fromProject || st.fromInbox) return // opened from its natural parent
+    // Any other state key means an overlay already owns the top entry
+    // (fast finger) — rewriting under it would desync its close-pop.
+    if (Object.keys(st).length > 0) return
+    if (window.location.pathname !== '/m' + cardURL(id)) return
+    const parentPath = loc?.brandSlug && loc.streamSlug && loc.projectSlug
+      ? projectURL(loc.brandSlug, loc.streamSlug, loc.projectSlug)
+      : '/inbox'
+    const parentState = loc ? { fromProject: projectKey } : { fromInbox: true }
+    window.history.replaceState({}, '', '/m/')
+    window.history.pushState({}, '', '/m' + parentPath)
+    // The card goes back on top carrying its origin marker, so a
+    // re-entry to this function (SSE-triggered reload) is a no-op.
+    window.history.pushState(parentState, '', '/m' + cardURL(id))
   }
 
   onMount(() => {

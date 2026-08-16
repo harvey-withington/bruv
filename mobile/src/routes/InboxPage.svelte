@@ -84,7 +84,9 @@
     if (selecting) {
       toggleSelection(card.id)
     } else {
-      navigate(cardURL(card.id))
+      // fromInbox marks the natural-parent opening — CardPage skips its
+      // hierarchy back-stack synthesis (ruling 2026-08-16).
+      navigate(cardURL(card.id), { fromInbox: true })
     }
   }
 

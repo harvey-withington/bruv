@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -24,9 +25,6 @@ type LoopConfig struct {
 	SystemPrompt string
 	Tools        []llm.ToolDef
 	MaxIter      int
-
-	// AllowDuplicateTool: tool names in this set bypass dedup (e.g. "create_card")
-	AllowDuplicateTool map[string]bool
 
 	// ExecuteTool runs a single tool call. Returns (result, action, pinSuggestion).
 	// Project chat returns nil for pinSuggestion.
@@ -136,18 +134,22 @@ func (rt *Runtime) RunLoop(ctx context.Context, provider llm.Provider, modelName
 			ToolCalls: resp.ToolCalls,
 		})
 
-		// Deduplicate tool calls within same response
+		// Skip exact repeats (same tool, same arguments) within one
+		// response. Distinct calls to the same tool are legitimate —
+		// "add ten fields" arrives as ten add_field calls in parallel —
+		// so the key must include the arguments, not just the name.
 		seenCalls := make(map[string]bool)
 		for _, tc := range resp.ToolCalls {
-			if seenCalls[tc.Name] && !lc.AllowDuplicateTool[tc.Name] {
+			key := toolCallKey(tc)
+			if seenCalls[key] {
 				llmMessages = append(llmMessages, llm.Message{
 					Role:       "tool",
-					Content:    "Skipped — duplicate call",
+					Content:    "Skipped — identical call already handled in this response",
 					ToolCallID: tc.ID,
 				})
 				continue
 			}
-			seenCalls[tc.Name] = true
+			seenCalls[key] = true
 
 			var result string
 			if lc.SuggestMode && lc.StageTool != nil {
@@ -303,25 +305,6 @@ func (rt *Runtime) SendProject(brandSlug, streamSlug, projectSlug, userMessage, 
 		SystemPrompt: systemPrompt,
 		Tools:        toolDefs,
 		MaxIter:      5,
-		// Per-entity mutating tools must be callable multiple times in one
-		// iteration so the LLM can act on several distinct targets in a single
-		// turn (e.g. set an icon on every category, move several cards). The
-		// bulk variant `update_cards` exists for the most common case but the
-		// LLM doesn't always reach for it. Query/read tools are deliberately
-		// NOT whitelisted — those should be deduped to stop runaway loops.
-		AllowDuplicateTool: map[string]bool{
-			"create_card":        true,
-			"update_card":        true,
-			"move_card":          true,
-			"add_tags_to_cards":  true,
-			"configure_agent":    true,
-			"create_category":    true,
-			"update_category":    true,
-			"delete_category":    true,
-			"create_project_tag": true,
-			"update_project_tag": true,
-			"delete_project_tag": true,
-		},
 		ExecuteTool: func(tc llm.ToolCall) (string, *model.ToolAction, *model.PinSuggestion) {
 			result, action := rt.deps.Tools().ExecuteProject(tc, scope)
 			return result, action, nil
@@ -401,6 +384,12 @@ func (rt *Runtime) SendCard(cardID, userMessage string) (*model.ChatFile, error)
 						"type":        "array",
 						"items":       map[string]any{"type": "string"},
 						"description": "List of checklist item texts. Each string becomes an unchecked item.",
+					}
+				case model.BlockList:
+					prop = map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string"},
+						"description": "List of bullet-point texts. Each string becomes one item.",
 					}
 				case model.BlockCheckbox:
 					prop = map[string]any{"type": "boolean"}
@@ -545,6 +534,20 @@ func (rt *Runtime) SendCard(cardID, userMessage string) (*model.ChatFile, error)
 		// fired above this message and ask a follow-up if needed.
 		FallbackContent: "I hit my tool-call limit before I could write a reply. The tools above show what ran — ask again or narrow the request if you'd like a summary.",
 	})
+}
+
+// toolCallKey identifies a tool call by name plus canonical arguments so
+// RunLoop can skip exact repeats within one response without collapsing
+// distinct calls to the same tool. json.Marshal sorts map keys, so two
+// calls with the same arguments in a different order produce the same key.
+func toolCallKey(tc llm.ToolCall) string {
+	args, err := json.Marshal(tc.Arguments)
+	if err != nil {
+		// Unmarshalable arguments can't be compared; fall back to the
+		// call ID so the call is treated as unique rather than dropped.
+		return tc.Name + "#" + tc.ID
+	}
+	return tc.Name + ":" + string(args)
 }
 
 func (rt *Runtime) saveUserMessage(chatID, userMessage string) (*model.ChatFile, error) {

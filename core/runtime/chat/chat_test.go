@@ -10,6 +10,7 @@ import (
 	"bruv/core/services/catalog"
 	"bruv/core/services/card"
 	llmsvc "bruv/core/services/llm"
+	"bruv/internal/llm"
 	"bruv/internal/mcp"
 	"bruv/internal/repo"
 	"bruv/internal/schema"
@@ -42,5 +43,24 @@ func TestRuntimeConstruction(t *testing.T) {
 	rt := New(&stubDeps{})
 	if rt == nil {
 		t.Fatal("New returned nil")
+	}
+}
+
+// toolCallKey must separate distinct calls to the same tool (ten
+// add_field calls in one response are ten fields, not nine duplicates)
+// while still collapsing exact repeats regardless of argument order.
+func TestToolCallKey(t *testing.T) {
+	a := llm.ToolCall{ID: "1", Name: "add_field", Arguments: map[string]any{"key": "traits", "field_type": "list"}}
+	b := llm.ToolCall{ID: "2", Name: "add_field", Arguments: map[string]any{"key": "goals", "field_type": "list"}}
+	aReordered := llm.ToolCall{ID: "3", Name: "add_field", Arguments: map[string]any{"field_type": "list", "key": "traits"}}
+
+	if toolCallKey(a) == toolCallKey(b) {
+		t.Errorf("distinct arguments produced the same key: %q", toolCallKey(a))
+	}
+	if toolCallKey(a) != toolCallKey(aReordered) {
+		t.Errorf("same arguments in a different order produced different keys: %q vs %q", toolCallKey(a), toolCallKey(aReordered))
+	}
+	if toolCallKey(a) == toolCallKey(llm.ToolCall{ID: "4", Name: "set_fields", Arguments: a.Arguments}) {
+		t.Error("different tool names produced the same key")
 	}
 }

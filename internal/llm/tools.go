@@ -21,6 +21,22 @@ func buildAllowedToolsEnum(mcpToolIDs []string) []string {
 	return out
 }
 
+// AddFieldTypes is the block-type vocabulary the add_field tool accepts.
+// Mirrors the model.Block* constants for the types an LLM can sensibly
+// create from a chat request; richer blocks (media, slide decks, surveys)
+// need configuration the tool doesn't carry.
+var AddFieldTypes = []string{"text", "list", "checklist", "checkbox", "number", "date", "url"}
+
+// addFieldTypeEnum renders AddFieldTypes as the []any a JSON-schema enum
+// expects.
+func addFieldTypeEnum() []any {
+	out := make([]any, len(AddFieldTypes))
+	for i, t := range AddFieldTypes {
+		out[i] = t
+	}
+	return out
+}
+
 // CardTools returns the tool definitions available for card-level AI chat.
 // mcpToolIDs is the list of namespaced MCP tool IDs (e.g. "filesystem__read_text_file")
 // currently available via the repo's MCP registry. These are appended to the
@@ -123,7 +139,9 @@ func CardTools(cardTypes []string, categories []map[string]string, mcpToolIDs []
 		},
 	}
 
-	// add_field: lets the LLM append new blocks to a card beyond its schema
+	// add_field: lets the LLM append new blocks to a card beyond its schema.
+	// The allowed types live in AddFieldTypes so the dispatcher validates
+	// against the same set the schema advertises.
 	tools = append(tools, ToolDef{
 		Name:        "add_field",
 		Description: "Add a new field to the card. Use this when the user asks for a field that does not already exist (e.g. a checklist, extra notes, a checkbox). If the user described what should go in the field, ALWAYS pass the `value` parameter in this same call — never split into add_field followed by set_fields to fill it in, that leaves the field empty if you forget the follow-up. Only omit `value` if the user explicitly wants an empty field to fill in themselves.",
@@ -140,11 +158,11 @@ func CardTools(cardTypes []string, categories []map[string]string, mcpToolIDs []
 				},
 				"field_type": map[string]any{
 					"type":        "string",
-					"enum":        []any{"text", "checklist", "checkbox", "number", "date", "url"},
-					"description": "The type of field to add. Use 'text' for freeform text, 'checklist' for a list of items with checkboxes, 'checkbox' for a boolean toggle, 'number' for numeric values, 'date' for dates, 'url' for links.",
+					"enum":        addFieldTypeEnum(),
+					"description": "The type of field to add. Use 'text' for freeform text, 'list' for plain bullet points (dot points, no checkboxes), 'checklist' for a list of items with checkboxes, 'checkbox' for a boolean toggle, 'number' for numeric values, 'date' for dates, 'url' for links.",
 				},
 				"value": map[string]any{
-					"description": "Initial value for the field. REQUIRED when the user described what should go in the field — do not defer it to a follow-up call. For text: a string. For checklist: an array of strings. For checkbox: a boolean. For number: a number. For date: a YYYY-MM-DD string. Only omit if the user explicitly wants an empty field.",
+					"description": "Initial value for the field. REQUIRED when the user described what should go in the field — do not defer it to a follow-up call. For text: a string. For list and checklist: an array of strings. For checkbox: a boolean. For number: a number. For date: a YYYY-MM-DD string. Only omit if the user explicitly wants an empty field.",
 				},
 			},
 			"required": []string{"key", "label", "field_type"},

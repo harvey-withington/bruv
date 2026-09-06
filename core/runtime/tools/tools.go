@@ -33,6 +33,7 @@ import (
 	"bruv/internal/model"
 	"fmt"
 	"hash/fnv"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -832,10 +833,8 @@ func (d *Dispatcher) toolAddField(cardID string, card *model.Card, tc llm.ToolCa
 	if key == "" || label == "" || fieldType == "" {
 		return "error: key, label, and field_type are required", nil, nil
 	}
-	// Validate field_type
-	validTypes := map[string]bool{"text": true, "checklist": true, "checkbox": true, "number": true, "date": true, "url": true}
-	if !validTypes[fieldType] {
-		return "error: invalid field_type " + fieldType + ". Must be one of: text, checklist, checkbox, number, date, url", nil, nil
+	if !slices.Contains(llm.AddFieldTypes, fieldType) {
+		return "error: invalid field_type " + fieldType + ". Must be one of: " + strings.Join(llm.AddFieldTypes, ", "), nil, nil
 	}
 	currentCard, err := d.deps.Repo().GetCard(cardID)
 	if err != nil {
@@ -850,11 +849,13 @@ func (d *Dispatcher) toolAddField(cardID string, card *model.Card, tc llm.ToolCa
 	// Build default value for the type
 	var defaultVal any
 	switch fieldType {
-	case "checklist":
+	case model.BlockChecklist:
 		defaultVal = []any{}
-	case "checkbox":
+	case model.BlockList:
+		defaultVal = coerceList(nil)
+	case model.BlockCheckbox:
 		defaultVal = false
-	case "number":
+	case model.BlockNumber:
 		defaultVal = 0.0
 	default:
 		defaultVal = ""

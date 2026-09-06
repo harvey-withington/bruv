@@ -393,6 +393,16 @@ func DetectMime(name string) string {
 		return "application/pdf"
 	case strings.HasSuffix(lower, ".txt"):
 		return "text/plain"
+	case strings.HasSuffix(lower, ".md"), strings.HasSuffix(lower, ".markdown"):
+		return "text/markdown"
+	case strings.HasSuffix(lower, ".csv"):
+		return "text/csv"
+	case strings.HasSuffix(lower, ".html"), strings.HasSuffix(lower, ".htm"):
+		return "text/html"
+	case strings.HasSuffix(lower, ".yaml"), strings.HasSuffix(lower, ".yml"):
+		return "application/yaml"
+	case strings.HasSuffix(lower, ".xml"):
+		return "application/xml"
 	case strings.HasSuffix(lower, ".json"):
 		return "application/json"
 	default:

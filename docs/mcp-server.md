@@ -37,6 +37,7 @@ Projects, Categories and Cards, and populating cards — straight from a chat.
 | `add_card_blocks` / `set_card_fields` / `add_card_tags` | Populate an existing card. |
 | `set_card_title` / `set_card_description` / `set_card_type` / `set_card_due_date` | Change a card's intrinsic properties. Description is Markdown; due date is `YYYY-MM-DD` or `""` to clear. |
 | `add_card_attachment` | Attach a file (≤ 3 MB). Pass `text` for UTF-8 files or `content_base64` for binary — exactly one. |
+| `get_card_attachment` | Download an attachment by `attachment_id` or `name`. Text files return as a text block (specs land straight in context); binary as an embedded base64 resource; over 4 MB you get metadata plus a 5-minute signed URL instead. |
 | `add_card_comment` / `list_card_comments` | Post or read comments — the natural place for an agent to record an outcome without touching the card's content. |
 | `pin_card` / `unpin_card` | File a card into a category (parents auto-created) or remove it from one (nothing created; the card is kept). |
 | `list_cards` | Cards on a project board grouped by category in board order — compact summaries; `get_card` for content. |

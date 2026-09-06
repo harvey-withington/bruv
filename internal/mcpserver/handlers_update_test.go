@@ -47,10 +47,98 @@ func TestToolsListAdvertisesNewTools(t *testing.T) {
 			t.Errorf("handler %q has no tools/list definition", name)
 		}
 	}
+	for name := range richToolHandlers {
+		if !advertised[name] {
+			t.Errorf("rich handler %q has no tools/list definition", name)
+		}
+		if _, dup := toolHandlers[name]; dup {
+			t.Errorf("%q is registered in both handler tables", name)
+		}
+	}
 	for name := range advertised {
-		if _, ok := toolHandlers[name]; !ok {
+		_, text := toolHandlers[name]
+		_, rich := richToolHandlers[name]
+		if !text && !rich {
 			t.Errorf("tools/list advertises %q but no handler is registered", name)
 		}
+	}
+}
+
+// callToolContent drives a tools/call and returns every content block, for
+// tools whose result is more than a single text item.
+func callToolContent(t *testing.T, h *Handler, name string, args map[string]any) (blocks []map[string]any, isErr bool) {
+	t.Helper()
+	params, _ := json.Marshal(map[string]any{"name": name, "arguments": args})
+	payload, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": json.RawMessage(params),
+	})
+	_, resp := rpc(t, h, string(payload))
+	if resp.Error != nil {
+		t.Fatalf("tools/call %s returned JSON-RPC error: %+v", name, resp.Error)
+	}
+	var result struct {
+		Content []map[string]any `json:"content"`
+		IsError bool             `json:"isError"`
+	}
+	raw, _ := json.Marshal(resp.Result)
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatalf("decode CallToolResult: %v", err)
+	}
+	return result.Content, result.IsError
+}
+
+func TestGetCardAttachment(t *testing.T) {
+	h, sup := newTestHandler(t)
+	rt := sup.Resolve(testRepoID)
+	created, _ := rt.CreateCard("idea", "Spec holder")
+	id := created.ID
+
+	const spec = "# Spec\n\nThe definitive source.\n"
+	mustCallTool(t, h, "add_card_attachment", map[string]any{"card_id": id, "name": "spec.md", "text": spec})
+	mustCallTool(t, h, "add_card_attachment", map[string]any{"card_id": id, "name": "logo.png", "content_base64": "iVBORw0KGgo="})
+
+	// Text file by name: body comes back as a plain text block, metadata second.
+	blocks, isErr := callToolContent(t, h, "get_card_attachment", map[string]any{"card_id": id, "name": "SPEC.md"})
+	if isErr || len(blocks) != 2 {
+		t.Fatalf("text download: isErr=%v blocks=%+v", isErr, blocks)
+	}
+	if blocks[0]["type"] != "text" || blocks[0]["text"] != spec {
+		t.Errorf("text body block = %+v", blocks[0])
+	}
+	var meta struct {
+		Name   string `json:"name"`
+		Inline bool   `json:"inline"`
+		Size   int    `json:"size"`
+	}
+	decodeJSON(t, blocks[1]["text"].(string), &meta)
+	if meta.Name != "spec.md" || !meta.Inline || meta.Size != len(spec) {
+		t.Errorf("metadata = %+v", meta)
+	}
+
+	// Binary file by id: embedded resource with the original bytes.
+	card, _ := rt.GetCard(id)
+	var pngID string
+	for _, att := range card.FileAttachments {
+		if att.Name == "logo.png" {
+			pngID = att.ID
+		}
+	}
+	blocks, isErr = callToolContent(t, h, "get_card_attachment", map[string]any{"card_id": id, "attachment_id": pngID})
+	if isErr || len(blocks) != 2 || blocks[0]["type"] != "resource" {
+		t.Fatalf("binary download: isErr=%v blocks=%+v", isErr, blocks)
+	}
+	res := blocks[0]["resource"].(map[string]any)
+	if res["blob"] != "iVBORw0KGgo=" || res["mimeType"] != "image/png" {
+		t.Errorf("resource = %+v", res)
+	}
+
+	// Unknown name and missing selector are tool errors, not transport errors.
+	if _, isErr := callToolContent(t, h, "get_card_attachment", map[string]any{"card_id": id, "name": "nope.txt"}); !isErr {
+		t.Error("expected error for unknown attachment name")
+	}
+	if _, isErr := callToolContent(t, h, "get_card_attachment", map[string]any{"card_id": id}); !isErr {
+		t.Error("expected error when neither attachment_id nor name is given")
 	}
 }
 

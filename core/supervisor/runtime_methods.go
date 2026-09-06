@@ -14,6 +14,7 @@ package supervisor
 import (
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -84,6 +85,25 @@ func (r *Runtime) UpdateCardBlocks(id string, blocks []model.Block) (*model.Card
 }
 func (r *Runtime) AddCardAttachment(cardID, name, data string) (*model.Card, error) {
 	return r.Card.AddAttachment(cardID, name, data)
+}
+
+// ReadCardAttachment returns an attachment's bytes plus its metadata —
+// the read side of AddCardAttachment for callers inside the process
+// (the MCP server's get_card_attachment), which have no use for the
+// signed-URL dance the browser goes through.
+func (r *Runtime) ReadCardAttachment(cardID, attachmentID string) ([]byte, *model.FileAttachment, error) {
+	if r.repo == nil {
+		return nil, nil, fmt.Errorf("repo not loaded")
+	}
+	att, err := r.repo.FindAttachment(cardID, attachmentID)
+	if err != nil {
+		return nil, nil, err
+	}
+	data, err := os.ReadFile(r.repo.AttachmentPath(cardID, attachmentID))
+	if err != nil {
+		return nil, nil, fmt.Errorf("read attachment %q: %w", att.Name, err)
+	}
+	return data, att, nil
 }
 func (r *Runtime) RemoveCardAttachment(cardID, attachmentID string) (*model.Card, error) {
 	return r.Card.RemoveAttachment(cardID, attachmentID)

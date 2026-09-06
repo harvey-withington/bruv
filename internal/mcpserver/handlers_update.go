@@ -12,8 +12,10 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"bruv/core/supervisor"
+	"bruv/internal/mcp"
 	"bruv/internal/model"
 )
 
@@ -319,4 +321,81 @@ func resolveExistingCategory(rt *supervisor.Runtime, brand, stream, project, cat
 		}
 	}
 	return nil, "", fmt.Errorf("category %q not found in %s / %s / %s", category, brandName, streamName, projectName)
+}
+
+// --- Attachment download ---
+
+// maxInlineDownloadBytes is the largest attachment returned inline. Above
+// it the tool hands back metadata plus a signed URL so a client with the
+// server's base address can fetch it over plain HTTP instead of pushing
+// megabytes of base64 through the model's context.
+const maxInlineDownloadBytes = 4 * 1024 * 1024
+
+func hGetCardAttachment(rt *supervisor.Runtime, a map[string]any) mcp.CallToolResult {
+	cardID := argStr(a, "card_id")
+	attID, name := argStr(a, "attachment_id"), strings.TrimSpace(argStr(a, "name"))
+	if cardID == "" || (attID == "" && name == "") {
+		return textResult("error: card_id plus attachment_id or name are required", true)
+	}
+	if attID == "" {
+		card, err := rt.GetCard(cardID)
+		if err != nil {
+			return textResult("error: "+err.Error(), true)
+		}
+		// Newest match wins when the same name was attached more than once.
+		for i := len(card.FileAttachments) - 1; i >= 0; i-- {
+			if strings.EqualFold(card.FileAttachments[i].Name, name) {
+				attID = card.FileAttachments[i].ID
+				break
+			}
+		}
+		if attID == "" {
+			return textResult(fmt.Sprintf("error: no attachment named %q on card %s", name, cardID), true)
+		}
+	}
+	data, att, err := rt.ReadCardAttachment(cardID, attID)
+	if err != nil {
+		return textResult("error: "+err.Error(), true)
+	}
+	meta := map[string]any{
+		"card_id": cardID, "attachment_id": att.ID, "name": att.Name,
+		"mime": att.Mime, "size": att.Size, "added_at": att.AddedAt,
+	}
+	if len(data) > maxInlineDownloadBytes {
+		if url, err := rt.SignAttachmentURL(cardID, att.ID); err == nil {
+			meta["download_url"] = url
+			meta["download_url_note"] = "server-relative path, valid for 5 minutes; prepend the BRUV server's scheme://host"
+		}
+		meta["inline"] = false
+		text, _ := jsonResult(meta)
+		return textResult(text, false)
+	}
+	meta["inline"] = true
+	metaText, _ := jsonResult(meta)
+	uri := fmt.Sprintf("bruv://cards/%s/attachments/%s", cardID, att.ID)
+
+	var body mcp.Content
+	if isTextAttachment(att.Mime, data) {
+		// Plain text content is the most widely rendered block type, so a
+		// spec or a Markdown doc lands straight in the model's context.
+		body = mcp.Content{Type: "text", Text: string(data)}
+	} else {
+		body = mcp.Content{Type: "resource", Resource: &mcp.Resource{
+			URI: uri, MimeType: att.Mime, Blob: base64.StdEncoding.EncodeToString(data),
+		}}
+	}
+	return mcp.CallToolResult{Content: []mcp.Content{body, {Type: "text", Text: metaText}}}
+}
+
+// isTextAttachment decides whether to return an attachment as text.
+// Stored MIME types come from the file extension and default to
+// octet-stream for anything unlisted (Markdown included), so the bytes
+// get the final say: valid UTF-8 that isn't a known binary type is text.
+func isTextAttachment(mime string, data []byte) bool {
+	switch {
+	case strings.HasPrefix(mime, "image/"), strings.HasPrefix(mime, "video/"),
+		strings.HasPrefix(mime, "audio/"), mime == "application/pdf", mime == "application/zip":
+		return false
+	}
+	return utf8.Valid(data)
 }

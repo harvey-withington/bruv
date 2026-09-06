@@ -50,6 +50,17 @@ var toolHandlers = map[string]toolFunc{
 	"recent_cards": hRecentCards,
 }
 
+// richToolFunc is a tool whose result is more than one text block — an
+// embedded file, an image. It builds the CallToolResult itself. Kept as
+// a separate table so the common text-only handlers stay trivial.
+type richToolFunc func(rt *supervisor.Runtime, args map[string]any) mcp.CallToolResult
+
+// richToolHandlers maps tool name → rich implementation. Advertised in
+// toolDefs alongside the text tools; the sync test covers both tables.
+var richToolHandlers = map[string]richToolFunc{
+	"get_card_attachment": hGetCardAttachment,
+}
+
 // callTool executes a tools/call request and wraps the result in an MCP
 // CallToolResult. Bad params or unknown tools surface as isError text so
 // the model can adjust rather than seeing a transport error.
@@ -63,12 +74,15 @@ func callTool(rt *supervisor.Runtime, params json.RawMessage) mcp.CallToolResult
 			return textResult("invalid tools/call params: "+err.Error(), true)
 		}
 	}
+	if p.Arguments == nil {
+		p.Arguments = map[string]any{}
+	}
+	if rich, ok := richToolHandlers[p.Name]; ok {
+		return rich(rt, p.Arguments)
+	}
 	fn, ok := toolHandlers[p.Name]
 	if !ok {
 		return textResult("unknown tool: "+p.Name, true)
-	}
-	if p.Arguments == nil {
-		p.Arguments = map[string]any{}
 	}
 	text, isErr := fn(rt, p.Arguments)
 	return textResult(text, isErr)
@@ -312,6 +326,17 @@ func toolDefs(repoName string) []mcp.Tool {
 				"text":           strProp("UTF-8 file content. Use for text files instead of encoding them yourself."),
 				"content_base64": strProp("Base64-encoded file content. Use for binary files."),
 			}, "card_id", "name"),
+		},
+		{
+			Name: "get_card_attachment",
+			Description: "Download a file attached to a card in " + board + ". Identify it by attachment_id or by name " +
+				"(get_card lists both). Text files come back as text; binary files as an embedded base64 resource. " +
+				"Files over 4 MB return metadata plus a short-lived download URL instead of the bytes.",
+			InputSchema: obj(map[string]any{
+				"card_id":       strProp("The card's id."),
+				"attachment_id": strProp("The attachment's id, from get_card."),
+				"name":          strProp("Alternatively, the attachment's file name (case-insensitive; the newest match wins)."),
+			}, "card_id"),
 		},
 		{
 			Name: "add_card_comment",

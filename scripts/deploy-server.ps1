@@ -10,6 +10,10 @@
   BRUV-Server Windows service runs), scp's it to the remote box, then -
   over SSH - stops the service, swaps the binary (keeping a .bak), and
   restarts. Windows can't overwrite a running .exe, hence stop->swap->start.
+  The build also emits the NSIS installer (needs NSIS locally), which is
+  pushed to the SSH user's home as bruv-amd64-installer.exe so the server
+  always holds an installer matching the service it runs. -SkipInstaller
+  opts out.
 
   The remote target is self-discovered: the script reads the service's
   own configured binary path (Win32_Service.PathName), so there's no
@@ -46,9 +50,14 @@ param(
   # URL hit after the deploy to confirm the new build is live (unauthed
   # /version endpoint). Override for TLS-fronted servers (https / :443).
   [string]$HealthUrl,
-  [switch]$SkipBuild,   # reuse the existing build/bin binary
-  [switch]$NoBackup,    # don't keep a .bak (not recommended)
-  [switch]$Force        # skip the confirmation prompt
+  # Where the installer lands on the server, as an scp destination path
+  # relative to the SSH user's home (or absolute). Defaults to
+  # BRUV_DEPLOY_INSTALLER_PATH, else the installer's own file name.
+  [string]$RemoteInstallerPath = $(if ($env:BRUV_DEPLOY_INSTALLER_PATH) { $env:BRUV_DEPLOY_INSTALLER_PATH } else { 'bruv-amd64-installer.exe' }),
+  [switch]$SkipBuild,     # reuse the existing build/bin binary (and installer, if present)
+  [switch]$SkipInstaller, # don't build or push the NSIS installer
+  [switch]$NoBackup,      # don't keep a .bak (not recommended)
+  [switch]$Force          # skip the confirmation prompt
 )
 
 $ErrorActionPreference = 'Stop'
@@ -60,6 +69,11 @@ function Die($m)  { Write-Host $m -ForegroundColor Red; exit 1 }
 $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $repoRoot = (Resolve-Path (Join-Path $scriptDir '..')).Path
 if (-not $LocalExe) { $LocalExe = Join-Path $repoRoot 'build\bin\bruv-1.0.exe' }
+# The NSIS installer wails emits next to the binary. Pushed to the SSH
+# user's home on the server after every deploy so the box always holds an
+# installer matching the service it runs — a fresh laptop on the tailnet
+# can fetch it without a GitHub round-trip.
+$LocalInstaller = Join-Path (Split-Path -Parent $LocalExe) 'bruv-amd64-installer.exe'
 
 if (-not $RemoteHost) {
   Die "No remote host. Pass -RemoteHost <tailscale-host>, or set `$env:BRUV_DEPLOY_HOST."
@@ -76,14 +90,32 @@ if ($SkipBuild) {
   try { $sha = (git -C $repoRoot rev-parse --short HEAD).Trim() } catch { }
   $version   = if ($sha) { "dev-$sha" } else { "dev" }
   $buildDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-  Info "Building unified server binary (version=$version)..."
+  # -nsis makes wails emit the installer alongside the binary. wails spawns
+  # makensis as a native process, so its directory must be on the WINDOWS
+  # PATH; a missing NSIS makes wails skip the installer silently (the
+  # release workflow learned this the hard way), hence the explicit check.
+  $buildArgs = @('build', '-platform', 'windows/amd64', '-trimpath',
+    '-ldflags', "-X main.AppVersion=$version -X main.BuildDate=$buildDate")
+  if (-not $SkipInstaller) {
+    $makensis = Get-Command makensis -ErrorAction SilentlyContinue
+    if (-not $makensis) {
+      $candidate = @("$env:ProgramFiles(x86)\NSIS\makensis.exe", "$env:ProgramFiles\NSIS\makensis.exe") |
+        Where-Object { Test-Path $_ } | Select-Object -First 1
+      if ($candidate) { $env:PATH = (Split-Path -Parent $candidate) + ';' + $env:PATH; $makensis = $candidate }
+    }
+    if ($makensis) { $buildArgs += '-nsis' }
+    else { Warn "NSIS (makensis) not found - building without the installer. Install NSIS or pass -SkipInstaller to silence this." }
+  }
+  Info "Building unified server binary (version=$version)$(if ($buildArgs -contains '-nsis') { ' + installer' })..."
   Push-Location $repoRoot
   try {
-    & wails build -platform windows/amd64 -trimpath `
-      -ldflags "-X main.AppVersion=$version -X main.BuildDate=$buildDate"
+    & wails @buildArgs
     if ($LASTEXITCODE -ne 0) { Die "wails build failed (exit $LASTEXITCODE)." }
   } finally { Pop-Location }
   if (-not (Test-Path $LocalExe)) { Die "Build succeeded but $LocalExe is missing - check wails.json outputfilename." }
+  if (($buildArgs -contains '-nsis') -and -not (Test-Path $LocalInstaller)) {
+    Warn "wails built without emitting $LocalInstaller - the installer will not be updated on the server."
+  }
 }
 $size = [math]::Round((Get-Item $LocalExe).Length / 1MB, 1)
 Info "Artifact: $LocalExe ($size MB)"
@@ -99,6 +131,23 @@ if (-not $Force) {
 Info "Copying binary to $Target ..."
 & scp $LocalExe "${Target}:bruv-deploy.exe"
 if ($LASTEXITCODE -ne 0) { Die "scp failed (exit $LASTEXITCODE). Is OpenSSH reachable on $RemoteHost?" }
+
+# --- 3b. Refresh the installer kept on the server ------------------------
+# Lands at $RemoteInstallerPath (default: the installer's file name in the
+# SSH user's home) so other machines can scp it down from a known place.
+# Secondary to the service swap, so a failure here warns rather than aborts.
+$installerPushed = $false
+if ($SkipInstaller) {
+  Info "Skipping installer (-SkipInstaller)."
+} elseif (-not (Test-Path $LocalInstaller)) {
+  Warn "No installer at $LocalInstaller - the server's copy is left as-is."
+} else {
+  $isize = [math]::Round((Get-Item $LocalInstaller).Length / 1MB, 1)
+  Info "Copying installer ($isize MB) to ${Target}:$RemoteInstallerPath ..."
+  & scp $LocalInstaller "${Target}:$RemoteInstallerPath"
+  if ($LASTEXITCODE -ne 0) { Warn "Installer scp failed (exit $LASTEXITCODE) - continuing with the service swap." }
+  else { $installerPushed = $true }
+}
 
 # --- 4. Remote swap (stop -> backup -> replace -> start, with rollback) ------
 # Single-quoted here-string keeps every $ literal for the *remote* shell;
@@ -190,4 +239,5 @@ if (-not $confirmed) {
   Warn "Deployed + service started, but couldn't reach $HealthUrl to confirm."
   Warn "If your server is TLS-fronted, pass -HealthUrl https://$RemoteHost/version"
 }
+if ($installerPushed) { Ok "Installer refreshed at ${Target}:$RemoteInstallerPath" }
 Ok "Done."

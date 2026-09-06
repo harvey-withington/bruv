@@ -37,11 +37,11 @@ Allow up to ten minutes: `wails build` dominates (about 90 seconds on a fast lap
 
 ## What the script does
 
-1. `wails build -platform windows/amd64` → `build/bin/bruv-1.0.exe`, version `dev-<sha>`.
-2. `scp` the exe to `~/bruv-deploy.exe` on the server.
+1. `wails build -platform windows/amd64 -nsis` → `build/bin/bruv-1.0.exe` plus `build/bin/bruv-amd64-installer.exe`, version `dev-<sha>`. NSIS must be installed locally (the script finds `makensis` in the standard install dirs if it isn't on PATH); without it the build proceeds and warns that the installer was skipped.
+2. `scp` the exe to `~/bruv-deploy.exe` on the server, and the installer to `-RemoteInstallerPath` (env `BRUV_DEPLOY_INSTALLER_PATH`; default `bruv-amd64-installer.exe` in the SSH user's home) — a known place so any machine on the tailnet can fetch a matching installer with `scp <user>@<host>:<path> .`. An installer copy failure warns; it never aborts the service swap. `-SkipInstaller` skips both build and push.
 3. Over `ssh`, as an encoded PowerShell command: read the service's own binary path from `Win32_Service`, stop `BRUV-Server`, back up to `.bak`, copy the new exe (retries on file locks), start the service.
 4. On any failure: roll back to `.bak` and restart the service so the box is never left headless.
-5. Poll `http://<host>:9870/version` and print `version` + `build_date`.
+5. Poll `http://<host>:9870/version` and print `version` + `build_date`, then confirm the installer refresh.
 
 ## Verify
 

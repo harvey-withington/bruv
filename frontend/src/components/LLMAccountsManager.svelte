@@ -4,6 +4,7 @@
   import { showConfirm } from '../lib/confirm.svelte'
   import { TestLLMAccountConnection, SaveLLMAccounts } from '@shared/api'
   import type { LLMAccount } from '@shared/types'
+  import { defaultModelForProvider } from '@shared/llmDefaults'
   import { computeReorder, wouldReorder, DROP_END } from '../lib/reorder'
 
   let { accounts = $bindable([]), onchange }: {
@@ -84,14 +85,7 @@
     testingId = null
   }
 
-  function modelPlaceholder(provider: string): string {
-    switch (provider) {
-      case 'openai': return 'gpt-4o'
-      case 'anthropic': return 'claude-sonnet-4-20250514'
-      case 'ollama': return 'llama3'
-      default: return ''
-    }
-  }
+  const modelPlaceholder = defaultModelForProvider
 
   function toggleExpand(id: string) {
     expandedId = expandedId === id ? null : id

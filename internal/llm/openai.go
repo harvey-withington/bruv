@@ -63,10 +63,15 @@ func (p *openaiProvider) ChatCompletion(ctx context.Context, req ChatRequest) (*
 		maxTokens = 4096
 	}
 
+	// max_completion_tokens is the current name for the output cap. The
+	// gpt-5 family and the o-series reasoning models reject the legacy
+	// max_tokens outright (400 "Unsupported parameter"), while every
+	// older chat model and the OpenAI-compatible local servers accept
+	// the new name. Verified live against gpt-5.5 and gpt-4o 2026-09-06.
 	body := map[string]any{
-		"model":      req.Model,
-		"messages":   msgs,
-		"max_tokens": maxTokens,
+		"model":                 req.Model,
+		"messages":              msgs,
+		"max_completion_tokens": maxTokens,
 	}
 
 	if len(req.Tools) > 0 {

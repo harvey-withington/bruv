@@ -307,7 +307,7 @@
   "llm.provider_anthropic": "Anthropic",
   "llm.provider_ollama": "Ollama (Local)",
   "llm.model": "Model",
-  "llm.model_placeholder": "e.g. gpt-4o, claude-sonnet-4-20250514, llama3",
+  "llm.model_placeholder": "e.g. gpt-5.5, claude-opus-5, llama3.1",
   "llm.api_key": "API Key",
   "llm.api_key_placeholder": "sk-...",
   "llm.base_url": "Base URL (optional)",

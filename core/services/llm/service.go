@@ -186,12 +186,17 @@ func (s *Service) TestConnection() (string, error) {
 // no explicit model is configured on the account or legacy config.
 func DefaultModelForProvider(provider string) string {
 	switch provider {
+	// Keep in sync with shared/llmDefaults.ts (frontend placeholders) and
+	// DefaultPricing in internal/config/pricing.go. Refreshed 2026-09-06
+	// against each provider's live model list.
 	case "openai":
-		return "gpt-4o"
+		return "gpt-5.5"
 	case "anthropic":
-		return "claude-sonnet-4-20250514"
+		return "claude-opus-5"
 	case "ollama":
-		return "llama3"
+		// llama3.1 is the smallest Llama with tool support, which BRUV's
+		// chat and agents rely on; plain llama3 silently ignores tools.
+		return "llama3.1"
 	default:
 		return ""
 	}

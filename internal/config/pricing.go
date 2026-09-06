@@ -12,17 +12,40 @@ type ModelPricing struct {
 	OutputPerMTok float64 `json:"output_per_mtok"`
 }
 
-// DefaultPricing contains built-in pricing data (USD per million tokens).
+// DefaultPricing contains built-in pricing data (USD per million tokens,
+// standard tier, uncached). Refreshed 2026-09-06 from the providers'
+// published price lists. Older models stay listed so historical runs
+// still cost out correctly; users can override any entry via the
+// custom pricing file.
 var DefaultPricing = map[string]ModelPricing{
-	"gpt-4o":                    {InputPerMTok: 2.50, OutputPerMTok: 10.00},
-	"gpt-4o-mini":               {InputPerMTok: 0.15, OutputPerMTok: 0.60},
-	"gpt-4.1":                   {InputPerMTok: 2.00, OutputPerMTok: 8.00},
-	"gpt-4.1-mini":              {InputPerMTok: 0.40, OutputPerMTok: 1.60},
-	"gpt-4.1-nano":              {InputPerMTok: 0.10, OutputPerMTok: 0.40},
+	// OpenAI
+	"gpt-5.5":      {InputPerMTok: 5.00, OutputPerMTok: 30.00},
+	"gpt-5.4":      {InputPerMTok: 2.50, OutputPerMTok: 15.00},
+	"gpt-5.4-mini": {InputPerMTok: 0.75, OutputPerMTok: 4.50},
+	"gpt-5.4-nano": {InputPerMTok: 0.20, OutputPerMTok: 1.25},
+	"gpt-5.2":      {InputPerMTok: 1.75, OutputPerMTok: 14.00},
+	"gpt-5.1":      {InputPerMTok: 1.25, OutputPerMTok: 10.00},
+	"gpt-5":        {InputPerMTok: 1.25, OutputPerMTok: 10.00},
+	"gpt-5-mini":   {InputPerMTok: 0.25, OutputPerMTok: 2.00},
+	"gpt-5-nano":   {InputPerMTok: 0.05, OutputPerMTok: 0.40},
+	"gpt-4.1":      {InputPerMTok: 2.00, OutputPerMTok: 8.00},
+	"gpt-4.1-mini": {InputPerMTok: 0.40, OutputPerMTok: 1.60},
+	"gpt-4.1-nano": {InputPerMTok: 0.10, OutputPerMTok: 0.40},
+	"gpt-4o":       {InputPerMTok: 2.50, OutputPerMTok: 10.00},
+	"gpt-4o-mini":  {InputPerMTok: 0.15, OutputPerMTok: 0.60},
+	// Anthropic
+	"claude-fable-5-1":          {InputPerMTok: 10.00, OutputPerMTok: 50.00},
+	"claude-opus-5":             {InputPerMTok: 5.00, OutputPerMTok: 25.00},
+	"claude-opus-4-8":           {InputPerMTok: 5.00, OutputPerMTok: 25.00},
+	"claude-sonnet-5":           {InputPerMTok: 2.00, OutputPerMTok: 10.00},
+	"claude-sonnet-4-6":         {InputPerMTok: 3.00, OutputPerMTok: 15.00},
+	"claude-haiku-4-5":          {InputPerMTok: 1.00, OutputPerMTok: 5.00},
 	"claude-sonnet-4-20250514":  {InputPerMTok: 3.00, OutputPerMTok: 15.00},
-	"claude-3-5-haiku-20241022": {InputPerMTok: 0.80, OutputPerMTok: 4.00},
 	"claude-opus-4-20250514":    {InputPerMTok: 15.00, OutputPerMTok: 75.00},
-	"llama3":                    {InputPerMTok: 0.00, OutputPerMTok: 0.00},
+	"claude-3-5-haiku-20241022": {InputPerMTok: 0.80, OutputPerMTok: 4.00},
+	// Local
+	"llama3.1": {InputPerMTok: 0.00, OutputPerMTok: 0.00},
+	"llama3":   {InputPerMTok: 0.00, OutputPerMTok: 0.00},
 }
 
 // fallbackPricing is used when a model is not found in the pricing map.

@@ -10,7 +10,7 @@ import (
 type LLMConfig struct {
 	Context          string `json:"context"`                      // Freeform text for LLM system prompts
 	Provider         string `json:"provider,omitempty"`           // "openai", "anthropic", "ollama", "" (legacy, prefer accounts)
-	Model            string `json:"model,omitempty"`              // e.g. "gpt-4o" (legacy, prefer accounts)
+	Model            string `json:"model,omitempty"`              // e.g. "gpt-5.5" (legacy, prefer accounts)
 	APIKey           string `json:"api_key,omitempty"`            // plain text (legacy, prefer accounts)
 	BaseURL          string `json:"base_url,omitempty"`           // custom endpoint override (legacy, prefer accounts)
 	DefaultAccountID string `json:"default_account_id,omitempty"` // references LLMAccount.ID

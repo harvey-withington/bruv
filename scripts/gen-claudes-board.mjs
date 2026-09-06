@@ -53,9 +53,9 @@ const pick = (arr) => arr[Math.floor(Math.random() * arr.length)]
 // input*0.6 + output*0.4), so the cost_spent_usd we stamp lines up with
 // what the app recomputes from the runs.
 const RATE = {
-  'claude-opus-4-20250514': 15 * 0.6 + 75 * 0.4, // 39
-  'claude-sonnet-4-20250514': 3 * 0.6 + 15 * 0.4, // 7.8
-  'claude-3-5-haiku-20241022': 0.8 * 0.6 + 4 * 0.4, // 2.08
+  'claude-opus-5': 5 * 0.6 + 25 * 0.4, // 13
+  'claude-sonnet-5': 2 * 0.6 + 10 * 0.4, // 5.2
+  'claude-haiku-4-5': 1 * 0.6 + 5 * 0.4, // 2.6
 }
 const estCost = (model, tokens) => (tokens / 1e6) * (RATE[model] ?? 1 * 0.6 + 3 * 0.4)
 
@@ -297,12 +297,12 @@ const DATA = {
                   goal: 'Each morning, skim the headlines for anything genuinely important, summarise it kindly, and post a short note. End with one small, encouraging reminder for the day.',
                   schedule: '@daily',
                   notify_channel: 'system',
-                  model: 'claude-sonnet-4-20250514',
+                  model: 'claude-sonnet-5',
                   max_tokens_budget: 100000,
                   cost_budget_usd: 25,
                   allowed_tools: ['web_search', 'web_fetch', 'notify', 'update_self'],
                   runs: {
-                    count: 16, days: 14, model: 'claude-sonnet-4-20250514', tokMin: 9000, tokMax: 34000,
+                    count: 16, days: 14, model: 'claude-sonnet-5', tokMin: 9000, tokMax: 34000,
                     summaries: [
                       'Skimmed 18 sources. Nothing on fire. Reminder posted: hydrate.',
                       'Quiet news day — flagged one AI paper worth a look.',
@@ -361,11 +361,11 @@ const DATA = {
                 ],
                 agent: {
                   enabled: true, schedule: '@hourly', notify_channel: 'system',
-                  model: 'claude-3-5-haiku-20241022', max_tokens_budget: 20000, cost_budget_usd: 5,
+                  model: 'claude-haiku-4-5', max_tokens_budget: 20000, cost_budget_usd: 5,
                   goal: 'Re-count the letters in any tricky word before I commit to a number. Never be wrong about fruit again.',
                   allowed_tools: ['update_self', 'notify'],
                   runs: {
-                    count: 40, days: 14, model: 'claude-3-5-haiku-20241022', failRate: 0.05, tokMin: 1500, tokMax: 6000,
+                    count: 40, days: 14, model: 'claude-haiku-4-5', failRate: 0.05, tokMin: 1500, tokMax: 6000,
                     summaries: [
                       'Audited 4 words. All counts correct (for once).',
                       'Caught myself about to say "two". Corrected to three.',
@@ -389,11 +389,11 @@ const DATA = {
                 ],
                 agent: {
                   enabled: true, schedule: '0 */4 * * *', notify_channel: 'system',
-                  model: 'claude-sonnet-4-20250514', max_tokens_budget: 60000, cost_budget_usd: 15,
+                  model: 'claude-sonnet-5', max_tokens_budget: 60000, cost_budget_usd: 15,
                   goal: 'Scan recent drafts and gently flag any sentence with more than one em-dash. Suggest a full stop instead.',
                   allowed_tools: ['read_card', 'update_self', 'notify'],
                   runs: {
-                    count: 22, days: 14, model: 'claude-sonnet-4-20250514', failRate: 0.06, tokMin: 4000, tokMax: 17000,
+                    count: 22, days: 14, model: 'claude-sonnet-5', failRate: 0.06, tokMin: 4000, tokMax: 17000,
                     summaries: [
                       'Flagged 3 sentences. Suggested 2 full stops and a comma.',
                       'Clean sweep — only one offending dash today.',
@@ -417,11 +417,11 @@ const DATA = {
                 ],
                 agent: {
                   enabled: true, schedule: '*/10 * * * *', notify_channel: 'system',
-                  model: 'claude-3-5-haiku-20241022', max_tokens_budget: 40000, cost_budget_usd: 8,
+                  model: 'claude-haiku-4-5', max_tokens_budget: 40000, cost_budget_usd: 8,
                   goal: 'Sort new inbox cards into the right project and tag obvious duplicates. Ask before deleting anything.',
                   allowed_tools: ['read_card', 'create_card', 'update_self', 'notify'],
                   runs: {
-                    count: 34, days: 14, model: 'claude-3-5-haiku-20241022', failRate: 0.12, tokMin: 2000, tokMax: 9000,
+                    count: 34, days: 14, model: 'claude-haiku-4-5', failRate: 0.12, tokMin: 2000, tokMax: 9000,
                     summaries: [
                       'Filed 6 cards, flagged 1 possible duplicate.',
                       'Inbox cleared. Asked before touching the ambiguous one.',
@@ -447,11 +447,11 @@ const DATA = {
                 ],
                 agent: {
                   enabled: false, schedule: '@weekly', notify_channel: 'system',
-                  model: 'claude-opus-4-20250514', max_tokens_budget: 120000, cost_budget_usd: 40,
+                  model: 'claude-opus-5', max_tokens_budget: 120000, cost_budget_usd: 40,
                   goal: 'Check in on the big questions once a week. File anything genuinely unanswerable under "Won\'t Fix" and get back to being helpful.',
                   allowed_tools: ['web_search', 'update_self'],
                   runs: {
-                    count: 6, days: 38, model: 'claude-opus-4-20250514', failRate: 0.0, tokMin: 14000, tokMax: 58000,
+                    count: 6, days: 38, model: 'claude-opus-5', failRate: 0.0, tokMin: 14000, tokMax: 58000,
                     summaries: [
                       'Reviewed 3 questions. Filed all under Won\'t Fix. Moved on.',
                       'No new dread. Existing dread stable.',

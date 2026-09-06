@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t } from '../lib/i18n.svelte'
   import type { LLMAccount } from '@shared/types'
+  import { defaultModelForProvider } from '@shared/llmDefaults'
 
   let {
     accounts,
@@ -31,12 +32,7 @@
       ? accounts.find(a => a.id === selectedAccountId)
       : defaultAccount
     if (acct?.model) return acct.model
-    switch (acct?.provider) {
-      case 'openai': return 'gpt-4o'
-      case 'anthropic': return 'claude-sonnet-4-20250514'
-      case 'ollama': return 'llama3'
-      default: return t('agent.llm_model_placeholder')
-    }
+    return defaultModelForProvider(acct?.provider) || t('agent.llm_model_placeholder')
   }
 </script>
 

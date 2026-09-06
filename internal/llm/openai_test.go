@@ -49,8 +49,8 @@ func TestOpenAIRequestShape(t *testing.T) {
 	if got := digStr(t, body, "model"); got != "gpt-4o" {
 		t.Errorf("model = %q", got)
 	}
-	if got := digNum(t, body, "max_tokens"); got != 1024 {
-		t.Errorf("max_tokens = %v, want 1024", got)
+	if got := digNum(t, body, "max_completion_tokens"); got != 1024 {
+		t.Errorf("max_completion_tokens = %v, want 1024", got)
 	}
 
 	// Unlike Anthropic, the system prompt is PREPENDED as messages[0] with
@@ -112,14 +112,14 @@ func TestOpenAIDefaultMaxTokens(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	body := s.lastBody(t)
-	if got := digNum(t, body, "max_tokens"); got != 4096 {
-		t.Errorf("default max_tokens = %v, want 4096", got)
+	if got := digNum(t, body, "max_completion_tokens"); got != 4096 {
+		t.Errorf("default max_completion_tokens = %v, want 4096", got)
 	}
-	// FINDING (openai.go:69): the key is always "max_tokens". OpenAI's
-	// reasoning models (o1/o3/o4-mini and newer) reject max_tokens outright
-	// and require "max_completion_tokens", so those models 400 on every call
-	// through this adapter. Locked to current behaviour.
-	wantAbsent(t, body, "max_completion_tokens")
+	// The legacy "max_tokens" key must never be sent: the gpt-5 family and
+	// the o-series reasoning models reject it with a 400, and
+	// max_completion_tokens is accepted by every model we target
+	// (verified live against gpt-5.5 and gpt-4o, 2026-09-06).
+	wantAbsent(t, body, "max_tokens")
 }
 
 // A local OpenAI-compatible endpoint (LM Studio, llama.cpp, vLLM) needs no

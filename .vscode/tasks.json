@@ -164,7 +164,7 @@
         "-RemoteHost",
         "${input:bruvDeployHost}",
         "-SshUser",
-        "beelink"
+        "${input:bruvDeployUser}"
       ],
       "group": "build",
       "problemMatcher": [],
@@ -188,7 +188,7 @@
         "-RemoteHost",
         "${input:bruvDeployHost}",
         "-SshUser",
-        "beelink",
+        "${input:bruvDeployUser}",
         "-SkipBuild"
       ],
       "group": "build",
@@ -206,7 +206,13 @@
       "id": "bruvDeployHost",
       "type": "promptString",
       "description": "Home-server Tailscale hostname/IP",
-      "default": "ripped.tail2ebd58.ts.net"
+      "default": "your-server.your-tailnet.ts.net"
+    },
+    {
+      "id": "bruvDeployUser",
+      "type": "promptString",
+      "description": "SSH user on the home server (must be a local Administrator there)",
+      "default": "Administrator"
     }
   ]
 }

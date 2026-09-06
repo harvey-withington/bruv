@@ -51,6 +51,7 @@ Invoke-RestMethod http://ripped.tail2ebd58.ts.net:9870/version
 
 ## Troubleshooting
 
+- **scp hangs forever on "Copying binary to …" (first deploy from a laptop):** the host key isn't in this machine's `known_hosts`, so ssh is sitting on a yes/no prompt that a non-interactive shell can't show. Probe with `ssh -o BatchMode=yes beelink@ripped.tail2ebd58.ts.net "echo ok"`; "Host key verification failed" confirms it. Fix once per laptop, in a real terminal: `ssh beelink@ripped.tail2ebd58.ts.net` and accept the fingerprint (a password prompt after that means this laptop's key isn't in the server's `authorized_keys` either). Kill the stuck `scp`/`ssh` processes, then rerun with `-SkipBuild`. This bit the 2026-09-06 deploy.
 - **scp/ssh fails:** Tailscale down, or OpenSSH not reachable. Check `tailscale status` and that `ssh beelink@ripped.tail2ebd58.ts.net` connects.
 - **"copy locked" repeats then FAILED:** something still holds the exe (AV scan, a desktop BRUV instance on the box). The script rolls back; retry with `-SkipBuild`.
 - **Service stopped after a failed deploy:** the script already tries to restart it. If it printed the `sc start` warning, run `ssh beelink@ripped.tail2ebd58.ts.net "sc start BRUV-Server"`.

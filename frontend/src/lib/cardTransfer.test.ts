@@ -22,6 +22,10 @@ function makeApi(overrides: {
   const calls: Call[] = []
   const rec = (method: string, ...args: unknown[]) => { calls.push({ method, args }) }
   const api: CardTransferApi = {
+    getCard: async (cardId) => {
+      rec('getCard', cardId)
+      return { id: cardId, title: 'Target', type: '', description: '', tags: [], due_date: null, created_at: '', blocks: [], file_attachments: [] } as unknown as Card
+    },
     createCard: async (cardType, title) => {
       rec('createCard', cardType, title)
       return { id: 'new-1', title, type: cardType, description: '', tags: [], due_date: null, created_at: '', blocks: [] } as unknown as Card

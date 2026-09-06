@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { Share2, Copy, Download, FileJson, Loader2 } from 'lucide-svelte'
+  import { Share2, Copy, Download, FileJson, FileInput, Loader2 } from 'lucide-svelte'
   import { repoRPC } from '../lib/auth'
   import { cardToMarkdown } from '@shared/cardMarkdown'
+  import { isMergeNoop } from '@shared/cardMerge'
   import { downloadBlob, sanitizeFilenameStem } from '@shared/download'
-  import { buildCardExportPayload, cardMarkdownLabels } from '../lib/cardExport'
+  import { buildCardExportPayload, cardMarkdownLabels, mergeCardFromJson, ImportError } from '../lib/cardExport'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
   import type { Card, CardComment } from '@shared/types'
@@ -20,8 +21,43 @@
   let { card, open = $bindable(false) }: { card: Card; open?: boolean } = $props()
 
   // JSON export fetches + base64-encodes every attachment — seconds on
-  // big cards. The trigger doubles as the busy indicator meanwhile.
+  // big cards. The trigger doubles as the busy indicator meanwhile;
+  // merging reuses it since it, too, may upload attachments.
   let exporting = $state(false)
+  let mergeInputEl = $state<HTMLInputElement | null>(null)
+
+  function pickMergeFile() {
+    open = false
+    mergeInputEl?.click()
+  }
+
+  // Non-destructive merge of a BRUV JSON export INTO this card
+  // (shared/cardMerge.ts rules). CardPage reloads off the card event
+  // stream, so no callback is needed; toasts survive navigation.
+  async function handleMergeFileSelected(e: Event) {
+    const input = e.currentTarget as HTMLInputElement
+    const file = input.files?.[0]
+    input.value = ''
+    if (!file) return
+    exporting = true
+    try {
+      const out = await mergeCardFromJson(await file.text(), card.id)
+      if (isMergeNoop(out.summary) && out.attachmentsAdded === 0 && out.commentsAdded === 0) {
+        showToast(t('card.merge_nothing'), 'info')
+      } else {
+        const s = out.summary
+        showToast(t('card.merge_done', { merged: s.blocksMerged + s.blocksAdded, copies: s.blocksCopied, items: s.itemsAdded }), 'success')
+      }
+      if (out.failedAttachments.length || out.failedComments.length) {
+        showToast(t('card.merge_partial'), 'warning')
+      }
+    } catch (err) {
+      const key = err instanceof ImportError ? `card.import_err_${err.code}` : 'card.merge_err_generic'
+      showToast(t(key), 'error')
+    } finally {
+      exporting = false
+    }
+  }
 
   $effect(() => {
     if (!open) return
@@ -123,8 +159,19 @@
         <FileJson size={16} />
         <span>{t('card.export_json')}</span>
       </button>
+      <button type="button" class="menu-item" role="menuitem" onclick={pickMergeFile}>
+        <FileInput size={16} />
+        <span>{t('card.merge_import')}</span>
+      </button>
     </div>
   {/if}
+  <input
+    bind:this={mergeInputEl}
+    type="file"
+    accept=".json,application/json"
+    hidden
+    onchange={handleMergeFileSelected}
+  />
 </div>
 
 <style>

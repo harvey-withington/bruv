@@ -3,6 +3,7 @@ import {
   AddCardComment,
   CreateCard,
   DeleteCard,
+  GetCard,
   GetCategoryAcceptedTypes,
   ListCardComments,
   PinCard,
@@ -16,9 +17,11 @@ import {
 import {
   buildCardExportPayload as buildPayload,
   importCardFromJson as importFromJson,
+  mergeCardFromJson as mergeFromJson,
   type CardTransferApi,
   type ImportOptions,
   type ImportOutcome,
+  type MergeOutcome,
 } from '@shared/cardTransfer'
 import type { BruvCardExport } from '@shared/cardJson'
 import type { CardMarkdownLabels } from '@shared/cardMarkdown'
@@ -30,6 +33,7 @@ import { t } from './i18n.svelte'
 // lives in the shared module.
 
 const api: CardTransferApi = {
+  getCard: (cardId) => GetCard(cardId),
   createCard: (cardType, title) => CreateCard(cardType, title),
   deleteCard: async (cardId) => { await DeleteCard(cardId) },
   pinCard: async (cardId, categoryId) => { await PinCard(cardId, categoryId) },
@@ -57,6 +61,14 @@ export function importCardFromJson(
   return importFromJson(api, text, categoryId, { fallbackTitle: t('card.import_fallback_title'), ...opts })
 }
 
+/** Non-destructive merge of a BRUV card export into an existing card. */
+export function mergeCardFromJson(text: string, targetCardId: string): Promise<MergeOutcome> {
+  return mergeFromJson(api, text, targetCardId, {
+    mergedSuffix: t('card.merged_suffix'),
+    mergedHeading: t('card.merged_heading'),
+  })
+}
+
 /** Localized section labels for cardToMarkdown. */
 export function cardMarkdownLabels(): CardMarkdownLabels {
   return {
@@ -70,4 +82,4 @@ export function cardMarkdownLabels(): CardMarkdownLabels {
 }
 
 export { ImportError } from '@shared/cardTransfer'
-export type { ImportOutcome, TypeConflictResolution } from '@shared/cardTransfer'
+export type { ImportOutcome, MergeOutcome, TypeConflictResolution } from '@shared/cardTransfer'

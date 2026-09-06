@@ -6,6 +6,7 @@ import {
   type EmbeddedAttachment,
 } from './cardJson'
 import type { Card, CardComment } from './types'
+import { planCardMerge, type MergeLabels, type MergeSummary } from './cardMerge'
 
 // --- Transport-agnostic card transfer ---------------------------------
 //
@@ -21,6 +22,7 @@ import type { Card, CardComment } from './types'
 // - Members are dropped — per-repo identity IDs would dangle.
 
 export interface CardTransferApi {
+  getCard(cardId: string): Promise<Card>
   createCard(cardType: string, title: string): Promise<Card>
   deleteCard(cardId: string): Promise<void>
   pinCard(cardId: string, categoryId: string): Promise<void>
@@ -236,4 +238,77 @@ export async function importCardFromJson(
   }
 
   return { cardId: created.id, failedAttachments, failedComments }
+}
+
+// --- Merge into an existing card ---
+
+export type MergeOutcome = {
+  cardId: string
+  summary: MergeSummary
+  /** Attachments added (existing name+size matches are skipped). */
+  attachmentsAdded: number
+  /** Comments added (existing author+text matches are skipped). */
+  commentsAdded: number
+  failedAttachments: string[]
+  failedComments: string[]
+}
+
+export type MergeCardOptions = MergeLabels
+
+/**
+ * Merges a parsed export INTO an existing card, non-destructively — see
+ * shared/cardMerge.ts for the rules. The target is re-fetched immediately
+ * before planning so a stale open card can't be merged against. Blocks,
+ * tags, description and due date are each written once, and only when the
+ * plan changed them; attachments and comments are appended individually
+ * with per-item failure tracking, mirroring importCardFromJson.
+ */
+export async function mergeCardFromJson(
+  api: CardTransferApi,
+  text: string,
+  targetCardId: string,
+  opts: MergeCardOptions,
+): Promise<MergeOutcome> {
+  const parsed = parseCardImport(text)
+  if (!parsed.ok) throw new ImportError(parsed.error)
+  const env = parsed.value
+
+  const target = await api.getCard(targetCardId)
+  const plan = planCardMerge(target, env.card, opts)
+
+  if (plan.blocks) await api.updateCardBlocks(target.id, plan.blocks)
+  if (plan.tags) await api.updateCardTags(target.id, plan.tags)
+  if (plan.description !== null) await api.updateCardDescription(target.id, plan.description)
+  if (plan.dueDate !== null) await api.updateCardDueDate(target.id, plan.dueDate)
+
+  const existingAtt = new Set((target.file_attachments ?? []).map((a) => `${a.name.toLowerCase()}|${a.size}`))
+  let attachmentsAdded = 0
+  const failedAttachments: string[] = []
+  for (const att of env.attachments) {
+    if (existingAtt.has(`${att.name.toLowerCase()}|${att.size}`)) continue
+    try {
+      await api.addCardAttachment(target.id, att.name, att.data)
+      attachmentsAdded++
+    } catch {
+      failedAttachments.push(att.name)
+    }
+  }
+
+  let existingComments = new Set<string>()
+  try {
+    existingComments = new Set((await api.listCardComments(target.id)).map((c) => `${c.author}|${c.text.trim()}`))
+  } catch { /* can't dedupe without the list — fall through and add all */ }
+  let commentsAdded = 0
+  const failedComments: string[] = []
+  for (const c of env.comments) {
+    if (existingComments.has(`${c.author || ''}|${c.text.trim()}`)) continue
+    try {
+      await api.addCardComment(target.id, c.author || '', c.text)
+      commentsAdded++
+    } catch {
+      failedComments.push(c.author || 'unknown')
+    }
+  }
+
+  return { cardId: target.id, summary: plan.summary, attachmentsAdded, commentsAdded, failedAttachments, failedComments }
 }

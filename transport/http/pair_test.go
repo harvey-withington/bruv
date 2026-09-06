@@ -84,7 +84,7 @@ func TestPairHandlerRendersQRForCorrectToken(t *testing.T) {
 	handler := pairHandler(dir)
 
 	req := httptest.NewRequest(nethttp.MethodGet, "/pair?token="+token, nil)
-	req.Host = "deviant.tail2ebd58.ts.net"
+	req.Host = "laptop.example-tailnet.ts.net"
 	req.Header.Set("X-Forwarded-Proto", "https")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -101,7 +101,7 @@ func TestPairHandlerRendersQRForCorrectToken(t *testing.T) {
 
 	// The page must show the EnrolURL with the right scheme + host
 	// derived from X-Forwarded-Proto + r.Host.
-	wantURL := "https://deviant.tail2ebd58.ts.net/m/enrol?token=" + token
+	wantURL := "https://laptop.example-tailnet.ts.net/m/enrol?token=" + token
 	if !strings.Contains(body, wantURL) {
 		t.Errorf("expected enrol URL %q in body, got: %s", wantURL, body)
 	}
@@ -165,7 +165,7 @@ func TestPairHandlerNoWarnForTailnetHost(t *testing.T) {
 	handler := pairHandler(dir)
 
 	req := httptest.NewRequest(nethttp.MethodGet, "/pair?token="+token, nil)
-	req.Host = "deviant.tail2ebd58.ts.net"
+	req.Host = "laptop.example-tailnet.ts.net"
 	req.Header.Set("X-Forwarded-Proto", "https")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -189,7 +189,7 @@ func TestIsLoopbackHost(t *testing.T) {
 		{"localhost:8080", true},
 		{"::1", true},
 		{"[::1]:9870", true},
-		{"deviant.tail2ebd58.ts.net", false},
+		{"laptop.example-tailnet.ts.net", false},
 		{"machine.ts.net:443", false},
 		{"192.168.1.10:80", false},
 		{"100.66.105.59", false},
@@ -209,7 +209,7 @@ func TestPairHandlerHonoursQueryHostAndSchemeOverrides(t *testing.T) {
 	// the phone-reachable tailnet URL. The query overrides win over
 	// both r.Host and X-Forwarded-Host.
 	req := httptest.NewRequest(nethttp.MethodGet,
-		"/pair?token="+token+"&host=deviant.ts.net&scheme=https", nil)
+		"/pair?token="+token+"&host=laptop.ts.net&scheme=https", nil)
 	req.Host = "127.0.0.1:9870"
 	req.Header.Set("X-Forwarded-Host", "wrong.example")
 	req.Header.Set("X-Forwarded-Proto", "http")
@@ -219,7 +219,7 @@ func TestPairHandlerHonoursQueryHostAndSchemeOverrides(t *testing.T) {
 	if w.Code != nethttp.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	wantURL := "https://deviant.ts.net/m/enrol?token=" + token
+	wantURL := "https://laptop.ts.net/m/enrol?token=" + token
 	if !strings.Contains(w.Body.String(), wantURL) {
 		t.Errorf("expected query overrides to win, want %q in body", wantURL)
 	}

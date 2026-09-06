@@ -249,7 +249,7 @@ func (a *App) MaterializeWorkspace(workspaceID, brandSlug, streamSlug, projectSl
 // several perfectly normal relationships, and the UI has to name each one in
 // the user's language with the server's name in it. Returning git's raw
 // output would put "hint: See the 'Note about fast-forwards'" in front of a
-// person whose actual situation is "your laptop and RIPPED have both
+// person whose actual situation is "your laptop and the server have both
 // changed".
 const (
 	syncOK          = "ok"           // work moved

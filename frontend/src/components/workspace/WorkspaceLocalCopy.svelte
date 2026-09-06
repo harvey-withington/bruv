@@ -165,7 +165,7 @@
   // Every sync outcome is a status, so each gets its own sentence with the
   // server's name in it. Reporting git's raw refusal here would put "hint:
   // See the 'Note about fast-forwards'" in front of someone whose actual
-  // situation is "your laptop and RIPPED have both changed".
+  // situation is "your laptop and the server have both changed".
   function reportSync(result: WorkspaceSyncResult, okKey: string) {
     switch (result.status) {
       case 'diverged':

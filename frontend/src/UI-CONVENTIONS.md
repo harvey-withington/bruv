@@ -470,7 +470,7 @@ It self-imports for recursion (never `<svelte:self>` — deprecated). Keyboard: 
 | `serverName` | `string` | `activeConnectionLabel()` — every message names the machine |
 | `onCheckoutChange` | `(info: WorkspaceCheckoutInfo \| null) => void` | Lets the panel point Tier 1 actions at the clone |
 
-**Two machines means saying which one.** Every string in this section interpolates `{server}` — "Preparing the workspace on RIPPED", "git isn't installed on RIPPED". The bug this feature fixes was an error that read as "your folder is missing" when the folder was on the user's own disk and the *server* couldn't see it. Applies to the attach error too, which now names the machine it searched.
+**Two machines means saying which one.** Every string in this section interpolates `{server}` — "Preparing the workspace on HOMEBOX", "git isn't installed on HOMEBOX". The bug this feature fixes was an error that read as "your folder is missing" when the folder was on the user's own disk and the *server* couldn't see it. Applies to the attach error too, which now names the machine it searched.
 
 **Tier 1 actions follow the files, and hide when there are none.** `WorkspacePanel` derives `deviceRoot` — the origin path when the vault is served from this machine, otherwise the clone's path, `undefined` when neither. Open-folder and the launch command are hidden rather than offered-and-failing.
 

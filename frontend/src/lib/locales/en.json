@@ -1405,7 +1405,7 @@
   "enrol.bootstrap_token_placeholder": "Paste bootstrap token…",
   "enrol.bootstrap_token_hint": "Find this in bootstrap-token.txt in the server config directory. It is only used once.",
   "enrol.device_name": "Device name",
-  "enrol.device_name_placeholder": "e.g. Harveys MacBook",
+  "enrol.device_name_placeholder": "e.g. My MacBook",
   "enrol.device_name_hint": "Shown in the server device list so you can revoke access later if needed.",
   "enrol.submit": "Connect",
   "enrol.submitting": "Connecting…",

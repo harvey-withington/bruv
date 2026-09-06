@@ -82,7 +82,7 @@ function mount(ws: Workspace) {
       brandSlug: 'acme',
       streamSlug: 'films',
       projectSlug: 'song-alpha',
-      serverName: 'RIPPED',
+      serverName: 'HOMEBOX',
     },
   })
 }
@@ -113,7 +113,7 @@ describe('WorkspaceLocalCopy — lifecycle states', () => {
   it('says the host is preparing rather than looking idle', async () => {
     mount(workspace({ git_serve: 'initializing' }))
     await settle()
-    expect(screen.getByText(/Preparing the workspace on RIPPED/)).toBeTruthy()
+    expect(screen.getByText(/Preparing the workspace on HOMEBOX/)).toBeTruthy()
     expect(screen.queryByText('Set up local copy')).toBeNull()
   })
 
@@ -236,7 +236,7 @@ describe('WorkspaceLocalCopy — two machines that both moved', () => {
     api.GetWorkspaceCheckout.mockResolvedValue(divergedCopy())
     mount(workspace({ git_serve: 'ready' }))
     await settle()
-    expect(screen.getByText(/This copy and RIPPED have both changed/)).toBeTruthy()
+    expect(screen.getByText(/This copy and HOMEBOX have both changed/)).toBeTruthy()
     expect(screen.getByText('Merge')).toBeTruthy()
   })
 
@@ -273,7 +273,7 @@ describe('WorkspaceLocalCopy — sync refusals read as situations, not git error
     screen.getByText('Send changes').click()
     await settle()
     const said = vi.mocked(showToast).mock.calls.at(-1)
-    expect(said?.[0]).toContain('RIPPED has edits in the folder')
+    expect(said?.[0]).toContain('HOMEBOX has edits in the folder')
     expect(said?.[0]).toContain('Nothing was lost')
   })
 

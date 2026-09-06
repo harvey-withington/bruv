@@ -12,8 +12,8 @@ func TestManifestLabelFor(t *testing.T) {
 		host string
 		want string
 	}{
-		{"deviant.tail2ebd58.ts.net", "deviant"},
-		{"ripped.tail2ebd58.ts.net", "ripped"},
+		{"laptop.example-tailnet.ts.net", "laptop"},
+		{"homebox.example-tailnet.ts.net", "homebox"},
 		{"single-segment-host", "single-segment-host"},
 		{"localhost", ""},
 		{"127.0.0.1", ""},
@@ -33,7 +33,7 @@ func TestMobileManifestHandlerTemplatesNameFromHost(t *testing.T) {
 	handler := mobileManifestHandler()
 
 	req := httptest.NewRequest(nethttp.MethodGet, "/m/manifest.webmanifest", nil)
-	req.Host = "deviant.tail2ebd58.ts.net"
+	req.Host = "laptop.example-tailnet.ts.net"
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -48,11 +48,11 @@ func TestMobileManifestHandlerTemplatesNameFromHost(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &manifest); err != nil {
 		t.Fatalf("manifest is not valid JSON: %v", err)
 	}
-	if got := manifest["name"]; got != "BRUV — deviant" {
-		t.Errorf("expected name 'BRUV — deviant', got %v", got)
+	if got := manifest["name"]; got != "BRUV — laptop" {
+		t.Errorf("expected name 'BRUV — laptop', got %v", got)
 	}
-	if got := manifest["short_name"]; got != "BRUV deviant" {
-		t.Errorf("expected short_name 'BRUV deviant', got %v", got)
+	if got := manifest["short_name"]; got != "BRUV laptop" {
+		t.Errorf("expected short_name 'BRUV laptop', got %v", got)
 	}
 	// Spot-check that other manifest fields aren't dropped.
 	if manifest["start_url"] != "/m/" {
@@ -68,13 +68,13 @@ func TestMobileManifestHandlerHonoursXForwardedHost(t *testing.T) {
 
 	req := httptest.NewRequest(nethttp.MethodGet, "/m/manifest.webmanifest", nil)
 	req.Host = "127.0.0.1:9870"
-	req.Header.Set("X-Forwarded-Host", "ripped.tail2ebd58.ts.net")
+	req.Header.Set("X-Forwarded-Host", "homebox.example-tailnet.ts.net")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
 	var manifest map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &manifest)
-	if got := manifest["name"]; got != "BRUV — ripped" {
+	if got := manifest["name"]; got != "BRUV — homebox" {
 		t.Errorf("expected forwarded host to win, got name=%v", got)
 	}
 }
@@ -87,7 +87,7 @@ func TestMobileManifestHandlerDeclaresShareTargetAsGET(t *testing.T) {
 	handler := mobileManifestHandler()
 
 	req := httptest.NewRequest(nethttp.MethodGet, "/m/manifest.webmanifest", nil)
-	req.Host = "deviant.tail2ebd58.ts.net"
+	req.Host = "laptop.example-tailnet.ts.net"
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 

@@ -114,7 +114,7 @@ export function ensureRepoMeta(): Promise<void> {
  * ensureRepoMeta / the reconnect hook retry later. The old
  * fail-open-and-latch version cached an empty registry for the whole
  * session after one bad moment at app start — grey type badges and an
- * empty type picker with no way back (Harvey, Cambodia, 2026-08-10).
+ * empty type picker with no way back (field report over a high-latency link, 2026-08-10).
  * Concurrent calls share one in-flight request.
  */
 export function loadRepoMeta(): Promise<void> {

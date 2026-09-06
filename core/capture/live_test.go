@@ -52,6 +52,6 @@ func TestLiveYouTube(t *testing.T) {
 
 func TestLiveTruthSocial(t *testing.T) {
 	// The platform's own announcement account; expected to be bot-walled
-	// from datacenter IPs — from RIPPED it should pass.
+	// from datacenter IPs — from a residential home-server IP it should pass.
 	liveResolve(t, "https://truthsocial.com/@TruthSocial/posts/109519086195988207")
 }

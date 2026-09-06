@@ -361,10 +361,10 @@ const pairPageTemplate = `<!doctype html>
   })();
 
   // Normalise whatever the operator types into a bare hostname:
-  //   - "deviant.ts.net"             → "deviant.ts.net"
-  //   - "deviant.ts.net:9870"        → "deviant.ts.net"  (port stripped)
-  //   - "https://deviant.ts.net/"    → "deviant.ts.net"  (scheme + path stripped)
-  //   - "deviant.ts.net:443/m/enrol" → "deviant.ts.net"
+  //   - "laptop.ts.net"             → "laptop.ts.net"
+  //   - "laptop.ts.net:9870"        → "laptop.ts.net"  (port stripped)
+  //   - "https://laptop.ts.net/"    → "laptop.ts.net"  (scheme + path stripped)
+  //   - "laptop.ts.net:443/m/enrol" → "laptop.ts.net"
   // The phone-reachable URL is on tailscale serve's port (443 by
   // default) — never on whatever localhost port BRUV bound. Stripping
   // ports avoids the obvious paste-the-whole-URL mistake.

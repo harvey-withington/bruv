@@ -21,7 +21,7 @@ import (
 // path.
 //
 // The disambiguation label is the first DNS segment of the host (e.g.
-// "deviant" from "deviant.tail2ebd58.ts.net"). For IPs / localhost /
+// "laptop" from "laptop.example-tailnet.ts.net"). For IPs / localhost /
 // other hostnames where a label wouldn't be meaningful we fall back
 // to the bare "BRUV" so we don't end up with "BRUV 127" tiles.
 func mobileManifestHandler() nethttp.HandlerFunc {
@@ -104,8 +104,8 @@ func hostFromRequest(r *nethttp.Request) string {
 
 // manifestLabelFor extracts a short disambiguation label from a host:
 //
-//   - "deviant.tail2ebd58.ts.net"  → "deviant"
-//   - "ripped.tail2ebd58.ts.net"   → "ripped"
+//   - "laptop.example-tailnet.ts.net"  → "laptop"
+//   - "homebox.example-tailnet.ts.net"   → "homebox"
 //   - "127.0.0.1"                   → ""  (no useful label)
 //   - "100.66.105.59"               → ""
 //   - "localhost"                   → ""

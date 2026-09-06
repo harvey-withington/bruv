@@ -23,9 +23,9 @@ func TestGitReason(t *testing.T) {
 			// The two-laptop collision. The reason is in the `!` line; the
 			// last line is "hint: See the 'Note about fast-forwards'…".
 			name: "push rejected as non-fast-forward",
-			out: `To http://ripped:9870/repos/r1/workspaces/ws-1/git
+			out: `To http://homebox:9870/repos/r1/workspaces/ws-1/git
  ! [rejected]        main -> main (fetch first)
-error: failed to push some refs to 'http://ripped:9870/repos/r1/workspaces/ws-1/git'
+error: failed to push some refs to 'http://homebox:9870/repos/r1/workspaces/ws-1/git'
 hint: Updates were rejected because the remote contains work that you do not
 hint: have locally. This is usually caused by another repository pushing to
 hint: the same ref. If you want to integrate the remote changes, use
@@ -37,9 +37,9 @@ hint: See the 'Note about fast-forwards' in 'git push --help' for details.`,
 			// Someone typed straight into the folder on the server. This is
 			// the protection working, and it must read as such.
 			name: "push refused because the host has uncommitted edits",
-			out: `To http://ripped:9870/repos/r1/workspaces/ws-1/git
+			out: `To http://homebox:9870/repos/r1/workspaces/ws-1/git
  ! [remote rejected] main -> main (Working directory has unstaged changes)
-error: failed to push some refs to 'http://ripped:9870/repos/r1/workspaces/ws-1/git'`,
+error: failed to push some refs to 'http://homebox:9870/repos/r1/workspaces/ws-1/git'`,
 			want: "Working directory has unstaged changes",
 		},
 		{
@@ -52,16 +52,16 @@ fatal: Not possible to fast-forward, aborting.`,
 		},
 		{
 			name: "authentication failure",
-			out: `warning: redirecting to http://ripped:9870/
-fatal: Authentication failed for 'http://ripped:9870/repos/r1/workspaces/ws-1/git'`,
-			want: "Authentication failed for 'http://ripped:9870/repos/r1/workspaces/ws-1/git'",
+			out: `warning: redirecting to http://homebox:9870/
+fatal: Authentication failed for 'http://homebox:9870/repos/r1/workspaces/ws-1/git'`,
+			want: "Authentication failed for 'http://homebox:9870/repos/r1/workspaces/ws-1/git'",
 		},
 		{
 			// The generic wrapper restates the exit code and must never be
 			// the whole message when something more specific exists.
 			name: "generic push wrapper alone still says something",
-			out:  `error: failed to push some refs to 'http://ripped:9870/x'`,
-			want: "error: failed to push some refs to 'http://ripped:9870/x'",
+			out:  `error: failed to push some refs to 'http://homebox:9870/x'`,
+			want: "error: failed to push some refs to 'http://homebox:9870/x'",
 		},
 		{
 			name: "windows line endings parse the same",

@@ -75,7 +75,7 @@ Fix root causes, not symptoms — no `svelte-ignore`, no `--no-verify`.
 
 ## Commits
 
-**Never run `git commit` or `git push` — Harvey always commits and pushes manually.** Finish by suggesting a commit message: compact one-liner, lowercase, items separated by " / " (slashes, not commas):
+**Never run `git commit` or `git push` — the developer commits and pushes manually after verifying the work.** Finish by suggesting a commit message: compact one-liner, lowercase, items separated by " / " (slashes, not commas):
 
 ```
 card share/export as markdown + json / import from json / fix pin-rejection orphan

@@ -2,7 +2,7 @@
 // browser-plausible User-Agent, timeouts, and size caps so no resolver
 // hand-rolls a fetch. The UA matters: several of these endpoints (Reddit
 // most explicitly) throttle or block default library agents while serving
-// browser strings happily — and RIPPED's residential IP does the rest.
+// browser strings happily — and a home server's residential IP does the rest.
 
 package capture
 

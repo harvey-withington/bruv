@@ -7,7 +7,7 @@ package config
 // auto-restores it without forcing the user back through the picker.
 //
 // Lives in <clientdata>/repo-recents.json — strictly per-device:
-// "what repo did I pick on RIPPED *from this machine*". Other
+// "what repo did I pick on the home server *from this machine*". Other
 // devices on the same server can have their own picks.
 
 import (

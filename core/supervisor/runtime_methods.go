@@ -109,6 +109,12 @@ func (r *Runtime) UnpinCard(cardID, categoryID string) error {
 func (r *Runtime) GetCardPins(cardID string) ([]model.Pin, error) {
 	return r.Card.GetPins(cardID)
 }
+
+// ListCategoryCards returns the pins in one category in board order —
+// the read side of PinCard, used by the MCP server's list_cards tool.
+func (r *Runtime) ListCategoryCards(categoryID string) ([]model.Pin, error) {
+	return r.repo.ListCardsInCategory(categoryID)
+}
 func (r *Runtime) GetCardLocation(cardID string) (*CardLocation, error) {
 	return r.Card.GetLocation(cardID)
 }

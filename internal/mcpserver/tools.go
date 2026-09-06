@@ -34,6 +34,20 @@ var toolHandlers = map[string]toolFunc{
 	"add_card_blocks": hAddCardBlocks,
 	"set_card_fields": hSetCardFields,
 	"add_card_tags":   hAddCardTags,
+	// Intrinsic card properties
+	"set_card_title":       hSetCardTitle,
+	"set_card_description": hSetCardDescription,
+	"set_card_type":        hSetCardType,
+	"set_card_due_date":    hSetCardDueDate,
+	// Attachments + comments
+	"add_card_attachment": hAddCardAttachment,
+	"add_card_comment":    hAddCardComment,
+	"list_card_comments":  hListCardComments,
+	// Filing + browsing
+	"pin_card":     hPinCard,
+	"unpin_card":   hUnpinCard,
+	"list_cards":   hListCards,
+	"recent_cards": hRecentCards,
 }
 
 // callTool executes a tools/call request and wraps the result in an MCP
@@ -250,6 +264,114 @@ func toolDefs(repoName string) []mcp.Tool {
 				"card_id": strProp("The card's id."),
 				"tags":    strArr("Tags to add."),
 			}, "card_id", "tags"),
+		},
+
+		// --- Intrinsic card properties ---
+		{
+			Name:        "set_card_title",
+			Description: "Rename a card in " + board + ".",
+			InputSchema: obj(map[string]any{
+				"card_id": strProp("The card's id."),
+				"title":   strProp("New title."),
+			}, "card_id", "title"),
+		},
+		{
+			Name: "set_card_description",
+			Description: "Replace the description of a card in " + board + " — the free-text summary under the title, " +
+				"distinct from its blocks. Call this when the user asks to describe, summarise or explain a card. Markdown is rendered.",
+			InputSchema: obj(map[string]any{
+				"card_id":     strProp("The card's id."),
+				"description": strProp("New description (Markdown). Empty string clears it."),
+			}, "card_id", "description"),
+		},
+		{
+			Name:        "set_card_type",
+			Description: "Change a card's type in " + board + ". See list_card_types for the available ids.",
+			InputSchema: obj(map[string]any{
+				"card_id":   strProp("The card's id."),
+				"card_type": strProp("Card type id, e.g. 'task', 'idea'."),
+			}, "card_id", "card_type"),
+		},
+		{
+			Name:        "set_card_due_date",
+			Description: "Set or clear a card's due date in " + board + ".",
+			InputSchema: obj(map[string]any{
+				"card_id":  strProp("The card's id."),
+				"due_date": strProp("YYYY-MM-DD, or an empty string to clear the due date."),
+			}, "card_id", "due_date"),
+		},
+
+		// --- Attachments + comments ---
+		{
+			Name: "add_card_attachment",
+			Description: "Attach a file to a card in " + board + ". Pass `text` for a UTF-8 file (Markdown, notes, CSV) " +
+				"or `content_base64` for binary content — exactly one of the two. Files up to 3 MB.",
+			InputSchema: obj(map[string]any{
+				"card_id":        strProp("The card's id."),
+				"name":           strProp("File name including extension, e.g. 'design.md'. No directories."),
+				"text":           strProp("UTF-8 file content. Use for text files instead of encoding them yourself."),
+				"content_base64": strProp("Base64-encoded file content. Use for binary files."),
+			}, "card_id", "name"),
+		},
+		{
+			Name: "add_card_comment",
+			Description: "Post a comment on a card in " + board + ". Use this to record an outcome, a note or a status " +
+				"update without altering the card's content.",
+			InputSchema: obj(map[string]any{
+				"card_id": strProp("The card's id."),
+				"text":    strProp("Comment text (Markdown)."),
+				"author":  strProp("Optional author name shown on the comment (default 'MCP')."),
+			}, "card_id", "text"),
+		},
+		{
+			Name:        "list_card_comments",
+			Description: "List the comments on a card in " + board + ", oldest first.",
+			InputSchema: obj(map[string]any{
+				"card_id": strProp("The card's id."),
+			}, "card_id"),
+		},
+
+		// --- Filing + browsing ---
+		{
+			Name: "pin_card",
+			Description: "File an existing card into a category in " + board + " (a card can be pinned in several places). " +
+				"Missing Brand/Stream/Project/Category are created automatically. Use this to move an inbox card onto a board.",
+			InputSchema: obj(map[string]any{
+				"card_id":  strProp("The card's id."),
+				"brand":    strProp("Brand name or slug (created if missing)."),
+				"stream":   strProp("Stream name or slug (created if missing)."),
+				"project":  strProp("Project name or slug (created if missing)."),
+				"category": strProp("Category name or slug (created if missing)."),
+			}, "card_id", "brand", "stream", "project", "category"),
+		},
+		{
+			Name:        "unpin_card",
+			Description: "Remove a card from one category in " + board + ". Nothing is created; the location must exist. The card itself is kept.",
+			InputSchema: obj(map[string]any{
+				"card_id":  strProp("The card's id."),
+				"brand":    strProp("Brand name or slug."),
+				"stream":   strProp("Stream name or slug."),
+				"project":  strProp("Project name or slug."),
+				"category": strProp("Category name or slug."),
+			}, "card_id", "brand", "stream", "project", "category"),
+		},
+		{
+			Name: "list_cards",
+			Description: "List the cards on a project board in " + board + ", grouped by category in board order. " +
+				"Returns compact summaries (id, title, type, position, due date, tags); use get_card for a card's content.",
+			InputSchema: obj(map[string]any{
+				"brand":    strProp("Brand name or slug."),
+				"stream":   strProp("Stream name or slug."),
+				"project":  strProp("Project name or slug."),
+				"category": strProp("Optional: only this category."),
+			}, "brand", "stream", "project"),
+		},
+		{
+			Name:        "recent_cards",
+			Description: "The most recently updated cards in " + board + " — useful to find something the user just created or edited.",
+			InputSchema: obj(map[string]any{
+				"limit": intProp("Max results (default 20)."),
+			}),
 		},
 	}
 }

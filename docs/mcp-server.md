@@ -35,6 +35,12 @@ Projects, Categories and Cards, and populating cards — straight from a chat.
 | `create_brand` / `create_stream` / `create_project` / `create_category` | Create hierarchy nodes (parents auto-created). |
 | `create_card` | Create + populate a card. Pass all of `brand`/`stream`/`project`/`category` to file it (auto-created), or none to leave it in the inbox. Accepts `tags`, `description`, `blocks`. |
 | `add_card_blocks` / `set_card_fields` / `add_card_tags` | Populate an existing card. |
+| `set_card_title` / `set_card_description` / `set_card_type` / `set_card_due_date` | Change a card's intrinsic properties. Description is Markdown; due date is `YYYY-MM-DD` or `""` to clear. |
+| `add_card_attachment` | Attach a file (≤ 3 MB). Pass `text` for UTF-8 files or `content_base64` for binary — exactly one. |
+| `add_card_comment` / `list_card_comments` | Post or read comments — the natural place for an agent to record an outcome without touching the card's content. |
+| `pin_card` / `unpin_card` | File a card into a category (parents auto-created) or remove it from one (nothing created; the card is kept). |
+| `list_cards` | Cards on a project board grouped by category in board order — compact summaries; `get_card` for content. |
+| `recent_cards` | Most recently updated cards — find what the user just created. |
 
 ## Connecting Claude Desktop
 
@@ -101,6 +107,7 @@ A bad/expired token returns `401`; an unknown/disabled repo id returns `404`.
 
 ## Not in v1 (see the plan)
 
-Move/delete/reorder tools, an optional single "all-repos" connector for
+Delete and reorder tools (filing is covered by `pin_card`/`unpin_card`; a move is
+an unpin plus a pin), an optional single "all-repos" connector for
 cross-repo capture, MCP resources/prompts, OAuth, and repo-scoped tokens. See
 [plan/bruv-mcp-server-for-third-party-agents-2026-06-19.md](../plan/bruv-mcp-server-for-third-party-agents-2026-06-19.md).

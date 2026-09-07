@@ -1,0 +1,28 @@
+Title: {{$title}}
+Credit: Written by
+Author: {{$author}}
+Draft date: {{$bruvDate}}
+
+INT. SOMEWHERE - DAY
+
+A blank page. This is action: plain sentences describing what we see.
+
+WRITER
+(to themselves)
+Dialogue follows a character name in capitals. A parenthetical goes in brackets on its own line.
+
+Blank lines separate elements. Start a scene with INT. or EXT., force one with a leading period, and force a transition with a leading >.
+
+CUT TO:
+
+EXT. THE REST OF THE STORY - CONTINUOUS
+
+= Synopses start with a single equals sign and never print.
+
+[[Notes go in double square brackets. They show in the preview but not in print.]]
+
+/*
+Anything inside a boneyard is ignored entirely — keep old drafts here.
+*/
+
+> FADE OUT. <

@@ -457,6 +457,8 @@ The Workspace panel content (`components/workspace/WorkspacePanel.svelte`) rende
 
 **Folder-Template roots** get the cyan `LayoutTemplate` icon when *known*: lazily, a directory is only classifiable once its own children are loaded, so the rule is "a loaded directory whose children include a `.ft` folder". The icon appears when the folder is opened; nothing blocks on it.
 
+**Built-in Folder Templates** (Screenplay, Manuscript) are embedded in the binary under `core/services/workspace/builtin_templates/<Name>/{title}/` and **seeded once** into `<vault>/templates/<Name>/` on repo load (`Service.SeedBuiltinTemplates`, marker `templates/.bruv-builtin.json`, which travels with the vault). Never overwritten: a user folder of the same name wins, and a deleted seed stays deleted. A new built-in is a new folder there — nothing else to register.
+
 `WorkspacePanel` owns the cache and calls `resetTree()` (clear + drop expand state) on Refresh and on project change; mounted levels re-fetch themselves because each level's `$effect` reads its cache entry and reloads when it goes missing — so a refresh costs what's on screen, not the tree.
 
 It self-imports for recursion (never `<svelte:self>` — deprecated). Keyboard: rows are real `<button>`s, so Tab/Enter work for free.
@@ -564,3 +566,36 @@ in `BlockLiveState`; toggling never bumps `videoSeq` (enlarging must not
 restart playback). One ⛶ per console row: video's when the slide has
 video, image's otherwise. Slide navigation clears both overlays (state is
 replaced wholesale).
+
+---
+
+## 15. Document Editor — `DocumentEditor` + format modules (`shared/documentFormats/`)
+
+**Files:** `components/workspace/editor/` (`DocumentEditor`, `EditorToolbar`, `EditorPane`, `PreviewPane`, `DocumentOutline`, `EditorStatusBar`), `lib/editor/` (`codemirror` action, `DocumentSession`, `DocumentSource`, `languages`, `theme`, `fountain`, `documentPrefs`), `shared/documentFormats/` (registry + `markdown`, `fountain`, `plaintext` modules). Design: `plan/2026-09-06 document formats - markdown, fountain, manuscript.md`.
+
+The workspace file viewer is a **CodeMirror 6 document editor** for plain-text formats that render into something else. `WorkspaceFileViewer` is only the overlay; it hands `DocumentEditor` a `DocumentSource` (`open` / `stat` / `save`) built from the workspace RPCs. **Nothing in the editor assumes workspace files** — Card Documents plugs in as a second `DocumentSource`, not a second editor.
+
+**Format registry (compile-time, no marketplace).** `documentFormatForPath(path)` picks a `DocumentFormat` by extension (`.md` → Markdown, `.fountain` → Fountain, anything else → plain text). A module is pure functions over the text — `render` (preview HTML), `styles` (preview + `@media print` CSS scoped under `.doc-preview`), `outline`, `entities`, `lint`, `wordCount`, `printable` — so it runs in Vitest and on mobile. The one desktop-only piece, the CodeMirror language/highlighting, lives in `lib/editor/languages.ts` keyed by format id; `shared/` never imports CodeMirror. **Fountain has one grammar**: `classifyFountain` feeds both the editor decorations (`lib/editor/fountain.ts`) and the renderer.
+
+| `DocumentEditor` prop | Type | Notes |
+|---|---|---|
+| `source` | `DocumentSource` | Where the bytes come from; one `DocumentSession` per source |
+| `onClose` | `() => void` | Called only after the draft is on disk or explicitly discarded |
+| `onOpenExternal` / `onReveal` | `() => void` | Tier 1 fallbacks; shown in the toolbar and in the load-error state when provided |
+
+Exported for the host: `requestClose()` (backdrop click) and `onKeydown(e)` (the host's `<div role="dialog">` forwards every keydown).
+
+**Layouts** edit / split / preview, remembered **per format** in client-zone UI preferences (`document_layouts`, `document_outline` — `lib/editor/documentPrefs.svelte.ts`). The editor pane stays mounted in preview mode (hidden, not removed) so undo history and the cursor survive a flip. Outline click = `goToLine`; the entry under the cursor is highlighted.
+
+**Autosave + divergence guard (`DocumentSession`).** Debounced autosave 1 s after the last edit; the save presents the stamp (`sha256`) it loaded, and the backend refuses a save when the file on disk changed meanwhile (`SaveWorkspaceFile` → `diverged: true`, nothing written). Policy, never silent clobbering: window focus stats the file — clean draft → reload quietly + an info toast; dirty draft → `showConfirm` reload-or-keep; a refused save → `showConfirm` overwrite-or-keep. **Keep pauses autosave** (status bar says so, with a Save button) so the prompt cannot re-fire per keystroke; the next explicit save asks again. Save state is ambient in the status bar (§9) — **no toast per save**; a failed autosave shows inline and retries on the next edit.
+
+**Keyboard.** All keys stay inside the editor (`stopPropagation` on the dialog — the board's `p`/`w`/`?` shortcuts and any card dialog beneath never see them, §8.1). Escape and Ctrl+Enter both **flush then close**; a draft that cannot be saved asks before being discarded. CodeMirror gets first go (`defaultPrevented` is respected): Escape closes its search panel first, Ctrl+S saves now, Ctrl+F finds. CodeMirror's own strings are localized through `EditorState.phrases` (`lib/editor/phrases.ts`, keys `document.cm.*`).
+
+**Theme.** `lib/editor/theme.ts` builds the CodeMirror theme from design tokens only (`var(--…)`) — dark/light follow the app with no JS. Prose-first: app font, monospace only for code; Fountain switches the content to Courier and indents cues/dialogue the way the page reads.
+
+**Print** (formats with `printable`): the toolbar button adds `body.printing-document` around `window.print()`; `style.css` hides everything but `.doc-preview` and un-fixes the overlay so pages can flow; the format's `@media print` rules (Fountain: Letter, 1.5in left margin, notes/sections hidden) apply on top.
+
+**Adding a format:** a module in `shared/documentFormats/<id>/` registered in `documentFormats/index.ts` (+ `DocumentFormatId`), a `document.format_<id>` label, a language bundle in `lib/editor/languages.ts` if it highlights, and golden tests in `frontend/src/lib/` against the format's own spec examples.
+
+**Mobile:** deliberate asymmetry — desktop-only; a read-only preview through the shared render path is the planned follow-up (`plan/mobile-feature-gap-2026-05-03.md`).
+

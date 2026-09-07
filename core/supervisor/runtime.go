@@ -171,6 +171,13 @@ func buildRuntime(repoPath, configDir string, secret []byte) (*Runtime, error) {
 	r.Agent = agentsvc.New(agentDeps{r})
 	r.Repository = reposvc.New(repoDeps{r})
 	r.Workspace = workspacesvc.New(workspaceDeps{r})
+	// Built-in Folder Templates land in the vault once; a failure here
+	// only means the picker lacks them, so it must never block the load.
+	if seeded, err := r.Workspace.SeedBuiltinTemplates(); err != nil {
+		slog.Warn("seed built-in templates failed", "err", err)
+	} else if len(seeded) > 0 {
+		slog.Info("seeded built-in templates", "names", seeded)
+	}
 
 	r.tools = tools.New(toolsRTDeps{r})
 	r.prompts = prompts.New(promptsRTDeps{r})

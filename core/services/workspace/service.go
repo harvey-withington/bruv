@@ -2,6 +2,8 @@ package workspace
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -198,33 +200,103 @@ func (s *Service) SetLaunchCommand(brandSlug, streamSlug, projectSlug, command s
 // through the internal/workspace chokepoint; binary content is refused —
 // binaries open externally per Tier 1 rules.
 func (s *Service) ReadFile(ctx context.Context, brandSlug, streamSlug, projectSlug, rel string) (string, error) {
-	ws, root, err := s.localRoot(brandSlug, streamSlug, projectSlug)
+	raw, _, err := s.readText(brandSlug, streamSlug, projectSlug, rel)
 	if err != nil {
 		return "", err
 	}
-	_ = ws
+	return string(raw), nil
+}
+
+// OpenFile is ReadFile for the document editor: content plus the stamp the
+// editor hands back to SaveFile so an external edit made meanwhile is
+// caught rather than overwritten.
+func (s *Service) OpenFile(ctx context.Context, brandSlug, streamSlug, projectSlug, rel string) (*model.WorkspaceFileContent, error) {
+	raw, info, err := s.readText(brandSlug, streamSlug, projectSlug, rel)
+	if err != nil {
+		return nil, err
+	}
+	return &model.WorkspaceFileContent{Content: string(raw), Stamp: stampOf(raw, info)}, nil
+}
+
+// StatFile returns the current on-disk stamp of one text file. The editor
+// polls this on window focus to notice edits made by other programs.
+func (s *Service) StatFile(ctx context.Context, brandSlug, streamSlug, projectSlug, rel string) (*model.WorkspaceFileStamp, error) {
+	raw, info, err := s.readText(brandSlug, streamSlug, projectSlug, rel)
+	if err != nil {
+		return nil, err
+	}
+	st := stampOf(raw, info)
+	return &st, nil
+}
+
+// SaveFile is the guarded write behind the document editor. expectedHash is
+// the hash from the stamp the editor loaded (or last saved); when it is set
+// and the file on disk no longer carries it, nothing is written and the
+// result reports Diverged with the current stamp — the client then asks
+// the user to reload or overwrite. An empty expectedHash writes
+// unconditionally (that IS the overwrite).
+func (s *Service) SaveFile(ctx context.Context, brandSlug, streamSlug, projectSlug, rel, content, expectedHash string) (*model.WorkspaceSaveResult, error) {
+	if expectedHash != "" {
+		current, err := s.StatFile(ctx, brandSlug, streamSlug, projectSlug, rel)
+		if err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+		if current != nil && current.Hash != expectedHash {
+			return &model.WorkspaceSaveResult{Diverged: true, Stamp: *current}, nil
+		}
+	}
+	if err := s.WriteFile(ctx, brandSlug, streamSlug, projectSlug, rel, content); err != nil {
+		return nil, err
+	}
+	written, err := s.StatFile(ctx, brandSlug, streamSlug, projectSlug, rel)
+	if err != nil {
+		return nil, err
+	}
+	return &model.WorkspaceSaveResult{Stamp: *written}, nil
+}
+
+// readText resolves rel through the path chokepoint and loads it as UTF-8
+// text, refusing directories, oversize files and binaries — the shared
+// gate for every Tier 2 read.
+func (s *Service) readText(brandSlug, streamSlug, projectSlug, rel string) ([]byte, os.FileInfo, error) {
+	_, root, err := s.localRoot(brandSlug, streamSlug, projectSlug)
+	if err != nil {
+		return nil, nil, err
+	}
 	abs, err := pathsafe.Resolve(root, rel)
 	if err != nil {
-		return "", err
+		return nil, nil, err
 	}
 	info, err := os.Stat(abs)
 	if err != nil {
-		return "", err
+		return nil, nil, err
 	}
 	if info.IsDir() {
-		return "", fmt.Errorf("%s is a directory", rel)
+		return nil, nil, fmt.Errorf("%s is a directory", rel)
 	}
 	if info.Size() > MaxReadBytes {
-		return "", fmt.Errorf("%s is too large to open in BRUV (%s) — use Open in default app", rel, humanBytes(info.Size()))
+		return nil, nil, fmt.Errorf("%s is too large to open in BRUV (%s) — use Open in default app", rel, humanBytes(info.Size()))
 	}
 	raw, err := os.ReadFile(abs)
 	if err != nil {
-		return "", err
+		return nil, nil, err
 	}
 	if !utf8.Valid(raw) {
-		return "", fmt.Errorf("%s is not a text file — use Open in default app", rel)
+		return nil, nil, fmt.Errorf("%s is not a text file — use Open in default app", rel)
 	}
-	return string(raw), nil
+	return raw, info, nil
+}
+
+// stampOf fingerprints text content the same way snapshots do
+// ("sha256:<hex>"), so a stamp from OpenFile compares directly with one
+// from StatFile regardless of mtime granularity on the filesystem.
+func stampOf(raw []byte, info os.FileInfo) model.WorkspaceFileStamp {
+	sum := sha256.Sum256(raw)
+	return model.WorkspaceFileStamp{
+		Hash:  "sha256:" + hex.EncodeToString(sum[:]),
+		Size:  int64(len(raw)),
+		MTime: info.ModTime(),
+	}
 }
 
 // ListDir returns the immediate children of one workspace directory

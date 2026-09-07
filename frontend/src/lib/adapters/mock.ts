@@ -18,6 +18,9 @@ import type {
   WorkspaceCheckoutInfo,
   WorkspaceSyncResult,
   WorkspaceIndex,
+  WorkspaceFileContent,
+  WorkspaceFileStamp,
+  WorkspaceSaveResult,
   WorkspaceState,
   WorkspaceTemplateEntry,
   WorkspaceTemplateInspection,
@@ -56,6 +59,8 @@ const mockUIPreferences = (): UIPreferences => ({
   sidebar_collapse_default: false,
   llm_nudge_shown: false,
   local_server_port: 0,
+  document_layouts: {},
+  document_outline: true,
 })
 
 /**
@@ -259,7 +264,9 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     SetWorkspaceLaunchCommand: async (): Promise<Workspace> => mockWorkspace(),
     ListWorkspaceDir: async () => [],
     ReadWorkspaceFile: async (): Promise<string> => '',
-    WriteWorkspaceFile: async () => {},
+    OpenWorkspaceFile: async (): Promise<WorkspaceFileContent> => ({ content: '', stamp: { hash: 'sha256:mock', size: 0 } }),
+    StatWorkspaceFile: async (): Promise<WorkspaceFileStamp> => ({ hash: 'sha256:mock', size: 0 }),
+    SaveWorkspaceFile: async (): Promise<WorkspaceSaveResult> => ({ diverged: false, stamp: { hash: 'sha256:mock', size: 0 } }),
     OpenWorkspacePath: async () => {},
     RevealWorkspacePath: async () => {},
     RunWorkspaceLaunchCommand: async () => {},

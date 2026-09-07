@@ -1,0 +1,23 @@
+{
+  "name": "Screenplay",
+  "description": "A Fountain screenplay with a title page. Opens in BRUV's document editor with screenplay highlighting, preview and print.",
+  "parameters": [
+    {
+      "name": "title",
+      "type": "text",
+      "prompt": "Screenplay title?",
+      "placeholder": "e.g. Brick and Steel",
+      "match": "\\{title\\}",
+      "replaceInFileNames": true,
+      "replaceInFiles": true
+    },
+    {
+      "name": "author",
+      "type": "text",
+      "prompt": "Written by?",
+      "placeholder": "Your name",
+      "replaceInFileNames": false,
+      "replaceInFiles": true
+    }
+  ]
+}

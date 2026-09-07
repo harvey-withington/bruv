@@ -1,0 +1,20 @@
+# Manuscript manifest — metadata and the order of the parts that make the book.
+# Front and back matter are small Markdown files with a role; chapters are
+# one Markdown file each. Files not listed here are not part of the book.
+title: "{{$title}}"
+author: "{{$author}}"
+language: en
+# subtitle: ""
+# series: ""
+# publisher: ""
+# isbn: ""
+# cover: cover.jpg
+
+parts:
+  - file: front-matter/copyright.md
+    role: copyright
+  - file: front-matter/dedication.md
+    role: dedication
+  - file: chapters/01.md
+  - file: back-matter/about-the-author.md
+    role: about-the-author

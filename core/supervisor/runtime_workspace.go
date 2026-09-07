@@ -97,9 +97,22 @@ func (r *Runtime) ReadWorkspaceFile(ctx context.Context, brandSlug, streamSlug, 
 	return r.Workspace.ReadFile(ctx, brandSlug, streamSlug, projectSlug, rel)
 }
 
-// WriteWorkspaceFile saves one text file (Tier 2 editor; user-initiated only).
-func (r *Runtime) WriteWorkspaceFile(ctx context.Context, brandSlug, streamSlug, projectSlug, rel, content string) error {
-	return r.Workspace.WriteFile(ctx, brandSlug, streamSlug, projectSlug, rel, content)
+// OpenWorkspaceFile is the document editor's read: content + stamp.
+func (r *Runtime) OpenWorkspaceFile(ctx context.Context, brandSlug, streamSlug, projectSlug, rel string) (*model.WorkspaceFileContent, error) {
+	return r.Workspace.OpenFile(ctx, brandSlug, streamSlug, projectSlug, rel)
+}
+
+// StatWorkspaceFile returns the current on-disk stamp of one text file
+// (the editor's external-change check).
+func (r *Runtime) StatWorkspaceFile(ctx context.Context, brandSlug, streamSlug, projectSlug, rel string) (*model.WorkspaceFileStamp, error) {
+	return r.Workspace.StatFile(ctx, brandSlug, streamSlug, projectSlug, rel)
+}
+
+// SaveWorkspaceFile is the guarded write behind the document editor
+// (user-initiated only; AI write access stays out of scope). An empty
+// expectedHash writes unconditionally.
+func (r *Runtime) SaveWorkspaceFile(ctx context.Context, brandSlug, streamSlug, projectSlug, rel, content, expectedHash string) (*model.WorkspaceSaveResult, error) {
+	return r.Workspace.SaveFile(ctx, brandSlug, streamSlug, projectSlug, rel, content, expectedHash)
 }
 
 // --- Templates -------------------------------------------------------------

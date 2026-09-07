@@ -214,6 +214,76 @@ func TestReadWriteFile(t *testing.T) {
 	}
 }
 
+// The document editor's divergence guard: a save presenting a stale stamp
+// must not touch the file, and the result must carry the current stamp so
+// the client can offer reload-or-overwrite; an empty expected hash is the
+// overwrite.
+func TestSaveFileDivergenceGuard(t *testing.T) {
+	svc, _, b, st, p := newTestService(t)
+	dir := writeFiles(t, t.TempDir(), map[string]string{"draft.md": "v1"})
+	if _, err := svc.Attach(context.Background(), b, st, p, dir); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	opened, err := svc.OpenFile(ctx, b, st, p, "draft.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opened.Content != "v1" || !strings.HasPrefix(opened.Stamp.Hash, "sha256:") || opened.Stamp.Size != 2 {
+		t.Fatalf("OpenFile = %+v", opened)
+	}
+	stat, err := svc.StatFile(ctx, b, st, p, "draft.md")
+	if err != nil || stat.Hash != opened.Stamp.Hash {
+		t.Fatalf("StatFile = %+v, %v (want hash %s)", stat, err, opened.Stamp.Hash)
+	}
+
+	// Matching stamp: written, and the returned stamp fingerprints the new text.
+	res, err := svc.SaveFile(ctx, b, st, p, "draft.md", "v2", opened.Stamp.Hash)
+	if err != nil || res.Diverged || res.Stamp.Hash == opened.Stamp.Hash {
+		t.Fatalf("guarded save = %+v, %v", res, err)
+	}
+	if got, _ := svc.ReadFile(ctx, b, st, p, "draft.md"); got != "v2" {
+		t.Fatalf("after guarded save: %q", got)
+	}
+
+	// Another program edits the file: the stale stamp is refused, the file
+	// keeps the external edit, and the result names the current stamp.
+	if err := os.WriteFile(filepath.Join(dir, "draft.md"), []byte("external"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stale, err := svc.SaveFile(ctx, b, st, p, "draft.md", "v3", res.Stamp.Hash)
+	if err != nil || !stale.Diverged {
+		t.Fatalf("stale save = %+v, %v (want diverged)", stale, err)
+	}
+	if got, _ := svc.ReadFile(ctx, b, st, p, "draft.md"); got != "external" {
+		t.Fatalf("diverged save must not write; file = %q", got)
+	}
+	current, _ := svc.StatFile(ctx, b, st, p, "draft.md")
+	if stale.Stamp.Hash != current.Hash {
+		t.Fatalf("diverged result stamp %q != on-disk %q", stale.Stamp.Hash, current.Hash)
+	}
+
+	// Overwrite (empty expected hash) always writes.
+	forced, err := svc.SaveFile(ctx, b, st, p, "draft.md", "v3", "")
+	if err != nil || forced.Diverged {
+		t.Fatalf("forced save = %+v, %v", forced, err)
+	}
+	if got, _ := svc.ReadFile(ctx, b, st, p, "draft.md"); got != "v3" {
+		t.Fatalf("after forced save: %q", got)
+	}
+
+	// A new file (nothing on disk yet) saves with any expected hash — there
+	// is nothing to diverge from.
+	fresh, err := svc.SaveFile(ctx, b, st, p, "new.md", "hello", "sha256:stale")
+	if err != nil || fresh.Diverged {
+		t.Fatalf("save of new file = %+v, %v", fresh, err)
+	}
+	if _, err := svc.SaveFile(ctx, b, st, p, "../escape.md", "x", ""); err == nil {
+		t.Error("escape save must be rejected")
+	}
+}
+
 // Regression: with zero templates the list must be an EMPTY slice, not nil —
 // nil marshals to JSON null, which the dialog treats as "still loading"
 // (permanent spinner). Same for parameter lists on paramless templates.
@@ -427,6 +497,127 @@ func TestImportTemplateFromFolder(t *testing.T) {
 	}
 	if len(entries) != 1 || entries[0].Scope != b {
 		t.Fatalf("ListTemplates after import = %+v", entries)
+	}
+}
+
+// SeedBuiltinTemplates: seeds once, never overwrites, and respects both a
+// pre-existing user folder and a later user deletion of a seeded template
+// (plan/2026-09-06 document formats - markdown, fountain, manuscript.md).
+func TestSeedBuiltinTemplates(t *testing.T) {
+	svc, deps, b, st, p := newTestService(t)
+	r := deps.r
+
+	seeded, err := svc.SeedBuiltinTemplates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seeded) != 2 || seeded[0] != "Manuscript" || seeded[1] != "Screenplay" {
+		t.Fatalf("first seed = %+v, want [Manuscript Screenplay]", seeded)
+	}
+	if _, err := os.Stat(filepath.Join(r.Root, "templates", "Screenplay", "{title}", ".ft", "template.json")); err != nil {
+		t.Errorf("Screenplay template not seeded: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(r.Root, "templates", "Manuscript", "{title}", "manuscript.yaml.ft$")); err != nil {
+		t.Errorf("Manuscript template not seeded: %v", err)
+	}
+
+	entries, err := svc.ListTemplates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string][]ft.Parameter{}
+	for _, e := range entries {
+		byName[e.Name] = e.Parameters
+	}
+	for _, name := range []string{"Screenplay", "Manuscript"} {
+		params, ok := byName[name]
+		if !ok {
+			t.Fatalf("ListTemplates missing %q: %+v", name, entries)
+		}
+		if len(params) != 2 {
+			t.Errorf("%s params = %+v, want 2 (title, author)", name, params)
+		}
+	}
+
+	// Second call: nothing new, nothing changed.
+	seeded, err = svc.SeedBuiltinTemplates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seeded) != 0 {
+		t.Fatalf("second seed = %+v, want none", seeded)
+	}
+
+	// A template the user deletes after seeding is not restored. Uses its
+	// own service so `svc`'s Screenplay survives for the generation check
+	// below.
+	svcDel, depsDel, _, _, _ := newTestService(t)
+	if _, err := svcDel.SeedBuiltinTemplates(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(depsDel.r.Root, "templates", "Screenplay")); err != nil {
+		t.Fatal(err)
+	}
+	seededDel, err := svcDel.SeedBuiltinTemplates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seededDel) != 0 {
+		t.Fatalf("re-seed after user delete = %+v, want none", seededDel)
+	}
+	if _, err := os.Stat(filepath.Join(depsDel.r.Root, "templates", "Screenplay")); !os.IsNotExist(err) {
+		t.Errorf("deleted template must not be restored: %v", err)
+	}
+	marker, err := os.ReadFile(filepath.Join(depsDel.r.Root, "templates", ".bruv-builtin.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(marker), "Screenplay") {
+		t.Errorf("marker must still list Screenplay: %s", marker)
+	}
+
+	// A pre-existing user folder of the same name is left alone and recorded.
+	svc2, deps2, _, _, _ := newTestService(t)
+	writeFiles(t, filepath.Join(deps2.r.Root, "templates", "Manuscript"), map[string]string{"mine.txt": "hi"})
+	seeded2, err := svc2.SeedBuiltinTemplates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seeded2) != 1 || seeded2[0] != "Screenplay" {
+		t.Fatalf("seed with pre-existing user folder = %+v, want [Screenplay]", seeded2)
+	}
+	manuscriptEntries, err := os.ReadDir(filepath.Join(deps2.r.Root, "templates", "Manuscript"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manuscriptEntries) != 1 || manuscriptEntries[0].Name() != "mine.txt" {
+		t.Errorf("user's Manuscript folder was touched: %+v", manuscriptEntries)
+	}
+	marker2, err := os.ReadFile(filepath.Join(deps2.r.Root, "templates", ".bruv-builtin.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(marker2), "Manuscript") {
+		t.Errorf("marker must record pre-existing Manuscript: %s", marker2)
+	}
+
+	// Generation works end to end: the .ft$ suffix is stripped, {title}
+	// substitutes in the folder name, and both params apply in content.
+	ws, err := svc.GenerateFromTemplate(context.Background(), b, st, p,
+		"templates/Screenplay/{title}", t.TempDir(),
+		map[string]string{"title": "Brick and Steel", "author": "Stu"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Base(ws.Origin.URL) != "Brick and Steel" {
+		t.Errorf("generated root = %q", ws.Origin.URL)
+	}
+	script, err := svc.ReadFile(context.Background(), b, st, p, "screenplay.fountain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(script, "Title: Brick and Steel") || !strings.Contains(script, "Author: Stu") {
+		t.Errorf("screenplay content = %q", script)
 	}
 }
 

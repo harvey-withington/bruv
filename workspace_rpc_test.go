@@ -92,10 +92,38 @@ func TestWorkspaceOverRPC(t *testing.T) {
 	if content != "# hello" {
 		t.Fatalf("ReadWorkspaceFile = %q", content)
 	}
-	call("WriteWorkspaceFile", brand.Slug, stream.Slug, project.Slug, "notes.md", "# edited")
+	// The editor's stamped open → guarded save → re-open round trip (the
+	// 6-arg SaveWorkspaceFile signature is the positional-param guard here).
+	var opened struct {
+		Content string `json:"content"`
+		Stamp   struct {
+			Hash string `json:"hash"`
+		} `json:"stamp"`
+	}
+	_ = json.Unmarshal(call("OpenWorkspaceFile", brand.Slug, stream.Slug, project.Slug, "notes.md"), &opened)
+	if opened.Content != "# hello" || opened.Stamp.Hash == "" {
+		t.Fatalf("OpenWorkspaceFile = %+v", opened)
+	}
+	var saved struct {
+		Diverged bool `json:"diverged"`
+		Stamp    struct {
+			Hash string `json:"hash"`
+		} `json:"stamp"`
+	}
+	_ = json.Unmarshal(call("SaveWorkspaceFile", brand.Slug, stream.Slug, project.Slug, "notes.md", "# edited", opened.Stamp.Hash), &saved)
+	if saved.Diverged || saved.Stamp.Hash == "" || saved.Stamp.Hash == opened.Stamp.Hash {
+		t.Fatalf("SaveWorkspaceFile = %+v", saved)
+	}
 	_ = json.Unmarshal(call("ReadWorkspaceFile", brand.Slug, stream.Slug, project.Slug, "notes.md"), &content)
 	if content != "# edited" {
 		t.Fatalf("after write: %q", content)
+	}
+	var stat struct {
+		Hash string `json:"hash"`
+	}
+	_ = json.Unmarshal(call("StatWorkspaceFile", brand.Slug, stream.Slug, project.Slug, "notes.md"), &stat)
+	if stat.Hash != saved.Stamp.Hash {
+		t.Fatalf("StatWorkspaceFile hash %q != saved %q", stat.Hash, saved.Stamp.Hash)
 	}
 
 	// Escape attempts must fail at the RPC boundary.

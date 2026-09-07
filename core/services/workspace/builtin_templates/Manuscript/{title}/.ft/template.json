@@ -1,0 +1,23 @@
+{
+  "name": "Manuscript",
+  "description": "A novel or long-form manuscript: one Markdown chapter per file, front and back matter, and a manuscript.yaml manifest for export.",
+  "parameters": [
+    {
+      "name": "title",
+      "type": "text",
+      "prompt": "Book title?",
+      "placeholder": "e.g. The Long Way Home",
+      "match": "\\{title\\}",
+      "replaceInFileNames": true,
+      "replaceInFiles": true
+    },
+    {
+      "name": "author",
+      "type": "text",
+      "prompt": "Author name?",
+      "placeholder": "As it should appear on the cover",
+      "replaceInFileNames": false,
+      "replaceInFiles": true
+    }
+  ]
+}

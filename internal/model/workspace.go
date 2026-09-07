@@ -134,6 +134,23 @@ type WorkspaceFileStamp struct {
 	Fuzzy bool      `json:"fuzzy,omitempty"`
 }
 
+// WorkspaceFileContent is what the document editor opens: the text plus the
+// stamp it must present back on save, so an edit made meanwhile by another
+// program (Obsidian, a terminal editor) is detected instead of clobbered.
+type WorkspaceFileContent struct {
+	Content string             `json:"content"`
+	Stamp   WorkspaceFileStamp `json:"stamp"`
+}
+
+// WorkspaceSaveResult reports a guarded save. Diverged means nothing was
+// written because the file on disk no longer matches the stamp the editor
+// loaded; Stamp is then the CURRENT on-disk stamp so the client can offer
+// reload-or-overwrite. Otherwise Stamp is the stamp of what was written.
+type WorkspaceSaveResult struct {
+	Diverged bool               `json:"diverged"`
+	Stamp    WorkspaceFileStamp `json:"stamp"`
+}
+
 // WorkspaceSnapshot is the per-file manifest taken at materialize/check-in —
 // the basis of all divergence detection. DEVICE-SIDE ONLY: lives in the
 // materializing device's app-local data, never in the vault.

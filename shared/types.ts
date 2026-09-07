@@ -551,7 +551,13 @@ export type UIPreferences = {
   // ephemeral (default). Applied on next launch; lets URL-pairing tools
   // (web clipper) survive restarts.
   local_server_port: number
+  // Document editor: layout (edit / split / preview) remembered per
+  // format id, and whether the outline pane is shown.
+  document_layouts: Record<string, DocumentLayout>
+  document_outline: boolean
 }
+
+export type DocumentLayout = 'edit' | 'split' | 'preview'
 
 // --- Import / Export ---
 
@@ -1270,7 +1276,13 @@ export interface BackendAdapter {
   // which exists for the adapter summary + AI).
   ListWorkspaceDir(brandSlug: string, streamSlug: string, projectSlug: string, rel: string): Promise<WorkspaceEntry[]>
   ReadWorkspaceFile(brandSlug: string, streamSlug: string, projectSlug: string, rel: string): Promise<string>
-  WriteWorkspaceFile(brandSlug: string, streamSlug: string, projectSlug: string, rel: string, content: string): Promise<void>
+  // The document editor's file protocol: open returns content + a stamp,
+  // save presents that stamp back and is refused (diverged: true, nothing
+  // written) when another program changed the file meanwhile; stat is the
+  // focus-time external-change check. An empty expectedHash overwrites.
+  OpenWorkspaceFile(brandSlug: string, streamSlug: string, projectSlug: string, rel: string): Promise<WorkspaceFileContent>
+  StatWorkspaceFile(brandSlug: string, streamSlug: string, projectSlug: string, rel: string): Promise<WorkspaceFileStamp>
+  SaveWorkspaceFile(brandSlug: string, streamSlug: string, projectSlug: string, rel: string, content: string, expectedHash: string): Promise<WorkspaceSaveResult>
 
   // Publishing a workspace as git so other devices can clone it. Runs on
   // the machine holding the files; EnableWorkspaceGitServe returns as soon
@@ -1536,6 +1548,26 @@ export interface WorkspaceEntry {
   is_dir?: boolean
   size?: number
   symlink?: boolean
+}
+
+// Fingerprint of one file on disk ("sha256:<hex>" + size + mtime) — what
+// the document editor compares to notice edits made by other programs.
+export interface WorkspaceFileStamp {
+  hash?: string
+  size: number
+  mtime?: string
+  fuzzy?: boolean
+}
+
+export interface WorkspaceFileContent {
+  content: string
+  stamp: WorkspaceFileStamp
+}
+
+// diverged: nothing was written; stamp is then the CURRENT on-disk stamp.
+export interface WorkspaceSaveResult {
+  diverged: boolean
+  stamp: WorkspaceFileStamp
 }
 
 export interface WorkspaceIndex {

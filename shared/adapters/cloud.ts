@@ -495,6 +495,8 @@ function defaultUIPreferences(): UIPreferences {
     sidebar_collapse_default: false,
     llm_nudge_shown: false,
     local_server_port: 0,
+    document_layouts: {},
+    document_outline: true,
   }
 }
 

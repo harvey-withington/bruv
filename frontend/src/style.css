@@ -604,3 +604,43 @@ button:not(:disabled):active,
     color: var(--accent);
     border-color: var(--accent);
 }
+
+/*
+ * Document editor — print the preview only. DocumentEditor adds
+ * `printing-document` to <body> around window.print(): everything else
+ * disappears, and the fixed/scrolling containers around the preview go
+ * static so the page can paginate instead of clipping to one viewport.
+ * The format's own @media print rules (Fountain's Courier page) apply on
+ * top. See components/workspace/editor/DocumentEditor.svelte.
+ */
+@media print {
+    body.printing-document {
+        background: #fff;
+    }
+    body.printing-document * {
+        visibility: hidden;
+    }
+    body.printing-document .doc-preview,
+    body.printing-document .doc-preview * {
+        visibility: visible;
+    }
+    body.printing-document .viewer-overlay,
+    body.printing-document .viewer,
+    body.printing-document .doc-editor,
+    body.printing-document .doc-editor .body,
+    body.printing-document .doc-editor .pane,
+    body.printing-document .preview-pane {
+        position: static !important;
+        display: block !important;
+        height: auto !important;
+        width: auto !important;
+        max-width: none !important;
+        overflow: visible !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        border: none !important;
+        box-shadow: none !important;
+        background: none !important;
+        backdrop-filter: none !important;
+    }
+}

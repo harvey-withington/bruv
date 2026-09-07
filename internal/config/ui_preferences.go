@@ -41,6 +41,13 @@ type UIPreferences struct {
 	// port is taken at boot the app falls back to an ephemeral port
 	// rather than losing its local transport.
 	LocalServerPort int `json:"local_server_port"`
+
+	// Document editor (workspace files): the edit / split / preview layout
+	// remembered per format id ("markdown", "fountain", …) and whether the
+	// outline pane is shown. Per-device: a laptop screen and a desktop
+	// monitor want different splits.
+	DocumentLayouts map[string]string `json:"document_layouts"`
+	DocumentOutline bool              `json:"document_outline"`
 }
 
 // DefaultUIPreferences returns sensible defaults.
@@ -54,6 +61,8 @@ func DefaultUIPreferences() UIPreferences {
 		TypeBadgeDisplay:      "color",
 		InboxRecentCardsLimit: 21,
 		InboxActivityLimit:    25,
+		DocumentLayouts:       map[string]string{},
+		DocumentOutline:       true,
 	}
 }
 

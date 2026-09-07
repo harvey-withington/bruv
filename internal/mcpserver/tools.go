@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"strings"
 
 	"bruv/core/supervisor"
 	"bruv/internal/mcp"
@@ -135,11 +136,31 @@ func blockArrayProp(desc string) map[string]any {
 	}
 }
 
-// toolDefs returns the tool list, templating the repo name into the
-// descriptions so a multi-connector user sees which board each tool
-// writes to.
-func toolDefs(repoName string) []mcp.Tool {
+// cardTypeRoster renders the board's live card types (built-in + user,
+// from the catalog) as a comma-separated list of labels for tool
+// descriptions, so clients pick a real type instead of guessing one.
+func cardTypeRoster(rt *supervisor.Runtime) string {
+	types := rt.ListCardTypes()
+	labels := make([]string, 0, len(types))
+	for _, t := range types {
+		label := t.Label
+		if label == "" {
+			label = t.ID
+		}
+		labels = append(labels, label)
+	}
+	return strings.Join(labels, ", ")
+}
+
+// toolDefs returns the tool list, templating the repo name and the live
+// card-type roster into the descriptions so a multi-connector user sees
+// which board each tool writes to and which types it actually has.
+func toolDefs(rt *supervisor.Runtime, repoName string) []mcp.Tool {
 	board := "the \"" + repoName + "\" BRUV board"
+	cardTypeDesc := "Card type — matched case-insensitively by id or label; an unrecognised name creates a new type. Omit to leave the card untyped."
+	if roster := cardTypeRoster(rt); roster != "" {
+		cardTypeDesc = "Card type — one of: " + roster + " (matched case-insensitively by id or label; an unrecognised name creates a new type). Omit to leave the card untyped."
+	}
 
 	return []mcp.Tool{
 		// --- Discovery / read ---
@@ -174,7 +195,7 @@ func toolDefs(repoName string) []mcp.Tool {
 		},
 		{
 			Name:        "list_card_types",
-			Description: "List the available card types in " + board + " (e.g. idea, task, note). Use one of these as `card_type` when creating a card.",
+			Description: "List the available card types in " + board + " with their descriptions and colours. Use one of these as `card_type` when creating a card.",
 			InputSchema: obj(map[string]any{}),
 		},
 		{
@@ -239,7 +260,7 @@ func toolDefs(repoName string) []mcp.Tool {
 				"exist); omit all four to leave it unfiled in the inbox. Pass `description` and/or `blocks` to fill it in.",
 			InputSchema: obj(map[string]any{
 				"title":       strProp("Card title."),
-				"card_type":   strProp("Card type (default 'idea'). See list_card_types."),
+				"card_type":   strProp(cardTypeDesc),
 				"brand":       strProp("Brand to file under (created if missing). Provide all four hierarchy fields or none."),
 				"stream":      strProp("Stream to file under (created if missing)."),
 				"project":     strProp("Project to file under (created if missing)."),

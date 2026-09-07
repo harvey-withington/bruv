@@ -81,6 +81,7 @@ func (m *MachineService) GetLLMAccounts() ([]config.LLMAccount, error) {
 func (m *MachineService) SaveLLMAccounts(x []config.LLMAccount) error {
 	return config.SaveLLMAccounts(x)
 }
+
 // Token-pricing RPCs deleted 2026-07-10 (ruled: costs stay estimates
 // from the built-in table; hand-editing <configDir>/pricing.json is
 // still honoured by config.EstimateCost's merge).

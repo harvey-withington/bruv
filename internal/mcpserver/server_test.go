@@ -191,6 +191,70 @@ func TestGetMethodNotAllowed(t *testing.T) {
 	}
 }
 
+// TestCreateCardTypeResolution: card_type resolves against the catalog —
+// an existing label matches case-insensitively to its canonical id, an
+// unknown name mints a new user type (flagged in the result), and an
+// omitted type leaves the card untyped rather than guessing a default.
+func TestCreateCardTypeResolution(t *testing.T) {
+	h, sup := newTestHandler(t)
+	rt := sup.Resolve(testRepoID)
+
+	create := func(args map[string]any) map[string]any {
+		t.Helper()
+		text, isErr := callToolRPC(t, h, "create_card", args)
+		if isErr {
+			t.Fatalf("create_card reported error: %s", text)
+		}
+		var out map[string]any
+		if err := json.Unmarshal([]byte(text), &out); err != nil {
+			t.Fatalf("decode create_card result %q: %v", text, err)
+		}
+		return out
+	}
+
+	// Existing seeded type, matched by label with the wrong case.
+	out := create(map[string]any{"title": "Match by label", "card_type": "FEATURE"})
+	if out["type"] != "feature" {
+		t.Errorf("type = %v, want canonical id \"feature\"", out["type"])
+	}
+	if out["type_created"] != nil {
+		t.Errorf("type_created = %v for an existing type, want absent", out["type_created"])
+	}
+
+	// Omitted type → untyped card, no phantom default.
+	out = create(map[string]any{"title": "No type"})
+	if out["type"] != "" {
+		t.Errorf("type = %v, want empty (untyped)", out["type"])
+	}
+
+	// Built-in type matched by label — must never re-create it.
+	out = create(map[string]any{"title": "Built-in", "card_type": "Brainstorm"})
+	if out["type"] != "brainstorm" {
+		t.Errorf("type = %v, want built-in id \"brainstorm\"", out["type"])
+	}
+	if out["type_created"] != nil {
+		t.Errorf("type_created = %v for a built-in type, want absent", out["type_created"])
+	}
+
+	// Unknown type → created as a user type and flagged.
+	out = create(map[string]any{"title": "New type", "card_type": "Field Note"})
+	if out["type"] != "field-note" {
+		t.Errorf("type = %v, want slugged id \"field-note\"", out["type"])
+	}
+	if out["type_created"] != true {
+		t.Errorf("type_created = %v, want true", out["type_created"])
+	}
+	var found bool
+	for _, ti := range rt.ListCardTypes() {
+		if ti.ID == "field-note" && ti.Label == "Field Note" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("created type \"field-note\" missing from the catalog roster")
+	}
+}
+
 // TestCreateCardEndToEnd is the headline test: capture a card with a full
 // hierarchy + description + tags + blocks, then verify it all landed by
 // reading back through the read tools and the runtime directly.

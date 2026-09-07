@@ -272,6 +272,13 @@ type CardTypesImportResult = catalog.CardTypesImportResult
 // ListCardTypes returns all card types (built-in first, then user).
 func (r *Runtime) ListCardTypes() []CardTypeInfo { return r.Catalog.ListCardTypes() }
 
+// ResolveOrCreateCardType canonicalises an LLM-supplied card type against
+// the catalog (match by id or label, create when unknown, empty stays
+// untyped) — see catalog.Service.ResolveOrCreateType.
+func (r *Runtime) ResolveOrCreateCardType(input string) (id string, created bool, err error) {
+	return r.Catalog.ResolveOrCreateType(input)
+}
+
 func (r *Runtime) ValidateCardFields(cardType string, fields map[string]any) []string {
 	return r.Catalog.ValidateCardFields(cardType, fields)
 }

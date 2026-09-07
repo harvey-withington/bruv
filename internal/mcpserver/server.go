@@ -185,7 +185,7 @@ func (h *Handler) dispatch(rt *supervisor.Runtime, repoName string, req *rpcRequ
 	case "ping":
 		resp.Result = map[string]any{}
 	case "tools/list":
-		resp.Result = map[string]any{"tools": toolDefs(repoName)}
+		resp.Result = map[string]any{"tools": toolDefs(rt, repoName)}
 	case "tools/call":
 		resp.Result = callTool(rt, req.Params)
 	default:

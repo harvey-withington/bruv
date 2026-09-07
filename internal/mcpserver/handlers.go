@@ -220,9 +220,17 @@ func hCreateCard(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	if title == "" {
 		return errResult("title is required")
 	}
-	cardType := argStr(a, "card_type")
-	if cardType == "" {
-		cardType = "idea"
+	// Resolve the type against the catalog: match by id or label wins,
+	// an unrecognised name creates a new user type, omitted means an
+	// untyped card. Never guess a default — a hardcoded fallback minted
+	// phantom types on boards that didn't have it.
+	cardType, typeCreated := "", false
+	if input := argStr(a, "card_type"); strings.TrimSpace(input) != "" {
+		var err error
+		cardType, typeCreated, err = rt.ResolveOrCreateCardType(input)
+		if err != nil {
+			return errResult("%v", err)
+		}
 	}
 	// CreateCard seeds the type's schema blocks automatically.
 	card, err := rt.CreateCard(cardType, title)
@@ -273,6 +281,9 @@ func hCreateCard(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	}
 
 	out := map[string]any{"card_id": cardID, "title": title, "type": card.Type}
+	if typeCreated {
+		out["type_created"] = true
+	}
 	if pinnedTo != "" {
 		out["pinned_to"] = pinnedTo
 	} else {

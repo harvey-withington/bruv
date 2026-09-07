@@ -17,6 +17,7 @@ import (
 	"bruv/internal/schema"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -181,6 +182,42 @@ func (s *Service) CreateUserCardType(label, color, description, aiHint, template
 	}
 	s.deps.Publish("cardtype:updated", t)
 	return t, nil
+}
+
+// aiTypePalette colours AI-created card types deterministically — a type
+// the model just created must never render as the grey unknown-type
+// fallback. Hues match the builtin/seed families.
+var aiTypePalette = []string{
+	"#6366f1", "#ec4899", "#38bdf8", "#fb923c",
+	"#22c55e", "#eab308", "#a855f7", "#14b8a6",
+}
+
+// ResolveOrCreateType canonicalises an LLM-supplied card type (ruling
+// 2026-08-14: "if it assigns a type that doesn't exist, create it first;
+// if it assigns one that does exist, it should match"). Case-insensitive
+// match on the ID or LABEL of any existing type (built-in or user) wins
+// and returns the canonical id; anything else creates a user card type
+// with the input as its label and a palette colour picked by name hash.
+// Empty input resolves to the empty id (an untyped card).
+func (s *Service) ResolveOrCreateType(input string) (id string, created bool, err error) {
+	name := strings.TrimSpace(input)
+	if name == "" {
+		return "", false, nil
+	}
+	lower := strings.ToLower(name)
+	for _, t := range s.ListCardTypes() {
+		if strings.ToLower(t.ID) == lower || strings.ToLower(t.Label) == lower {
+			return t.ID, false, nil
+		}
+	}
+	h := fnv.New32a()
+	h.Write([]byte(lower))
+	color := aiTypePalette[int(h.Sum32())%len(aiTypePalette)]
+	t, err := s.CreateUserCardType(name, color, "", "", "")
+	if err != nil {
+		return "", false, fmt.Errorf("create card type %q: %w", name, err)
+	}
+	return t.ID, true, nil
 }
 
 func (s *Service) UpdateUserCardType(id, label, color, description, aiHint, templateID string) (config.UserCardType, error) {

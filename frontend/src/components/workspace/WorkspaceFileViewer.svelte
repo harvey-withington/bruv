@@ -2,7 +2,7 @@
   import { OpenWorkspacePath, RevealWorkspacePath } from '@shared/api'
   import { t } from '../../lib/i18n.svelte'
   import { showToast } from '../../lib/toast.svelte'
-  import { focusTrap } from '../../lib/actions'
+  import { focusTrap, portal } from '../../lib/actions'
   import { workspaceDocumentSource } from '../../lib/editor/documentSource'
   import DocumentEditor from './editor/DocumentEditor.svelte'
 
@@ -42,8 +42,10 @@
 </script>
 
 <!-- Backdrop and keys route through the editor so an unsaved draft is
-     flushed (or explicitly discarded) before the dialog goes away. -->
-<div class="viewer-overlay" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) void editor?.requestClose() }}>
+     flushed (or explicitly discarded) before the dialog goes away.
+     Portaled to <body>: printing turns the overlay static, and inside the
+     side panel it would flow in the panel's column, right of the board. -->
+<div class="viewer-overlay" role="presentation" use:portal onclick={(e) => { if (e.target === e.currentTarget) void editor?.requestClose() }}>
   <div class="viewer" role="dialog" aria-label={path} tabindex="-1" use:focusTrap onkeydown={(e) => editor?.onKeydown(e)}>
     <DocumentEditor bind:this={editor} {source} {onClose} onOpenExternal={openExternal} onReveal={reveal} />
   </div>

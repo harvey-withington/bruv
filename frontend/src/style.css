@@ -617,12 +617,10 @@ button:not(:disabled):active,
     body.printing-document {
         background: #fff;
     }
-    body.printing-document * {
-        visibility: hidden;
-    }
-    body.printing-document .doc-preview,
-    body.printing-document .doc-preview * {
-        visibility: visible;
+    /* The viewer overlay is portaled to <body>; nothing else on the page
+       prints. display, not visibility — hidden layout still takes space. */
+    body.printing-document > :not(.viewer-overlay) {
+        display: none !important;
     }
     body.printing-document .viewer-overlay,
     body.printing-document .viewer,
@@ -642,5 +640,11 @@ button:not(:disabled):active,
         box-shadow: none !important;
         background: none !important;
         backdrop-filter: none !important;
+    }
+    /* visibility:hidden keeps layout, so the editor pane and outline would
+       still push the preview down and sideways — take them out of flow. */
+    body.printing-document .doc-editor > :not(.body),
+    body.printing-document .doc-editor .body > :not(.preview-host) {
+        display: none !important;
     }
 }

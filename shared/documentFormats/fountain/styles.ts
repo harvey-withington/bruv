@@ -74,6 +74,15 @@ export const fountainStyles = `
   .doc-preview.fountain .fn-page-break { border: none; margin: 0; }
   .doc-preview.fountain .fn-section, .doc-preview.fountain .fn-synopsis,
   .doc-preview.fountain .fn-note, .doc-preview.fountain .fn-note-block { display: none; }
-  @page { size: letter; margin: 1in 1in 1in 1.5in; }
+  /* Screenplay page numbers: top right, followed by a period, none on the
+     title/first page. Chromium honours @page margin boxes from 131; the
+     print dialog's own "Headers and footers" must be off or it draws its
+     date/URL header as well. */
+  @page {
+    size: letter;
+    margin: 1in 1in 1in 1.5in;
+    @top-right { content: counter(page) "."; font-family: "Courier Prime", "Courier New", Courier, monospace; font-size: 12pt; vertical-align: bottom; padding-bottom: 0.5in; }
+  }
+  @page :first { @top-right { content: none; } }
 }
 `

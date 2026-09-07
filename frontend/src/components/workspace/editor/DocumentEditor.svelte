@@ -200,7 +200,8 @@
         />
       </div>
       {#if showPreview}
-        <div class="pane">
+        <!-- preview-host: the one pane that stays in the DOM when printing (style.css). -->
+        <div class="pane preview-host">
           <PreviewPane text={session.text} {format} {name} />
         </div>
       {/if}

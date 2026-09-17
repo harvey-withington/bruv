@@ -1050,7 +1050,7 @@
                 ></textarea>
               </div>
             {:else}
-              <button class="tree-item brand-item" onclick={() => toggleBrand(brand.slug)}>
+              <button class="tree-item brand-item press-still" onclick={() => toggleBrand(brand.slug)}>
                 <span class="chevron">{#if expandedBrands.has(brand.slug)}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</span>
                 {#if brand.icon}
                   <DynamicIcon name={brand.icon} size={14} className="tree-icon" />
@@ -1097,7 +1097,7 @@
                         ></textarea>
                       </div>
                     {:else}
-                      <button class="tree-item stream-item" onclick={() => toggleStream(brand.slug, stream.slug)}>
+                      <button class="tree-item stream-item press-still" onclick={() => toggleStream(brand.slug, stream.slug)}>
                         <span class="chevron">{#if expandedStreams.has(`${brand.slug}/${stream.slug}`)}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</span>
                         {#if stream.icon}
                           <DynamicIcon name={stream.icon} size={14} className="tree-icon" />

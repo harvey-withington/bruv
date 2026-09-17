@@ -523,6 +523,7 @@ var cardToolHandlers = map[string]cardToolHandler{
 	"configure_agent": (*Dispatcher).toolConfigureAgent,
 	"web_fetch":       (*Dispatcher).toolWebFetch,
 	"web_search":      (*Dispatcher).toolWebSearch,
+	"read_card_file":  (*Dispatcher).toolReadCardFile,
 }
 
 // ExecuteCard runs a single tool and returns (result string, action record, pin suggestion).
@@ -852,6 +853,13 @@ func (d *Dispatcher) toolSuggestPin(cardID string, card *model.Card, tc llm.Tool
 	catID, _ := tc.Arguments["category_id"].(string)
 	reason, _ := tc.Arguments["reason"].(string)
 	confidence, _ := tc.Arguments["confidence"].(string)
+
+	// Only Inbox cards get filed by the AI. Checked here, not just when
+	// the tool is offered: a Suggest-mode batch can be accepted long after
+	// it was staged, and the card may have been filed by hand meanwhile.
+	if existing, _ := d.deps.Repo().GetCardPins(cardID); len(existing) > 0 {
+		return "error: this card is already filed on a board — the AI never pins a card twice; the user moves cards by hand", nil, nil
+	}
 
 	var catName, breadcrumb string
 

@@ -352,6 +352,17 @@ func (rt *Runtime) SendCard(cardID, userMessage string) (*model.ChatFile, error)
 
 	systemPrompt := rt.deps.Prompts().Card(card, cfg)
 
+	// A card that is already filed is never pinned again by the AI (Harvey,
+	// 2026-09-17: a second pin is a move if anything, and not offered at
+	// all unless the card is in the Inbox). suggest_pin leaves the tool
+	// list, and the prompt says where the card lives so the model doesn't
+	// go looking for a home for it.
+	existingPins, _ := rt.deps.Repo().GetCardPins(cardID)
+	alreadyFiled := len(existingPins) > 0
+	if alreadyFiled {
+		systemPrompt += "\n\nThis card is already filed on a board. Do not pin it anywhere else; the user moves cards by hand."
+	}
+
 	// Build tool definitions. Types from the catalog, not the registry —
 	// see the project-chat note.
 	cardTypes := catalogTypeIDs(rt)
@@ -371,6 +382,9 @@ func (rt *Runtime) SendCard(cardID, userMessage string) (*model.ChatFile, error)
 			}
 		}
 		tools := llm.CardTools(cardTypes, catMaps, mcpToolIDs)
+		if alreadyFiled {
+			tools = llm.WithoutTool(tools, "suggest_pin")
+		}
 		if c != nil && len(c.Blocks) > 0 {
 			fieldProps := make(map[string]any)
 			for _, b := range c.Blocks {
@@ -436,6 +450,12 @@ func (rt *Runtime) SendCard(cardID, userMessage string) (*model.ChatFile, error)
 		toolDefs = llm.WebTools()
 	} else {
 		toolDefs = buildToolDefs(card)
+	}
+	// The files a card names in its Workspace Files block are the card's
+	// own content, readable in every mode (read-only, like web research):
+	// the block is the scope, nothing else in the workspace is reachable.
+	if paths := tools.CardFilePaths(card); len(paths) > 0 {
+		toolDefs = append(toolDefs, llm.CardFileTool(paths))
 	}
 	slog.Info("card chat tools assembled",
 		"cardID", cardID, "ai_mode", cfg.AIMode, "tool_count", len(toolDefs))

@@ -282,7 +282,16 @@ func (idx *Index) IndexPins(cardID string, pins []model.Pin) error {
 		return err
 	}
 
+	// A pin file naming one category twice must not poison the index for
+	// the whole card (every later pin write for it would fail on the
+	// unique key): the first occurrence wins, matching repo.Revalidate.
+	seen := make(map[string]bool, len(pins))
 	for _, p := range pins {
+		key := p.ProjectID + "\x00" + p.CategoryID
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
 		_, err := tx.Exec(`
 			INSERT INTO pins (card_id, project_id, category_id, position, pinned_at)
 			VALUES (?, ?, ?, ?, ?)`,
@@ -557,6 +566,21 @@ func buildSearchContent(card *model.Card) string {
 				}
 				if t, _ := m["text"].(string); t != "" {
 					parts = append(parts, t)
+				}
+			}
+		case model.BlockWorkspaceFiles:
+			// A card is findable by the files it's about.
+			items, ok := b.Value.([]any)
+			if !ok {
+				continue
+			}
+			for _, raw := range items {
+				m, ok := raw.(map[string]any)
+				if !ok {
+					continue
+				}
+				if p, _ := m["path"].(string); p != "" {
+					parts = append(parts, p)
 				}
 			}
 		}

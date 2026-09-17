@@ -656,6 +656,7 @@
       case 'list':
       case 'media':
       case 'survey':
+      case 'workspace_files':
         value = []
         break
       case 'checkbox_group':

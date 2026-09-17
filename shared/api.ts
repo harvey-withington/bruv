@@ -226,9 +226,11 @@ export const ImportWorkspaceTemplate = (...args: Parameters<ReturnType<typeof ge
 export const SaveWorkspaceTemplate = (...args: Parameters<ReturnType<typeof getBackend>['SaveWorkspaceTemplate']>) => getBackend().SaveWorkspaceTemplate(...args)
 export const DeleteWorkspaceTemplate = (...args: Parameters<ReturnType<typeof getBackend>['DeleteWorkspaceTemplate']>) => getBackend().DeleteWorkspaceTemplate(...args)
 export const ListProjectTemplates = (...args: Parameters<ReturnType<typeof getBackend>['ListProjectTemplates']>) => getBackend().ListProjectTemplates(...args)
-export const GenerateCardFolder = (...args: Parameters<ReturnType<typeof getBackend>['GenerateCardFolder']>) => getBackend().GenerateCardFolder(...args)
-export const ClearCardFolder = (...args: Parameters<ReturnType<typeof getBackend>['ClearCardFolder']>) => getBackend().ClearCardFolder(...args)
-export const LinkCardFolder = (...args: Parameters<ReturnType<typeof getBackend>['LinkCardFolder']>) => getBackend().LinkCardFolder(...args)
+export const GenerateWorkspaceTemplate = (...args: Parameters<ReturnType<typeof getBackend>['GenerateWorkspaceTemplate']>) => getBackend().GenerateWorkspaceTemplate(...args)
+export const CreateWorkspaceDir = (...args: Parameters<ReturnType<typeof getBackend>['CreateWorkspaceDir']>) => getBackend().CreateWorkspaceDir(...args)
+export const CreateWorkspaceFile = (...args: Parameters<ReturnType<typeof getBackend>['CreateWorkspaceFile']>) => getBackend().CreateWorkspaceFile(...args)
+export const SetWorkspaceCommitOnSave = (...args: Parameters<ReturnType<typeof getBackend>['SetWorkspaceCommitOnSave']>) => getBackend().SetWorkspaceCommitOnSave(...args)
+export const ResolveWorkspace = (...args: Parameters<ReturnType<typeof getBackend>['ResolveWorkspace']>) => getBackend().ResolveWorkspace(...args)
 
 // Index / search
 export const SearchCards = (...args: Parameters<ReturnType<typeof getBackend>['SearchCards']>) => getBackend().SearchCards(...args)
@@ -320,6 +322,9 @@ export const ApplyProjectPendingEdits = (...args: Parameters<ReturnType<typeof g
 // Attachments
 export const AddCardAttachment = (...args: Parameters<ReturnType<typeof getBackend>['AddCardAttachment']>) => getBackend().AddCardAttachment(...args)
 export const RemoveCardAttachment = (...args: Parameters<ReturnType<typeof getBackend>['RemoveCardAttachment']>) => getBackend().RemoveCardAttachment(...args)
+export const OpenCardAttachmentText = (...args: Parameters<ReturnType<typeof getBackend>['OpenCardAttachmentText']>) => getBackend().OpenCardAttachmentText(...args)
+export const StatCardAttachmentText = (...args: Parameters<ReturnType<typeof getBackend>['StatCardAttachmentText']>) => getBackend().StatCardAttachmentText(...args)
+export const SaveCardAttachmentText = (...args: Parameters<ReturnType<typeof getBackend>['SaveCardAttachmentText']>) => getBackend().SaveCardAttachmentText(...args)
 
 // Due-date notifications
 export const GetDueDateSettings = () => getBackend().GetDueDateSettings()

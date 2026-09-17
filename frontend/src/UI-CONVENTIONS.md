@@ -424,6 +424,14 @@ future stepper over disabled states or extra button pairs.
 
 Bare-verb labels use the shared keys `common.add` / `common.delete` / `common.remove` / `common.save` (both surfaces) — don't mint per-context keys for a value that is just the verb. A per-context key is only warranted when the label genuinely differs (e.g. "Delete All").
 
+## 12.8 Wide Row Buttons Opt Out of the Press Pulse (`press-still`)
+
+`style.css` gives every `button:active` a 140 ms press pulse (`scale` to 0.94 and back). On a compact button that reads as feedback. On a **full-width row button** — a tree row, a list row, anything `flex: 1` — a 6 % shrink moves the row's edges inward by several pixels, so a quick click on something at the edge (the chevron) ends with the pointer *outside* the button and the browser never fires `click`. Holding the mouse longer "fixes" it because the pulse completes before mouse-up. Field report 2026-09-17 on the Workspace Files block; the project tree had shown the same before.
+
+**Rule:** a wide row button whose click target sits at an edge carries `class="press-still"`, which cancels the pulse for that element only. Applied to `WorkspaceFileTree` rows, `WorkspaceFileEntryRow`, `WorkspaceFilesTreeView` implied folders, and the Sidebar's brand/stream rows. The mobile surface has no press pulse, so nothing to opt out of there.
+
+**Corollary — never swap the element under the pointer on toggle.** Expand chevrons are one `<span class="chev">` holding a single `ChevronRight`, rotated 90° with a CSS transition when open, rather than an `{#if}` that replaces `ChevronRight` with `ChevronDown`. Replacing the icon mid-gesture is a second way to lose the click, and a rotation is the better animation anyway.
+
 ---
 
 ## 13. SidePanel, Workspace Panel & WorkspaceFileTree
@@ -434,7 +442,9 @@ Future-layout note: SidePanel is the deliberate seam for a horizontal split or a
 
 **Panel-header convention** (Harvey, 2026-07-05): every panel header title is **icon + Proper Case** — never all-caps/`text-transform: uppercase`. Reference style: `0.82rem`, weight 600, `var(--text-strong)`, icon size 15, gap `0.4rem` (see WorkspacePanel's `.title` / ChatSection's `.chat-title`). Tab labels match their pane's header title verbatim.
 
-The Workspace panel content (`components/workspace/WorkspacePanel.svelte`) renders inside a SidePanel tab. Sub-dialogs (attach, template editor, file viewer) are self-contained overlay components in `components/workspace/`.
+The Workspace panel content (`components/workspace/WorkspacePanel.svelte`) renders inside a SidePanel tab. Sub-dialogs (attach, template editor, file viewer, new file/folder, from-template, file picker) are self-contained overlay components in `components/workspace/`.
+
+**Panel sections, in order (ruled 2026-09-17, `plan/2026-09-17 workspace files block.md` §5):** **Files** — the tree plus the structure actions (`WorkspaceStructureActions`: New file / New folder / From template, on the root from the section header and on any folder from its hover-revealed row actions); **On this device** (`WorkspaceDeviceSection`, collapsed by default) — open folder, launch command, this device's clone (`WorkspaceLocalCopy`), and the commit-on-save toggle for a published workspace; **Details** (collapsed by default) — adapter, origin, warnings. The split exists so editing never reads as part of cloning: **the editor edits the host copy over the connection; a clone is only for other apps on this device.** A created file opens straight into the editor; a created folder expands to it.
 
 **`WorkspaceFileTree.svelte`** is the reusable recursive collapsible tree. It is **lazy**: one instance renders one directory level, and mounting it is what loads that directory.
 
@@ -446,6 +456,9 @@ The Workspace panel content (`components/workspace/WorkspacePanel.svelte`) rende
 | `depth` | `number` | Indentation level (self-incremented on recursion) |
 | `collapsed` | `Record<string, boolean>` | Shared expand state owned by the root consumer — what makes Expand/Collapse All and accordion mode global. **A folder is expanded only when `collapsed[path] === false`; absent = collapsed**, so the tree opens closed |
 | `mode` | `'single' \| 'multi'` | `single` = accordion (expanding collapses siblings) |
+| `workspaceId` | `string?` | When set, rows drag out as Workspace Files entries (`lib/workspaceDrag.ts`, custom `dataTransfer` type `application/x-bruv-workspace-entry` — the one cross-component drag in the app) |
+| `onCreateIn` | `(dir, kind: 'file' \| 'dir' \| 'template') => void` | Shows New file / New folder / From template on folder rows (hover/focus-revealed) |
+| `selected` + `onToggleSelect` | `Record<string, boolean>`, `(node) => void` | **Picker mode**: every row gets a checkbox and a file tap toggles instead of opening. Same shared-record ownership rule as `collapsed` |
 
 **Never load the whole tree.** Rendering from one whole-workspace index made opening the panel cost everything on disk — one `node_modules`, a nested `.git`, or a folder of 80k photos anywhere under the root choked it. A server-side blocklist of heavy directory names was rejected (Harvey, 2026-08-02): *"a band-aid, not a solution — this issue would apply to a .git folder or many others neither you nor I can predict. The tree should load collapsed and load incrementally."* So the tree opens **collapsed**, and expanding a folder calls **`ListWorkspaceDir(brand, stream, project, rel)`** for that one folder. A directory nobody opens is never read.
 
@@ -475,6 +488,8 @@ It self-imports for recursion (never `<svelte:self>` — deprecated). Keyboard: 
 **Two machines means saying which one.** Every string in this section interpolates `{server}` — "Preparing the workspace on HOMEBOX", "git isn't installed on HOMEBOX". The bug this feature fixes was an error that read as "your folder is missing" when the folder was on the user's own disk and the *server* couldn't see it. Applies to the attach error too, which now names the machine it searched.
 
 **Tier 1 actions follow the files, and hide when there are none.** `WorkspacePanel` derives `deviceRoot` — the origin path when the vault is served from this machine, otherwise the clone's path, `undefined` when neither. Open-folder and the launch command are hidden rather than offered-and-failing.
+
+**`WorkspaceFilesBlock.svelte`** (+ `WorkspaceFilesTreeView`, `WorkspaceFileEntryRow`, `WorkspaceFilePickerDialog`) — the **Workspace Files** block type (`workspace_files`): the files and folders a card is about, opened in the document editor from the card. Value = `WorkspaceFileEntry[]` (`{ id, workspace_id, path, is_dir? }`, path workspace-relative), `meta.display` = `'tree' | 'flat'`. Shared helpers in `shared/workspaceFiles.ts` (`buildWorkspaceFilesTree`, `mergeWorkspaceFiles`, `newWorkspaceFileEntry`) and `shared/blockValues.ts` (`asWorkspaceFiles`). Rules: an entry carries its own workspace id and resolves through `lib/workspaceLocations.svelte.ts` (`ResolveWorkspace`, cached per session; one lazy dir cache per workspace shared by every block), so the block works wherever the card renders, Inbox included; an empty block finds its workspace through the card's pins (`GetCardPinBreadcrumbs` → `GetWorkspaceState`); a folder entry expands into the live subtree through `WorkspaceFileTree`; a path that no longer resolves (checked against its parent's listing — never on a guess) shows **Missing** with **Relink**, because paths are the identity and BRUV does not track renames made outside it; add = the picker, which IS `WorkspaceFileTree` in selection mode with the structure actions (a file created from a card is selected straight away); drop target for tree drags. Named **Workspace Files** in the add-block menu, never Files, so it is not mistaken for Attachments. Card chat gets `read_card_file` scoped to exactly these entries (`core/runtime/tools/card_files.go`). Replaced Card Folders (2026-09-17): a legacy `card.folder` loads as a block with one folder entry (`internal/repo/card.go` migration).
 
 **`ServerFolderStep.svelte`** is the remote half of `AttachWorkspaceDialog`: the native picker browses THIS disk, but `AttachWorkspace` opens the path on the machine running the vault, so on a remote connection the dialog asks the user to type a path the server knows. Gate on `isLocalActive()`, **not** `capabilities.hasLocalFilesystem` — that one is set from `wailsShellAvailable` and answers "is a Wails shell present", which is true on the desktop against every connection.
 
@@ -573,7 +588,7 @@ replaced wholesale).
 
 **Files:** `components/workspace/editor/` (`DocumentEditor`, `EditorToolbar`, `EditorPane`, `PreviewPane`, `DocumentOutline`, `EditorStatusBar`), `lib/editor/` (`codemirror` action, `DocumentSession`, `DocumentSource`, `languages`, `theme`, `fountain`, `documentPrefs`), `shared/documentFormats/` (registry + `markdown`, `fountain`, `plaintext` modules). Design: `plan/2026-09-06 document formats - markdown, fountain, manuscript.md`.
 
-The workspace file viewer is a **CodeMirror 6 document editor** for plain-text formats that render into something else. `WorkspaceFileViewer` is only the overlay; it hands `DocumentEditor` a `DocumentSource` (`open` / `stat` / `save`) built from the workspace RPCs. **Nothing in the editor assumes workspace files** — Card Documents plugs in as a second `DocumentSource`, not a second editor.
+The workspace file viewer is a **CodeMirror 6 document editor** for plain-text formats that render into something else. `WorkspaceFileViewer` is only the overlay; it hands `DocumentEditor` a `DocumentSource` (`open` / `stat` / `save`) built from the workspace RPCs. **Nothing in the editor assumes workspace files.** The second source is a **text attachment** (`attachmentDocumentSource` → `Open/Stat/SaveCardAttachmentText`, overlay `AttachmentDocumentViewer`): `CardAttachments` opens anything `shared/attachmentText.ts` `isEditableTextAttachment` accepts (registry formats, common text extensions, `text/*`) in the editor instead of a preview — same guard, same autosave, no open-externally/reveal buttons because there is no folder. Editors are reached from where the work is defined — the card's Workspace Files block, the attachment list — and from the panel's tree; the clone is never what BRUV edits.
 
 **Format registry (compile-time, no marketplace).** `documentFormatForPath(path)` picks a `DocumentFormat` by extension (`.md` → Markdown, `.fountain` → Fountain, anything else → plain text). A module is pure functions over the text — `render` (preview HTML), `styles` (preview + `@media print` CSS scoped under `.doc-preview`), `outline`, `entities`, `lint`, `wordCount`, `printable` — so it runs in Vitest and on mobile. The one desktop-only piece, the CodeMirror language/highlighting, lives in `lib/editor/languages.ts` keyed by format id; `shared/` never imports CodeMirror. **Fountain has one grammar**: `classifyFountain` feeds both the editor decorations (`lib/editor/fountain.ts`) and the renderer.
 
@@ -597,5 +612,5 @@ Exported for the host: `requestClose()` (backdrop click) and `onKeydown(e)` (the
 
 **Adding a format:** a module in `shared/documentFormats/<id>/` registered in `documentFormats/index.ts` (+ `DocumentFormatId`), a `document.format_<id>` label, a language bundle in `lib/editor/languages.ts` if it highlights, and golden tests in `frontend/src/lib/` against the format's own spec examples.
 
-**Mobile:** deliberate asymmetry — desktop-only; a read-only preview through the shared render path is the planned follow-up (`plan/mobile-feature-gap-2026-05-03.md`).
+**Mobile:** `mobile/src/components/DocumentSheet.svelte` — the same two sources over `repoRPC` (`mobile/src/lib/documentSource.ts`), rendered through the format's `render` + `styles` in body-size wrapped typography (the reason it exists: a text attachment used to open as raw Latin-1 monospace in a browser tab), a plain textarea to edit with the same 1 s autosave + stamp guard (a refused save asks overwrite-or-reload via `ConfirmDialog`). Deliberate asymmetry: no CodeMirror, outline, print or template generation on the phone.
 

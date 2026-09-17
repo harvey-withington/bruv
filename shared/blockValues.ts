@@ -9,6 +9,8 @@
 // card), and desktop's own edits wrote a string that mobile then showed
 // as empty. One helper, tolerant of both shapes, ends the disagreement.
 
+import type { WorkspaceFileEntry, WorkspaceFilesDisplay } from './types'
+
 export type UrlBlockValue = { url: string; caption?: string }
 
 /**
@@ -37,4 +39,44 @@ export function asUrlValue(v: unknown): UrlBlockValue {
 export function urlBlockValue(url: string, previous?: unknown): UrlBlockValue {
   const caption = asUrlValue(previous).caption
   return caption ? { url, caption } : { url }
+}
+
+/**
+ * Narrow a workspace_files block's value to its entry list. Tolerates
+ * anything that isn't an array of `{ workspace_id, path }` objects by
+ * dropping it — a malformed entry can't be opened anyway.
+ */
+export function asWorkspaceFiles(v: unknown): WorkspaceFileEntry[] {
+  if (!Array.isArray(v)) return []
+  const out: WorkspaceFileEntry[] = []
+  for (const raw of v) {
+    if (!raw || typeof raw !== 'object') continue
+    const o = raw as { id?: unknown; workspace_id?: unknown; path?: unknown; is_dir?: unknown }
+    if (typeof o.workspace_id !== 'string' || typeof o.path !== 'string' || o.path === '') continue
+    out.push({
+      id: typeof o.id === 'string' && o.id ? o.id : `wsf-${o.workspace_id}-${o.path}`,
+      workspace_id: o.workspace_id,
+      path: o.path,
+      is_dir: o.is_dir === true ? true : undefined,
+    })
+  }
+  return out
+}
+
+export function asWorkspaceFilesDisplay(v: unknown): WorkspaceFilesDisplay {
+  return v === 'flat' ? 'flat' : 'tree'
+}
+
+/** Last path segment — what a file row shows. */
+export function workspacePathName(path: string): string {
+  const trimmed = path.replace(/\/+$/, '')
+  const i = trimmed.lastIndexOf('/')
+  return i < 0 ? trimmed : trimmed.slice(i + 1)
+}
+
+/** Parent folder of a workspace-relative path ('' at the root). */
+export function workspaceParentPath(path: string): string {
+  const trimmed = path.replace(/\/+$/, '')
+  const i = trimmed.lastIndexOf('/')
+  return i < 0 ? '' : trimmed.slice(0, i)
 }

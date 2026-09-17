@@ -18,7 +18,7 @@
   import { t } from '../lib/i18n.svelte'
   import { focusOnMount, inlineEdit, clickOutside } from '../lib/actions'
   import { promoteTargets } from '@shared/promote'
-  import { asUrlValue } from '@shared/blockValues'
+  import { asUrlValue, asWorkspaceFiles, asWorkspaceFilesDisplay } from '@shared/blockValues'
   import { getContext } from 'svelte'
   import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import { showToast } from '../lib/toast.svelte'
@@ -39,6 +39,7 @@
   import AlarmBlock from './AlarmBlock.svelte'
   import SurveyBlock from './SurveyBlock.svelte'
   import SlideDeckBlock from './SlideDeckBlock.svelte'
+  import WorkspaceFilesBlock from './workspace/WorkspaceFilesBlock.svelte'
 
   let {
     block,
@@ -209,7 +210,7 @@
           {#if items.length > 0}
             <span class="checklist-progress">{items.length}</span>
           {/if}
-        {:else if block.type === 'media'}
+        {:else if block.type === 'media' || block.type === 'workspace_files'}
           {@const items = Array.isArray(block.value) ? block.value : []}
           {#if items.length > 0}
             <span class="checklist-progress">{items.length}</span>
@@ -444,6 +445,15 @@
             cardId={cardId}
             blockId={block.id}
             onUpdate={(val) => commitBlock(block, val)}
+          />
+        {:else if block.type === 'workspace_files'}
+          <WorkspaceFilesBlock
+            entries={asWorkspaceFiles(block.value)}
+            display={asWorkspaceFilesDisplay(block.meta?.display)}
+            {cardId}
+            cardTitle={card?.title ?? ''}
+            onUpdate={(val) => commitBlock(block, val)}
+            onDisplayChange={(display) => commitBlock(block, block.value, { display })}
           />
 
         {:else}

@@ -150,19 +150,15 @@ func TestWorkspaceOverRPC(t *testing.T) {
 		t.Fatal("detached project must report attached=false")
 	}
 
-	// --- Card Folders over the same dispatcher (positional-param guard for
-	// the 7-arg GenerateCardFolder signature). ---
-	call("AttachWorkspace", brand.Slug, stream.Slug, project.Slug, wsDir)
+	// --- Structure actions over the same dispatcher (positional-param guard
+	// for the 8-arg GenerateWorkspaceTemplate signature). ---
+	_ = json.Unmarshal(call("AttachWorkspace", brand.Slug, stream.Slug, project.Slug, wsDir), &ws)
 	tplDir := filepath.Join(wsDir, "_tpl-{bruvCard}")
 	if err := os.MkdirAll(filepath.Join(tplDir, ".ft"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(tplDir, ".ft", "template.json"),
 		[]byte(`{"name":"Ep","parameters":[{"name":"strip","match":"^_tpl-","replaceInFileNames":true}]}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	epCard, err := rt.CreateCard("", "Pilot")
-	if err != nil {
 		t.Fatal(err)
 	}
 	var tpls []struct {
@@ -173,23 +169,29 @@ func TestWorkspaceOverRPC(t *testing.T) {
 	if len(tpls) == 0 || tpls[0].Scope != "workspace" {
 		t.Fatalf("ListProjectTemplates over RPC: %+v", tpls)
 	}
-	var boundCard struct {
-		Folder *struct {
-			Path string `json:"path"`
-		} `json:"folder"`
+	var generated string
+	_ = json.Unmarshal(call("GenerateWorkspaceTemplate", brand.Slug, stream.Slug, project.Slug,
+		tpls[0].ID, "", "Pilot", map[string]string{}), &generated)
+	if generated != "Pilot" {
+		t.Fatalf("GenerateWorkspaceTemplate over RPC = %q, want Pilot", generated)
 	}
-	_ = json.Unmarshal(call("GenerateCardFolder", brand.Slug, stream.Slug, project.Slug,
-		epCard.ID, tpls[0].ID, "", map[string]string{}), &boundCard)
-	if boundCard.Folder == nil || boundCard.Folder.Path != "Pilot" {
-		t.Fatalf("GenerateCardFolder over RPC: %+v", boundCard)
+	var made string
+	_ = json.Unmarshal(call("CreateWorkspaceDir", brand.Slug, stream.Slug, project.Slug, "Pilot/Drafts"), &made)
+	if made != "Pilot/Drafts" {
+		t.Fatalf("CreateWorkspaceDir over RPC = %q", made)
 	}
-	// Fresh struct: omitempty means a cleared folder is ABSENT from the
-	// JSON, and Unmarshal leaves absent fields untouched.
-	var clearedCard struct {
-		Folder *struct{} `json:"folder"`
+	_ = json.Unmarshal(call("CreateWorkspaceFile", brand.Slug, stream.Slug, project.Slug, "Pilot/Drafts/scene.md"), &made)
+	if made != "Pilot/Drafts/scene.md" {
+		t.Fatalf("CreateWorkspaceFile over RPC = %q", made)
 	}
-	_ = json.Unmarshal(call("ClearCardFolder", epCard.ID), &clearedCard)
-	if clearedCard.Folder != nil {
-		t.Fatal("ClearCardFolder over RPC must unbind")
+	if _, err := os.Stat(filepath.Join(wsDir, "Pilot", "Drafts", "scene.md")); err != nil {
+		t.Fatalf("created file missing on disk: %v", err)
+	}
+	var loc struct {
+		ProjectSlug string `json:"project_slug"`
+	}
+	_ = json.Unmarshal(call("ResolveWorkspace", ws.ID), &loc)
+	if loc.ProjectSlug != project.Slug {
+		t.Fatalf("ResolveWorkspace over RPC: %+v", loc)
 	}
 }

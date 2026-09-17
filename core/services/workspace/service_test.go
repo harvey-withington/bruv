@@ -351,9 +351,10 @@ func TestGenerateFromTemplateAttaches(t *testing.T) {
 }
 
 // The Bad Therapist flow: a template living INSIDE the workspace generates
-// an episode folder bound to a card (plan/2026-07-05 card folders design.md).
-func TestCardFolderLifecycle(t *testing.T) {
-	svc, deps, b, st, p := newTestService(t)
+// an episode folder under the template's default target, named after the
+// card that asked for it (plan/2026-09-17 workspace files block.md).
+func TestGenerateTemplateIntoWorkspace(t *testing.T) {
+	svc, _, b, st, p := newTestService(t)
 
 	// Workspace = the "show" folder, with the episode template inside it.
 	showDir := writeFiles(t, t.TempDir(), map[string]string{"Planning/notes.md": "x", "Episodes/": ""})
@@ -386,10 +387,6 @@ func TestCardFolderLifecycle(t *testing.T) {
 	if _, err := svc.Attach(context.Background(), b, st, p, showDir); err != nil {
 		t.Fatal(err)
 	}
-	epCard, err := deps.cardSvc.Create("", "Patient Zero")
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	// Workspace-resident template is discovered, listed before vault scopes.
 	entries, err := svc.ListProjectTemplates(b, st, p)
@@ -402,13 +399,13 @@ func TestCardFolderLifecycle(t *testing.T) {
 
 	// Blank target → the template's own DefaultTargetPath ("Episodes",
 	// resolved against the template folder's parent — the show root).
-	card, err := svc.GenerateCardFolder(context.Background(), b, st, p, epCard.ID,
-		entries[0].ID, "", map[string]string{"epNum": "002"})
+	rel, err := svc.GenerateTemplate(context.Background(), b, st, p,
+		entries[0].ID, "", "Patient Zero", map[string]string{"epNum": "002"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if card.Folder == nil || card.Folder.Path != "Episodes/EP002 - Patient Zero" {
-		t.Fatalf("folder binding = %+v", card.Folder)
+	if rel != "Episodes/EP002 - Patient Zero" {
+		t.Fatalf("generated rel = %q", rel)
 	}
 	script, err := os.ReadFile(filepath.Join(showDir, "Episodes", "EP002 - Patient Zero", "Drafts", "EP002.fountain"))
 	if err != nil {
@@ -417,44 +414,60 @@ func TestCardFolderLifecycle(t *testing.T) {
 	if !strings.Contains(string(script), "Title: Patient Zero") {
 		t.Errorf("bruvCard not applied in content:\n%s", script)
 	}
-
-	// Escape attempts and double-binding are refused.
-	if _, err := svc.GenerateCardFolder(context.Background(), b, st, p, epCard.ID, entries[0].ID, "Episodes", nil); err == nil {
-		t.Error("second generate on a bound card must fail")
-	}
-	unbound, err := svc.ClearCardFolder(epCard.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if unbound.Folder != nil {
-		t.Error("unbind must clear the binding")
-	}
-	if _, err := os.Stat(filepath.Join(showDir, "Episodes", "EP002 - Patient Zero")); err != nil {
-		t.Error("unbind must never delete the folder on disk")
-	}
-	if _, err := svc.GenerateCardFolder(context.Background(), b, st, p, epCard.ID, entries[0].ID, "../outside", nil); err == nil {
+	// Escape attempts are refused.
+	if _, err := svc.GenerateTemplate(context.Background(), b, st, p, entries[0].ID, "../outside", "", nil); err == nil {
 		t.Error("target escape must be rejected")
 	}
+}
 
-	// Re-link the existing folder (the unlink-then-relink path).
-	relinked, err := svc.LinkCardFolder(b, st, p, epCard.ID, "Episodes/EP002 - Patient Zero")
+// New file / New folder act on the workspace tree through the chokepoint
+// and never overwrite what's there.
+func TestCreateDirAndFile(t *testing.T) {
+	svc, deps, b, st, p := newTestService(t)
+	dir := writeFiles(t, t.TempDir(), map[string]string{"notes.md": "x"})
+	if _, err := svc.Attach(context.Background(), b, st, p, dir); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	got, err := svc.CreateDir(ctx, b, st, p, "Chapters/Part One/")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if relinked.Folder == nil || relinked.Folder.Path != "Episodes/EP002 - Patient Zero" {
-		t.Fatalf("relink = %+v", relinked.Folder)
+	if got != "Chapters/Part One" {
+		t.Errorf("CreateDir rel = %q", got)
 	}
-	if _, err := svc.LinkCardFolder(b, st, p, epCard.ID, "Episodes"); err == nil {
-		t.Error("linking while bound must fail")
+	if info, err := os.Stat(filepath.Join(dir, "Chapters", "Part One")); err != nil || !info.IsDir() {
+		t.Fatalf("folder not created: %v", err)
 	}
-	if _, err := svc.ClearCardFolder(epCard.ID); err != nil {
+	if _, err := svc.CreateDir(ctx, b, st, p, "Chapters/Part One"); err == nil {
+		t.Error("creating an existing folder must fail")
+	}
+	if _, err := svc.CreateDir(ctx, b, st, p, "notes.md"); err == nil {
+		t.Error("creating a folder over a file must fail")
+	}
+
+	got, err = svc.CreateFile(ctx, b, st, p, "Chapters/Part One/01.md")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.LinkCardFolder(b, st, p, epCard.ID, "Episodes/nope"); err == nil {
-		t.Error("linking a nonexistent folder must fail")
+	if got != "Chapters/Part One/01.md" {
+		t.Errorf("CreateFile rel = %q", got)
 	}
-	if _, err := svc.LinkCardFolder(b, st, p, epCard.ID, "../escape"); err == nil {
-		t.Error("link escape must be rejected")
+	if raw, err := os.ReadFile(filepath.Join(dir, "Chapters", "Part One", "01.md")); err != nil || len(raw) != 0 {
+		t.Fatalf("file not created empty: %v %q", err, raw)
+	}
+	if _, err := svc.CreateFile(ctx, b, st, p, "notes.md"); err == nil {
+		t.Error("creating over an existing file must fail — never a truncation")
+	}
+	if raw, _ := os.ReadFile(filepath.Join(dir, "notes.md")); string(raw) != "x" {
+		t.Error("existing file was clobbered")
+	}
+	if _, err := svc.CreateFile(ctx, b, st, p, "../escape.md"); err == nil {
+		t.Error("escape must be rejected")
+	}
+	if !deps.emitted("workspace:updated") {
+		t.Error("structure changes must announce workspace:updated")
 	}
 }
 

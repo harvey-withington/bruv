@@ -252,7 +252,7 @@ func CardTools(cardTypes []string, categories []map[string]string, mcpToolIDs []
 
 	tools = append(tools, ToolDef{
 		Name:        "suggest_pin",
-		Description: "Pin the card to a location. STRONGLY prefer using category_id from the existing categories list. Only provide brand/stream/project/category names to create a new location if no existing category is appropriate.",
+		Description: "File this Inbox card on a board (it is offered only while the card has no location). STRONGLY prefer category_id from the existing categories list. Only provide brand/stream/project/category names to create a new location if no existing category is appropriate.",
 		Parameters: map[string]any{
 			"type":       "object",
 			"properties": pinProps,
@@ -668,4 +668,16 @@ func cardUpdateParameters(cardTypes []string, forArrayItem bool) map[string]any 
 	}
 	_ = forArrayItem // both call sites use the same shape; param kept for future divergence
 	return schema
+}
+
+// WithoutTool returns defs minus the named tool — how card chat drops
+// suggest_pin for a card that is already filed. Order is preserved.
+func WithoutTool(defs []ToolDef, name string) []ToolDef {
+	out := make([]ToolDef, 0, len(defs))
+	for _, d := range defs {
+		if d.Name != name {
+			out = append(out, d)
+		}
+	}
+	return out
 }

@@ -43,9 +43,12 @@ func TestPrepareGitOriginInitialisesAPlainFolder(t *testing.T) {
 		"mix/track1.wav": "xxx",
 	})
 
-	branch, err := prepareGitOrigin(context.Background(), dir)
+	branch, created, err := prepareGitOrigin(context.Background(), dir)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !created {
+		t.Error("a plain folder must report that BRUV created the repository")
 	}
 	if branch == "" {
 		t.Error("a published workspace must report the branch clients should track")
@@ -78,7 +81,7 @@ func TestPrepareGitOriginHonoursGitignore(t *testing.T) {
 		"node_modules/dep/a.js": "junk",
 	})
 
-	if _, err := prepareGitOrigin(context.Background(), dir); err != nil {
+	if _, _, err := prepareGitOrigin(context.Background(), dir); err != nil {
 		t.Fatal(err)
 	}
 	if files := gitIn(t, dir, "ls-files"); strings.Contains(files, "node_modules") {
@@ -98,8 +101,10 @@ func TestPrepareGitOriginLeavesExistingHistoryAlone(t *testing.T) {
 	// into a commit on the user's behalf.
 	os.WriteFile(filepath.Join(dir, "b.txt"), []byte("two"), 0o644)
 
-	if _, err := prepareGitOrigin(context.Background(), dir); err != nil {
+	if _, created, err := prepareGitOrigin(context.Background(), dir); err != nil {
 		t.Fatal(err)
+	} else if created {
+		t.Error("an existing repository must not be reported as BRUV-created")
 	}
 	if now := gitIn(t, dir, "rev-parse", "HEAD"); now != head {
 		t.Errorf("publishing moved HEAD from %s to %s — existing history is the user's", head, now)
@@ -112,11 +117,11 @@ func TestPrepareGitOriginLeavesExistingHistoryAlone(t *testing.T) {
 func TestPrepareGitOriginIsIdempotent(t *testing.T) {
 	requireGit(t)
 	dir := writeFiles(t, t.TempDir(), map[string]string{"a.txt": "one"})
-	if _, err := prepareGitOrigin(context.Background(), dir); err != nil {
+	if _, _, err := prepareGitOrigin(context.Background(), dir); err != nil {
 		t.Fatal(err)
 	}
 	head := gitIn(t, dir, "rev-parse", "HEAD")
-	if _, err := prepareGitOrigin(context.Background(), dir); err != nil {
+	if _, _, err := prepareGitOrigin(context.Background(), dir); err != nil {
 		t.Fatalf("re-publishing must succeed: %v", err)
 	}
 	if now := gitIn(t, dir, "rev-parse", "HEAD"); now != head {

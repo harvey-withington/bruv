@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { Paperclip, Trash2, FileText, FileImage, FileVideo, File as FileIcon, Download, Eye, X } from 'lucide-svelte'
+  import { Paperclip, Trash2, FileText, FileImage, FileVideo, File as FileIcon, Eye, PencilLine } from 'lucide-svelte'
+  import { isEditableTextAttachment } from '@shared/attachmentText'
+  import { attachmentDocumentSource, type DocumentSource } from '../lib/documentSource'
+  import DocumentSheet from './DocumentSheet.svelte'
   import { repoRPC } from '../lib/auth'
   import { t } from '../lib/i18n.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
@@ -19,6 +22,9 @@
   let errorMsg = $state<string | null>(null)
   let fileInputEl = $state<HTMLInputElement | null>(null)
   let confirmingDelete = $state<Attachment | null>(null)
+  // Text attachments open in the document sheet — rendered, readable,
+  // editable — instead of as raw bytes in a browser tab.
+  let viewing = $state<DocumentSource | null>(null)
 
   function iconForMime(mime: string) {
     if (mime.startsWith('image/')) return FileImage
@@ -75,6 +81,10 @@
 
   async function previewAttachment(att: Attachment) {
     errorMsg = null
+    if (isEditableTextAttachment(att)) {
+      viewing = attachmentDocumentSource(cardId, att.id, att.name)
+      return
+    }
     try {
       const url = await repoRPC<string>('SignAttachmentURL', [cardId, att.id])
       if (url) {
@@ -113,8 +123,8 @@
             <span class="size">{formatSize(att.size)}</span>
           </button>
           <div class="actions-row">
-            <button type="button" class="ghost-btn" onclick={() => previewAttachment(att)} aria-label={t('attachment.preview')}>
-              <Eye size={14} />
+            <button type="button" class="ghost-btn" onclick={() => previewAttachment(att)} aria-label={isEditableTextAttachment(att) ? t('attachment.edit') : t('attachment.preview')}>
+              {#if isEditableTextAttachment(att)}<PencilLine size={14} />{:else}<Eye size={14} />{/if}
             </button>
             <button type="button" class="ghost-btn danger" onclick={() => (confirmingDelete = att)} aria-label={t('common.remove')}>
               <Trash2 size={14} />
@@ -141,6 +151,10 @@
     />
   </div>
 </section>
+
+{#if viewing}
+  <DocumentSheet source={viewing} onClose={() => (viewing = null)} />
+{/if}
 
 {#if confirmingDelete}
   <ConfirmDialog

@@ -203,6 +203,16 @@ button:not(:disabled):active,
     40%      { scale: 0.94; }
 }
 
+/* Opt-out for WIDE row buttons (tree rows, list rows) whose click target
+   sits at an edge: a 6% shrink of a full-width row moves its left edge
+   inward by several pixels, so a quick click on the chevron ends with the
+   pointer outside the button and no click fires (field report
+   2026-09-17 — "works if I hold it longer"). Compact buttons keep the pulse. */
+button.press-still:not(:disabled):active,
+[role="button"].press-still:not(:disabled):active {
+    animation: none;
+}
+
 /* Reduce motion for users who prefer it */
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {

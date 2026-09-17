@@ -67,3 +67,57 @@ func WorkspaceTools(includeFileRead bool) []ToolDef {
 	}
 	return tools
 }
+
+// CardFileTool is the card-chat read for the files a card names in its
+// Workspace Files block — the block is the scope, so the description
+// lists exactly what may be read. Offered only when the card names
+// something; paths are the ones shown (folders end in "/", and any file
+// inside one may be read).
+func CardFileTool(paths []string) ToolDef {
+	return ToolDef{
+		Name: "read_card_file",
+		Description: "Read one of the workspace files this card is about, by its workspace-relative path. " +
+			"CALL THIS whenever the user asks about, quotes, summarises or wants changes to the card's files — the card names: " +
+			joinPaths(paths) + ". Folders (ending in /) may be read file by file. Only text files; returns the content, truncated if large.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path": map[string]any{
+					"type":        "string",
+					"description": "Workspace-relative path of the file to read (one of the card's files, or a file inside one of its folders)",
+				},
+			},
+			"required": []string{"path"},
+		},
+	}
+}
+
+func joinPaths(paths []string) string {
+	if len(paths) == 0 {
+		return "(none)"
+	}
+	const max = 40
+	if len(paths) > max {
+		return quoteAll(paths[:max]) + " and more"
+	}
+	return quoteAll(paths)
+}
+
+func quoteAll(paths []string) string {
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		out[i] = "`" + p + "`"
+	}
+	return joinComma(out)
+}
+
+func joinComma(parts []string) string {
+	s := ""
+	for i, p := range parts {
+		if i > 0 {
+			s += ", "
+		}
+		s += p
+	}
+	return s
+}

@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"time"
+)
 
 // Workspace connects a Project to a real body of work (spec: plan/2026-07-04
 // BRUV workspace spec.md). 0 or 1 per Project in v1.
@@ -96,7 +100,13 @@ type Workspace struct {
 	// GitServeError explains a GitServeError state in plain language.
 	GitServeError string `json:"git_serve_error,omitempty"`
 	// DefaultBranch is the branch clients clone and track.
-	DefaultBranch string    `json:"default_branch,omitempty"`
+	DefaultBranch string `json:"default_branch,omitempty"`
+	// CommitOnSave makes every write BRUV makes to a published workspace
+	// (editor save, new file/folder, template generation) a commit on the
+	// host, so the host tree stays clean and clones can keep pushing —
+	// a push into a dirty host tree is refused by updateInstead. Defaults
+	// on when BRUV created the repository, off when the user brought one.
+	CommitOnSave bool      `json:"commit_on_save,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
@@ -132,6 +142,19 @@ type WorkspaceFileStamp struct {
 	Size  int64     `json:"size"`
 	MTime time.Time `json:"mtime,omitempty"`
 	Fuzzy bool      `json:"fuzzy,omitempty"`
+}
+
+// NewFileStamp fingerprints text content ("sha256:<hex>") so a stamp from
+// an open compares directly with one from a later stat regardless of
+// mtime granularity. Shared by workspace files and text attachments —
+// the document editor's divergence guard is the same for both sources.
+func NewFileStamp(raw []byte, mtime time.Time) WorkspaceFileStamp {
+	sum := sha256.Sum256(raw)
+	return WorkspaceFileStamp{
+		Hash:  "sha256:" + hex.EncodeToString(sum[:]),
+		Size:  int64(len(raw)),
+		MTime: mtime,
+	}
 }
 
 // WorkspaceFileContent is what the document editor opens: the text plus the

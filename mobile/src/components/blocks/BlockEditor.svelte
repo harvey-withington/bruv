@@ -37,6 +37,7 @@
   import AlarmBlock from './AlarmBlock.svelte'
   import SurveyBlock from './SurveyBlock.svelte'
   import SlideDeckBlock from './SlideDeckBlock.svelte'
+  import WorkspaceFilesBlock from './WorkspaceFilesBlock.svelte'
 
   let {
     block,
@@ -219,6 +220,8 @@
       <SurveyBlock {block} {onChange} />
     {:else if block.type === 'slide_deck'}
       <SlideDeckBlock {block} />
+    {:else if block.type === 'workspace_files'}
+      <WorkspaceFilesBlock {block} {cardId} {onChange} />
     {:else}
       <p class="placeholder">
         {t('block.unsupported_on_mobile', { type: block.type })}

@@ -218,7 +218,7 @@ func slugifyFieldKey(s string) string {
 func emptyValueForBlockType(blockType string) any {
 	switch blockType {
 	case model.BlockChecklist, model.BlockList, model.BlockMedia,
-		model.BlockSurvey, model.BlockCheckboxGroup:
+		model.BlockSurvey, model.BlockCheckboxGroup, model.BlockWorkspaceFiles:
 		return []any{}
 	case model.BlockCheckbox:
 		return false

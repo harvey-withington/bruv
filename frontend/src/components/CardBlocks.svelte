@@ -65,7 +65,7 @@
 
   function getEmptyValue(type: string): Block['value'] {
     switch (type) {
-      case 'checklist': case 'list': case 'media': return []
+      case 'checklist': case 'list': case 'media': case 'workspace_files': return []
       case 'checkbox_group': return []
       case 'number': case 'rating': case 'progress': return 0
       case 'checkbox': return false
@@ -423,6 +423,7 @@
     else if (blockType === 'alarm') { value = null; meta = { alarm_channels: 'in-app,system' } }
     else if (blockType === 'survey') value = []
     else if (blockType === 'slide_deck') value = { slides: [] }
+    else if (blockType === 'workspace_files') value = []
 
     // User-added blocks have no schema key — `key` identifies a card-type
     // field, and a freeform block isn't one. A derived key would collide

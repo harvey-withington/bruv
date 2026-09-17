@@ -5,6 +5,7 @@ import type {
   ListItem,
   MediaItem,
   SurveyQuestion,
+  WorkspaceFileEntry,
 } from './types'
 import type { ExportedCard } from './cardJson'
 
@@ -102,6 +103,13 @@ const MULTI_ITEM_RULES: Partial<Record<Block['type'], MultiItemRule>> = {
   media: { idPrefix: 'med', identity: (i) => normText((i as MediaItem)?.url) },
   image: { idPrefix: 'med', identity: (i) => normText((i as MediaItem)?.url) },
   survey: { idPrefix: 'sq', identity: (i) => normText((i as SurveyQuestion)?.prompt) },
+  workspace_files: { idPrefix: 'wsf', identity: (i) => workspaceEntryIdentity(i) },
+}
+
+function workspaceEntryIdentity(i: unknown): string | null {
+  const e = i as WorkspaceFileEntry | undefined
+  if (!e || typeof e.workspace_id !== 'string' || typeof e.path !== 'string') return null
+  return `${e.workspace_id}\u0000${e.path.replace(/\/+$/, '').toLowerCase()}`
 }
 
 function normText(s: unknown): string | null {

@@ -162,6 +162,9 @@ const (
 	BlockAlarm         = "alarm"
 	BlockSurvey        = "survey"
 	BlockSlideDeck     = "slide_deck"
+	// BlockWorkspaceFiles lists workspace files/folders the card is about;
+	// value is []WorkspaceFileEntry, meta.display is "tree" or "flat".
+	BlockWorkspaceFiles = "workspace_files"
 
 	// Legacy block types — kept for migration compatibility.
 	BlockVideo = "video"
@@ -224,20 +227,21 @@ type Card struct {
 	Tags            []string         `json:"tags"`
 	Labels          []string         `json:"labels,omitempty"`  // label IDs from project's tags.json
 	Members         []string         `json:"members,omitempty"` // member IDs/usernames
-	Folder          *CardFolder      `json:"folder,omitempty"`
 	Blocks          []Block          `json:"blocks"`
 	FileAttachments []FileAttachment `json:"file_attachments,omitempty"`
 }
 
-// CardFolder binds a card to a subfolder of a project Workspace — intrinsic
-// (0-or-1 per card), deliberately NOT a block: blocks are repeatable and
-// drag anywhere; the folder is a fixed anchor like title/tags/due date.
-// Design: plan/2026-07-05 card folders design.md. Path is slash-relative to
-// the workspace root and chokepoint-resolved on every use; the binding
-// renders wherever the card renders (it carries its own workspace id).
-type CardFolder struct {
+// WorkspaceFileEntry is one item of a BlockWorkspaceFiles value: a file or
+// folder in a project Workspace that this card is about. Path is
+// slash-relative to the workspace root and chokepoint-resolved on every
+// use; the entry carries its own workspace id so the block renders (and
+// opens the editor) wherever the card renders, Inbox included.
+// Design: plan/2026-09-17 workspace files block.md.
+type WorkspaceFileEntry struct {
+	ID          string `json:"id"`
 	WorkspaceID string `json:"workspace_id"`
 	Path        string `json:"path"`
+	IsDir       bool   `json:"is_dir,omitempty"`
 }
 
 // Pin represents a card's membership in a specific Project/Category.

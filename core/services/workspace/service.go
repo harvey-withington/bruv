@@ -2,15 +2,12 @@ package workspace
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 	"unicode/utf8"
 
-	"bruv/core/services/card"
 	wsengine "bruv/core/workspace"
 	"bruv/internal/model"
 	"bruv/internal/repo"
@@ -30,9 +27,6 @@ type Deps interface {
 	// mutation (attach, refresh, config, file write), "workspace:deleted"
 	// on detach. Payload is a Ref.
 	Publish(topic string, payload any)
-	// Card routes card-folder bindings through the card service so its
-	// activity-log + event instrumentation is inherited.
-	Card() *card.Service
 }
 
 // Ref is the event payload locating the workspace's project.
@@ -252,6 +246,9 @@ func (s *Service) SaveFile(ctx context.Context, brandSlug, streamSlug, projectSl
 	if err != nil {
 		return nil, err
 	}
+	if ws, root, err := s.localRoot(brandSlug, streamSlug, projectSlug); err == nil {
+		s.commitIfEnabled(ctx, ws, root, []string{rel}, "Update "+rel+" (BRUV)")
+	}
 	return &model.WorkspaceSaveResult{Stamp: *written}, nil
 }
 
@@ -291,12 +288,7 @@ func (s *Service) readText(brandSlug, streamSlug, projectSlug, rel string) ([]by
 // ("sha256:<hex>"), so a stamp from OpenFile compares directly with one
 // from StatFile regardless of mtime granularity on the filesystem.
 func stampOf(raw []byte, info os.FileInfo) model.WorkspaceFileStamp {
-	sum := sha256.Sum256(raw)
-	return model.WorkspaceFileStamp{
-		Hash:  "sha256:" + hex.EncodeToString(sum[:]),
-		Size:  int64(len(raw)),
-		MTime: info.ModTime(),
-	}
+	return model.NewFileStamp(raw, info.ModTime())
 }
 
 // ListDir returns the immediate children of one workspace directory

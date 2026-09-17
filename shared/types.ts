@@ -94,7 +94,7 @@ export type ListItem = {
 // Runtime list of every block type the model knows. `BlockType` derives
 // from it so the union and the list can never drift — import validation
 // (cardJson.ts) checks incoming blocks against this.
-export const BLOCK_TYPES = ['text', 'checklist', 'list', 'media', 'url', 'divider', 'select', 'number', 'date', 'rating', 'checkbox', 'radio', 'checkbox_group', 'image', 'progress', 'alarm', 'survey', 'slide_deck'] as const
+export const BLOCK_TYPES = ['text', 'checklist', 'list', 'media', 'url', 'divider', 'select', 'number', 'date', 'rating', 'checkbox', 'radio', 'checkbox_group', 'image', 'progress', 'alarm', 'survey', 'slide_deck', 'workspace_files'] as const
 
 export type BlockType = (typeof BLOCK_TYPES)[number]
 
@@ -116,6 +116,20 @@ export type MediaItem = {
   caption?: string
   mime?: string
 }
+
+// --- Workspace Files block ---
+// One file or folder in a project Workspace that the card is about. Path
+// is slash-relative to the workspace root; the entry carries its own
+// workspace id so the block renders wherever the card renders.
+// Design: plan/2026-09-17 workspace files block.md.
+export type WorkspaceFileEntry = {
+  id: string
+  workspace_id: string
+  path: string
+  is_dir?: boolean
+}
+
+export type WorkspaceFilesDisplay = 'tree' | 'flat'
 
 // --- Slide Deck block ---
 // A deck lives inside a card as block data, so it stays pinnable, taggable,
@@ -427,6 +441,8 @@ export type BlockMeta = {
   alarm_time?: string      // ISO 8601 datetime for the alarm
   alarm_channels?: string  // notification channels: "in-app,system"
   alarm_fired?: boolean    // whether the alarm has already fired
+  // Workspace Files block: how entries render
+  display?: WorkspaceFilesDisplay
 }
 
 export type Block = {
@@ -434,7 +450,7 @@ export type Block = {
   type: BlockType
   label: string
   key: string
-  value: string | number | boolean | string[] | ChecklistItem[] | ListItem[] | MediaItem[] | SurveyQuestion[] | SlideDeckValue | { url: string; caption?: string } | null
+  value: string | number | boolean | string[] | ChecklistItem[] | ListItem[] | MediaItem[] | SurveyQuestion[] | SlideDeckValue | WorkspaceFileEntry[] | { url: string; caption?: string } | null
   meta?: BlockMeta
 }
 
@@ -603,7 +619,6 @@ export type Card = {
   updated_at?: string
   context_level?: string    // "isolated" | "project" | "brand" | "global"
   labels?: string[]         // label IDs from the project's tags.json
-  folder?: CardFolder       // workspace subfolder binding (Card Folders)
   blocks: Block[]
   file_attachments: Attachment[]
   members?: string[]
@@ -1319,12 +1334,20 @@ export interface BackendAdapter {
   // Delete a vault-resident template folder (vault-relative id only).
   DeleteWorkspaceTemplate(ref: string): Promise<void>
 
-  // Card Folders: bind a card to a subfolder of its project's workspace,
-  // generated from a template. Workspace-resident templates list first.
+  // Structure lives in the workspace tree (plan/2026-09-17 workspace
+  // files block.md): new files/folders and template generation act on the
+  // tree and return the cleaned workspace-relative path they made.
+  // Workspace-resident templates list first.
   ListProjectTemplates(brandSlug: string, streamSlug: string, projectSlug: string): Promise<WorkspaceTemplateEntry[]>
-  GenerateCardFolder(brandSlug: string, streamSlug: string, projectSlug: string, cardID: string, ref: string, targetRel: string, values: Record<string, string>): Promise<Card>
-  ClearCardFolder(cardID: string): Promise<Card>
-  LinkCardFolder(brandSlug: string, streamSlug: string, projectSlug: string, cardID: string, rel: string): Promise<Card>
+  GenerateWorkspaceTemplate(brandSlug: string, streamSlug: string, projectSlug: string, ref: string, targetRel: string, cardTitle: string, values: Record<string, string>): Promise<string>
+  CreateWorkspaceDir(brandSlug: string, streamSlug: string, projectSlug: string, rel: string): Promise<string>
+  CreateWorkspaceFile(brandSlug: string, streamSlug: string, projectSlug: string, rel: string): Promise<string>
+  // Commit BRUV's own writes on a published workspace so the host tree
+  // stays clean for clones to push into.
+  SetWorkspaceCommitOnSave(brandSlug: string, streamSlug: string, projectSlug: string, on: boolean): Promise<Workspace>
+  // A Workspace Files entry carries only its workspace id; this turns it
+  // into the slugs every workspace RPC wants.
+  ResolveWorkspace(workspaceID: string): Promise<WorkspaceLocation>
 
   // Index / search
   SearchCards(query: string, limit: number): Promise<SearchResult[]>
@@ -1411,6 +1434,11 @@ export interface BackendAdapter {
   // Attachments
   AddCardAttachment(cardID: string, name: string, data: string): Promise<Card>
   RemoveCardAttachment(cardID: string, attachmentID: string): Promise<Card>
+  // Text attachments open in the document editor through the same
+  // open/stat/guarded-save contract as workspace files.
+  OpenCardAttachmentText(cardID: string, attachmentID: string): Promise<WorkspaceFileContent>
+  StatCardAttachmentText(cardID: string, attachmentID: string): Promise<WorkspaceFileStamp>
+  SaveCardAttachmentText(cardID: string, attachmentID: string, content: string, expectedHash: string): Promise<WorkspaceSaveResult>
 
   // Comments
   ListCardComments(cardID: string): Promise<CardComment[]>
@@ -1485,6 +1513,10 @@ export interface Workspace {
   git_serve?: GitServeState
   git_serve_error?: string
   default_branch?: string
+  // Commit BRUV's own writes on the host (editor save, new file, template
+  // generation) so clones can keep pushing. On by default for repositories
+  // BRUV created; a setting for ones the user brought.
+  commit_on_save?: boolean
   created_at: string
   updated_at: string
 }
@@ -1586,11 +1618,12 @@ export interface WorkspaceState {
   index?: WorkspaceIndex
 }
 
-// CardFolder binds a card to a subfolder of a project Workspace (intrinsic,
-// 0-or-1 per card — see plan/2026-07-05 card folders design.md).
-export interface CardFolder {
-  workspace_id: string
-  path: string
+// Where a workspace lives — the project slugs the workspace RPCs take.
+export interface WorkspaceLocation {
+  brand_slug: string
+  stream_slug: string
+  project_slug: string
+  workspace: Workspace
 }
 
 // .ft/template.json parameter — camelCase keys, matching the on-disk

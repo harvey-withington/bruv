@@ -68,10 +68,40 @@ func (r *Repository) GetCard(id string) (*model.Card, error) {
 type legacyCard struct {
 	model.Card
 	Fields map[string]any `json:"fields,omitempty"`
+	// Folder is the pre-2026-09 intrinsic Card Folder binding, replaced
+	// by the Workspace Files block (plan/2026-09-17 workspace files
+	// block.md): a bound folder becomes a block holding one folder entry.
+	Folder *legacyCardFolder `json:"folder,omitempty"`
 }
+
+type legacyCardFolder struct {
+	WorkspaceID string `json:"workspace_id"`
+	Path        string `json:"path"`
+}
+
+// legacyFolderBlockLabel is the label the migration stamps; the desktop
+// and mobile renderers localize block-type labels by type, so this only
+// shows where a label is rendered verbatim (exports, prompts).
+const legacyFolderBlockLabel = "Workspace Files"
 
 func (l *legacyCard) migrate() model.Card {
 	card := l.Card
+
+	// 0. A Card Folder becomes a Workspace Files block with one folder
+	//    entry, appended so the card's own block order is untouched.
+	if l.Folder != nil && l.Folder.WorkspaceID != "" && l.Folder.Path != "" {
+		card.Blocks = append(card.Blocks, model.Block{
+			ID:    "blk-" + uuid.New().String()[:8],
+			Type:  model.BlockWorkspaceFiles,
+			Label: legacyFolderBlockLabel,
+			Value: []model.WorkspaceFileEntry{{
+				ID:          "wsf-" + uuid.New().String()[:8],
+				WorkspaceID: l.Folder.WorkspaceID,
+				Path:        l.Folder.Path,
+				IsDir:       true,
+			}},
+		})
+	}
 
 	// 1. Hoist the description: prefer Fields["description"] (what the
 	//    desktop's UpdateCardFields wrote to); fall back to the value

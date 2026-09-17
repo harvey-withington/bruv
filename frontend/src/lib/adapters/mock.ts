@@ -18,6 +18,7 @@ import type {
   WorkspaceCheckoutInfo,
   WorkspaceSyncResult,
   WorkspaceIndex,
+  WorkspaceLocation,
   WorkspaceFileContent,
   WorkspaceFileStamp,
   WorkspaceSaveResult,
@@ -294,9 +295,11 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     SaveWorkspaceTemplate: async () => {},
     DeleteWorkspaceTemplate: async () => {},
     ListProjectTemplates: async (): Promise<WorkspaceTemplateEntry[]> => [],
-    GenerateCardFolder: async (): Promise<Card> => mockCard(),
-    ClearCardFolder: async (): Promise<Card> => mockCard(),
-    LinkCardFolder: async (): Promise<Card> => mockCard(),
+    GenerateWorkspaceTemplate: async (): Promise<string> => 'Generated',
+    CreateWorkspaceDir: async (_b: string, _s: string, _p: string, rel: string): Promise<string> => rel,
+    CreateWorkspaceFile: async (_b: string, _s: string, _p: string, rel: string): Promise<string> => rel,
+    SetWorkspaceCommitOnSave: async (): Promise<Workspace> => mockWorkspace(),
+    ResolveWorkspace: async (): Promise<WorkspaceLocation> => ({ brand_slug: 'b', stream_slug: 's', project_slug: 'p', workspace: mockWorkspace() }),
 
     ListCardTemplates: async (): Promise<CardTemplate[]> => [],
     CreateCardTemplate: async (): Promise<CardTemplate> => ({ id: 'tpl-1', name: '', blocks: [] }),
@@ -365,6 +368,9 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
 
     AddCardAttachment: async () => mockCard(),
     RemoveCardAttachment: async () => mockCard(),
+    OpenCardAttachmentText: async (): Promise<WorkspaceFileContent> => ({ content: '', stamp: { hash: 'sha256:mock', size: 0 } }),
+    StatCardAttachmentText: async (): Promise<WorkspaceFileStamp> => ({ hash: 'sha256:mock', size: 0 }),
+    SaveCardAttachmentText: async (): Promise<WorkspaceSaveResult> => ({ diverged: false, stamp: { hash: 'sha256:mock', size: 0 } }),
 
     GetDueDateSettings: async () => ({ enabled: true, thresholds: ['24h', '1h', '0'], channels: 'in-app,system' }),
     SaveDueDateSettings: async () => {},

@@ -184,8 +184,8 @@ func (s *Service) EnableGitServe(ctx context.Context, brandSlug, streamSlug, pro
 		// caller hung up would leave a half-initialized repository.
 		bg, cancel := context.WithTimeout(context.Background(), gitInitTimeout)
 		defer cancel()
-		branch, err := prepareGitOrigin(bg, dir)
-		s.finishGitServe(brandSlug, streamSlug, projectSlug, branch, err)
+		branch, created, err := prepareGitOrigin(bg, dir)
+		s.finishGitServe(brandSlug, streamSlug, projectSlug, branch, created, err)
 	}()
 	return ws, nil
 }
@@ -193,7 +193,7 @@ func (s *Service) EnableGitServe(ctx context.Context, brandSlug, streamSlug, pro
 // finishGitServe records the outcome of initialization and announces it.
 // It re-reads the workspace so a concurrent edit (rename, launch command)
 // isn't clobbered by the copy captured when initialization started.
-func (s *Service) finishGitServe(brandSlug, streamSlug, projectSlug, branch string, initErr error) {
+func (s *Service) finishGitServe(brandSlug, streamSlug, projectSlug, branch string, created bool, initErr error) {
 	r, err := s.repo()
 	if err != nil {
 		return
@@ -209,6 +209,11 @@ func (s *Service) finishGitServe(brandSlug, streamSlug, projectSlug, branch stri
 		ws.GitServe = model.GitServeReady
 		ws.GitServeError = ""
 		ws.DefaultBranch = branch
+		// A repository BRUV made is BRUV's to keep clean; one the user
+		// brought keeps its own commit discipline unless they opt in.
+		if created {
+			ws.CommitOnSave = true
+		}
 	}
 	if err := s.saveWorkspace(brandSlug, streamSlug, projectSlug, ws); err != nil {
 		return
@@ -233,22 +238,24 @@ func (s *Service) DisableGitServe(brandSlug, streamSlug, projectSlug string) (*m
 	return ws, nil
 }
 
-// prepareGitOrigin makes dir cloneable and returns the branch to track.
+// prepareGitOrigin makes dir cloneable and returns the branch to track,
+// plus whether BRUV created the repository (vs. found one).
 //
 // Existing repositories keep their history: BRUV only ensures there is a
 // commit to clone and that pushes from a checkout are accepted. A folder
 // that isn't a repository yet gets one, with everything committed.
-func prepareGitOrigin(ctx context.Context, dir string) (string, error) {
+func prepareGitOrigin(ctx context.Context, dir string) (branch string, created bool, err error) {
 	isRepo := false
 	if top, ok := gitOut(ctx, dir, "rev-parse", "--show-toplevel"); ok && top != "" {
 		isRepo = true
 	}
 	if !isRepo {
+		created = true
 		// -b needs git 2.28+; older git still works, it just names the
 		// branch by its own default.
 		if _, err := gitRun(ctx, dir, gitCmdTimeout, "init", "-b", "main"); err != nil {
 			if _, err := gitRun(ctx, dir, gitCmdTimeout, "init"); err != nil {
-				return "", err
+				return "", false, err
 			}
 		}
 	}
@@ -262,11 +269,11 @@ func prepareGitOrigin(ctx context.Context, dir string) (string, error) {
 		// is the one case where BRUV commits on the user's behalf — and
 		// only ever as the *first* commit of a repository it just made.
 		if _, err := gitRunArgs(ctx, dir, gitInitTimeout, bruvCommitter, "add", "-A"); err != nil {
-			return "", err
+			return "", created, err
 		}
 		if _, err := gitRunArgs(ctx, dir, gitInitTimeout, bruvCommitter,
 			"commit", "-m", "Initial commit (published by BRUV)", "--allow-empty"); err != nil {
-			return "", err
+			return "", created, err
 		}
 	}
 
@@ -275,14 +282,14 @@ func prepareGitOrigin(ctx context.Context, dir string) (string, error) {
 	// fast-forwards the working tree, but only when that tree is clean — so
 	// edits made directly on the host are never overwritten by a push.
 	if _, err := gitRun(ctx, dir, gitCmdTimeout, "config", "receive.denyCurrentBranch", "updateInstead"); err != nil {
-		return "", err
+		return "", created, err
 	}
 
-	branch, _ := gitOut(ctx, dir, "branch", "--show-current")
+	branch, _ = gitOut(ctx, dir, "branch", "--show-current")
 	if branch == "" {
 		branch = "main"
 	}
-	return branch, nil
+	return branch, created, nil
 }
 
 // GitServeDir returns the on-disk repository for a published workspace,

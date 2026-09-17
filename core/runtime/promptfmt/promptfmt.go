@@ -147,6 +147,40 @@ func FormatCardContent(card *model.Card) string {
 // string for text, etc.) and a raw %v dump produces garbage for the
 // complex ones — so we format each type cleanly so the LLM can see
 // what's already on the card and decide whether to append or replace.
+// WorkspaceFilePaths lists the paths named by a Workspace Files block
+// (folders suffixed with "/"), tolerant of both the typed and the
+// JSON-decoded value shapes.
+func WorkspaceFilePaths(b model.Block) []string {
+	var out []string
+	switch items := b.Value.(type) {
+	case []model.WorkspaceFileEntry:
+		for _, e := range items {
+			out = append(out, workspacePathLabel(e.Path, e.IsDir))
+		}
+	case []any:
+		for _, it := range items {
+			m, ok := it.(map[string]any)
+			if !ok {
+				continue
+			}
+			p, _ := m["path"].(string)
+			if p == "" {
+				continue
+			}
+			isDir, _ := m["is_dir"].(bool)
+			out = append(out, workspacePathLabel(p, isDir))
+		}
+	}
+	return out
+}
+
+func workspacePathLabel(p string, isDir bool) string {
+	if isDir && !strings.HasSuffix(p, "/") {
+		return p + "/"
+	}
+	return p
+}
+
 func FormatBlockValueForPrompt(b model.Block) string {
 	if b.Value == nil {
 		return ""
@@ -201,6 +235,13 @@ func FormatBlockValueForPrompt(b model.Block) string {
 			return s[:200] + "…"
 		}
 		return s
+
+	case model.BlockWorkspaceFiles:
+		paths := WorkspaceFilePaths(b)
+		if len(paths) == 0 {
+			return "(no files)"
+		}
+		return "[" + strings.Join(paths, " | ") + "]"
 
 	default:
 		// Single-value types: number, bool, string, date, etc.

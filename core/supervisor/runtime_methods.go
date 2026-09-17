@@ -108,6 +108,20 @@ func (r *Runtime) ReadCardAttachment(cardID, attachmentID string) ([]byte, *mode
 func (r *Runtime) RemoveCardAttachment(cardID, attachmentID string) (*model.Card, error) {
 	return r.Card.RemoveAttachment(cardID, attachmentID)
 }
+
+// OpenCardAttachmentText / StatCardAttachmentText / SaveCardAttachmentText
+// are the document editor's attachment source — the same open/stat/
+// guarded-save contract as the workspace file RPCs, so a text attachment
+// opens in the same editor on both surfaces.
+func (r *Runtime) OpenCardAttachmentText(cardID, attachmentID string) (*model.WorkspaceFileContent, error) {
+	return r.Card.OpenAttachmentText(cardID, attachmentID)
+}
+func (r *Runtime) StatCardAttachmentText(cardID, attachmentID string) (*model.WorkspaceFileStamp, error) {
+	return r.Card.StatAttachmentText(cardID, attachmentID)
+}
+func (r *Runtime) SaveCardAttachmentText(cardID, attachmentID, content, expectedHash string) (*model.WorkspaceSaveResult, error) {
+	return r.Card.SaveAttachmentText(cardID, attachmentID, content, expectedHash)
+}
 func (r *Runtime) UpdateCardTags(id string, tags []string) (*model.Card, error) {
 	return r.Card.UpdateTags(id, tags)
 }
@@ -1086,6 +1100,11 @@ func (r *Runtime) AcceptPinSuggestion(cardID, messageID string) error {
 	}
 	for i, m := range cf.Messages {
 		if m.ID == messageID && m.PinSuggestion != nil && m.PinSuggestion.Status == "pending" {
+			// A suggestion staged while the card was in the Inbox may be
+			// accepted after the user filed it by hand — never double-pin.
+			if existing, _ := r.repo.GetCardPins(cardID); len(existing) > 0 {
+				return fmt.Errorf("card is already filed on a board — move it by hand instead of pinning it again")
+			}
 			if err := r.PinCard(cardID, m.PinSuggestion.CategoryID); err != nil {
 				return err
 			}

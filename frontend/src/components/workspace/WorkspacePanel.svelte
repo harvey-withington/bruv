@@ -1,21 +1,27 @@
 <script lang="ts">
-  import { RefreshCw, Unlink, Briefcase, Plus, AlertTriangle, FolderOpen, Play, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree } from 'lucide-svelte'
-  import { DetachWorkspace, GetWorkspaceState, ListWorkspaceDir, OpenWorkspacePath, RefreshWorkspaceIndex, RunWorkspaceLaunchCommand, SetWorkspaceLaunchCommand } from '@shared/api'
+  import { RefreshCw, Unlink, Briefcase, Plus, AlertTriangle, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, MonitorSmartphone } from 'lucide-svelte'
+  import { DetachWorkspace, GetWorkspaceState, ListWorkspaceDir, RefreshWorkspaceIndex } from '@shared/api'
   import type { Workspace, WorkspaceCheckoutInfo, WorkspaceState } from '@shared/types'
   import { t } from '../../lib/i18n.svelte'
   import { showToast } from '../../lib/toast.svelte'
   import { showConfirm } from '../../lib/confirm.svelte'
   import { onEvent } from '../../lib/events'
   import { createWorkspaceDirCache } from '../../lib/workspaceTree.svelte'
-  import EditableText from '../EditableText.svelte'
+  import { refreshWorkspaceDirs } from '../../lib/workspaceLocations.svelte'
   import WorkspaceFileTree from './WorkspaceFileTree.svelte'
   import WorkspaceFileViewer from './WorkspaceFileViewer.svelte'
   import AttachWorkspaceDialog from './AttachWorkspaceDialog.svelte'
-  import WorkspaceLocalCopy from './WorkspaceLocalCopy.svelte'
+  import WorkspaceStructureActions from './WorkspaceStructureActions.svelte'
+  import WorkspaceDeviceSection from './WorkspaceDeviceSection.svelte'
   import { activeConnectionLabel, isLocalActive } from '../../lib/connections.svelte'
 
   // Geometry-less: fills its host (SidePanel tab pane), which owns width,
   // resize, slide animations, and closing.
+  //
+  // Three sections, in this order (plan/2026-09-17 workspace files block.md
+  // §5): FILES — the tree with the structure actions, the working surface;
+  // ON THIS DEVICE — clone/open/launch, collapsed by default so editing
+  // never reads as part of cloning; DETAILS — adapter, origin, warnings.
   let { brandSlug, streamSlug, projectSlug, openRequest = null, onRequestHandled }: {
     brandSlug: string
     streamSlug: string
@@ -29,6 +35,7 @@
   let refreshing = $state(false)
   let showAttach = $state(false)
   let openFilePath = $state<string | null>(null)
+  let structure = $state<WorkspaceStructureActions | null>(null)
 
   // On a remote connection the workspace's files sit on the server, so this
   // device's Tier 1 actions need its own working copy — which may or may not
@@ -37,13 +44,18 @@
   const serverName = activeConnectionLabel()
   let checkout = $state<WorkspaceCheckoutInfo | null>(null)
 
-  // Details expando — the meta section is reference info, the tree is the
-  // working surface; let the former fold away. Persisted per device.
-  const META_COLLAPSED_KEY = 'bruv:wsDetailsCollapsed'
-  let metaCollapsed = $state(localStorage.getItem(META_COLLAPSED_KEY) === '1')
-  function toggleMeta() {
-    metaCollapsed = !metaCollapsed
-    localStorage.setItem(META_COLLAPSED_KEY, metaCollapsed ? '1' : '0')
+  // Section expandos, persisted per device. Files is always open.
+  const DEVICE_KEY = 'bruv:wsDeviceCollapsed'
+  const DETAILS_KEY = 'bruv:wsDetailsCollapsed'
+  let deviceCollapsed = $state(localStorage.getItem(DEVICE_KEY) !== '0')
+  let detailsCollapsed = $state(localStorage.getItem(DETAILS_KEY) !== '0')
+  function toggleDevice() {
+    deviceCollapsed = !deviceCollapsed
+    localStorage.setItem(DEVICE_KEY, deviceCollapsed ? '1' : '0')
+  }
+  function toggleDetails() {
+    detailsCollapsed = !detailsCollapsed
+    localStorage.setItem(DETAILS_KEY, detailsCollapsed ? '1' : '0')
   }
 
   // The file tree browses lazily: one RPC per directory, on first expand.
@@ -137,36 +149,26 @@
     }
   }
 
-  async function saveLaunchCommand(cmd: string) {
-    try {
-      const ws = await SetWorkspaceLaunchCommand(brandSlug, streamSlug, projectSlug, cmd)
-      if (wsState) wsState = { ...wsState, workspace: ws }
-    } catch {
-      showToast(t('error.save_failed'), 'error')
-    }
-  }
-
   function onAttached(_ws: Workspace) {
     showAttach = false
     load()
   }
 
-  async function openFolder() {
-    if (!deviceRoot) return
-    try {
-      await OpenWorkspacePath(deviceRoot, '')
-    } catch (e) {
-      showToast(t('workspace.open_failed', { error: e instanceof Error ? e.message : String(e) }), 'error')
+  // A structure change (new file/folder, generated template): re-read the
+  // parent so the new entry appears, expand to it, and open a new file
+  // straight into the editor — creating a chapter and then hunting for it
+  // is the friction this exists to remove.
+  function onCreated(rel: string, kind: 'file' | 'dir') {
+    const parent = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : ''
+    void dirCache.reload(parent)
+    if (ws) refreshWorkspaceDirs(ws.id)
+    let p = ''
+    for (const seg of parent.split('/').filter(Boolean)) {
+      p = p ? `${p}/${seg}` : seg
+      treeCollapsed[p] = false
     }
-  }
-
-  async function runLaunch() {
-    if (!deviceRoot || !ws?.launch_command) return
-    try {
-      await RunWorkspaceLaunchCommand(deviceRoot, ws.launch_command)
-    } catch (e) {
-      showToast(t('workspace.launch_failed', { error: e instanceof Error ? e.message : String(e) }), 'error')
-    }
+    if (kind === 'file') openFilePath = rel
+    else treeCollapsed[rel] = false
   }
 
   const ws = $derived(wsState?.workspace)
@@ -179,21 +181,6 @@
   const deviceRoot = $derived(
     serverIsThisMachine ? ws?.origin.url : (checkout?.has_copy ? checkout.local_path : undefined),
   )
-
-  // Pick-to-fill launch suggestions, ordered by adapter (an Obsidian vault
-  // most likely opens in Obsidian; a repo in an editor). Free text stays
-  // the model — these just save you knowing that VS Code's binary is
-  // `code`, not `vscode`.
-  const launchSuggestions = $derived.by(() => {
-    if (!ws) return []
-    const obsidian = {
-      label: t('workspace.launch_suggest_obsidian'),
-      command: `obsidian://open?path=${encodeURIComponent(ws.origin.url ?? '')}`,
-    }
-    const vscode = { label: t('workspace.launch_suggest_vscode'), command: 'code .' }
-    const terminal = { label: t('workspace.launch_suggest_terminal'), command: 'wt -d .' }
-    return ws.adapter === 'obsidian-vault' ? [obsidian, vscode, terminal] : [vscode, terminal, obsidian]
-  })
 
   // Card-link open requests resolve once the workspace state is loaded.
   // Links are scoped to their own project's workspace in v1 — a link whose
@@ -232,100 +219,76 @@
     </div>
   {:else if ws}
     <div class="body">
-      <section class="meta">
-        <button class="section-toggle" onclick={toggleMeta} aria-expanded={!metaCollapsed}>
-          {#if metaCollapsed}<ChevronRight size={13} />{:else}<ChevronDown size={13} />{/if}
-          <span class="label">{t('workspace.details')}</span>
-          {#if metaCollapsed}
-            <span class="badge adapter">{ws.adapter}</span>
-          {/if}
-        </button>
-        {#if !metaCollapsed}
-        <div class="badge-row">
-          <span class="badge adapter">{ws.adapter}</span>
-          <span class="badge tier">{serverIsThisMachine || checkout?.has_copy ? t('workspace.tier_local') : t('workspace.tier_remote', { server: serverName })}</span>
-        </div>
-        <div class="meta-card">
-          {#if idx?.summary}
-            <p class="summary">{idx.summary}</p>
-          {/if}
-          {#if ws.origin.url}
-            <p class="origin" title={ws.origin.url}>{ws.origin.url}</p>
-          {/if}
-        </div>
-        {#if idx?.warnings?.length}
-          {#each idx.warnings as w (w)}
-            <p class="warning"><AlertTriangle size={12} /> {w}</p>
-          {/each}
-        {/if}
-        {/if}
-        <!-- Open/Launch stay reachable with Details collapsed — they're
-             the two actions in constant rotation. -->
-        {#if deviceRoot}
-        <div class="action-row">
-          <button class="btn" onclick={openFolder}><FolderOpen size={13} /> {t('workspace.open_folder')}</button>
-          {#if ws.launch_command}
-            <button class="btn" onclick={runLaunch} title={ws.launch_command}><Play size={13} /> {t('workspace.launch')}</button>
-          {/if}
-        </div>
-        {/if}
-        {#if !serverIsThisMachine}
-          <WorkspaceLocalCopy
-            {ws}
-            {brandSlug}
-            {streamSlug}
-            {projectSlug}
-            {serverName}
-            onCheckoutChange={(info) => checkout = info}
-          />
-        {/if}
-        {#if !metaCollapsed}
-        <div class="launch">
-          <span class="label">{t('workspace.launch_command')}</span>
-          <EditableText
-            value={ws.launch_command ?? ''}
-            placeholder={t('workspace.launch_placeholder')}
-            onSave={saveLaunchCommand}
-          />
-          {#if !ws.launch_command}
-            <p class="hint">{t('workspace.launch_hint')}</p>
-            <div class="chip-row">
-              {#each launchSuggestions as s (s.label)}
-                <button class="chip" title={s.command} onclick={() => saveLaunchCommand(s.command)}>{s.label}</button>
-              {/each}
-            </div>
-          {/if}
-        </div>
-        {/if}
-        <!-- Straddles the meta/files divider, same as the Sidebar's
-             cluster over the project-tree divider. -->
-        <div class="tree-ctrl-group">
-          <!-- Not `sidebar.expandAll`: this one can only expand cached
-               levels, and the label must not promise the whole tree. -->
-          <button class="tree-ctrl-btn" onclick={expandLoadedTree} title={t('workspace.expand_loaded')} aria-label={t('workspace.expand_loaded')}><ChevronsUpDown size={12} /></button>
-          <button class="tree-ctrl-btn" onclick={collapseAllTree} title={t('sidebar.collapseAll')} aria-label={t('sidebar.collapseAll')}><ChevronsDownUp size={12} /></button>
-          <button
-            class="tree-ctrl-btn"
-            onclick={toggleTreeMode}
-            aria-label={treeMode === 'single' ? t('project.mode_single') : t('project.mode_multi')}
-            title={treeMode === 'single' ? t('project.mode_single_hint') : t('project.mode_multi_hint')}
-          >
-            {#if treeMode === 'single'}
-              <ListCollapse size={12} />
-            {:else}
-              <ListTree size={12} />
-            {/if}
-          </button>
-        </div>
-      </section>
-
       <!-- The tree owns its own loading/error rows per directory, so the
            panel paints immediately and the root listing streams in. -->
       <section class="files">
-        <span class="label">{t('workspace.files')}</span>
-        <div class="tree-scroll">
-          <WorkspaceFileTree cache={dirCache} collapsed={treeCollapsed} mode={treeMode} onOpenFile={(p) => openFilePath = p} />
+        <div class="section-head">
+          <span class="label">{t('workspace.files')}</span>
+          <WorkspaceStructureActions bind:this={structure} {brandSlug} {streamSlug} {projectSlug} {onCreated} compact />
+          <div class="tree-ctrl-group">
+            <!-- Not `sidebar.expandAll`: this one can only expand cached
+                 levels, and the label must not promise the whole tree. -->
+            <button class="tree-ctrl-btn" onclick={expandLoadedTree} title={t('workspace.expand_loaded')} aria-label={t('workspace.expand_loaded')}><ChevronsUpDown size={12} /></button>
+            <button class="tree-ctrl-btn" onclick={collapseAllTree} title={t('sidebar.collapseAll')} aria-label={t('sidebar.collapseAll')}><ChevronsDownUp size={12} /></button>
+            <button
+              class="tree-ctrl-btn"
+              onclick={toggleTreeMode}
+              aria-label={treeMode === 'single' ? t('project.mode_single') : t('project.mode_multi')}
+              title={treeMode === 'single' ? t('project.mode_single_hint') : t('project.mode_multi_hint')}
+            >
+              {#if treeMode === 'single'}<ListCollapse size={12} />{:else}<ListTree size={12} />{/if}
+            </button>
+          </div>
         </div>
+        <div class="tree-scroll">
+          <WorkspaceFileTree
+            cache={dirCache}
+            collapsed={treeCollapsed}
+            mode={treeMode}
+            workspaceId={ws.id}
+            onOpenFile={(p) => openFilePath = p}
+            onCreateIn={(dir, kind) => structure?.open(dir, kind)}
+          />
+        </div>
+      </section>
+
+      <section class="expando">
+        <button class="section-toggle" onclick={toggleDevice} aria-expanded={!deviceCollapsed}>
+          {#if deviceCollapsed}<ChevronRight size={13} />{:else}<ChevronDown size={13} />{/if}
+          <MonitorSmartphone size={12} />
+          <span class="label">{t('workspace.on_this_device')}</span>
+          <span class="badge tier">{serverIsThisMachine || checkout?.has_copy ? t('workspace.tier_local') : t('workspace.tier_remote', { server: serverName })}</span>
+        </button>
+        {#if !deviceCollapsed}
+          <WorkspaceDeviceSection
+            {ws} {brandSlug} {streamSlug} {projectSlug} {serverIsThisMachine} {serverName} {deviceRoot}
+            onWorkspaceChange={(next) => { if (wsState) wsState = { ...wsState, workspace: next } }}
+            onCheckoutChange={(info) => checkout = info}
+          />
+        {/if}
+      </section>
+
+      <section class="expando">
+        <button class="section-toggle" onclick={toggleDetails} aria-expanded={!detailsCollapsed}>
+          {#if detailsCollapsed}<ChevronRight size={13} />{:else}<ChevronDown size={13} />{/if}
+          <span class="label">{t('workspace.details')}</span>
+          <span class="badge adapter">{ws.adapter}</span>
+        </button>
+        {#if !detailsCollapsed}
+          <div class="meta-card">
+            {#if idx?.summary}
+              <p class="summary">{idx.summary}</p>
+            {/if}
+            {#if ws.origin.url}
+              <p class="origin" title={ws.origin.url}>{ws.origin.url}</p>
+            {/if}
+          </div>
+          {#if idx?.warnings?.length}
+            {#each idx.warnings as w (w)}
+              <p class="warning"><AlertTriangle size={12} /> {w}</p>
+            {/each}
+          {/if}
+        {/if}
       </section>
     </div>
   {/if}
@@ -400,16 +363,85 @@
     flex-direction: column;
     overflow: hidden;
   }
-  .meta {
-    position: relative; /* anchors .tree-ctrl-group on the divider */
-    padding: 0.7rem 0.75rem;
-    border-bottom: 1px solid var(--border-muted);
+  .files {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 0.6rem 0.5rem 0.6rem 0.75rem;
+  }
+  .section-head {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .section-head .label { flex: 1; }
+  .tree-scroll {
+    flex: 1;
+    overflow: auto;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.3rem;
+  }
+  .tree-ctrl-group {
+    display: flex;
+    gap: 0.15rem;
+    border: 1px solid var(--border-muted);
+    border-radius: 4px;
+    padding: 0 0.1rem;
+  }
+  .tree-ctrl-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.1rem;
+    border: none;
+    border-radius: 3px;
+    background: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: color 0.12s, background 0.12s;
+  }
+  .tree-ctrl-btn:hover,
+  .tree-ctrl-btn:focus-visible {
+    color: var(--text-strong);
+    background: var(--bg-elevated);
+  }
+  .expando {
+    padding: 0.5rem 0.75rem;
+    border-top: 1px solid var(--border-muted);
     display: flex;
     flex-direction: column;
     gap: 0.45rem;
     flex-shrink: 0;
+    max-height: 45%;
+    overflow: auto;
   }
-  .badge-row { display: flex; gap: 0.35rem; }
+  .section-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.1rem 0;
+    border: none;
+    background: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    text-align: left;
+  }
+  .section-toggle .label { flex: 1; }
+  .section-toggle:hover .label,
+  .section-toggle:focus-visible .label {
+    color: var(--text-primary);
+  }
+  .label {
+    font-size: 0.66rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-faint);
+  }
   .badge {
     font-size: 0.66rem;
     font-weight: 600;
@@ -449,102 +481,6 @@
     margin: 0;
     font-size: 0.72rem;
     color: var(--warning, #f59e0b);
-  }
-  .label {
-    font-size: 0.66rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-faint);
-  }
-  .section-toggle {
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-    padding: 0.1rem 0;
-    border: none;
-    background: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    text-align: left;
-  }
-  .section-toggle:hover .label,
-  .section-toggle:focus-visible .label {
-    color: var(--text-primary);
-  }
-  /* Same control cluster as the Sidebar's project tree: centred over the
-     section divider (absolute at the meta section's bottom edge). */
-  .tree-ctrl-group {
-    position: absolute;
-    bottom: 0;
-    right: 0.5rem;
-    transform: translateY(50%);
-    display: flex;
-    gap: 0.15rem;
-    z-index: 1;
-    background: var(--bg-surface);
-    border: 1px solid var(--border-muted);
-    border-radius: 4px;
-    padding: 0 0.1rem;
-  }
-  .tree-ctrl-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.1rem;
-    border: none;
-    border-radius: 3px;
-    background: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    transition: color 0.12s, background 0.12s;
-  }
-  .tree-ctrl-btn:hover,
-  .tree-ctrl-btn:focus-visible {
-    color: var(--text-strong);
-    background: var(--bg-elevated);
-  }
-  .launch { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.78rem; }
-  .hint {
-    margin: 0.1rem 0 0;
-    font-size: 0.72rem;
-    color: var(--text-muted);
-    line-height: 1.4;
-  }
-  .chip-row { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.25rem; }
-  .chip {
-    padding: 0.2rem 0.55rem;
-    font-size: 0.72rem;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: var(--bg-elevated);
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: color 0.12s, border-color 0.12s;
-  }
-  .chip:hover,
-  .chip:focus-visible {
-    color: var(--text-primary);
-    border-color: var(--accent);
-  }
-  .action-row { display: flex; gap: 0.4rem; flex-wrap: wrap; }
-  .action-row .btn { padding: 0.28rem 0.6rem; font-size: 0.74rem; }
-
-  .files {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-    padding: 0.6rem 0.5rem 0.6rem 0.75rem;
-    overflow: hidden;
-  }
-  .tree-scroll {
-    flex: 1;
-    overflow: auto;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.3rem;
   }
   .muted { color: var(--text-faint); font-size: 0.78rem; padding: 0.6rem 0.75rem; }
 </style>

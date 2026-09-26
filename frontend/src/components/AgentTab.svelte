@@ -1,14 +1,16 @@
 <script lang="ts">
-  import { GetAgentConfig, SaveAgentConfig, TriggerAgent, CancelAgent, DeleteAgent, GetAgentRuns, IsLLMConfigured, ListAgentCardStates, GetLLMAccounts, ListMCPServers, ValidateSchedulePreview } from '@shared/api'
+  import { GetAgentConfig, SaveAgentConfig, TriggerAgent, CancelAgent, DeleteAgent, GetAgentRuns, IsLLMConfigured, ListAgentCardStates, ListMCPServers, ValidateSchedulePreview } from '@shared/api'
   import type { MCPServerView } from '@shared/types'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
   import { showConfirm } from '../lib/confirm.svelte'
   import { board } from '../lib/store.svelte'
   import { downloadBlob } from '@shared/download'
-  import type { AgentConfig, LLMAccount } from '@shared/types'
+  import type { AgentConfig, ModelRef } from '@shared/types'
   import { Timer, Play, Square, Download, Trash2 } from 'lucide-svelte'
-  import LLMAccountSelect from './LLMAccountSelect.svelte'
+  import ModelChoiceSelect from './ModelChoiceSelect.svelte'
+  import { llmRegistry, loadLLMRegistry } from '../lib/llmRegistry'
+  import { effectiveRef, refFromLegacyPair, refLabel } from '@shared/modelRefs'
   import { onMount, onDestroy } from 'svelte'
   import { onEvent } from '../lib/events'
 
@@ -42,9 +44,16 @@
   let status = $state<'idle' | 'running' | 'failed' | 'disabled'>('disabled')
   let notifyOn = $state<string[]>([])
   let notifyChannels = $state<string[]>([])
-  let llmAccountId = $state('')
-  let llmModel = $state('')
-  let llmAccounts = $state<LLMAccount[]>([])
+  // The agent's model choice. The pre-routing account/model pair is kept
+  // as loaded until the user picks something, so saving other settings
+  // never changes which model an old agent runs on.
+  let llmChoice = $state<ModelRef>('')
+  let legacyAccountId = $state('')
+  let legacyModel = $state('')
+  let llmChoiceTouched = $state(false)
+  let agentInheritLabel = $derived(t('llm_routing.inherit_default', {
+    label: refLabel(effectiveRef('', 'agent_run', llmRegistry.routing), llmRegistry.routing, t, t('llm_routing.first_model')),
+  }))
   let maxTokensBudget = $state(0)
   let minIntervalMins = $state(0)
   let maxRetries = $state(0)
@@ -173,10 +182,9 @@
     const seq = ++configLoadSeq
     if (!silent) loading = true
     try {
-      const [af, isConfigured, accounts, servers] = await Promise.all([GetAgentConfig(cardId), IsLLMConfigured(), GetLLMAccounts(), ListMCPServers()])
+      const [af, isConfigured, servers] = await Promise.all([GetAgentConfig(cardId), IsLLMConfigured(), ListMCPServers(), loadLLMRegistry(true)])
       if (seq !== configLoadSeq) return
       mcpServers = servers ?? []
-      llmAccounts = accounts || []
       llmConfigured = isConfigured
       enabled = af.config.enabled
       goal = af.config.goal
@@ -187,8 +195,10 @@
       // Parse comma-separated channels, filtering out "in-app" (it's always implicit)
       const rawChannels = (af.config.notify_channel || '').split(',').map((s: string) => s.trim()).filter((s: string) => s && s !== 'in-app')
       notifyChannels = rawChannels
-      llmAccountId = af.config.llm_account_id || ''
-      llmModel = af.config.llm_model || ''
+      legacyAccountId = af.config.llm_account_id || ''
+      legacyModel = af.config.llm_model || ''
+      llmChoice = af.config.llm || refFromLegacyPair(legacyAccountId, legacyModel, llmRegistry.routing)
+      llmChoiceTouched = false
       maxTokensBudget = af.config.max_tokens_budget || 0
       minIntervalMins = af.config.min_interval_minutes || 0
       maxRetries = af.config.max_retries || 0
@@ -255,8 +265,9 @@
         status: enabled ? (status === 'disabled' ? 'idle' : status) : 'disabled',
         notify_on: notifyOn,
         notify_channel: notifyChannels.length > 0 ? notifyChannels.join(',') : '',
-        llm_account_id: llmAccountId,
-        llm_model: llmModel,
+        llm: llmChoice,
+        llm_account_id: llmChoiceTouched ? '' : legacyAccountId,
+        llm_model: llmChoiceTouched ? '' : legacyModel,
         // Bookkeeping is preserved verbatim — the backend feeds
         // last_run_at into its schedule math, so nulling it here used
         // to re-fire one-shot agents and bypass min-interval. next_run_at
@@ -519,14 +530,15 @@
           ></textarea>
         </div>
 
-        {#if llmAccounts.length > 0}
+        {#if llmRegistry.routing.models.length > 0}
           <div class="config-card">
             <div class="config-label">{t('agent.llm_account')}</div>
-            <LLMAccountSelect
-              accounts={llmAccounts}
-              bind:selectedAccountId={llmAccountId}
-              bind:selectedModel={llmModel}
-              onchange={() => markDirty()}
+            <ModelChoiceSelect
+              value={llmChoice}
+              routing={llmRegistry.routing}
+              accounts={llmRegistry.accounts}
+              inheritLabel={agentInheritLabel}
+              onchange={(ref) => { llmChoice = ref; llmChoiceTouched = true; markDirty() }}
             />
           </div>
         {/if}

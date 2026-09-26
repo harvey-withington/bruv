@@ -329,9 +329,14 @@ func (idx *Index) Search(query string, limit int) ([]SearchResult, error) {
 	if len(words) == 0 {
 		return nil, nil
 	}
+	// Each word becomes a quoted FTS5 string with a prefix wildcard:
+	// `"non-fiction"*`. Unquoted, FTS5 reads `-` as NOT, `:` as a column
+	// filter and so on — "Non-Fiction" failed with "no such column:
+	// Fiction" (field report 2026-09-20). A double quote inside a term is
+	// doubled, which is FTS5's own escape.
 	for i, w := range words {
 		w = strings.TrimRight(w, "*")
-		words[i] = w + "*"
+		words[i] = `"` + strings.ReplaceAll(w, `"`, `""`) + `"*`
 	}
 	ftsQuery := strings.Join(words, " ")
 

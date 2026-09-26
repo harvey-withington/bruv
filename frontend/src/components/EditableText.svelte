@@ -3,12 +3,15 @@
   import { getContext } from 'svelte'
   import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import { inlineEdit } from '../lib/actions'
+  import { autoGrow } from '@shared/autoGrow'
+  import { mentionable } from '../lib/mentions.svelte'
   import { t } from '../lib/i18n.svelte'
 
   let {
     value = '',
     placeholder = t('tooltip.click_to_edit'),
     multiline = false,
+    grow = false,
     markdown = false,
     inlineMarkdown = false,
     rows = 4,
@@ -20,6 +23,9 @@
     value?: string
     placeholder?: string
     multiline?: boolean
+    /** With multiline: start one line tall and grow with the text (list /
+     *  checklist items) instead of a fixed `rows` box. */
+    grow?: boolean
     markdown?: boolean
     inlineMarkdown?: boolean
     rows?: number
@@ -70,7 +76,7 @@
   // (the keyboard entry contract); Tab-advance is this component's own
   // extra and runs from a separate listener.
   function handleTab(e: KeyboardEvent) {
-    if (e.key === 'Tab' && !multiline) {
+    if (e.key === 'Tab' && (!multiline || grow)) {
       e.preventDefault()
       save()
       onTab?.()
@@ -82,11 +88,23 @@
 </script>
 
 {#if editing}
-  {#if multiline}
+  {#if multiline && grow}
+    <textarea
+      class="inline-edit-input grow {className}"
+      bind:this={inputEl}
+      bind:value={draft}
+      use:autoGrow={{ minHeight: 0, maxHeight: 200 }}
+      use:mentionable
+      use:inlineEdit={{ multiline: true, onCommit: save, onCancel: cancel, scope: editScope }}
+      onkeydown={handleTab}
+      rows="1"
+    ></textarea>
+  {:else if multiline}
     <textarea
       class="inline-edit-input {className}"
       bind:this={inputEl}
       bind:value={draft}
+      use:mentionable
       use:inlineEdit={{ multiline: true, onCommit: save, onCancel: cancel, scope: editScope }}
       onkeydown={handleTab}
       {rows}
@@ -96,6 +114,7 @@
       class="inline-edit-input {className}"
       bind:this={inputEl}
       bind:value={draft}
+      use:mentionable
       use:inlineEdit={{ onCommit: save, onCancel: cancel, scope: editScope }}
       onkeydown={handleTab}
     />
@@ -126,6 +145,14 @@
 {/if}
 
 <style>
+  /* Wraps and grows (autoGrow sets the height); ~8 lines, then scrolls. */
+  textarea.grow {
+    display: block;
+    resize: none;
+    overflow-y: auto;
+    line-height: 1.4;
+    min-height: 0;
+  }
   .editable-placeholder {
     color: var(--text-muted);
     font-style: italic;

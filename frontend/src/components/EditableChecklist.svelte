@@ -2,9 +2,11 @@
   import { Square, CheckSquare, Trash2, ArrowUpRight, GripVertical } from 'lucide-svelte'
   import EditableText from './EditableText.svelte'
   import { t } from '../lib/i18n.svelte'
+  import { mentionable } from '../lib/mentions.svelte'
   import { getContext } from 'svelte'
   import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import { inlineEdit } from '../lib/actions'
+  import { autoGrow } from '@shared/autoGrow'
   import { computeReorder, wouldReorder, DROP_END } from '../lib/reorder'
 
   type ChecklistItem = { id: string; text: string; done: boolean }
@@ -22,7 +24,7 @@
   } = $props()
 
   let newText = $state('')
-  let addInputEl = $state<HTMLInputElement | null>(null)
+  let addInputEl = $state<HTMLTextAreaElement | null>(null)
 
   const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
 
@@ -186,6 +188,8 @@
       <EditableText
         value={item.text}
         inlineMarkdown
+        multiline
+        grow
         class="cl-text"
         onSave={(text) => saveItemText(item.id, text)}
         onTab={() => focusDeleteButton(item.id)}
@@ -202,14 +206,18 @@
 </div>
 
 <div class="cl-add">
-  <input
-    type="text"
+  <!-- Wraps and grows like the rows; Enter adds and re-arms, Shift+Enter
+       is a newline inside the item (keyboard contract §8). -->
+  <textarea
+    rows="1"
     bind:this={addInputEl}
     bind:value={newText}
-    use:inlineEdit={{ serial: true, onCommit: addItem, onCancel: cancelAdd, scope: editScope }}
+    use:autoGrow={{ minHeight: 0, maxHeight: 200, value: newText }}
+    use:mentionable
+    use:inlineEdit={{ serial: true, multiline: true, onCommit: addItem, onCancel: cancelAdd, scope: editScope }}
     placeholder={placeholder || t('card.checklist_placeholder')}
     class="cl-add-input"
-  />
+  ></textarea>
   <button class="cl-add-btn" onclick={addItem}>{t('common.add')}</button>
 </div>
 
@@ -268,7 +276,9 @@
 
   .cl-item {
     display: flex;
-    align-items: center;
+    /* Top-aligned: a multi-line item keeps its handle / tick / bullet on
+       the first line. */
+    align-items: flex-start;
     gap: 0.35rem;
     padding: 2px 0;
     border-radius: 4px;
@@ -290,6 +300,7 @@
     justify-content: center;
     width: 16px;
     height: 16px;
+    margin-top: 2px;
     opacity: 0;
     transition: opacity var(--duration-fast) var(--ease-out);
   }
@@ -315,12 +326,18 @@
     cursor: pointer;
     font-size: 1rem;
     padding: 0;
+    margin-top: 2px;
+    display: inline-flex;
   }
 
   :global(.cl-text) {
     flex: 1;
+    min-width: 0;
     font-size: 0.85rem;
+    line-height: 1.4;
     color: var(--text-body);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 
   .cl-promote {
@@ -334,12 +351,17 @@
 
   .cl-add {
     display: flex;
+    align-items: flex-start;
     gap: 0.4rem;
     margin-top: 0.4rem;
   }
 
   .cl-add-input {
     flex: 1;
+    display: block;
+    resize: none;
+    overflow-y: auto;
+    line-height: 1.4;
     padding: 0.3rem 0.5rem;
     border-radius: 4px;
     border: 1px solid var(--border);

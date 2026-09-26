@@ -7,6 +7,9 @@ input[type="checkbox"] {
 }
 
 :root {
+    /* Native widgets (select popups, scrollbars, date pickers) follow the
+       theme; without this WebView2 drew dropdown lists white in dark mode. */
+    color-scheme: dark;
     /* Surface */
     --bg-base: #18181b;
     --bg-surface: #1c1c1f;
@@ -97,6 +100,7 @@ input[type="checkbox"] {
 }
 
 [data-theme="light"] {
+    color-scheme: light;
     /* Surface */
     --bg-base: #f0f2f5;
     --bg-surface: #ebecf0;

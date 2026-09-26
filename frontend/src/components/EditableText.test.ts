@@ -133,4 +133,34 @@ describe('EditableText', () => {
 
     expect(onSave).not.toHaveBeenCalled()
   })
+
+  describe('grow (list / checklist items)', () => {
+    it('edits in a one-line textarea; Shift+Enter is a newline, Enter commits multi-line text', async () => {
+      const onSave = vi.fn()
+      const { container } = render(EditableText, { props: { value: 'Item', multiline: true, grow: true, onSave } })
+      await fireEvent.click(container.querySelector('.editable-display') as HTMLElement)
+      const ta = container.querySelector('textarea.inline-edit-input.grow') as HTMLTextAreaElement
+      expect(ta).toBeTruthy()
+      expect(ta.rows).toBe(1)
+
+      await fireEvent.input(ta, { target: { value: 'Line one\nLine two' } })
+      await fireEvent.keyDown(ta, { key: 'Enter', shiftKey: true })
+      expect(onSave).not.toHaveBeenCalled()
+
+      await fireEvent.keyDown(ta, { key: 'Enter' })
+      expect(onSave).toHaveBeenCalledWith('Line one\nLine two')
+    })
+
+    it('Tab still commits and advances', async () => {
+      const onSave = vi.fn()
+      const onTab = vi.fn()
+      const { container } = render(EditableText, { props: { value: 'Item', multiline: true, grow: true, onSave, onTab } })
+      await fireEvent.click(container.querySelector('.editable-display') as HTMLElement)
+      const ta = container.querySelector('textarea.grow') as HTMLTextAreaElement
+      await fireEvent.input(ta, { target: { value: 'Changed' } })
+      await fireEvent.keyDown(ta, { key: 'Tab' })
+      expect(onSave).toHaveBeenCalledWith('Changed')
+      expect(onTab).toHaveBeenCalledOnce()
+    })
+  })
 })

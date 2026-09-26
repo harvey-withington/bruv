@@ -19,6 +19,8 @@
   import { focusOnMount, inlineEdit, clickOutside } from '../lib/actions'
   import { promoteTargets } from '@shared/promote'
   import { asUrlValue, asWorkspaceFiles, asWorkspaceFilesDisplay } from '@shared/blockValues'
+  import { isMentionPickerOpenFor } from '@shared/mentions'
+  import { mentionable } from '../lib/mentions.svelte'
   import { getContext } from 'svelte'
   import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import { showToast } from '../lib/toast.svelte'
@@ -57,7 +59,6 @@
     expandedTextBlocks,
     // Read-only state from parent
     draggingBlockId,
-    mentionVisible,
     textBlockOverflows,
     // Element refs — bindable so parent can focus/measure them
     blockTextareaEls = $bindable(),
@@ -78,7 +79,6 @@
     onDelete,
     onPromote,
     onTextKeydown,
-    onTextInput,
     onSaveText,
     onSaveUrl,
     onToggleTextExpand,
@@ -96,7 +96,6 @@
     collapsedBlocks: Set<string>
     expandedTextBlocks: Set<string>
     draggingBlockId: string | null
-    mentionVisible: boolean
     textBlockOverflows: Set<string>
     blockTextareaEls: Record<string, HTMLTextAreaElement | null>
     textBlockEls: Record<string, HTMLElement | null>
@@ -113,7 +112,6 @@
     onDelete: (blockId: string) => void
     onPromote?: (block: Block, target: Block['type']) => void
     onTextKeydown: (e: KeyboardEvent, blockId: string) => void
-    onTextInput: (e: Event, blockId: string) => void
     onSaveText: (blockId: string) => void
     onSaveUrl: (blockId: string) => void
     onToggleTextExpand: (blockId: string) => void
@@ -249,11 +247,11 @@
             <textarea
               class="desc-textarea"
               use:focusOnMount
+              use:mentionable
               bind:this={blockTextareaEls[block.id]}
               bind:value={blockDrafts[block.id]}
               onkeydown={(e) => onTextKeydown(e, block.id)}
-              oninput={(e) => onTextInput(e, block.id)}
-              onblur={() => { if (!mentionVisible) onSaveText(block.id) }}
+              onblur={() => { if (!isMentionPickerOpenFor(blockTextareaEls[block.id])) onSaveText(block.id) }}
               rows="4"
             ></textarea>
           {:else}

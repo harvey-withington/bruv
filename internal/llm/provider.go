@@ -96,7 +96,7 @@ type Provider interface {
 // NewProvider creates a provider by name.
 func NewProvider(provider, apiKey, baseURL string) (Provider, error) {
 	switch provider {
-	case "openai":
+	case "openai", ProviderOpenAICompatible:
 		return NewOpenAI(apiKey, baseURL), nil
 	case "anthropic":
 		return NewAnthropic(apiKey, baseURL), nil

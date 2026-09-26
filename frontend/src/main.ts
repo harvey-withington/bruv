@@ -2,7 +2,7 @@ import './style.css'
 import { mount } from 'svelte'
 import { initBackend } from '@shared/adapters'
 import { NeedsEnrolmentError } from '@shared/adapters/cloud'
-import { GetCardProjectContext } from '@shared/api'
+import { installMentionLabelRefresh } from './lib/mentionLabels'
 import type { WailsWindow } from '@shared/types'
 import App from './App.svelte'
 import EnrolmentScreen from './components/EnrolmentScreen.svelte'
@@ -62,31 +62,6 @@ document.addEventListener('click', (e) => {
   }
 })
 
-// Resolve bruv:card link titles from the index at render time.
-// Links with an explicit title attribute (user override) are left untouched.
-const CARD_LINK_SEL = '.bruv-link[data-bruv^="card:"]:not([title])'
-
-function resolveBruvTitles(root: Element | Document) {
-  const links = root.querySelectorAll<HTMLAnchorElement>(CARD_LINK_SEL)
-  for (const link of links) {
-    const cardId = link.getAttribute('data-bruv')!.slice(5)
-    GetCardProjectContext(cardId).then(ctx => { if (ctx) link.title = ctx })
-  }
-}
-
-const observer = new MutationObserver((mutations) => {
-  for (const m of mutations) {
-    for (const node of m.addedNodes) {
-      if (!(node instanceof HTMLElement)) continue
-      if (node.matches?.(CARD_LINK_SEL)) {
-        const cardId = node.getAttribute('data-bruv')!.slice(5)
-        GetCardProjectContext(cardId).then(ctx => { if (ctx) node.title = ctx })
-      }
-      resolveBruvTitles(node)
-    }
-  }
-})
-observer.observe(document.body, { childList: true, subtree: true })
 
 // Boot the backend adapter. If the cloud adapter reports that the
 // user hasn't enrolled yet (browser mode, no Wails shell, no saved
@@ -96,6 +71,9 @@ observer.observe(document.body, { childList: true, subtree: true })
 initBackend()
   .then(() => {
     mount(App, { target: document.getElementById('app')! })
+    // Mention links follow the card's live title + breadcrumb (needs the
+    // backend, hence after init).
+    installMentionLabelRefresh()
   })
   .catch((err) => {
     if (err instanceof NeedsEnrolmentError) {

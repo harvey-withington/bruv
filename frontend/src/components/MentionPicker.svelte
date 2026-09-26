@@ -5,6 +5,7 @@
   import { showToast } from '../lib/toast.svelte'
   import { getCardTypeColor } from '@shared/cardTypes'
   import { cardTypes } from '../lib/store.svelte'
+  import { mentionMarkdown } from '@shared/mentions'
 
   type PickerItem = {
     type: 'card' | 'project'
@@ -136,18 +137,21 @@
       selectedIndex = Math.max(selectedIndex - 1, 0)
     } else if (e.key === 'Enter') {
       e.preventDefault()
+      e.stopPropagation()
       if (items.length > 0) {
         selectItem(items[selectedIndex])
       }
     } else if (e.key === 'Escape') {
+      // Consumed here: the card dialog underneath must not close (or
+      // cancel the edit) on the picker's Escape.
       e.preventDefault()
+      e.stopPropagation()
       onClose()
     }
   }
 
   function selectItem(item: PickerItem) {
-    const markdown = `[${item.label}](${item.link})`
-    onSelect(markdown)
+    onSelect(mentionMarkdown(item.label, item.link))
   }
 </script>
 

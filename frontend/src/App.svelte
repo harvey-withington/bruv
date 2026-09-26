@@ -1,5 +1,7 @@
 <script lang="ts">
   import { nav, board, prefs as prefsStore, loadCardTypes, loadGlobalTagColors, setupAgentEventListeners } from './lib/store.svelte'
+  import MentionPicker from './components/MentionPicker.svelte'
+  import { mentionHost, selectMention, closeMentionPicker } from './lib/mentions.svelte'
   import { onMount, onDestroy } from 'svelte'
   import { loadTheme } from './lib/theme.svelte'
   import { loadNotifications, handleNewNotification, type NotificationPayload } from './lib/notifications.svelte'
@@ -31,7 +33,7 @@
   import { installResilience } from './lib/connectivity.svelte'
   import { resolveTransportInfo } from '@shared/adapters/cloud'
 
-  import { GetUIPreferences, SetUIPreferences, GetCurrentRepo, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, ToggleProjectChatBookmark, IsLLMConfigured, GetLocalServerStatus } from '@shared/api'
+  import { GetUIPreferences, SetUIPreferences, GetCurrentRepo, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, ToggleProjectChatBookmark, GetProjectChatModel, SetProjectChatModel, IsLLMConfigured, GetLocalServerStatus } from '@shared/api'
 
   // Restore persisted preferences
   loadTheme()
@@ -471,6 +473,8 @@
                   clearFn={() => ClearProjectChatHistory(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!)}
                   applyFn={(msgID, acceptIDs) => ApplyProjectPendingEdits(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, msgID, acceptIDs)}
                   bookmarkFn={(messageID) => ToggleProjectChatBookmark(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, messageID)}
+                  loadModelFn={() => GetProjectChatModel(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!)}
+                  saveModelFn={(ref) => SetProjectChatModel(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, ref)}
                 />
               </div>
               <div class="sp-tab-pane" class:pane-hidden={active !== 'workspace'}>
@@ -531,6 +535,14 @@
 {#if showAbout}
   <AboutDialog onClose={() => showAbout = false} />
 {/if}
+
+<!-- The single @mention picker for every editor (lib/mentions.svelte.ts). -->
+<MentionPicker
+  visible={mentionHost.request !== null}
+  anchor={mentionHost.request?.anchor ?? null}
+  onSelect={selectMention}
+  onClose={closeMentionPicker}
+/>
 
 <Toast />
 <ConfirmDialog />

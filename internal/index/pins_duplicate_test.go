@@ -32,3 +32,25 @@ func TestIndexPinsToleratesDuplicateCategory(t *testing.T) {
 		t.Errorf("the non-duplicate pin must still be indexed, got %v", ids)
 	}
 }
+
+// FTS5 treats `-`, `:` and friends as syntax; every search term is quoted
+// so a hyphenated title is findable and a stray colon isn't a column.
+func TestSearchQuotesOperatorCharacters(t *testing.T) {
+	r, idx := setupTestRepoWithIndex(t)
+	card, err := r.CreateCard("", "Books (Non-Fiction): a title with punctuation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.IndexCard(card, time.Now(), ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{"Non-Fiction", "non-fic", "Fiction:", `"quoted"`, "punct"} {
+		if _, err := idx.Search(q, 10); err != nil {
+			t.Errorf("Search(%q) errored: %v", q, err)
+		}
+	}
+	hits, err := idx.Search("Non-Fic", 10)
+	if err != nil || len(hits) != 1 || hits[0].CardID != card.ID {
+		t.Fatalf("hyphenated prefix search = %v, %v", hits, err)
+	}
+}

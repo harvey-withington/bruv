@@ -12,7 +12,7 @@
   // small placeholder rather than crashing.
 
   import { tick, untrack, getContext } from 'svelte'
-  import { Trash2, Pencil, Eye, PencilLine, ChevronDown, ChevronRight } from 'lucide-svelte'
+  import { Trash2, Pencil, ChevronDown, ChevronRight } from 'lucide-svelte'
   import { inlineEdit } from '@shared/inlineEdit'
   import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import type { Block } from '@shared/types'
@@ -105,15 +105,6 @@
   }
 
   let confirmingDelete = $state(false)
-
-  // Text blocks toggle between edit and preview. The state lives here so
-  // the toggle button can sit alongside the trash button in this shared
-  // toolbar (a row per-block is enough — TextBlock used to render its
-  // own toolbar, which doubled the vertical space).
-  let textMode = $state<'edit' | 'preview'>('edit')
-  function toggleTextMode() {
-    textMode = textMode === 'edit' ? 'preview' : 'edit'
-  }
 </script>
 
 <section class="block" class:has-label={!ownsLabel} class:collapsed={isCollapsed} data-block-id={block.id}>
@@ -157,21 +148,6 @@
     {:else}
       <span class="spacer"></span>
     {/if}
-    {#if block.type === 'text'}
-      <button
-        type="button"
-        class="icon-btn"
-        onclick={toggleTextMode}
-        aria-label={textMode === 'edit' ? t('block.text.show_preview') : t('block.text.show_edit')}
-        title={textMode === 'edit' ? t('block.text.show_preview') : t('block.text.show_edit')}
-      >
-        {#if textMode === 'edit'}
-          <Eye size={13} />
-        {:else}
-          <PencilLine size={13} />
-        {/if}
-      </button>
-    {/if}
     <button
       type="button"
       class="icon-btn trash-btn"
@@ -185,7 +161,7 @@
 
   <div class="block-body" hidden={isCollapsed}>
     {#if block.type === 'text'}
-      <TextBlock {block} mode={textMode} {onChange} />
+      <TextBlock {block} {onChange} />
     {:else if block.type === 'checklist'}
       <ChecklistBlock {block} {onChange} onCrossMove={onMoveChecklistItem} />
     {:else if block.type === 'list'}

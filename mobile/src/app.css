@@ -192,3 +192,17 @@ body.dnd-no-select * {
 }
 
 
+
+/* Internal BRUV links (@mentions rendered by shared/markdown.ts). No href —
+   lib/mentions.svelte.ts' click delegate navigates. */
+.bruv-link {
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+  border-bottom: 1px dashed var(--accent);
+}
+.bruv-link::before {
+  content: '⌘ ';
+  font-size: 0.8em;
+  opacity: 0.6;
+}

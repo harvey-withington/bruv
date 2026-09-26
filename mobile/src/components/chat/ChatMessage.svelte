@@ -3,6 +3,7 @@
   import { renderMarkdown } from '@shared/markdown'
   import { t } from '../../lib/i18n.svelte'
   import type { ChatMessage, ToolAction, PendingEdit } from './types'
+  import { decisionLabel, describeDecision } from '@shared/modelRefs'
 
   let {
     msg,
@@ -25,6 +26,10 @@
   // Per-message checkbox state for the pending-edits review block.
   // Initialised to all-pending-checked when the message first renders.
   let checked = $state<Record<string, boolean>>({})
+
+  // Tapping the model name under a reply explains the choice (no hover
+  // on a phone).
+  let showRoute = $state(false)
 
   $effect(() => {
     if (!msg.pending_edits?.length) return
@@ -67,6 +72,13 @@
     const next = { ...checked }
     for (const e of pendingEdits()) next[e.id] = value
     checked = next
+  }
+
+  // What the row says on long-press: the proposal, or for a failed edit
+  // the reason it was refused (the proposal stays in the label).
+  function editTooltip(edit: PendingEdit): string {
+    if (edit.status === 'failed' && edit.error) return t('chat.edit_failed_reason', { reason: edit.error })
+    return edit.detail
   }
 
   function previewEditValue(detail: string | undefined): string {
@@ -186,11 +198,12 @@
         {/if}
       </header>
       {#each msg.pending_edits as e (e.id)}
+        {@const tooltip = editTooltip(e)}
         <div
           class="edit-row"
           class:accepted={e.status === 'accepted'}
           class:rejected={e.status === 'rejected'}
-          class:errored={e.status === 'pending' && e.detail?.startsWith('error:')}
+          class:failed={e.status === 'failed'}
         >
           {#if e.status === 'pending'}
             <input
@@ -200,13 +213,17 @@
               onchange={() => (checked = { ...checked, [e.id]: !checked[e.id] })}
             />
           {:else if e.status === 'accepted'}
-            <Check size={11} class="edit-resolved-ok" />
+            <Check size={11} class="edit-resolved-ok" aria-label={t('chat.edit_accepted')} />
+          {:else if e.status === 'failed'}
+            <span class="edit-failed-mark" role="img" aria-label={t('chat.edit_failed')} title={tooltip}>
+              <X size={11} class="edit-resolved-failed" />
+            </span>
           {:else}
-            <X size={11} class="edit-resolved-bad" />
+            <X size={11} class="edit-resolved-bad" aria-label={t('chat.edit_rejected')} />
           {/if}
           <span class="edit-label">{e.label}</span>
-          {#if e.detail}
-            <span class="edit-preview" title={e.detail}>{previewEditValue(e.detail)}</span>
+          {#if tooltip}
+            <span class="edit-preview" title={tooltip}>{previewEditValue(e.status === 'failed' ? e.error || e.detail : e.detail)}</span>
           {/if}
         </div>
       {/each}
@@ -244,7 +261,15 @@
     </div>
   {/if}
 
-  <span class="time">{formatTime(msg.timestamp)}</span>
+  <span class="time">
+    {formatTime(msg.timestamp)}
+    {#if msg.route}
+      · <button type="button" class="route-tag" onclick={() => (showRoute = !showRoute)} aria-expanded={showRoute}>{decisionLabel(msg.route)}</button>
+    {/if}
+  </span>
+  {#if msg.route && showRoute}
+    <p class="route-detail">{describeDecision(msg.route, t)}</p>
+  {/if}
 </article>
 
 <style>
@@ -305,6 +330,21 @@
     margin-top: 4px;
   }
   .msg-user .time { color: rgba(255,255,255,0.7); text-align: right; }
+  .route-tag {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-decoration: underline dotted;
+    cursor: pointer;
+  }
+  .route-detail {
+    margin: 4px 0 0;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    white-space: pre-line;
+  }
 
   .tools {
     margin-top: 4px;
@@ -392,14 +432,17 @@
     text-decoration: line-through;
     opacity: 0.45;
   }
-  .edit-row.errored {
-    background: rgba(239, 68, 68, 0.08);
+  /* Failed: accepted, but refused at apply time. Reason in the title tooltip. */
+  .edit-row.failed {
+    background: color-mix(in srgb, var(--danger-border) 10%, transparent);
     border-radius: 4px;
     padding: 2px 4px;
   }
-  .edit-row.errored .edit-preview { color: #ef4444; }
-  :global(.edit-resolved-ok) { color: #22c55e; flex-shrink: 0; }
+  .edit-row.failed .edit-preview { color: var(--danger-border); }
+  .edit-failed-mark { display: inline-flex; flex-shrink: 0; }
+  :global(.edit-resolved-ok) { color: var(--success-border); flex-shrink: 0; }
   :global(.edit-resolved-bad) { color: var(--text-muted); flex-shrink: 0; }
+  :global(.edit-resolved-failed) { color: var(--danger-border); flex-shrink: 0; }
   .edit-label {
     flex: 1 1 auto;
     min-width: 0;

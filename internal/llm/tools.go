@@ -252,7 +252,7 @@ func CardTools(cardTypes []string, categories []map[string]string, mcpToolIDs []
 
 	tools = append(tools, ToolDef{
 		Name:        "suggest_pin",
-		Description: "File this Inbox card on a board (it is offered only while the card has no location). STRONGLY prefer category_id from the existing categories list. Only provide brand/stream/project/category names to create a new location if no existing category is appropriate.",
+		Description: "File this Inbox card on a board (it is offered only while the card has no location). STRONGLY prefer category_id from the existing categories list. A category listed with [accepts: …] takes only those card types: if it is the best location, call set_card_type with the accepted type that best describes the card first (same response), then pin here; only pick another category if none of its accepted types fits the card. Only provide brand/stream/project/category names to create a new location if no existing category is appropriate.",
 		Parameters: map[string]any{
 			"type":       "object",
 			"properties": pinProps,

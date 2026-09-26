@@ -3,6 +3,8 @@
 // internal/model/model.go's ChatMessage / ToolAction / PendingEdit
 // structs.
 
+import type { RouteDecision } from '@shared/types'
+
 export type ChatRole = 'user' | 'assistant' | 'system'
 
 export type PendingEdit = {
@@ -11,7 +13,10 @@ export type PendingEdit = {
   input: Record<string, unknown>
   label: string
   detail: string
-  status: 'pending' | 'accepted' | 'rejected'
+  /** `failed` = accepted, but the tool refused it at apply time; terminal. */
+  status: 'pending' | 'accepted' | 'rejected' | 'failed'
+  /** Why a `failed` edit did not apply. */
+  error?: string
 }
 
 export type ToolAction = {
@@ -36,6 +41,8 @@ export type ChatMessage = {
   tool_actions?: ToolAction[]
   pin_suggestion?: PinSuggestion
   pending_edits?: PendingEdit[]
+  /** Which model answered and why. */
+  route?: RouteDecision
 }
 
 export type ChatFile = {

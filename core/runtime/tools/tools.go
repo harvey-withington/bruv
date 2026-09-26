@@ -875,6 +875,15 @@ func (d *Dispatcher) toolSuggestPin(cardID string, card *model.Card, tc llm.Tool
 		if catName == "" {
 			return "error: category not found", nil, nil
 		}
+		// Same refusal the Suggest path gives at staging, so the model is
+		// steered the same way (change the type, keep the location) in
+		// edit mode. Type read from disk: a set_card_type earlier in this
+		// response has already landed there.
+		if current, err := d.deps.Repo().GetCard(cardID); err == nil {
+			if conflict := PinTypeConflict(allCats, catID, current.Type); conflict != "" {
+				return conflict, nil, nil
+			}
+		}
 	} else {
 		// Create new hierarchy from brand/stream/project/category names
 		brandName, _ := tc.Arguments["brand"].(string)

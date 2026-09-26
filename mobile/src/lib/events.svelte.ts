@@ -90,6 +90,20 @@ export function startEvents(): void {
 }
 
 /**
+ * Replace the SSE connection with a fresh one. Called on reconnect:
+ * EventSource's own retry gives up for good on some failures (it goes
+ * CLOSED on a non-200 answer from a half-up tunnel) and a socket opened
+ * on the old network can linger half-dead after a network switch. Events
+ * published during the outage are gone either way — pages refetch on
+ * reconnect for that.
+ */
+export function restartEvents(): void {
+  if (!readActiveRepoID()) return
+  detach()
+  startEvents()
+}
+
+/**
  * Tear down the SSE connection. Used when the user un-pairs / clears
  * enrolment, or when switching repos before re-attaching.
  */

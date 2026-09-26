@@ -266,7 +266,7 @@ func toolDefs(rt *supervisor.Runtime, repoName string) []mcp.Tool {
 				"project":     strProp("Project to file under (created if missing)."),
 				"category":    strProp("Category to file the card into (created if missing)."),
 				"tags":        strArr("Tags to add to the card."),
-				"description": strProp("Freeform description text for the card."),
+				"description": strProp("Freeform description text for the card (Markdown)." + mentionNote),
 				"blocks":      blockArrayProp("Structured content blocks to add to the card."),
 			}, "title"),
 		},
@@ -274,7 +274,7 @@ func toolDefs(rt *supervisor.Runtime, repoName string) []mcp.Tool {
 		// --- Populate existing cards ---
 		{
 			Name:        "add_card_blocks",
-			Description: "Append structured content blocks to an existing card in " + board + ".",
+			Description: "Append structured content blocks to an existing card in " + board + "." + mentionNote,
 			InputSchema: obj(map[string]any{
 				"card_id": strProp("The card's id."),
 				"blocks":  blockArrayProp("Blocks to append."),
@@ -283,7 +283,7 @@ func toolDefs(rt *supervisor.Runtime, repoName string) []mcp.Tool {
 		{
 			Name: "set_card_fields",
 			Description: "Set values on a card's existing typed fields in " + board + ", matched by field key. " +
-				"Use get_card first to see the available field keys.",
+				"Use get_card first to see the available field keys." + mentionNote,
 			InputSchema: obj(map[string]any{
 				"card_id": strProp("The card's id."),
 				"fields": map[string]any{
@@ -316,7 +316,7 @@ func toolDefs(rt *supervisor.Runtime, repoName string) []mcp.Tool {
 				"distinct from its blocks. Call this when the user asks to describe, summarise or explain a card. Markdown is rendered.",
 			InputSchema: obj(map[string]any{
 				"card_id":     strProp("The card's id."),
-				"description": strProp("New description (Markdown). Empty string clears it."),
+				"description": strProp("New description (Markdown). Empty string clears it." + mentionNote),
 			}, "card_id", "description"),
 		},
 		{
@@ -421,3 +421,7 @@ func toolDefs(rt *supervisor.Runtime, repoName string) []mcp.Tool {
 		},
 	}
 }
+
+// mentionNote teaches assistants the one markup for cross-card links, so
+// they stop pasting raw ids into item text (field report 2026-09-15).
+const mentionNote = " To link another card inside any text (description, block text, list or checklist items, captions, comments), write a mention as Markdown: [Card title](bruv:card:<card id>) - ids come from search_cards / list_cards / get_card. It renders as a clickable link on every surface."

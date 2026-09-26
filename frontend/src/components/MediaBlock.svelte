@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Trash2, ExternalLink } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
+  import { mentionable } from '../lib/mentions.svelte'
   import { getContext } from 'svelte'
   import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import { parseAttachmentRef } from '@shared/attachmentRefs'
@@ -115,6 +116,7 @@
           <input
             class="media-caption"
             type="text"
+            use:mentionable
             value={item.caption || ''}
             onchange={(e) => updateCaption(item.id, (e.target as HTMLInputElement).value)}
             placeholder={t('block.media_caption_placeholder')}

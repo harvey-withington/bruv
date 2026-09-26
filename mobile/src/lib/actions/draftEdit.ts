@@ -30,6 +30,7 @@
 // changed, onCancel reverts it to the last committed value.
 
 import type { EditScope } from '@shared/editScope'
+import { isMentionPickerOpenFor } from '@shared/mentions'
 
 export interface DraftEditParams {
   /** Persist the draft (no-op when unchanged — caller's decision). */
@@ -115,6 +116,8 @@ export function draftEdit(
   }
 
   function handleBlur() {
+    // The @mention sheet takes focus mid-entry; not the user leaving.
+    if (isMentionPickerOpenFor(node)) return
     commit() // no-op when Enter/Escape already settled the session
     deregister()
   }

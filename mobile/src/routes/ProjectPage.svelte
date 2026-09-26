@@ -784,6 +784,32 @@
     }
   }
 
+  // --- Category reorder ----------------------------------------------
+  // Long-press a category's name and drag to reorder. A second
+  // dragSortable on the .cat-sorter wrapper owns the <section> rows;
+  // the inner one on .categories owns card rows and stops propagation
+  // for any press that lands on a card, so the two never arm together
+  // (the nesting pattern BrowsePage uses for brand › stream › project).
+  // The handle gate keeps the header's + and ⋮ buttons, and the
+  // rename input, out of the pickup area.
+  async function handleCategoryDrop(detail: DragMoveDetail) {
+    const idx = categories.findIndex((c) => c.id === detail.cardID)
+    if (idx === -1) return
+    const updated = [...categories]
+    const [moved] = updated.splice(idx, 1)
+    const toIdx = Math.max(0, Math.min(detail.toPosition, updated.length))
+    if (toIdx === idx) return
+    updated.splice(toIdx, 0, moved)
+    categories = updated
+    const [brandSlug, streamSlug, projectSlug] = [brand, stream, project]
+    try {
+      await repoRPC('ReorderCategories', [brandSlug, streamSlug, projectSlug, updated.map((c) => c.slug)])
+    } catch (err) {
+      showToast(`${t('project.err_reorder_category')} ${err instanceof Error ? err.message : ''}`.trim(), 'error')
+      void reloadProject()
+    }
+  }
+
   // Rewrite every card's stored position in a category to its new
   // contiguous index. Positions are absolute per-pin and the backend
   // never shifts siblings, so any reorder must re-persist the whole
@@ -853,7 +879,18 @@
       </button>
     </div>
     <div
+      class="cat-sorter"
+      use:dragSortable={{
+        onMove: handleCategoryDrop,
+        rowSelector: '[data-category-id]',
+        dropTargetSelector: '[data-drop-target="category-list"]',
+        rowIdAttribute: 'data-category-id',
+        handleSelector: '.cat-toggle:not(.renaming)',
+      }}
+    >
+    <div
       class="categories"
+      data-drop-target="category-list"
       use:dragSortable={{
         onMove: handleDnDMove,
         onHoverExpand: handleHoverExpand,
@@ -1001,6 +1038,7 @@
         <Plus size={14} />
         <span>{t('project.add_category')}</span>
       </button>
+    </div>
     </div>
   {/if}
 </main>
@@ -1238,6 +1276,9 @@
     display: flex;
     align-items: center;
     gap: 0.4rem;
+    /* The category drag handle: vertical pans still scroll the page
+       until the long-press arms (see dnd.svelte.ts MOVE_CANCEL_PX). */
+    touch-action: pan-y;
     flex: 1;
     min-width: 0;
     padding: 0.65rem 0.6rem;
@@ -1327,6 +1368,16 @@
      away has no card rows left, so the placeholder reappears — the
      category reads as emptied, matching where the card now is. */
   .cards:has([data-card-id]) .empty-hint {
+    display: none;
+  }
+
+  /* Category drag: every body collapses so the rows are short enough to
+     reorder by touch, and the ghost clone (appended to <body>, outside
+     this tree) hides its body the same way. Open menus go too. */
+  .cat-sorter:global(.dnd-active) .cat-body,
+  .cat-sorter:global(.dnd-active) .row-menu,
+  :global(.dnd-ghost) .cat-body,
+  :global(.dnd-ghost) .row-menu {
     display: none;
   }
 

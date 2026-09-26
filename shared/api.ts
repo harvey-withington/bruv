@@ -2,7 +2,7 @@
 
 import { getBackend } from './adapters'
 
-export type { UserProfile, AuthInfo, LLMConfig, LLMAccount, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard, AgentConfig, AgentRun, AgentFile, AgentStatus, AgentSummary, AgentRunEntry, AgentAnalytics, AppNotification, NotifyConfig, BuildInfo, UpdateCheckResult, CardTypesImportMode, CardTypesImportResult, MCPServerSpec, MCPServerView, MCPServerHealth, MCPHealthStatus, MCPServerViewTool, Connection, ConnectionStore, ProjectMember } from './types'
+export type { UserProfile, AuthInfo, LLMConfig, LLMAccount, LLMModel, LLMRouter, LLMRouting, ModelRef, RouteDecision, RoutePreview, DiscoveredModel, BackendCapabilities, BackendEvent, CardTypeInfo, UserCardType, CardTemplate, Attachment, ActivityEntry, RecentCard, AgentConfig, AgentRun, AgentFile, AgentStatus, AgentSummary, AgentRunEntry, AgentAnalytics, AppNotification, NotifyConfig, BuildInfo, UpdateCheckResult, CardTypesImportMode, CardTypesImportResult, MCPServerSpec, MCPServerView, MCPServerHealth, MCPHealthStatus, MCPServerViewTool, Connection, ConnectionStore, ProjectMember } from './types'
 
 // Capabilities
 export const getCapabilities = () => getBackend().getCapabilities()
@@ -282,6 +282,7 @@ export const ForceQuit = () => getBackend().ForceQuit()
 // Chat
 export const LoadChatHistory = (...args: Parameters<ReturnType<typeof getBackend>['LoadChatHistory']>) => getBackend().LoadChatHistory(...args)
 export const SendChatMessage = (...args: Parameters<ReturnType<typeof getBackend>['SendChatMessage']>) => getBackend().SendChatMessage(...args)
+export const PopulateCardWithAI = (...args: Parameters<ReturnType<typeof getBackend>['PopulateCardWithAI']>) => getBackend().PopulateCardWithAI(...args)
 
 // Project chat
 export const LoadProjectChatHistory = (...args: Parameters<ReturnType<typeof getBackend>['LoadProjectChatHistory']>) => getBackend().LoadProjectChatHistory(...args)
@@ -291,14 +292,25 @@ export const SendProjectChatMessage = (...args: Parameters<ReturnType<typeof get
 export const ClearProjectChatHistory = (...args: Parameters<ReturnType<typeof getBackend>['ClearProjectChatHistory']>) => getBackend().ClearProjectChatHistory(...args)
 export const ClearCardChatHistory = (...args: Parameters<ReturnType<typeof getBackend>['ClearCardChatHistory']>) => getBackend().ClearCardChatHistory(...args)
 
-// LLM accounts
+// LLM providers, models and routing
 export const GetLLMAccounts = () => getBackend().GetLLMAccounts()
 export const SaveLLMAccounts = (...args: Parameters<ReturnType<typeof getBackend>['SaveLLMAccounts']>) => getBackend().SaveLLMAccounts(...args)
-export const TestLLMAccountConnection = (...args: Parameters<ReturnType<typeof getBackend>['TestLLMAccountConnection']>) => getBackend().TestLLMAccountConnection(...args)
+export const GetLLMRouting = () => getBackend().GetLLMRouting()
+export const GetLLMRegistry = () => getBackend().GetLLMRegistry()
+export const SaveLLMRouting = (...args: Parameters<ReturnType<typeof getBackend>['SaveLLMRouting']>) => getBackend().SaveLLMRouting(...args)
+export const DiscoverLLMModels = (...args: Parameters<ReturnType<typeof getBackend>['DiscoverLLMModels']>) => getBackend().DiscoverLLMModels(...args)
+export const TestLLMModel = (...args: Parameters<ReturnType<typeof getBackend>['TestLLMModel']>) => getBackend().TestLLMModel(...args)
+export const NewLLMRouter = (...args: Parameters<ReturnType<typeof getBackend>['NewLLMRouter']>) => getBackend().NewLLMRouter(...args)
+export const PreviewLLMRoute = (...args: Parameters<ReturnType<typeof getBackend>['PreviewLLMRoute']>) => getBackend().PreviewLLMRoute(...args)
+
+// Per-chat model choice
+export const GetCardChatModel = (...args: Parameters<ReturnType<typeof getBackend>['GetCardChatModel']>) => getBackend().GetCardChatModel(...args)
+export const SetCardChatModel = (...args: Parameters<ReturnType<typeof getBackend>['SetCardChatModel']>) => getBackend().SetCardChatModel(...args)
+export const GetProjectChatModel = (...args: Parameters<ReturnType<typeof getBackend>['GetProjectChatModel']>) => getBackend().GetProjectChatModel(...args)
+export const SetProjectChatModel = (...args: Parameters<ReturnType<typeof getBackend>['SetProjectChatModel']>) => getBackend().SetProjectChatModel(...args)
 
 // LLM utilities
 export const IsLLMConfigured = () => getBackend().IsLLMConfigured()
-export const TestLLMConnection = () => getBackend().TestLLMConnection()
 export const TestSystemNotification = () => getBackend().TestSystemNotification()
 
 // Web Push (Phase 3 prep — server registers VAPID + subscriptions today;

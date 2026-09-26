@@ -491,7 +491,10 @@ export type PendingEdit = {
   input: Record<string, unknown>
   label: string
   detail: string
-  status: 'pending' | 'accepted' | 'rejected'
+  /** `failed` = accepted, but the tool refused it at apply time; terminal. */
+  status: 'pending' | 'accepted' | 'rejected' | 'failed'
+  /** Why a `failed` edit did not apply. */
+  error?: string
 }
 
 export type ChatMessage = {
@@ -504,6 +507,8 @@ export type ChatMessage = {
   pending_edits?: PendingEdit[]
   /** Jump-back marker for the chat panel's bookmark navigation. */
   bookmarked?: boolean
+  /** Which model answered and why (assistant replies and provider errors). */
+  route?: RouteDecision
 }
 
 // ChatHistory mirrors Go's model.ChatFile — the unit returned by the
@@ -751,6 +756,9 @@ export type AgentConfig = {
   status: AgentStatus
   notify_on: string[]
   notify_channel: string
+  /** The agent's model choice; '' = the agent_run task's assignment. */
+  llm?: ModelRef
+  /** Pre-routing account/model pair; honoured when llm is empty, cleared on save. */
   llm_account_id: string
   llm_model: string
   last_run_at: string | null
@@ -781,6 +789,9 @@ export type AgentRun = {
   tool_calls: { tool: string; input: Record<string, unknown>; result?: string }[]
   error: string
   tokens_used: number
+  model_used?: string
+  provider_used?: string
+  route?: RouteDecision
 }
 
 export type AgentFile = {
@@ -863,15 +874,123 @@ export type NotifyConfig = {
   webhook_auth_header: string
 }
 
-// --- LLM accounts ---
+// --- LLM providers (accounts), models and routing ---
+// plan/2026-09-25 multiple models and model routing.md. Go types live in
+// internal/config/llm_routing.go and internal/model (RouteDecision).
+
+export type LLMProviderKind = 'anthropic' | 'openai' | 'ollama' | 'openai_compatible'
+
+/** A provider connection. model / is_default are pre-routing fields the
+ * settings UI no longer writes (the registry's models + default replace them). */
 export type LLMAccount = {
   id: string
   label: string
-  provider: string
-  model: string
+  provider: LLMProviderKind
+  model?: string
   api_key: string
   base_url: string
-  is_default: boolean
+  is_default?: boolean
+}
+
+/** A provider without credentials — what model pickers need. */
+export type LLMProviderSummary = Pick<LLMAccount, 'id' | 'label' | 'provider'>
+
+/** GetLLMRegistry: the registry for pickers, with no API keys. */
+export type LLMRegistryView = { routing: LLMRouting; providers: LLMProviderSummary[] }
+
+/** What serves an AI request: a model, a router, a tier (router targets
+ * only), or '' to inherit. */
+export type ModelRef = `model:${string}` | `router:${string}` | `tier:${string}` | ''
+
+export type ModelTier = 'fast' | 'balanced' | 'powerful'
+
+export type LLMModel = {
+  id: string
+  account_id: string
+  /** Provider model id sent on the wire. */
+  name: string
+  label?: string
+  tier: ModelTier
+  supports_tools: boolean
+  enabled: boolean
+}
+
+export type ComplexityBand = 'low' | 'medium' | 'high'
+
+export type RuleToolsCondition = '' | 'yes' | 'no'
+
+export type RoutingRule = {
+  id: string
+  name?: string
+  tasks?: string[]
+  bands?: ComplexityBand[]
+  min_tokens?: number
+  max_tokens?: number
+  keywords?: string[]
+  tools?: RuleToolsCondition
+  target: ModelRef
+}
+
+export type LLMRouterKind = 'rules'
+
+export type LLMRouter = {
+  id: string
+  name: string
+  kind: LLMRouterKind
+  rules?: RoutingRule[]
+  fallback?: ModelRef
+  thresholds: { medium?: number; high?: number }
+  reasoning_keywords?: string[]
+  light_keywords?: string[]
+}
+
+export type LLMRouting = {
+  models: LLMModel[]
+  routers: LLMRouter[]
+  default?: ModelRef
+  /** Task id → model choice. */
+  tasks: Record<string, ModelRef>
+}
+
+export type LLMTask = 'card_chat' | 'project_chat' | 'card_populate' | 'agent_run'
+
+export type DiscoveredModel = { id: string; label?: string; tier: ModelTier }
+
+export type RouteSource = 'override' | 'task' | 'default' | 'first' | 'legacy'
+
+export type SkippedChoice = {
+  source: RouteSource
+  ref: string
+  why: 'missing' | 'disabled' | 'no_account' | 'no_eligible' | 'router_error'
+}
+
+export type RouteVia = 'rule' | 'fallback' | 'first'
+
+export type RouteDecision = {
+  model_id?: string
+  model: string
+  model_label?: string
+  provider: string
+  provider_label?: string
+  source: RouteSource
+  router_id?: string
+  router_name?: string
+  via?: RouteVia
+  rule_index?: number
+  rule_name?: string
+  band?: ComplexityBand
+  score?: number
+  skipped?: SkippedChoice[]
+}
+
+export type ComplexitySignal = { key: string; points: number; detail?: string }
+
+export type RoutePreview = {
+  assessment: { score: number; band: ComplexityBand; signals: ComplexitySignal[]; message_tokens: number }
+  via: RouteVia | ''
+  rule_index?: number
+  rule_name?: string
+  model_id: string
 }
 
 // --- LLM: AI-specific configuration (grows independently) ---
@@ -1400,6 +1519,8 @@ export interface BackendAdapter {
   // Chat
   LoadChatHistory(cardID: string): Promise<ChatHistory>
   SendChatMessage(cardID: string, userMessage: string): Promise<ChatHistory>
+  /** One card-chat turn forced into edit mode (tools apply directly). */
+  PopulateCardWithAI(cardID: string, userMessage: string): Promise<ChatHistory>
 
   // Project chat
   LoadProjectChatHistory(brandSlug: string, streamSlug: string, projectSlug: string): Promise<ChatHistory>
@@ -1409,14 +1530,25 @@ export interface BackendAdapter {
   ToggleChatBookmark(cardID: string, messageID: string): Promise<ChatHistory>
   ToggleProjectChatBookmark(brandSlug: string, streamSlug: string, projectSlug: string, messageID: string): Promise<ChatHistory>
 
-  // LLM accounts
+  // LLM providers, models and routing
   GetLLMAccounts(): Promise<LLMAccount[]>
   SaveLLMAccounts(accounts: LLMAccount[]): Promise<void>
-  TestLLMAccountConnection(accountID: string): Promise<string>
+  GetLLMRouting(): Promise<LLMRouting>
+  GetLLMRegistry(): Promise<LLMRegistryView>
+  SaveLLMRouting(routing: LLMRouting): Promise<void>
+  DiscoverLLMModels(accountID: string): Promise<DiscoveredModel[]>
+  TestLLMModel(modelID: string): Promise<string>
+  NewLLMRouter(name: string): Promise<LLMRouter>
+  PreviewLLMRoute(routing: LLMRouting, accountIDs: string[], routerID: string, task: string, message: string, toolsOffered: boolean): Promise<RoutePreview>
+
+  // Per-chat model choice
+  GetCardChatModel(cardID: string): Promise<ModelRef>
+  SetCardChatModel(cardID: string, ref: ModelRef): Promise<void>
+  GetProjectChatModel(brandSlug: string, streamSlug: string, projectSlug: string): Promise<ModelRef>
+  SetProjectChatModel(brandSlug: string, streamSlug: string, projectSlug: string, ref: ModelRef): Promise<void>
 
   // LLM utilities
   IsLLMConfigured(): Promise<boolean>
-  TestLLMConnection(): Promise<string>
   TestSystemNotification(): Promise<void>
 
   // Pin suggestions (from AI)

@@ -30,6 +30,9 @@ const STORAGE_DEVICE_TOKEN = 'bruv:device_token'
 const STORAGE_DEVICE_ID = 'bruv:device_id'
 const STORAGE_DEVICE_NAME = 'bruv:device_name'
 const STORAGE_ACTIVE_REPO = 'bruv:active_repo'
+// The active vault's display name, cached so the Browse header shows it
+// straight away — offline start included — before /repos answers.
+const STORAGE_ACTIVE_REPO_NAME = 'bruv:active_repo_name'
 
 export type EnrolmentResult = {
   serverURL: string
@@ -75,6 +78,7 @@ export function clearEnrolment(): void {
   localStorage.removeItem(STORAGE_DEVICE_NAME)
   // Repo selection is meaningless without enrolment — wipe it too.
   localStorage.removeItem(STORAGE_ACTIVE_REPO)
+  localStorage.removeItem(STORAGE_ACTIVE_REPO_NAME)
 }
 
 // --- Active repo selection -------------------------------------------------
@@ -84,11 +88,24 @@ export function readActiveRepoID(): string | null {
 }
 
 export function saveActiveRepoID(repoID: string): void {
+  if (localStorage.getItem(STORAGE_ACTIVE_REPO) !== repoID) {
+    localStorage.removeItem(STORAGE_ACTIVE_REPO_NAME)
+  }
   localStorage.setItem(STORAGE_ACTIVE_REPO, repoID)
 }
 
 export function clearActiveRepoID(): void {
   localStorage.removeItem(STORAGE_ACTIVE_REPO)
+  localStorage.removeItem(STORAGE_ACTIVE_REPO_NAME)
+}
+
+/** The active vault's last known name, or null if never seen. */
+export function readActiveRepoName(): string | null {
+  return localStorage.getItem(STORAGE_ACTIVE_REPO_NAME)
+}
+
+export function saveActiveRepoName(name: string): void {
+  localStorage.setItem(STORAGE_ACTIVE_REPO_NAME, name)
 }
 
 export function hasActiveRepo(): boolean {

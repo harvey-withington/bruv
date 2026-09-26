@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { apiFetch, saveActiveRepoID } from '../lib/auth'
+  import { apiFetch, saveActiveRepoID, saveActiveRepoName } from '../lib/auth'
   import { resetBrowseCache } from '../lib/browse.svelte'
   import { loadRepoMeta, resetRepoMeta } from '../lib/repoMeta.svelte'
   import { replace } from '../lib/router.svelte'
@@ -19,17 +19,24 @@
   let loading = $state(true)
   let errorMsg = $state<string | null>(null)
 
+  // Loads can overlap: one started offline may still be hanging on a dead
+  // socket when the reconnect handler starts the next. Only the newest
+  // load may touch the page, so a late failure can't overwrite the list.
+  let loadSeq = 0
+
   async function loadRepos() {
+    const seq = ++loadSeq
     loading = true
     errorMsg = null
     try {
       const res = await apiFetch('/repos')
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-      repos = (await res.json()) as RepoSummary[]
+      const list = (await res.json()) as RepoSummary[]
+      if (seq === loadSeq) repos = list
     } catch (err) {
-      errorMsg = err instanceof Error ? err.message : t('repo_picker.err_load')
+      if (seq === loadSeq) errorMsg = err instanceof Error ? err.message : t('repo_picker.err_load')
     } finally {
-      loading = false
+      if (seq === loadSeq) loading = false
     }
   }
 
@@ -59,6 +66,7 @@
     resetBrowseCache()
     resetRepoMeta()
     saveActiveRepoID(repo.id)
+    saveActiveRepoName(repo.name)
     // Pre-warm card types + global tag colour map for the newly-
     // active repo. Per-project tags load lazily on first project /
     // card view.

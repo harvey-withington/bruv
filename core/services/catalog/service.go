@@ -204,20 +204,33 @@ func (s *Service) ResolveOrCreateType(input string) (id string, created bool, er
 	if name == "" {
 		return "", false, nil
 	}
-	lower := strings.ToLower(name)
-	for _, t := range s.ListCardTypes() {
-		if strings.ToLower(t.ID) == lower || strings.ToLower(t.Label) == lower {
-			return t.ID, false, nil
-		}
+	if id, ok := s.LookupTypeID(name); ok {
+		return id, false, nil
 	}
 	h := fnv.New32a()
-	h.Write([]byte(lower))
+	h.Write([]byte(strings.ToLower(name)))
 	color := aiTypePalette[int(h.Sum32())%len(aiTypePalette)]
 	t, err := s.CreateUserCardType(name, color, "", "", "")
 	if err != nil {
 		return "", false, fmt.Errorf("create card type %q: %w", name, err)
 	}
 	return t.ID, true, nil
+}
+
+// LookupTypeID matches input against the catalog by id or label, case
+// insensitively, without creating anything. ok is false for an unknown
+// type — the name the model gave is then the only handle there is.
+func (s *Service) LookupTypeID(input string) (id string, ok bool) {
+	lower := strings.ToLower(strings.TrimSpace(input))
+	if lower == "" {
+		return "", false
+	}
+	for _, t := range s.ListCardTypes() {
+		if strings.ToLower(t.ID) == lower || strings.ToLower(t.Label) == lower {
+			return t.ID, true
+		}
+	}
+	return "", false
 }
 
 func (s *Service) UpdateUserCardType(id, label, color, description, aiHint, templateID string) (config.UserCardType, error) {

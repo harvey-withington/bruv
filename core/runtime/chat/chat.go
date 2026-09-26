@@ -51,6 +51,10 @@ type LoopConfig struct {
 	TokenBudget int
 	// TotalTokensUsed is written back with the cumulative token count after the loop finishes.
 	TotalTokensUsed *int
+
+	// Route is the turn's model decision, stamped on the messages the
+	// loop appends so the chat shows which model answered.
+	Route *model.RouteDecision
 }
 
 func (rt *Runtime) RunLoop(ctx context.Context, provider llm.Provider, modelName string, cf *model.ChatFile, lc LoopConfig) (*model.ChatFile, error) {
@@ -81,6 +85,7 @@ func (rt *Runtime) RunLoop(ctx context.Context, provider llm.Provider, modelName
 				Role:      model.RoleSystem,
 				Content:   "Error: " + err.Error(),
 				Timestamp: time.Now().UTC(),
+				Route:     lc.Route,
 			}
 			cf, _ = config.AppendChatMessage(rt.deps.Repo().Manifest.ID, lc.ChatID, errMsg)
 			if lc.TotalTokensUsed != nil {
@@ -119,6 +124,7 @@ func (rt *Runtime) RunLoop(ctx context.Context, provider llm.Provider, modelName
 				ToolActions:   allToolActions,
 				PinSuggestion: pinSuggestion,
 				PendingEdits:  allPendingEdits,
+				Route:         lc.Route,
 			}
 			cf, _ = config.AppendChatMessage(rt.deps.Repo().Manifest.ID, lc.ChatID, assistantMsg)
 			if lc.TotalTokensUsed != nil {
@@ -192,6 +198,7 @@ func (rt *Runtime) RunLoop(ctx context.Context, provider llm.Provider, modelName
 		ToolActions:   allToolActions,
 		PinSuggestion: pinSuggestion,
 		PendingEdits:  allPendingEdits,
+		Route:         lc.Route,
 	}
 	cf, _ = config.AppendChatMessage(rt.deps.Repo().Manifest.ID, lc.ChatID, assistantMsg)
 	if lc.TotalTokensUsed != nil {
@@ -231,18 +238,10 @@ func (rt *Runtime) SendProject(brandSlug, streamSlug, projectSlug, userMessage, 
 		return nil, err
 	}
 
-	// Load LLM config + provider. A load error means an LLM IS
-	// configured but broken — surface it so the user isn't left
-	// staring at a chat that silently never answers. A nil provider
-	// with no error means "not configured": keep the silent no-op,
-	// the IsLLMConfigured first-run nudge owns that state.
-	cfg, provider, err := rt.deps.LLM().LoadProvider()
+	cfg, err := rt.deps.LLM().GetConfig()
 	if err != nil {
-		slog.Error("project chat: llm provider load failed", "err", err)
+		slog.Error("project chat: llm config load failed", "err", err)
 		return cf, fmt.Errorf("llm provider unavailable: %w", err)
-	}
-	if provider == nil {
-		return cf, nil
 	}
 
 	// Build system prompt with project context
@@ -292,19 +291,20 @@ func (rt *Runtime) SendProject(brandSlug, streamSlug, projectSlug, userMessage, 
 		}
 	}
 
-	modelName := cfg.Model
-	if modelName == "" {
-		modelName = llmsvc.DefaultModelForProvider(cfg.Provider)
+	sel, err := rt.selectModel(llmsvc.TaskProjectChat, chatID, true, cf, systemPrompt, len(toolDefs) > 0)
+	if err != nil || sel == nil {
+		return cf, err
 	}
 	ctx, cancel := context.WithTimeout(rt.deps.Ctx(), 120*time.Second)
 	defer cancel()
 
 	suggestMode := cfg.AIMode == "suggest"
-	return rt.RunLoop(ctx, provider, modelName, cf, LoopConfig{
+	return rt.RunLoop(ctx, sel.Provider, sel.Model, cf, LoopConfig{
 		ChatID:       chatID,
 		SystemPrompt: systemPrompt,
 		Tools:        toolDefs,
 		MaxIter:      5,
+		Route:        &sel.Decision,
 		ExecuteTool: func(tc llm.ToolCall) (string, *model.ToolAction, *model.PinSuggestion) {
 			result, action := rt.deps.Tools().ExecuteProject(tc, scope)
 			return result, action, nil
@@ -318,6 +318,23 @@ func (rt *Runtime) SendProject(brandSlug, streamSlug, projectSlug, userMessage, 
 }
 
 func (rt *Runtime) SendCard(cardID, userMessage string) (*model.ChatFile, error) {
+	return rt.sendCard(cardID, userMessage, "")
+}
+
+// SendCardEdit runs one card-chat turn with the AI mode forced to
+// "edit": every tool call is applied to the card directly, whatever the
+// user's global setting. This is the invisible path behind quick
+// capture's "Create with AI" (Harvey, 2026-09-20): the note is saved
+// as an Inbox card first, the instruction goes through here, and the
+// user is shown the populated card — never the chat. The turn still
+// lands in the card's chat history like any other.
+func (rt *Runtime) SendCardEdit(cardID, userMessage string) (*model.ChatFile, error) {
+	return rt.sendCard(cardID, userMessage, "edit")
+}
+
+// sendCard is the card-chat turn. modeOverride, when non-empty,
+// replaces the configured AI mode for this turn only.
+func (rt *Runtime) sendCard(cardID, userMessage, modeOverride string) (*model.ChatFile, error) {
 	if rt.deps.Repo() == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
@@ -328,21 +345,14 @@ func (rt *Runtime) SendCard(cardID, userMessage string) (*model.ChatFile, error)
 		return nil, err
 	}
 
-	// Load LLM config + provider — same contract as the project-chat
-	// path above: error = configured-but-broken (surface it), nil
-	// provider = not configured (silent no-op, nudge UX owns it).
-	cfg, provider, err := rt.deps.LLM().LoadProvider()
+	cfg, err := rt.deps.LLM().GetConfig()
 	if err != nil {
-		slog.Error("card chat: llm provider load failed", "err", err)
+		slog.Error("card chat: llm config load failed", "err", err)
 		return cf, fmt.Errorf("llm provider unavailable: %w", err)
 	}
-	if provider == nil {
-		return cf, nil
+	if modeOverride != "" {
+		cfg.AIMode = modeOverride
 	}
-
-	// Attribute all card edits in this chat turn to the LLM model
-	rt.deps.LLMActors().Store(cardID, cfg.Model)
-	defer rt.deps.LLMActors().Delete(cardID)
 
 	// Load card for context
 	card, err := rt.deps.Repo().GetCard(cardID)
@@ -351,6 +361,7 @@ func (rt *Runtime) SendCard(cardID, userMessage string) (*model.ChatFile, error)
 	}
 
 	systemPrompt := rt.deps.Prompts().Card(card, cfg)
+	stagedType := card.Type
 
 	// A card that is already filed is never pinned again by the AI (Harvey,
 	// 2026-09-17: a second pin is a move if anything, and not offered at
@@ -460,17 +471,29 @@ func (rt *Runtime) SendCard(cardID, userMessage string) (*model.ChatFile, error)
 	slog.Info("card chat tools assembled",
 		"cardID", cardID, "ai_mode", cfg.AIMode, "tool_count", len(toolDefs))
 
-	modelName := cfg.Model
-	if modelName == "" {
-		modelName = llmsvc.DefaultModelForProvider(cfg.Provider)
+	// The populate turn behind "Create with AI" is its own task and never
+	// takes the card chat's model choice: the user didn't open this chat.
+	task, useChatChoice := llmsvc.TaskCardChat, true
+	if modeOverride != "" {
+		task, useChatChoice = llmsvc.TaskCardPopulate, false
 	}
+	sel, err := rt.selectModel(task, cardID, useChatChoice, cf, systemPrompt, len(toolDefs) > 0)
+	if err != nil || sel == nil {
+		return cf, err
+	}
+
+	// Attribute all card edits in this chat turn to the LLM model
+	rt.deps.LLMActors().Store(cardID, sel.Model)
+	defer rt.deps.LLMActors().Delete(cardID)
+
 	ctx, cancel := context.WithTimeout(rt.deps.Ctx(), 120*time.Second)
 	defer cancel()
 
-	return rt.RunLoop(ctx, provider, modelName, cf, LoopConfig{
+	return rt.RunLoop(ctx, sel.Provider, sel.Model, cf, LoopConfig{
 		ChatID:       cardID,
 		SystemPrompt: systemPrompt,
 		Tools:        toolDefs,
+		Route:        &sel.Decision,
 		// 6 iterations comfortably covers web_search → web_fetch →
 		// summarise, or a couple of card-tool rounds plus a final
 		// message. Previously 3, which was too tight for research
@@ -479,6 +502,24 @@ func (rt *Runtime) SendCard(cardID, userMessage string) (*model.ChatFile, error)
 		MaxIter:     6,
 		SuggestMode: cfg.AIMode == "suggest",
 		StageTool: func(tc llm.ToolCall) (string, []model.PendingEdit) {
+			// The type the card will have once this batch is accepted:
+			// a set_card_type staged earlier in the turn wins over the
+			// type on disk. A pin the card service would refuse for it
+			// is bounced back to the model now, not on the user later.
+			switch tc.Name {
+			case "set_card_type":
+				if typ, _ := tc.Arguments["card_type"].(string); typ != "" {
+					stagedType = typ
+					if id, ok := rt.deps.Catalog().LookupTypeID(typ); ok {
+						stagedType = id
+					}
+				}
+			case "suggest_pin":
+				catID, _ := tc.Arguments["category_id"].(string)
+				if conflict := tools.PinTypeConflict(allCats, catID, stagedType); conflict != "" {
+					return conflict, nil
+				}
+			}
 			return rt.deps.Tools().StageCard(tc, allCats)
 		},
 		ExecuteTool: func(tc llm.ToolCall) (string, *model.ToolAction, *model.PinSuggestion) {

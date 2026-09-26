@@ -290,8 +290,17 @@ type PendingEdit struct {
 	Input  map[string]any `json:"input"`
 	Label  string         `json:"label"`  // short human-readable summary
 	Detail string         `json:"detail"` // longer description for hover tooltip
-	Status string         `json:"status"` // "pending", "accepted", "rejected"
+	Status string         `json:"status"` // "pending", "accepted", "rejected", "failed"
+	// Error is why an accepted edit could not be applied (Status ==
+	// "failed"). Kept apart from Detail so the row still shows what
+	// was proposed and the tooltip can say why it did not happen.
+	Error string `json:"error,omitempty"`
 }
+
+// PendingEditFailed is the status of an accepted edit whose tool call
+// returned an error at apply time. It is terminal: the user fixes the
+// cause (a card type the category refuses, say) and asks the AI again.
+const PendingEditFailed = "failed"
 
 // ChatMessage is a single message in a card's chat history.
 type ChatMessage struct {
@@ -305,6 +314,45 @@ type ChatMessage struct {
 	// Bookmarked marks a message the user wants to jump back to via the
 	// chat panel's bookmark navigation. Persisted with the chat file.
 	Bookmarked bool `json:"bookmarked,omitempty"`
+	// Route records which model answered and why, on assistant replies
+	// and on provider-error messages.
+	Route *RouteDecision `json:"route,omitempty"`
+}
+
+// RouteDecision records how one AI turn chose its model: the model that
+// served it, the settings level the choice came from, and — when a
+// router picked — how. Structured so each surface localizes the
+// explanation (plan/2026-09-25 multiple models and model routing.md).
+type RouteDecision struct {
+	ModelID       string `json:"model_id,omitempty"` // registry id; "" for legacy / ad-hoc
+	Model         string `json:"model"`              // provider model id sent on the wire
+	ModelLabel    string `json:"model_label,omitempty"`
+	Provider      string `json:"provider"` // provider kind
+	ProviderLabel string `json:"provider_label,omitempty"`
+	// Source is the settings level the choice came from: "override"
+	// (this chat / this agent), "task", "default", "first" (first
+	// enabled model) or "legacy" (pre-routing config).
+	Source string `json:"source"`
+	// Router fields, set when a router picked the model.
+	RouterID   string `json:"router_id,omitempty"`
+	RouterName string `json:"router_name,omitempty"`
+	Via        string `json:"via,omitempty"`        // "rule" | "fallback" | "first"
+	RuleIndex  int    `json:"rule_index,omitempty"` // 1-based
+	RuleName   string `json:"rule_name,omitempty"`
+	Band       string `json:"band,omitempty"`
+	Score      *int   `json:"score,omitempty"`
+	// Skipped lists higher-precedence choices that could not be used,
+	// so "why isn't my chat using X" has an answer.
+	Skipped []SkippedChoice `json:"skipped,omitempty"`
+}
+
+// SkippedChoice is a model choice passed over during resolution.
+type SkippedChoice struct {
+	Source string `json:"source"`
+	Ref    string `json:"ref"`
+	// Why: "missing" (deleted model/router), "disabled", "no_account",
+	// "no_eligible" (router had no usable model), "router_error".
+	Why string `json:"why"`
 }
 
 // ChatFile is the on-disk format for cards/<card-uuid>.messages.json.
@@ -326,31 +374,36 @@ const (
 // AgentConfig holds the agent configuration for a card.
 // Persisted separately as cards/<card-uuid>.agent.json.
 type AgentConfig struct {
-	Enabled           bool        `json:"enabled"`
-	Goal              string      `json:"goal"`
-	Schedule          string      `json:"schedule"`
-	AllowedTools      []string    `json:"allowed_tools"`
-	Status            AgentStatus `json:"status"`
-	NotifyOn          []string    `json:"notify_on,omitempty"`
-	NotifyChannel     string      `json:"notify_channel,omitempty"`
-	LLMAccountID      string      `json:"llm_account_id,omitempty"` // empty = use default account
-	LLMModel          string      `json:"llm_model,omitempty"`      // empty = use account default model
-	LastRunAt         *time.Time  `json:"last_run_at,omitempty"`
-	NextRunAt         *time.Time  `json:"next_run_at,omitempty"`
-	MaxTokensBudget   int         `json:"max_tokens_budget,omitempty"`     // 0 = default (50000)
-	RunStartedAt      *time.Time  `json:"run_started_at,omitempty"`        // set when entering running state; used for stuck detection
-	MinIntervalMins   int         `json:"min_interval_minutes,omitempty"`  // 0 = default (5); minimum minutes between runs
-	MaxRetries        int         `json:"max_retries,omitempty"`           // 0 = no retry
-	RetryCount        int         `json:"retry_count,omitempty"`           // current consecutive failure count
-	RetryBackoffMins  int         `json:"retry_backoff_minutes,omitempty"` // 0 = default (5)
-	CostBudgetUSD     float64     `json:"cost_budget_usd,omitempty"`
-	CostSpentUSD      float64     `json:"cost_spent_usd,omitempty"`
-	StartDate         *time.Time  `json:"start_date,omitempty"`
-	EndDate           *time.Time  `json:"end_date,omitempty"`
-	ActiveWindowStart string      `json:"active_window_start,omitempty"` // "09:00" format
-	ActiveWindowEnd   string      `json:"active_window_end,omitempty"`   // "17:00" format
-	OneShot           bool        `json:"one_shot,omitempty"`
-	Timezone          string      `json:"timezone,omitempty"` // IANA timezone, empty = local
+	Enabled       bool        `json:"enabled"`
+	Goal          string      `json:"goal"`
+	Schedule      string      `json:"schedule"`
+	AllowedTools  []string    `json:"allowed_tools"`
+	Status        AgentStatus `json:"status"`
+	NotifyOn      []string    `json:"notify_on,omitempty"`
+	NotifyChannel string      `json:"notify_channel,omitempty"`
+	// LLM is the agent's model choice (a config.ModelRef string:
+	// "model:<id>" / "router:<id>"); empty = the agent_run task's
+	// assignment. LLMAccountID / LLMModel are the pre-routing pair, still
+	// honoured when LLM is empty and cleared by the agent editor on save.
+	LLM               string     `json:"llm,omitempty"`
+	LLMAccountID      string     `json:"llm_account_id,omitempty"`
+	LLMModel          string     `json:"llm_model,omitempty"`
+	LastRunAt         *time.Time `json:"last_run_at,omitempty"`
+	NextRunAt         *time.Time `json:"next_run_at,omitempty"`
+	MaxTokensBudget   int        `json:"max_tokens_budget,omitempty"`     // 0 = default (50000)
+	RunStartedAt      *time.Time `json:"run_started_at,omitempty"`        // set when entering running state; used for stuck detection
+	MinIntervalMins   int        `json:"min_interval_minutes,omitempty"`  // 0 = default (5); minimum minutes between runs
+	MaxRetries        int        `json:"max_retries,omitempty"`           // 0 = no retry
+	RetryCount        int        `json:"retry_count,omitempty"`           // current consecutive failure count
+	RetryBackoffMins  int        `json:"retry_backoff_minutes,omitempty"` // 0 = default (5)
+	CostBudgetUSD     float64    `json:"cost_budget_usd,omitempty"`
+	CostSpentUSD      float64    `json:"cost_spent_usd,omitempty"`
+	StartDate         *time.Time `json:"start_date,omitempty"`
+	EndDate           *time.Time `json:"end_date,omitempty"`
+	ActiveWindowStart string     `json:"active_window_start,omitempty"` // "09:00" format
+	ActiveWindowEnd   string     `json:"active_window_end,omitempty"`   // "17:00" format
+	OneShot           bool       `json:"one_shot,omitempty"`
+	Timezone          string     `json:"timezone,omitempty"` // IANA timezone, empty = local
 }
 
 // AgentRun records a single execution of a card's agent.
@@ -366,6 +419,9 @@ type AgentRun struct {
 	TokensUsed   int          `json:"tokens_used,omitempty"`
 	ModelUsed    string       `json:"model_used,omitempty"`
 	ProviderUsed string       `json:"provider_used,omitempty"`
+	// Route is the full model decision; ModelUsed/ProviderUsed stay for
+	// cost roll-ups and runs recorded before routing existed.
+	Route *RouteDecision `json:"route,omitempty"`
 }
 
 // AgentFile is the on-disk format for cards/<card-uuid>.agent.json.

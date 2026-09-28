@@ -27,10 +27,7 @@ package tools
 // prompt tuning don't collide in the same 7k-line file.
 
 import (
-	"bruv/core/services/agentsvc"
-	"bruv/core/services/catalog"
 	"bruv/internal/agent"
-	"bruv/internal/config"
 	"bruv/internal/llm"
 	"bruv/internal/model"
 	"fmt"
@@ -513,122 +510,25 @@ type cardToolHandler func(d *Dispatcher, cardID string, card *model.Card, tc llm
 // those switches do mostly-trivial PendingEdit wrapping while this
 // one ran the real 400-line card-mutation logic the audit called out.
 var cardToolHandlers = map[string]cardToolHandler{
-	"set_title":       (*Dispatcher).toolSetTitle,
-	"set_description": (*Dispatcher).toolSetDescription,
-	"set_due_date":    (*Dispatcher).toolSetDueDate,
-	"set_card_type":   (*Dispatcher).toolSetCardType,
-	"set_fields":      (*Dispatcher).toolSetFields,
-	"update_blocks":   (*Dispatcher).toolSetFields, // alias — same handler
-	"add_tags":        (*Dispatcher).toolAddTags,
-	"add_field":       (*Dispatcher).toolAddField,
-	"suggest_pin":     (*Dispatcher).toolSuggestPin,
-	"configure_agent": (*Dispatcher).toolConfigureAgent,
-	"web_fetch":       (*Dispatcher).toolWebFetch,
-	"web_search":      (*Dispatcher).toolWebSearch,
-	"read_card_file":  (*Dispatcher).toolReadCardFile,
+	"set_fields":     (*Dispatcher).toolSetFields,
+	"update_blocks":  (*Dispatcher).toolSetFields, // alias — same handler
+	"add_field":      (*Dispatcher).toolAddField,
+	"suggest_pin":    (*Dispatcher).toolSuggestPin,
+	"web_fetch":      (*Dispatcher).toolWebFetch,
+	"web_search":     (*Dispatcher).toolWebSearch,
+	"read_card_file": (*Dispatcher).toolReadCardFile,
 }
 
 // ExecuteCard runs a single tool and returns (result string, action record, pin suggestion).
 func (d *Dispatcher) ExecuteCard(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath) (string, *model.ToolAction, *model.PinSuggestion) {
+	if d.isNative(tc.Name) {
+		result, action := d.executeNative(d.cardScope(cardID, allCats), tc)
+		return result, action, nil
+	}
 	if handler, ok := cardToolHandlers[tc.Name]; ok {
 		return handler(d, cardID, card, tc, allCats)
 	}
 	return "error: unknown tool " + tc.Name, nil, nil
-}
-
-func (d *Dispatcher) toolSetTitle(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath) (string, *model.ToolAction, *model.PinSuggestion) {
-	title, _ := tc.Arguments["title"].(string)
-	if title == "" {
-		return "error: title is required", nil, nil
-	}
-	if card != nil && card.Title == title {
-		return "Title is already " + title + " — no change needed", nil, nil
-	}
-	_, err := d.deps.Card().UpdateTitle(cardID, title)
-	if err != nil {
-		return "error: " + err.Error(), nil, nil
-	}
-	action := &model.ToolAction{Tool: "set_title", Input: tc.Arguments, Result: "Title set to " + title}
-	return "Card title set to " + title, action, nil
-}
-
-func (d *Dispatcher) toolSetDescription(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath) (string, *model.ToolAction, *model.PinSuggestion) {
-	// Present-but-empty clears (like set_due_date); absent is an error.
-	desc, ok := tc.Arguments["description"].(string)
-	if !ok {
-		return "error: description is required (empty string clears it)", nil, nil
-	}
-	if card != nil && card.Description == desc {
-		return "Description is already up to date — no change needed", nil, nil
-	}
-	if _, err := d.deps.Card().UpdateDescription(cardID, desc); err != nil {
-		return "error: " + err.Error(), nil, nil
-	}
-	result := "Description updated"
-	if desc == "" {
-		result = "Description cleared"
-	}
-	action := &model.ToolAction{Tool: "set_description", Input: tc.Arguments, Result: result}
-	return result, action, nil
-}
-
-func (d *Dispatcher) toolSetDueDate(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath) (string, *model.ToolAction, *model.PinSuggestion) {
-	dueDate, _ := tc.Arguments["due_date"].(string)
-	if dueDate != "" && card != nil && card.DueDate != nil && card.DueDate.Format("2006-01-02") == dueDate {
-		return "Due date is already " + dueDate + " — no change needed", nil, nil
-	}
-	_, err := d.deps.Card().UpdateDueDate(cardID, dueDate)
-	if err != nil {
-		return "error: " + err.Error(), nil, nil
-	}
-	result := "Due date cleared"
-	if dueDate != "" {
-		result = "Due date set to " + dueDate
-	}
-	action := &model.ToolAction{Tool: "set_due_date", Input: tc.Arguments, Result: result}
-	return result, action, nil
-}
-
-func (d *Dispatcher) toolSetCardType(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath) (string, *model.ToolAction, *model.PinSuggestion) {
-	rawType, _ := tc.Arguments["card_type"].(string)
-	if rawType == "" {
-		return "error: card_type is required", nil, nil
-	}
-	cardType, createdType, err := d.resolveCardType(rawType)
-	if err != nil {
-		return "error: " + err.Error(), nil, nil
-	}
-	if card != nil && card.Type == cardType {
-		return "Type is already " + cardType + " — no change needed. Use update_blocks to fill in block values.", nil, nil
-	}
-	_, err = d.deps.Card().UpdateType(cardID, cardType)
-	if err != nil {
-		return "error: " + err.Error(), nil, nil
-	}
-	// Block application is handled by UpdateCardType via applyTypeBlocks
-	// Build a helpful result listing available block keys
-	resultMsg := "Card type set to " + cardType + ". "
-	if createdType {
-		resultMsg = "Created new card type '" + cardType + "' and set it on the card. "
-	}
-	updatedCard, _ := d.deps.Repo().GetCard(cardID)
-	if updatedCard != nil && len(updatedCard.Blocks) > 0 {
-		var blockKeys []string
-		for _, b := range updatedCard.Blocks {
-			if b.Key != "" {
-				blockKeys = append(blockKeys, b.Key)
-			}
-		}
-		if len(blockKeys) > 0 {
-			resultMsg += "NOW call set_fields to fill these field keys: " + strings.Join(blockKeys, ", ")
-		}
-	}
-	actionResult := "Set type to " + cardType
-	if createdType {
-		actionResult = "Created type '" + cardType + "' and set it"
-	}
-	action := &model.ToolAction{Tool: "set_card_type", Input: tc.Arguments, Result: actionResult}
-	return resultMsg, action, nil
 }
 
 // resolveCardType canonicalises an LLM-supplied card type — see
@@ -760,42 +660,6 @@ func (d *Dispatcher) toolSetFields(cardID string, card *model.Card, tc llm.ToolC
 	d.deps.Card().UpdateBlocks(cardID, currentCard.Blocks)
 	result := "Updated fields: " + strings.Join(updatedKeys, ", ")
 	action := &model.ToolAction{Tool: "set_fields", Input: tc.Arguments, Result: result}
-	return result, action, nil
-}
-
-func (d *Dispatcher) toolAddTags(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath) (string, *model.ToolAction, *model.PinSuggestion) {
-	tagsRaw, _ := tc.Arguments["tags"].([]any)
-	if len(tagsRaw) == 0 {
-		return "error: tags array is empty", nil, nil
-	}
-	var newTags []string
-	for _, t := range tagsRaw {
-		if s, ok := t.(string); ok && s != "" {
-			newTags = append(newTags, s)
-		}
-	}
-	currentCard, err := d.deps.Repo().GetCard(cardID)
-	if err != nil {
-		return "error: " + err.Error(), nil, nil
-	}
-	existing := make(map[string]bool)
-	for _, t := range currentCard.Tags {
-		existing[strings.ToLower(t)] = true
-	}
-	merged := currentCard.Tags
-	var added []string
-	for _, t := range newTags {
-		if !existing[strings.ToLower(t)] {
-			merged = append(merged, t)
-			existing[strings.ToLower(t)] = true
-			added = append(added, t)
-		}
-	}
-	if len(added) > 0 {
-		d.deps.Card().UpdateTags(cardID, merged)
-	}
-	result := "Added tags: " + strings.Join(added, ", ")
-	action := &model.ToolAction{Tool: "add_tags", Input: tc.Arguments, Result: result}
 	return result, action, nil
 }
 
@@ -932,31 +796,6 @@ func (d *Dispatcher) toolSuggestPin(cardID string, card *model.Card, tc llm.Tool
 	return "Card pinned to " + breadcrumb, action, ps
 }
 
-func (d *Dispatcher) toolConfigureAgent(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath) (string, *model.ToolAction, *model.PinSuggestion) {
-	result, action := d.configureAgent(cardID, tc)
-	return result, action, nil
-}
-
-// configureAgent is the shared body of the card- and project-chat
-// configure_agent tools. agentsvc.Patch validates, schedules the next
-// run, updates the index and publishes card:updated so an open Agent
-// tab re-fetches.
-func (d *Dispatcher) configureAgent(cardID string, tc llm.ToolCall) (string, *model.ToolAction) {
-	patch, err := agentsvc.PatchFromArgs(tc.Arguments)
-	if err != nil {
-		return "error: " + err.Error(), nil
-	}
-	if patch.IsEmpty() {
-		return "No changes applied", nil
-	}
-	cfg, err := d.deps.Agent().Patch(cardID, patch)
-	if err != nil {
-		return "error: " + err.Error(), nil
-	}
-	summary := agentsvc.Summary(*cfg)
-	return summary, &model.ToolAction{Tool: "configure_agent", Input: tc.Arguments, Result: summary}
-}
-
 func (d *Dispatcher) toolWebFetch(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath) (string, *model.ToolAction, *model.PinSuggestion) {
 	url, _ := tc.Arguments["url"].(string)
 	result, err := agent.WebFetch(url)
@@ -1014,69 +853,14 @@ func (d *Dispatcher) ExecuteProject(tc llm.ToolCall, scope ProjectChatScope) (st
 			return "error: card(s) not in current project: " + strings.Join(bad, ", "), nil
 		}
 	}
+	if d.isNative(tc.Name) {
+		return d.executeNative(&scope, tc)
+	}
 	// Workspace tools are read-only and project-scoped — shared handler.
 	if IsWorkspaceTool(tc.Name) {
 		return d.execWorkspaceTool(tc, scope)
 	}
 	switch tc.Name {
-	case "create_card":
-		title, _ := tc.Arguments["title"].(string)
-		if title == "" {
-			return "error: title is required", nil
-		}
-		// Match by id or label, create when unknown (ruling 2026-08-14).
-		// An omitted card_type gets the built-in default, which exists on
-		// every board, so it can never mint a phantom type.
-		cardType, _ := tc.Arguments["card_type"].(string)
-		if cardType == "" {
-			cardType = catalog.DefaultCardType
-		}
-		if resolved, _, err := d.resolveCardType(cardType); err == nil && resolved != "" {
-			cardType = resolved
-		}
-		card, err := d.deps.Card().Create(cardType, title)
-		if err != nil {
-			return "error: " + err.Error(), nil
-		}
-		cardID := card.ID
-		// Pin to category if specified. Accept either category_id or
-		// category_name — the latter lets the LLM chain create_card after
-		// create_category in the same conversation, since the new category
-		// won't have a known ID until apply time.
-		categoryID, _ := tc.Arguments["category_id"].(string)
-		categoryName, _ := tc.Arguments["category_name"].(string)
-		if categoryID != "" || categoryName != "" {
-			resolvedID, err := d.resolveCategoryID(scope, categoryID, categoryName)
-			if err != nil {
-				return "error: " + err.Error(), nil
-			}
-			_ = d.deps.Card().Pin(cardID, resolvedID)
-			categoryID = resolvedID
-		}
-		// Add tags if specified
-		if tagsRaw, ok := tc.Arguments["tags"].([]any); ok && len(tagsRaw) > 0 {
-			var tags []string
-			for _, t := range tagsRaw {
-				if s, ok := t.(string); ok && s != "" {
-					tags = append(tags, s)
-				}
-			}
-			if len(tags) > 0 {
-				d.deps.Card().UpdateTags(cardID, tags)
-			}
-		}
-		// Set description if specified. Description is an intrinsic card
-		// property, not a block — set it directly.
-		if desc, ok := tc.Arguments["description"].(string); ok && desc != "" {
-			d.deps.Card().UpdateDescription(cardID, desc)
-		}
-		result := fmt.Sprintf("Created card '%s' (ID: %s)", title, cardID)
-		if categoryID != "" {
-			result += " and pinned to category"
-		}
-		action := &model.ToolAction{Tool: "create_card", Input: tc.Arguments, Result: result}
-		return result, action
-
 	case "add_tags_to_cards":
 		cardIDsRaw, _ := tc.Arguments["card_ids"].([]any)
 		tagsRaw, _ := tc.Arguments["tags"].([]any)
@@ -1155,22 +939,6 @@ func (d *Dispatcher) ExecuteProject(tc llm.ToolCall, scope ProjectChatScope) (st
 		action := &model.ToolAction{Tool: "move_card", Input: tc.Arguments, Result: result}
 		return result, action
 
-	case "update_card":
-		cardID, _ := tc.Arguments["card_id"].(string)
-		if cardID == "" {
-			return "error: card_id is required", nil
-		}
-		changes, err := d.applyCardUpdate(cardID, tc.Arguments)
-		if err != nil {
-			return "error: " + err.Error(), nil
-		}
-		if len(changes) == 0 {
-			return "No changes applied", nil
-		}
-		result := "Updated: " + strings.Join(changes, ", ")
-		action := &model.ToolAction{Tool: "update_card", Input: tc.Arguments, Result: result}
-		return result, action
-
 	case "update_cards":
 		updatesRaw, _ := tc.Arguments["updates"].([]any)
 		if len(updatesRaw) == 0 {
@@ -1212,14 +980,6 @@ func (d *Dispatcher) ExecuteProject(tc llm.ToolCall, scope ProjectChatScope) (st
 		action := &model.ToolAction{Tool: "update_cards", Input: tc.Arguments, Result: summary.String()}
 		return summary.String(), action
 
-	case "configure_agent":
-		cardID, _ := tc.Arguments["card_id"].(string)
-		if cardID == "" {
-			return "error: card_id is required", nil
-		}
-		return d.configureAgent(cardID, tc)
-
-	// --- Project metadata ---
 	case "update_project":
 		var changes []string
 		if name, ok := tc.Arguments["name"].(string); ok && name != "" {
@@ -1345,23 +1105,6 @@ func (d *Dispatcher) ExecuteProject(tc llm.ToolCall, scope ProjectChatScope) (st
 		return result, action
 
 	// --- Categories ---
-	case "create_category":
-		name, _ := tc.Arguments["name"].(string)
-		if name == "" {
-			return "error: name is required", nil
-		}
-		position := 0
-		if v, ok := tc.Arguments["position"].(float64); ok {
-			position = int(v)
-		}
-		cat, err := d.deps.Project().CreateCategory(scope.BrandSlug, scope.StreamSlug, scope.ProjectSlug, name, position)
-		if err != nil {
-			return "error: " + err.Error(), nil
-		}
-		result := fmt.Sprintf("Created category '%s' (id: %s)", name, cat.ID)
-		action := &model.ToolAction{Tool: "create_category", Input: tc.Arguments, Result: result}
-		return result, action
-
 	case "update_category":
 		catID, _ := tc.Arguments["category_id"].(string)
 		catName, _ := tc.Arguments["category_name"].(string)
@@ -1833,7 +1576,10 @@ func (d *Dispatcher) resolveOrCreateHierarchy(brandName, streamName, projectName
 // StageCard builds a PendingEdit record for Suggest mode without applying any changes.
 // It returns a fake result string (fed back to the LLM so the conversation continues naturally)
 // and the PendingEdit to be stored on the message.
-func (d *Dispatcher) StageCard(tc llm.ToolCall, allCats []CategoryPath) (string, []model.PendingEdit) {
+func (d *Dispatcher) StageCard(cardID string, tc llm.ToolCall, allCats []CategoryPath) (string, []model.PendingEdit) {
+	if d.isNative(tc.Name) {
+		return d.stageNative(d.cardScope(cardID, allCats), tc)
+	}
 	one := func(tool string, input map[string]any, label, detail string) []model.PendingEdit {
 		return []model.PendingEdit{{
 			ID: uuid.New().String(), Tool: tool, Input: input,
@@ -1842,71 +1588,6 @@ func (d *Dispatcher) StageCard(tc llm.ToolCall, allCats []CategoryPath) (string,
 	}
 
 	switch tc.Name {
-	case "set_title":
-		title, _ := tc.Arguments["title"].(string)
-		return "Title will be set to " + title, one(tc.Name, tc.Arguments, "Set title", `"`+title+`"`)
-
-	case "set_description":
-		desc, _ := tc.Arguments["description"].(string)
-		label, detail := "Set description", desc
-		if desc == "" {
-			label, detail = "Clear description", "Remove existing description"
-		}
-		return "Description staged", one(tc.Name, tc.Arguments, label, detail)
-
-	case "set_due_date":
-		dueDate, _ := tc.Arguments["due_date"].(string)
-		label, detail := "Set due date", dueDate
-		if dueDate == "" {
-			label, detail = "Clear due date", "Remove existing due date"
-		}
-		return "Due date staged", one(tc.Name, tc.Arguments, label, detail)
-
-	case "set_card_type":
-		cardType, _ := tc.Arguments["card_type"].(string)
-		fakeResult := "Card type will be set to " + cardType + "."
-		var previewBlocks []model.Block
-		var store config.UserTypeStore
-		if d.deps.Repo() != nil {
-			store, _ = d.deps.Repo().LoadUserTypeStore()
-		}
-		for _, ut := range store.Types {
-			if ut.ID == cardType && ut.TemplateID != "" {
-				for _, tmpl := range store.Templates {
-					if tmpl.ID == ut.TemplateID {
-						previewBlocks = tmpl.Blocks
-						break
-					}
-				}
-				break
-			}
-		}
-		if len(previewBlocks) == 0 {
-			if ov, ok := store.BuiltinOverrides[cardType]; ok && ov.TemplateID != "" {
-				for _, tmpl := range store.Templates {
-					if tmpl.ID == ov.TemplateID {
-						previewBlocks = tmpl.Blocks
-						break
-					}
-				}
-			}
-		}
-		if len(previewBlocks) == 0 && d.deps.Registry() != nil {
-			previewBlocks = d.deps.Registry().SchemaToBlocks(cardType)
-		}
-		if len(previewBlocks) > 0 {
-			var keys []string
-			for _, b := range previewBlocks {
-				if b.Key != "" {
-					keys = append(keys, b.Key)
-				}
-			}
-			if len(keys) > 0 {
-				fakeResult += " NOW call set_fields to fill these field keys: " + strings.Join(keys, ", ")
-			}
-		}
-		return fakeResult, one(tc.Name, tc.Arguments, "Set type", cardType)
-
 	case "set_fields", "update_blocks":
 		fieldsMap, _ := tc.Arguments["fields"].(map[string]any)
 		if len(fieldsMap) == 0 {
@@ -1937,16 +1618,6 @@ func (d *Dispatcher) StageCard(tc llm.ToolCall, allCats []CategoryPath) (string,
 			})
 		}
 		return "Fields staged: " + strings.Join(keys, ", "), edits
-
-	case "add_tags":
-		tagsRaw, _ := tc.Arguments["tags"].([]any)
-		var tags []string
-		for _, t := range tagsRaw {
-			if s, ok := t.(string); ok {
-				tags = append(tags, "+"+s)
-			}
-		}
-		return "Tags staged", one(tc.Name, tc.Arguments, "Add tags", strings.Join(tags, ", "))
 
 	case "add_field":
 		label, _ := tc.Arguments["label"].(string)
@@ -1998,18 +1669,6 @@ func (d *Dispatcher) StageCard(tc llm.ToolCall, allCats []CategoryPath) (string,
 		}
 		return "Pin suggestion staged for " + breadcrumb, one(tc.Name, tc.Arguments, "Pin to "+breadcrumb, detail)
 
-	case "configure_agent":
-		enabled, _ := tc.Arguments["enabled"].(bool)
-		goal, _ := tc.Arguments["goal"].(string)
-		schedule, _ := tc.Arguments["schedule"].(string)
-		label := "Configure agent"
-		detail := fmt.Sprintf("Enabled: %v, Schedule: %s\nGoal: %s", enabled, schedule, goal)
-		return "Agent configuration staged", one(tc.Name, tc.Arguments, label, detail)
-
-	// Read-only tools bypass suggest-mode staging: there's nothing to
-	// preview or approve — fetching a page or searching the web can't
-	// mutate the card. Execute directly and feed the real content back
-	// to the model so it can reason over it on the next iteration.
 	case "web_fetch":
 		url, _ := tc.Arguments["url"].(string)
 		result, err := agent.WebFetch(url)
@@ -2048,6 +1707,9 @@ func (d *Dispatcher) StageCard(tc llm.ToolCall, allCats []CategoryPath) (string,
 // any rejected IDs) so the conversation continues naturally without the LLM
 // thinking the call silently failed.
 func (d *Dispatcher) StageProject(tc llm.ToolCall, scope ProjectChatScope) (string, []model.PendingEdit) {
+	if d.isNative(tc.Name) {
+		return d.stageNative(&scope, tc)
+	}
 	// Read-only workspace tools execute directly even in suggest mode —
 	// same treatment as web_fetch/web_search below: nothing to stage.
 	if IsWorkspaceTool(tc.Name) {
@@ -2061,44 +1723,6 @@ func (d *Dispatcher) StageProject(tc llm.ToolCall, scope ProjectChatScope) (stri
 		return scope.CardIDs[id]
 	}
 	switch tc.Name {
-	case "create_card":
-		title, _ := tc.Arguments["title"].(string)
-		cardType, _ := tc.Arguments["card_type"].(string)
-		if cardType == "" {
-			cardType = catalog.DefaultCardType
-		}
-		label := "Create card: " + title
-		detail := ""
-		if cardType != "" {
-			detail = fmt.Sprintf("Type: %s", cardType)
-		}
-		// Pin destination — prefer name (more meaningful in the row), fall
-		// back to resolving the ID to a name, finally raw ID.
-		catName, _ := tc.Arguments["category_name"].(string)
-		catID, _ := tc.Arguments["category_id"].(string)
-		pinDisplay := catName
-		if pinDisplay == "" && catID != "" {
-			pinDisplay = d.categoryDisplayName(scope, catID)
-		}
-		if pinDisplay != "" {
-			detail += "\nPin to category: " + pinDisplay
-		}
-		if desc, _ := tc.Arguments["description"].(string); desc != "" {
-			detail += "\n\n" + desc
-		}
-		detail = strings.TrimLeft(detail, "\n")
-		return "Card creation staged", []model.PendingEdit{{
-			ID: uuid.New().String(), Tool: tc.Name, Input: tc.Arguments,
-			Label: label, Detail: detail, Status: "pending",
-		}}
-
-	case "update_card":
-		cardID, _ := tc.Arguments["card_id"].(string)
-		if !inScope(cardID) {
-			return "error: card " + cardID + " is not in the current project. Use only the card IDs listed in the system prompt.", nil
-		}
-		return formatStageResult(tc.Name), d.stageProjectCardUpdates(cardID, tc.Arguments)
-
 	case "update_cards":
 		updatesRaw, _ := tc.Arguments["updates"].([]any)
 		var allEdits []model.PendingEdit
@@ -2198,62 +1822,6 @@ func (d *Dispatcher) StageProject(tc llm.ToolCall, scope ProjectChatScope) (stri
 			Status: "pending",
 		}}
 
-	case "configure_agent":
-		cardID, _ := tc.Arguments["card_id"].(string)
-		if !inScope(cardID) {
-			return "error: card " + cardID + " is not in the current project.", nil
-		}
-		cardLabel := d.cardDisplayLabel(cardID)
-		var edits []model.PendingEdit
-		if v, ok := tc.Arguments["enabled"].(bool); ok {
-			edits = append(edits, model.PendingEdit{
-				ID: uuid.New().String(), Tool: tc.Name,
-				Input:  map[string]any{"card_id": cardID, "enabled": v},
-				Label:  cardLabel + " — agent enabled",
-				Detail: fmt.Sprintf("Set agent enabled to %t", v),
-				Status: "pending",
-			})
-		}
-		if v, ok := tc.Arguments["schedule"].(string); ok {
-			detail := "Schedule: " + v
-			if v == "" {
-				detail = "Clear schedule"
-			}
-			edits = append(edits, model.PendingEdit{
-				ID: uuid.New().String(), Tool: tc.Name,
-				Input:  map[string]any{"card_id": cardID, "schedule": v},
-				Label:  cardLabel + " — agent schedule",
-				Detail: detail,
-				Status: "pending",
-			})
-		}
-		if v, ok := tc.Arguments["goal"].(string); ok {
-			edits = append(edits, model.PendingEdit{
-				ID: uuid.New().String(), Tool: tc.Name,
-				Input:  map[string]any{"card_id": cardID, "goal": v},
-				Label:  cardLabel + " — agent goal",
-				Detail: v,
-				Status: "pending",
-			})
-		}
-		if raw, ok := tc.Arguments["allowed_tools"].([]any); ok {
-			var tools []string
-			for _, t := range raw {
-				if s, ok := t.(string); ok {
-					tools = append(tools, s)
-				}
-			}
-			edits = append(edits, model.PendingEdit{
-				ID: uuid.New().String(), Tool: tc.Name,
-				Input:  map[string]any{"card_id": cardID, "allowed_tools": raw},
-				Label:  cardLabel + " — agent tools",
-				Detail: strings.Join(tools, ", "),
-				Status: "pending",
-			})
-		}
-		return "Agent configuration staged", edits
-
-	// --- Project metadata ---
 	case "update_project":
 		var edits []model.PendingEdit
 		mk := func(field string, fieldArg any, detail string) {
@@ -2351,13 +1919,6 @@ func (d *Dispatcher) StageProject(tc llm.ToolCall, scope ProjectChatScope) (stri
 		}}
 
 	// --- Categories ---
-	case "create_category":
-		name, _ := tc.Arguments["name"].(string)
-		return "Category creation staged", []model.PendingEdit{{
-			ID: uuid.New().String(), Tool: "create_category", Input: tc.Arguments,
-			Label: "Create category — " + name, Detail: name, Status: "pending",
-		}}
-
 	case "update_category":
 		catID, _ := tc.Arguments["category_id"].(string)
 		catName, _ := tc.Arguments["category_name"].(string)

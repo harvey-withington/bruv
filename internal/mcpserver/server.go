@@ -12,9 +12,10 @@
 //     (/repos/<id>/mcp), NOT chosen by the LLM. There is no repo
 //     argument on any tool, so an assistant cannot write to the wrong
 //     repo. See plan/bruv-mcp-server-for-third-party-agents-*.md.
-//   - Capture-focused tool set: create Brands / Streams / Projects /
-//     Categories / Cards, populate cards, plus list/get/search for
-//     grounding. No destructive operations in v1.
+//   - The tools are BRUV's native tool set (core/boardtools) — the same
+//     registry card chat, project chat and agents call in-process. This
+//     package is only the MCP transport over it. No destructive
+//     operations in v1.
 //
 // Auth is handled upstream: the route is mounted behind the same
 // requireAuth(device-token) wrapper as the rest of /repos/<id>/...
@@ -31,6 +32,7 @@ import (
 	nethttp "net/http"
 	"strings"
 
+	"bruv/core/boardtools"
 	"bruv/core/supervisor"
 	"bruv/internal/mcp"
 
@@ -185,7 +187,7 @@ func (h *Handler) dispatch(rt *supervisor.Runtime, repoName string, req *rpcRequ
 	case "ping":
 		resp.Result = map[string]any{}
 	case "tools/list":
-		resp.Result = map[string]any{"tools": toolDefs(rt, repoName)}
+		resp.Result = map[string]any{"tools": boardtools.Defs(rt, repoName)}
 	case "tools/call":
 		resp.Result = callTool(rt, req.Params)
 	default:
@@ -246,6 +248,22 @@ func (h *Handler) repoName(id string) string {
 }
 
 // parseRepoID extracts <id> from a "/repos/<id>/mcp" path.
+// callTool decodes a tools/call request and runs it through the native
+// tool registry. Bad params surface as isError text so the model can
+// adjust rather than seeing a transport error.
+func callTool(rt *supervisor.Runtime, params json.RawMessage) mcp.CallToolResult {
+	var p struct {
+		Name      string         `json:"name"`
+		Arguments map[string]any `json:"arguments"`
+	}
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return mcp.CallToolResult{Content: []mcp.Content{{Type: "text", Text: "invalid tools/call params: " + err.Error()}}, IsError: true}
+		}
+	}
+	return boardtools.Call(rt, p.Name, p.Arguments)
+}
+
 func parseRepoID(p string) string {
 	p = strings.TrimPrefix(p, "/repos/")
 	p = strings.TrimSuffix(p, "/")

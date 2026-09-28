@@ -59,89 +59,7 @@ var allAgentTools = []ToolDef{
 			"  - select / radio: send the chosen option as a string.\n" +
 			"If you send a plain string to a list or checklist block it will be split by newlines as a fallback, but sending an array is strongly preferred. Use existing block keys to update them; use a new key to create a new text block.\n" +
 			"To change intrinsic card fields, use the top-level 'title', 'due_date', or 'tags' parameters.",
-		Parameters: cardUpdateParams(false),
-	},
-	{
-		Name: "update_card",
-		Description: "Update ANOTHER card by id — e.g. one you created earlier, found with search_cards or list_cards — " +
-			"when its details change. Same fields and value formats as update_self (read it first with read_card to see its blocks). " +
-			"Use update_self for this agent's own card.",
-		Parameters: cardUpdateParams(true),
-	},
-	{
-		Name:        "read_card",
-		Description: "Read another card's content. Returns the card's title, type, tags, and all block content.",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"card_id": map[string]any{
-					"type":        "string",
-					"description": "The ID of the card to read",
-				},
-			},
-			"required": []string{"card_id"},
-		},
-	},
-	{
-		Name: "create_card",
-		Description: "Create and populate a new card. Call search_cards first so you don't create a duplicate. " +
-			"To file it on a board give ALL of brand, stream, project and category (missing levels are created); " +
-			"omit all four to leave it unfiled in the inbox. Use list_cards to see a board's existing categories.",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"title":       map[string]any{"type": "string", "description": "The card title"},
-				"card_type":   map[string]any{"type": "string", "description": "Card type id or label (e.g. 'task', 'reference'), matched case-insensitively; an unrecognised name creates a new type. Default 'brainstorm'."},
-				"description": map[string]any{"type": "string", "description": "Free-text summary under the title (Markdown)."},
-				"due_date":    map[string]any{"type": "string", "description": "Due date, YYYY-MM-DD."},
-				"tags":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Tags for the card."},
-				"brand":       map[string]any{"type": "string", "description": "Brand to file under (name or slug)."},
-				"stream":      map[string]any{"type": "string", "description": "Stream to file under."},
-				"project":     map[string]any{"type": "string", "description": "Project to file under."},
-				"category":    map[string]any{"type": "string", "description": "Category (board column) to file into."},
-				"blocks": map[string]any{
-					"type":        "array",
-					"description": "Content blocks to add to the card.",
-					"items": map[string]any{
-						"type": "object",
-						"properties": map[string]any{
-							"type":   map[string]any{"type": "string", "description": "'text', 'list', 'checklist', 'url', 'number', 'date' or 'checkbox'."},
-							"label":  map[string]any{"type": "string", "description": "Block label, e.g. 'Notes'."},
-							"value":  map[string]any{"description": "String for text/url/date; array of strings for list/checklist; number; boolean."},
-							"format": map[string]any{"type": "string", "enum": []any{"date", "date-time"}, "description": BlockFormatDesc},
-						},
-						"required": []string{"type", "value"},
-					},
-				},
-			},
-			"required": []string{"title"},
-		},
-	},
-	{
-		Name:        "search_cards",
-		Description: "Full-text search every card's title and content. Returns id, title, type and board location for each match. Use it to check whether a card already exists before creating one, or to find cards to read.",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"query": map[string]any{"type": "string", "description": "Search words; each matches as a prefix."},
-				"limit": map[string]any{"type": "integer", "description": "Max results (default 20)."},
-			},
-			"required": []string{"query"},
-		},
-	},
-	{
-		Name:        "list_cards",
-		Description: "List the cards on a project board, grouped by category in board order (id, title, type, due date, tags). Pass category to list one column only. Use read_card for a card's content.",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"brand":    map[string]any{"type": "string", "description": "Brand name or slug."},
-				"stream":   map[string]any{"type": "string", "description": "Stream name or slug."},
-				"project":  map[string]any{"type": "string", "description": "Project name or slug."},
-				"category": map[string]any{"type": "string", "description": "Optional: only this category."},
-			},
-			"required": []string{"brand", "stream", "project"},
-		},
+		Parameters: CardUpdateParams(false),
 	},
 	{
 		Name:        "http_request",
@@ -173,9 +91,9 @@ var allAgentTools = []ToolDef{
 const BlockFormatDesc = "Date blocks only: 'date' (YYYY-MM-DD, the default) or 'date-time', which keeps the time " +
 	"and the UTC offset of an ISO 8601 value such as '2026-10-04T14:35:00+10:00'."
 
-// cardUpdateParams is the schema shared by update_self and update_card;
+// CardUpdateParams is the schema shared by update_self and the native update_card tool;
 // withCardID adds the target card for update_card.
-func cardUpdateParams(withCardID bool) map[string]any {
+func CardUpdateParams(withCardID bool) map[string]any {
 	props := map[string]any{
 		"title": map[string]any{
 			"type":        "string",
@@ -235,18 +153,48 @@ func WebTools() []ToolDef {
 	return out
 }
 
-// AgentTools returns the tool definitions for an agent, filtered by the allowed list.
-// If allowedTools is empty, all tools are returned.
+// AgentBuiltinTools returns the agent-only built-ins: tools about the
+// agent's own run (update_self, notify) and the open web. Every board
+// tool (get_card, create_card, update_card, search_cards, …) is BRUV's
+// native tool set, added by the agent runtime — the same tools the MCP
+// server and chat use.
+func AgentBuiltinTools() []ToolDef {
+	return append([]ToolDef(nil), allAgentTools...)
+}
+
+// legacyAgentToolIDs maps allowed_tools ids from before agents used the
+// native tool set onto the native names, so saved agents keep working.
+var legacyAgentToolIDs = map[string]string{"read_card": "get_card"}
+
+// CanonicalAgentToolID returns the current id for a (possibly legacy)
+// allowed_tools entry.
+func CanonicalAgentToolID(id string) string {
+	if current, ok := legacyAgentToolIDs[id]; ok {
+		return current
+	}
+	return id
+}
+
+// agentExcludedTools are native tools an agent may never be granted:
+// letting a run start or reconfigure agents (including itself) would let
+// one agent spend without limit. They stay available to chat and MCP,
+// where a person is driving.
+var agentExcludedTools = map[string]bool{"configure_card_agent": true, "run_card_agent": true}
+
+// AgentMayUse reports whether an agent can be granted tool name at all.
+func AgentMayUse(name string) bool { return !agentExcludedTools[CanonicalAgentToolID(name)] }
+
+// AgentTools returns the agent-only built-ins allowed by allowedTools
+// (legacy ids accepted). An empty list allows none: an agent gets only
+// the tools it was explicitly granted, which is what the Agent tab shows.
 func AgentTools(allowedTools []string) []ToolDef {
 	if len(allowedTools) == 0 {
-		return allAgentTools
+		return nil
 	}
-
 	allowed := make(map[string]bool, len(allowedTools))
 	for _, t := range allowedTools {
-		allowed[t] = true
+		allowed[CanonicalAgentToolID(t)] = true
 	}
-
 	var filtered []ToolDef
 	for _, tool := range allAgentTools {
 		if allowed[tool.Name] {

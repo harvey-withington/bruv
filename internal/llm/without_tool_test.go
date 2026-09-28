@@ -4,7 +4,7 @@ import "testing"
 
 // A filed card never sees suggest_pin (Harvey, 2026-09-17).
 func TestWithoutToolDropsOnlyTheNamedTool(t *testing.T) {
-	defs := CardTools([]string{"task"}, nil, nil)
+	defs := CardTools(nil)
 	if !hasTool(defs, "suggest_pin") {
 		t.Fatal("an Inbox card must still be offered suggest_pin")
 	}

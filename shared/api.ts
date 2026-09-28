@@ -263,6 +263,7 @@ export const ValidateSchedulePreview = (...args: Parameters<ReturnType<typeof ge
 
 // Agent
 export const GetAgentConfig = (...args: Parameters<ReturnType<typeof getBackend>['GetAgentConfig']>) => getBackend().GetAgentConfig(...args)
+export const DescribeAgent = (...args: Parameters<ReturnType<typeof getBackend>['DescribeAgent']>) => getBackend().DescribeAgent(...args)
 export const SaveAgentConfig = (...args: Parameters<ReturnType<typeof getBackend>['SaveAgentConfig']>) => getBackend().SaveAgentConfig(...args)
 export const GetAgentRuns = (...args: Parameters<ReturnType<typeof getBackend>['GetAgentRuns']>) => getBackend().GetAgentRuns(...args)
 export const TriggerAgent = (...args: Parameters<ReturnType<typeof getBackend>['TriggerAgent']>) => getBackend().TriggerAgent(...args)

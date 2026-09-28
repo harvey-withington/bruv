@@ -2,29 +2,13 @@ package llm
 
 import "strings"
 
-// builtinAgentToolNames is the static list of tool names an agent can be
-// granted via configure_agent. MCP tools are appended dynamically at call
-// time by buildAllowedToolsEnum.
-var builtinAgentToolNames = []string{
-	"web_fetch", "web_search", "notify", "update_self", "update_card",
-	"create_card", "read_card", "search_cards", "list_cards", "http_request",
-}
+// builtinAgentToolNames are the agent-only built-ins (see AgentBuiltinTools).
+var builtinAgentToolNames = []string{"web_fetch", "web_search", "notify", "update_self", "http_request"}
 
 // BuiltinAgentToolNames returns a copy of the built-in tool names an
 // agent's allowed_tools list may contain.
 func BuiltinAgentToolNames() []string {
 	return append([]string(nil), builtinAgentToolNames...)
-}
-
-// buildAllowedToolsEnum merges the static built-in tool names with any
-// MCP tool IDs the repo currently has, producing the enum array for the
-// configure_agent tool's allowed_tools parameter. This lets the LLM
-// include MCP tools when configuring an agent from the card chat.
-func buildAllowedToolsEnum(mcpToolIDs []string) []string {
-	out := make([]string, len(builtinAgentToolNames), len(builtinAgentToolNames)+len(mcpToolIDs))
-	copy(out, builtinAgentToolNames)
-	out = append(out, mcpToolIDs...)
-	return out
 }
 
 // AddFieldTypes is the block-type vocabulary the add_field tool accepts.
@@ -43,13 +27,10 @@ func addFieldTypeEnum() []any {
 	return out
 }
 
-// CardTools returns the tool definitions available for card-level AI chat.
-// mcpToolIDs is the list of namespaced MCP tool IDs (e.g. "filesystem__read_text_file")
-// currently available via the repo's MCP registry. These are appended to the
-// configure_agent tool's allowed_tools enum so the LLM can include them when
-// setting up or modifying an agent's tool permissions. Pass nil if no MCP
-// registry is active.
-func CardTools(cardTypes []string, categories []map[string]string, mcpToolIDs []string) []ToolDef {
+// CardTools returns card chat's own tool definitions: the ones that act on
+// the open card through its field schema (set_fields, add_field) and
+// suggest_pin. The native board tools are added alongside by the chat runtime.
+func CardTools(categories []map[string]string) []ToolDef {
 	// Build enum for card types
 	// Build enum for category IDs + descriptions for the LLM
 	catIDs := make([]any, len(categories))
@@ -57,63 +38,10 @@ func CardTools(cardTypes []string, categories []map[string]string, mcpToolIDs []
 		catIDs[i] = c["id"]
 	}
 
+	// Card chat's own tools act on THIS card with its field schema. Every
+	// other board tool (title, description, type, due date, tags, agent…)
+	// comes from the native registry, appended by the chat runtime.
 	tools := []ToolDef{
-		{
-			Name:        "set_title",
-			Description: "Set or update the card's title.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"title": map[string]any{
-						"type":        "string",
-						"description": "The new title for the card",
-					},
-				},
-				"required": []string{"title"},
-			},
-		},
-		{
-			Name:        "set_description",
-			Description: "Set or update the card's description — the free-text summary under the title. This is an intrinsic card property, NOT a field/block. Pass an empty string to clear it.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"description": map[string]any{
-						"type":        "string",
-						"description": "The new description (markdown allowed), or empty string to clear",
-					},
-				},
-				"required": []string{"description"},
-			},
-		},
-		{
-			Name:        "set_due_date",
-			Description: "Set or clear the card's due date. Use ISO 8601 format (YYYY-MM-DD). Pass an empty string to clear the due date.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"due_date": map[string]any{
-						"type":        "string",
-						"description": "Due date in YYYY-MM-DD format, or empty string to clear",
-					},
-				},
-				"required": []string{"due_date"},
-			},
-		},
-		{
-			Name:        "set_card_type",
-			Description: "Set the card's type. This creates empty fields for that type which you MUST then fill using set_fields.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"card_type": map[string]any{
-						"type":        "string",
-						"description": cardTypeDesc(cardTypes),
-					},
-				},
-				"required": []string{"card_type"},
-			},
-		},
 		{
 			Name:        "set_fields",
 			Description: "Fill in one or more field values on the card. Each entry maps a field key (like 'description', 'priority', 'notes') to its new value. ALWAYS call this after set_card_type to populate the fields with real content.",
@@ -126,21 +54,6 @@ func CardTools(cardTypes []string, categories []map[string]string, mcpToolIDs []
 					},
 				},
 				"required": []string{"fields"},
-			},
-		},
-		{
-			Name:        "add_tags",
-			Description: "Add tags to the card. Prefer existing project tags when available, but create short descriptive tags if needed.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"tags": map[string]any{
-						"type":        "array",
-						"items":       map[string]any{"type": "string"},
-						"description": "List of tags to add to the card",
-					},
-				},
-				"required": []string{"tags"},
 			},
 		},
 	}
@@ -172,52 +85,6 @@ func CardTools(cardTypes []string, categories []map[string]string, mcpToolIDs []
 				},
 			},
 			"required": []string{"key", "label", "field_type"},
-		},
-	})
-
-	// configure_agent: set up or modify the card's autonomous agent
-	tools = append(tools, ToolDef{
-		Name:        "configure_agent",
-		Description: "Configure the card's autonomous agent. The agent runs on a schedule and can perform tasks like fetching web pages, searching the web, sending notifications, and updating this card. Set enabled to true and provide a goal and schedule to activate it.",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"enabled": map[string]any{
-					"type":        "boolean",
-					"description": "Whether the agent is active",
-				},
-				"goal": map[string]any{
-					"type":        "string",
-					"description": "What the agent should do each run. Be specific — this is the agent's instruction.",
-				},
-				"schedule": map[string]any{
-					"type":        "string",
-					"description": "How often to run. Use: '@hourly', '@daily', '@weekly', '30m', '1h', or a cron expression like '0 9 * * *' (daily at 9am).",
-				},
-				"allowed_tools": map[string]any{
-					"type":        "array",
-					"items":       map[string]any{"type": "string", "enum": buildAllowedToolsEnum(mcpToolIDs)},
-					"description": "Which tools the agent can use. Built-in tools: web_fetch, web_search, notify, update_self, create_card, read_card, http_request. MCP tools use a server__tool prefix (e.g. filesystem__read_text_file). Include MCP tools when the goal requires external capabilities like filesystem access.",
-				},
-				"notify_on": map[string]any{
-					"type":        "array",
-					"items":       map[string]any{"type": "string", "enum": []string{"success", "failure"}},
-					"description": "When to send notifications. Use ['success', 'failure'] for most agents.",
-				},
-				"notify_channel": map[string]any{
-					"type":        "string",
-					"description": "Notification channels as comma-separated string. Options: 'system', 'email', 'webhook'. In-app is always included automatically.",
-				},
-				"next_run_at": map[string]any{
-					"type":        "string",
-					"description": "ISO 8601 datetime to schedule the next run at a specific time. Use this to dynamically reschedule the agent.",
-				},
-				"new_schedule": map[string]any{
-					"type":        "string",
-					"description": "Cron expression or interval to change the agent's schedule (e.g. '@daily', '30m', '0 9 * * *').",
-				},
-			},
-			"required": []string{"enabled", "goal", "schedule", "allowed_tools"},
 		},
 	})
 
@@ -304,41 +171,6 @@ func ProjectTools(cardTypes []string, categories []map[string]string) []ToolDef 
 
 	tools := []ToolDef{
 		{
-			Name:        "create_card",
-			Description: "Create a new card and optionally pin it to a category in this project. Returns the card ID. After creation, the user can open it to continue editing.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"title": map[string]any{
-						"type":        "string",
-						"description": "Card title",
-					},
-					"card_type": map[string]any{
-						"type":        "string",
-						"description": "Card type (optional). " + cardTypeDesc(cardTypes),
-					},
-					"category_id": map[string]any{
-						"type":        "string",
-						"description": "ID of the category to pin the card to (optional). Use the IDs listed in the system prompt.",
-					},
-					"category_name": map[string]any{
-						"type":        "string",
-						"description": "Name of the category to pin to (optional). Use this instead of `category_id` when referring to a category you've just created in the same conversation — its ID won't be known yet.",
-					},
-					"tags": map[string]any{
-						"type":        "array",
-						"items":       map[string]any{"type": "string"},
-						"description": "Tags to add to the card (optional)",
-					},
-					"description": map[string]any{
-						"type":        "string",
-						"description": "Initial description text for the card's first text block (optional)",
-					},
-				},
-				"required": []string{"title"},
-			},
-		},
-		{
 			Name:        "add_tags_to_cards",
 			Description: "Add tags to one or more cards by their ID. Use this for bulk-tagging based on criteria.",
 			Parameters: map[string]any{
@@ -385,11 +217,6 @@ func ProjectTools(cardTypes []string, categories []map[string]string) []ToolDef 
 			},
 		},
 		{
-			Name:        "update_card",
-			Description: "Update one card's title, type, tags, due date, description, or blocks. All fields are optional — only the supplied ones change. Use `update_cards` instead when changing multiple cards.",
-			Parameters:  cardUpdateParameters(cardTypes, false),
-		},
-		{
 			Name:        "update_cards",
 			Description: "Update many cards in a single call. Each entry is a partial update for one card. All fields per entry are optional except `card_id`. Prefer this over many `update_card` calls when editing several cards at once.",
 			Parameters: map[string]any{
@@ -402,37 +229,6 @@ func ProjectTools(cardTypes []string, categories []map[string]string) []ToolDef 
 					},
 				},
 				"required": []string{"updates"},
-			},
-		},
-		{
-			Name:        "configure_agent",
-			Description: "Configure or update the agent attached to a card. Sets schedule (cron), goal, enabled state, or tool whitelist. Omit any field to leave it unchanged.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"card_id": map[string]any{
-						"type":        "string",
-						"description": "ID of the card whose agent to configure",
-					},
-					"enabled": map[string]any{
-						"type":        "boolean",
-						"description": "Enable or disable the agent (optional)",
-					},
-					"schedule": map[string]any{
-						"type":        "string",
-						"description": "Cron expression or shorthand (`@hourly`, `@daily`, `@weekly`). Empty string clears the schedule. (optional)",
-					},
-					"goal": map[string]any{
-						"type":        "string",
-						"description": "Plain-language description of what the agent should do on each run (optional)",
-					},
-					"allowed_tools": map[string]any{
-						"type":        "array",
-						"items":       map[string]any{"type": "string"},
-						"description": "Whitelist of tool names the agent may use (optional)",
-					},
-				},
-				"required": []string{"card_id"},
 			},
 		},
 
@@ -530,24 +326,6 @@ func ProjectTools(cardTypes []string, categories []map[string]string) []ToolDef 
 		},
 
 		// --- Categories ---
-		{
-			Name:        "create_category",
-			Description: "Create a new category (column) in the project. Position defaults to the end. After creation, you can immediately use `update_category` to set description, icon, or accepted_types.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"name": map[string]any{
-						"type":        "string",
-						"description": "Category name",
-					},
-					"position": map[string]any{
-						"type":        "integer",
-						"description": "Zero-based position (optional, defaults to end)",
-					},
-				},
-				"required": []string{"name"},
-			},
-		},
 		{
 			Name:        "update_category",
 			Description: "Update a category's name, description, icon, or accepted card types. Identify by `category_id` (preferred) or `category_name`. All update fields optional.",

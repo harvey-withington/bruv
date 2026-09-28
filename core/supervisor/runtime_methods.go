@@ -816,16 +816,6 @@ func (r *Runtime) executeProjectToolCall(tc llm.ToolCall, scope projectChatScope
 	return r.tools.ExecuteProject(tc, scope)
 }
 
-// stageToolCall stages a card-chat tool call as PendingEdits (suggest mode).
-func (r *Runtime) stageToolCall(tc llm.ToolCall, allCats []CategoryPath) (string, []model.PendingEdit) {
-	return r.tools.StageCard(tc, allCats)
-}
-
-// stageProjectToolCall stages a project-chat tool call as PendingEdits.
-func (r *Runtime) stageProjectToolCall(tc llm.ToolCall, scope projectChatScope) (string, []model.PendingEdit) {
-	return r.tools.StageProject(tc, scope)
-}
-
 // coerceBlockValueForBlock is the package-level coercion helper.
 // Called from app_agent.go during agent tool execution; mirrored here
 // as a forwarder so that file doesn't need to import tools directly.
@@ -895,19 +885,7 @@ func (r *Runtime) ApplyProjectPendingEdits(brandSlug, streamSlug, projectSlug, m
 	// chat session staged edits referencing cards that no longer belong to the
 	// project (moved or deleted between staging and apply), in addition to
 	// the original LLM-hallucination defence.
-	categories, _ := r.repo.ListCategories(brandSlug, streamSlug, projectSlug)
-	applyScope := tools.ProjectChatScope{
-		BrandSlug:   brandSlug,
-		StreamSlug:  streamSlug,
-		ProjectSlug: projectSlug,
-		CardIDs:     make(map[string]bool),
-	}
-	for _, cat := range categories {
-		pins, _ := r.repo.ListCardsInCategory(cat.ID)
-		for _, p := range pins {
-			applyScope.CardIDs[p.CardID] = true
-		}
-	}
+	applyScope := tools.ScopeForProject(r.repo, brandSlug, streamSlug, projectSlug)
 
 	// Walk the target message, applying accepted edits in order and marking
 	// the rest rejected. Edits run synchronously through the project executor.

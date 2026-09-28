@@ -37,6 +37,10 @@ type Deps interface {
 	Catalog() *catalog.Service
 	Workspace() *workspacesvc.Service
 	Agent() *agentsvc.Service
+
+	// Native is BRUV's native tool registry (core/boardtools), the same
+	// tool set the MCP server exposes. Nil disables native tools.
+	Native() NativeTools
 }
 
 // Dispatcher is the tool-execution entry point. Construct once with

@@ -1,4 +1,4 @@
-package mcpserver
+package boardtools
 
 // Tools that operate on an existing card beyond its blocks: intrinsic
 // properties (title, description, type, due date), attachments,
@@ -9,12 +9,13 @@ package mcpserver
 import (
 	"encoding/base64"
 	"fmt"
+	"reflect"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	cardtools "bruv/core/runtime/tools"
-	"bruv/core/supervisor"
 	"bruv/internal/mcp"
 	"bruv/internal/model"
 )
@@ -24,14 +25,14 @@ import (
 // anything larger than this cannot arrive in one message anyway.
 const maxAttachmentBytes = 3 * 1024 * 1024
 
-// defaultCommentAuthor is used when the client doesn't name one. The
+// DefaultCommentAuthor is used when the client doesn't name one. The
 // MCP handshake is stateless per request, so clientInfo isn't available
 // here; callers that care pass `author` explicitly.
-const defaultCommentAuthor = "MCP"
+const DefaultCommentAuthor = "MCP"
 
 // --- Intrinsic card properties ---
 
-func hSetCardTitle(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+func hSetCardTitle(rt Board, a map[string]any) (string, bool) {
 	cardID, title := argStr(a, "card_id"), strings.TrimSpace(argStr(a, "title"))
 	if cardID == "" || title == "" {
 		return errResult("card_id and title are required")
@@ -43,7 +44,7 @@ func hSetCardTitle(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	return jsonResult(map[string]any{"card_id": card.ID, "title": card.Title})
 }
 
-func hSetCardDescription(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+func hSetCardDescription(rt Board, a map[string]any) (string, bool) {
 	cardID := argStr(a, "card_id")
 	if cardID == "" {
 		return errResult("card_id is required")
@@ -59,7 +60,7 @@ func hSetCardDescription(rt *supervisor.Runtime, a map[string]any) (string, bool
 	return jsonResult(map[string]any{"card_id": card.ID, "description_length": len(card.Description)})
 }
 
-func hSetCardType(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+func hSetCardType(rt Board, a map[string]any) (string, bool) {
 	cardID, input := argStr(a, "card_id"), argStr(a, "card_type")
 	if cardID == "" || input == "" {
 		return errResult("card_id and card_type are required")
@@ -83,7 +84,78 @@ func hSetCardType(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	return jsonResult(out)
 }
 
-func hSetCardDueDate(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+// hUpdateCard is the general "update a card" tool: intrinsic fields plus
+// block values by key or label (a new key adds a text block). The update
+// rules are tools.ApplyCardUpdates — the agent's update_self uses the same
+// ones; each changed part is saved through the card service so events and
+// the activity log see every edit.
+func hUpdateCard(rt Board, a map[string]any) (string, bool) {
+	cardID := argStr(a, "card_id")
+	if cardID == "" {
+		return errResult("card_id is required")
+	}
+	before, err := rt.GetCard(cardID)
+	if err != nil {
+		return errResult("%v", err)
+	}
+	after, err := rt.GetCard(cardID) // an independent copy to mutate
+	if err != nil {
+		return errResult("%v", err)
+	}
+	if err := cardtools.ApplyCardUpdates(after, a); err != nil {
+		return errResult("%v", err)
+	}
+	changed := []string{}
+	// Each part is saved in turn; on a failure the parts already listed
+	// in `changed` have been saved and the rest haven't.
+	fail := func(field string, err error) (string, bool) {
+		return errResult("set %s: %v (already saved: %v)", field, err, changed)
+	}
+	if after.Title != before.Title {
+		if _, err := rt.UpdateCardTitle(cardID, after.Title); err != nil {
+			return fail("title", err)
+		}
+		changed = append(changed, "title")
+	}
+	if after.Description != before.Description {
+		if _, err := rt.UpdateCardDescription(cardID, after.Description); err != nil {
+			return fail("description", err)
+		}
+		changed = append(changed, "description")
+	}
+	if !sameDate(before.DueDate, after.DueDate) {
+		due := ""
+		if after.DueDate != nil {
+			due = after.DueDate.Format("2006-01-02")
+		}
+		if _, err := rt.UpdateCardDueDate(cardID, due); err != nil {
+			return fail("due_date", err)
+		}
+		changed = append(changed, "due_date")
+	}
+	if !slices.Equal(before.Tags, after.Tags) {
+		if _, err := rt.UpdateCardTags(cardID, after.Tags); err != nil {
+			return fail("tags", err)
+		}
+		changed = append(changed, "tags")
+	}
+	if !reflect.DeepEqual(before.Blocks, after.Blocks) {
+		if _, err := rt.UpdateCardBlocks(cardID, after.Blocks); err != nil {
+			return fail("blocks", err)
+		}
+		changed = append(changed, "blocks")
+	}
+	return jsonResult(map[string]any{"card_id": cardID, "updated": changed})
+}
+
+func sameDate(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Equal(*b)
+}
+
+func hSetCardDueDate(rt Board, a map[string]any) (string, bool) {
 	cardID := argStr(a, "card_id")
 	if cardID == "" {
 		return errResult("card_id is required")
@@ -107,7 +179,7 @@ func hSetCardDueDate(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 
 // --- Attachments ---
 
-func hAddCardAttachment(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+func hAddCardAttachment(rt Board, a map[string]any) (string, bool) {
 	cardID, name := argStr(a, "card_id"), strings.TrimSpace(argStr(a, "name"))
 	if cardID == "" || name == "" {
 		return errResult("card_id and name are required")
@@ -145,14 +217,14 @@ func hAddCardAttachment(rt *supervisor.Runtime, a map[string]any) (string, bool)
 
 // --- Comments ---
 
-func hAddCardComment(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+func hAddCardComment(rt Board, a map[string]any) (string, bool) {
 	cardID, text := argStr(a, "card_id"), strings.TrimSpace(argStr(a, "text"))
 	if cardID == "" || text == "" {
 		return errResult("card_id and text are required")
 	}
 	author := strings.TrimSpace(argStr(a, "author"))
 	if author == "" {
-		author = defaultCommentAuthor
+		author = DefaultCommentAuthor
 	}
 	comment, err := rt.AddCardComment(cardID, author, text)
 	if err != nil {
@@ -161,7 +233,7 @@ func hAddCardComment(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	return jsonResult(comment)
 }
 
-func hListCardComments(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+func hListCardComments(rt Board, a map[string]any) (string, bool) {
 	cardID := argStr(a, "card_id")
 	if cardID == "" {
 		return errResult("card_id is required")
@@ -178,7 +250,7 @@ func hListCardComments(rt *supervisor.Runtime, a map[string]any) (string, bool) 
 
 // --- Filing ---
 
-func hPinCard(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+func hPinCard(rt Board, a map[string]any) (string, bool) {
 	cardID := argStr(a, "card_id")
 	brand, stream := argStr(a, "brand"), argStr(a, "stream")
 	project, category := argStr(a, "project"), argStr(a, "category")
@@ -188,7 +260,7 @@ func hPinCard(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	if _, err := rt.GetCard(cardID); err != nil {
 		return errResult("%v", err)
 	}
-	catID, breadcrumb, err := cardtools.ResolveOrCreateCategory(rt.Project, cardtools.Location{Brand: brand, Stream: stream, Project: project, Category: category})
+	catID, breadcrumb, err := cardtools.ResolveOrCreateCategory(rt.ProjectService(), cardtools.Location{Brand: brand, Stream: stream, Project: project, Category: category})
 	if err != nil {
 		return errResult("%v", err)
 	}
@@ -198,7 +270,7 @@ func hPinCard(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	return jsonResult(map[string]any{"card_id": cardID, "pinned_to": breadcrumb, "category_id": catID})
 }
 
-func hUnpinCard(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+func hUnpinCard(rt Board, a map[string]any) (string, bool) {
 	cardID := argStr(a, "card_id")
 	brand, stream := argStr(a, "brand"), argStr(a, "stream")
 	project, category := argStr(a, "project"), argStr(a, "category")
@@ -217,15 +289,15 @@ func hUnpinCard(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 
 // --- Browsing ---
 
-func hListCards(rt *supervisor.Runtime, a map[string]any) (string, bool) {
-	board, err := cardtools.ListBoard(rt.Repo(), rt.Project, cardtools.LocationArgs(a))
+func hListCards(rt Board, a map[string]any) (string, bool) {
+	board, err := cardtools.ListBoard(rt.Repo(), rt.ProjectService(), cardtools.LocationArgs(a))
 	if err != nil {
 		return errResult("%v", err)
 	}
 	return jsonResult(board)
 }
 
-func hRecentCards(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+func hRecentCards(rt Board, a map[string]any) (string, bool) {
 	limit := argInt(a, "limit", 20)
 	if limit <= 0 {
 		limit = 20
@@ -240,16 +312,16 @@ func hRecentCards(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 // resolveExistingCategory walks Brand → Stream → Project → Category
 // WITHOUT creating anything — the counterpart to ResolveOrCreateCategory
 // for tools where a typo must fail rather than spawn a new column.
-func resolveExistingCategory(rt *supervisor.Runtime, brand, stream, project, category string) (*model.Category, string, error) {
-	brandSlug, brandName, ok := cardtools.FindBrand(rt.Project, brand)
+func resolveExistingCategory(rt Board, brand, stream, project, category string) (*model.Category, string, error) {
+	brandSlug, brandName, ok := cardtools.FindBrand(rt.ProjectService(), brand)
 	if !ok {
 		return nil, "", fmt.Errorf("brand %q not found", brand)
 	}
-	streamSlug, streamName, ok := cardtools.FindStream(rt.Project, brandSlug, stream)
+	streamSlug, streamName, ok := cardtools.FindStream(rt.ProjectService(), brandSlug, stream)
 	if !ok {
 		return nil, "", fmt.Errorf("stream %q not found", stream)
 	}
-	projectSlug, projectName, ok := cardtools.FindProject(rt.Project, brandSlug, streamSlug, project)
+	projectSlug, projectName, ok := cardtools.FindProject(rt.ProjectService(), brandSlug, streamSlug, project)
 	if !ok {
 		return nil, "", fmt.Errorf("project %q not found", project)
 	}
@@ -271,7 +343,7 @@ func resolveExistingCategory(rt *supervisor.Runtime, brand, stream, project, cat
 // megabytes of base64 through the model's context.
 const maxInlineDownloadBytes = 4 * 1024 * 1024
 
-func hGetCardAttachment(rt *supervisor.Runtime, a map[string]any) mcp.CallToolResult {
+func hGetCardAttachment(rt Board, a map[string]any) mcp.CallToolResult {
 	cardID := argStr(a, "card_id")
 	attID, name := argStr(a, "attachment_id"), strings.TrimSpace(argStr(a, "name"))
 	if cardID == "" || (attID == "" && name == "") {

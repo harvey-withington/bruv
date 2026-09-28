@@ -802,6 +802,29 @@ export type AgentFile = {
   runs: AgentRun[]
 }
 
+/** One tool id an agent's allowed_tools may contain (agentsvc.ToolOption). */
+export type AgentToolOption = {
+  id: string
+  description?: string
+  ready: boolean
+}
+
+/** A card's agent with the values it may be configured with (agentsvc.View). */
+export type AgentView = {
+  card_id: string
+  card_title: string
+  card_type: string
+  config: AgentConfig
+  recent_runs: { started_at: string; finished_at?: string; status: string; summary?: string; error?: string; tool_calls: number; tokens_used?: number; model_used?: string }[]
+  options: {
+    tools: AgentToolOption[]
+    llm_configured: boolean
+    notify_on: string[]
+    notify_channel: string[]
+    schedule_syntax: string
+  }
+}
+
 export type AgentSummary = {
   card_id: string
   card_title: string
@@ -1502,6 +1525,7 @@ export interface BackendAdapter {
   // Agent
   ValidateSchedulePreview(schedule: string, startDate: string, endDate: string, timezone: string, count: number): Promise<string[]>
   GetAgentConfig(cardID: string): Promise<AgentFile>
+  DescribeAgent(cardID: string): Promise<AgentView>
   SaveAgentConfig(cardID: string, config: AgentConfig): Promise<void>
   GetAgentRuns(cardID: string): Promise<AgentRun[]>
   TriggerAgent(cardID: string): Promise<void>

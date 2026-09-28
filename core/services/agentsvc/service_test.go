@@ -5,7 +5,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	llmsvc "bruv/core/services/llm"
 	"bruv/internal/index"
+	"bruv/internal/llm"
+	"bruv/internal/mcp"
 	"bruv/internal/model"
 	"bruv/internal/repo"
 )
@@ -18,6 +21,11 @@ type testDeps struct {
 func (d *testDeps) Repo() *repo.Repository      { return d.r }
 func (d *testDeps) Index() *index.Index         { return nil }
 func (d *testDeps) Publish(topic string, _ any) { d.topics = append(d.topics, topic) }
+func (d *testDeps) LLM() *llmsvc.Service        { return nil }
+func (d *testDeps) MCPRegistry() *mcp.Registry  { return nil }
+func (d *testDeps) NativeToolDefs() []llm.ToolDef {
+	return []llm.ToolDef{{Name: "get_card"}, {Name: "create_card"}, {Name: "update_card"}}
+}
 
 func (d *testDeps) emitted(topic string) bool {
 	for _, t := range d.topics {

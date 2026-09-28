@@ -6,6 +6,7 @@ import (
 
 	chatrt "bruv/core/runtime/chat"
 	"bruv/core/runtime/prompts"
+	"bruv/core/runtime/tools"
 	"bruv/core/services/card"
 	"bruv/core/services/catalog"
 	llmsvc "bruv/core/services/llm"
@@ -49,6 +50,10 @@ type Deps interface {
 	// Runtime state.
 	MCPRegistry() *mcp.Registry
 	LLMActors() *sync.Map
+
+	// Native is BRUV's native tool registry — the same board tools the
+	// MCP server and chat use. Agents call it board-wide. Nil disables it.
+	Native() tools.NativeTools
 }
 
 // Runtime owns the agent execution surface. Construct one per host

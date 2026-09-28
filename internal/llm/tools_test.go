@@ -1,24 +1,22 @@
 package llm
 
 import (
-	"strings"
 	"testing"
 )
 
 func TestCardToolsBaseCount(t *testing.T) {
-	tools := CardTools(nil, nil, nil)
-	// Base tools: set_title, set_description, set_due_date, set_card_type,
-	// set_fields, add_tags, add_field, suggest_pin, configure_agent,
-	// web_fetch, web_search.
-	if len(tools) != 11 {
-		t.Errorf("expected 11 base tools, got %d", len(tools))
+	tools := CardTools(nil)
+	// Card chat's own tools: set_fields, add_field, suggest_pin, web_fetch,
+	// web_search. Every other board tool comes from the native registry.
+	if len(tools) != 5 {
+		t.Errorf("expected 5 base tools, got %d", len(tools))
 	}
 }
 
 func TestCardToolsAllHaveNameAndDescription(t *testing.T) {
-	tools := CardTools([]string{"feature", "task"}, []map[string]string{
+	tools := CardTools([]map[string]string{
 		{"id": "cat-1", "name": "Backlog"},
-	}, nil)
+	})
 	for _, tool := range tools {
 		if tool.Name == "" {
 			t.Error("tool has empty Name")
@@ -32,68 +30,12 @@ func TestCardToolsAllHaveNameAndDescription(t *testing.T) {
 	}
 }
 
-// REGRESSION (2026-08-14): card_type params must NOT be a hard enum —
-// an unknown name is CREATED as a new user type by the dispatcher, and
-// an enum forbids exactly that. The existing ids ride in the property
-// description instead so the model matches before inventing.
-func TestCardToolsSetCardTypeListsIdsWithoutEnum(t *testing.T) {
-	types := []string{"feature", "task", "brainstorm"}
-	tools := CardTools(types, nil, nil)
-
-	var setCardType *ToolDef
-	for i := range tools {
-		if tools[i].Name == "set_card_type" {
-			setCardType = &tools[i]
-			break
-		}
-	}
-	if setCardType == nil {
-		t.Fatal("set_card_type tool not found")
-	}
-
-	props := setCardType.Parameters["properties"].(map[string]any)
-	cardTypeProp := props["card_type"].(map[string]any)
-	if _, hasEnum := cardTypeProp["enum"]; hasEnum {
-		t.Fatal("card_type must not carry an enum — it forbids creating new types")
-	}
-	desc := cardTypeProp["description"].(string)
-	for _, want := range types {
-		if !strings.Contains(desc, want) {
-			t.Errorf("card_type description missing existing id %q:\n%s", want, desc)
-		}
-	}
-}
-
-func TestCardToolsEmptyCardTypes(t *testing.T) {
-	tools := CardTools([]string{}, nil, nil)
-
-	var setCardType *ToolDef
-	for i := range tools {
-		if tools[i].Name == "set_card_type" {
-			setCardType = &tools[i]
-			break
-		}
-	}
-	if setCardType == nil {
-		t.Fatal("set_card_type tool not found")
-	}
-
-	props := setCardType.Parameters["properties"].(map[string]any)
-	cardTypeProp := props["card_type"].(map[string]any)
-	if _, hasEnum := cardTypeProp["enum"]; hasEnum {
-		t.Error("card_type must not carry an enum even with no types")
-	}
-	if desc := cardTypeProp["description"].(string); desc == "" {
-		t.Error("card_type description should still guide the model with no types")
-	}
-}
-
 func TestCardToolsSuggestPinWithCategories(t *testing.T) {
 	categories := []map[string]string{
 		{"id": "cat-1", "name": "Backlog"},
 		{"id": "cat-2", "name": "Done"},
 	}
-	tools := CardTools(nil, categories, nil)
+	tools := CardTools(categories)
 
 	var suggestPin *ToolDef
 	for i := range tools {
@@ -122,7 +64,7 @@ func TestCardToolsSuggestPinWithCategories(t *testing.T) {
 }
 
 func TestCardToolsSuggestPinWithoutCategories(t *testing.T) {
-	tools := CardTools(nil, nil, nil)
+	tools := CardTools(nil)
 
 	var suggestPin *ToolDef
 	for i := range tools {
@@ -142,7 +84,7 @@ func TestCardToolsSuggestPinWithoutCategories(t *testing.T) {
 }
 
 func TestCardToolsSuggestPinAlwaysHasHierarchyFields(t *testing.T) {
-	tools := CardTools(nil, nil, nil)
+	tools := CardTools(nil)
 
 	var suggestPin *ToolDef
 	for i := range tools {
@@ -164,19 +106,13 @@ func TestCardToolsSuggestPinAlwaysHasHierarchyFields(t *testing.T) {
 }
 
 func TestCardToolsExpectedNames(t *testing.T) {
-	tools := CardTools([]string{"feature"}, []map[string]string{{"id": "c1", "name": "Cat"}}, nil)
+	tools := CardTools([]map[string]string{{"id": "c1", "name": "Cat"}})
 	expected := map[string]bool{
-		"set_title":       true,
-		"set_description": true,
-		"set_due_date":    true,
-		"set_card_type":   true,
-		"set_fields":      true,
-		"add_tags":        true,
-		"add_field":       true,
-		"suggest_pin":     true,
-		"configure_agent": true,
-		"web_fetch":       true,
-		"web_search":      true,
+		"set_fields":  true,
+		"add_field":   true,
+		"suggest_pin": true,
+		"web_fetch":   true,
+		"web_search":  true,
 	}
 	for _, tool := range tools {
 		if !expected[tool.Name] {
@@ -192,7 +128,7 @@ func TestCardToolsExpectedNames(t *testing.T) {
 func TestWebToolsExposedToChat(t *testing.T) {
 	// Contract test — card and project chat must expose web_fetch and
 	// web_search, but never http_request (that's agent-only by design).
-	cards := CardTools(nil, nil, nil)
+	cards := CardTools(nil)
 	projects := ProjectTools(nil, nil)
 	for _, set := range []struct {
 		name  string

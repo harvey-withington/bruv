@@ -118,7 +118,7 @@ func Summary(cfg model.AgentConfig) string {
 	if schedule == "" {
 		schedule = "none (runs only when triggered)"
 	}
-	tools := "all built-in"
+	tools := "none (it can only reply in text)"
 	if len(cfg.AllowedTools) > 0 {
 		tools = strings.Join(cfg.AllowedTools, ", ")
 	}

@@ -1,4 +1,4 @@
-package mcpserver
+package boardtools
 
 import (
 	"encoding/json"
@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	cardtools "bruv/core/runtime/tools"
-	"bruv/core/supervisor"
 )
 
 // jsonResult marshals v to pretty JSON for the tool's text content.
@@ -24,7 +23,7 @@ func errResult(format string, a ...any) (string, bool) {
 
 // --- Discovery / read ---
 
-func hListBrands(rt *supervisor.Runtime, _ map[string]any) (string, bool) {
+func hListBrands(rt Board, _ map[string]any) (string, bool) {
 	brands, err := rt.ListBrands()
 	if err != nil {
 		return errResult("%v", err)
@@ -32,12 +31,12 @@ func hListBrands(rt *supervisor.Runtime, _ map[string]any) (string, bool) {
 	return jsonResult(brands)
 }
 
-func hListStreams(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+func hListStreams(rt Board, a map[string]any) (string, bool) {
 	brand := argStr(a, "brand")
 	if brand == "" {
 		return errResult("brand is required")
 	}
-	brandSlug, _, ok := cardtools.FindBrand(rt.Project, brand)
+	brandSlug, _, ok := cardtools.FindBrand(rt.ProjectService(), brand)
 	if !ok {
 		return errResult("brand %q not found", brand)
 	}
@@ -48,16 +47,16 @@ func hListStreams(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	return jsonResult(streams)
 }
 
-func hListProjects(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+func hListProjects(rt Board, a map[string]any) (string, bool) {
 	brand, stream := argStr(a, "brand"), argStr(a, "stream")
 	if brand == "" || stream == "" {
 		return errResult("brand and stream are required")
 	}
-	brandSlug, _, ok := cardtools.FindBrand(rt.Project, brand)
+	brandSlug, _, ok := cardtools.FindBrand(rt.ProjectService(), brand)
 	if !ok {
 		return errResult("brand %q not found", brand)
 	}
-	streamSlug, _, ok := cardtools.FindStream(rt.Project, brandSlug, stream)
+	streamSlug, _, ok := cardtools.FindStream(rt.ProjectService(), brandSlug, stream)
 	if !ok {
 		return errResult("stream %q not found", stream)
 	}
@@ -68,20 +67,20 @@ func hListProjects(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	return jsonResult(projects)
 }
 
-func hListCategories(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+func hListCategories(rt Board, a map[string]any) (string, bool) {
 	brand, stream, project := argStr(a, "brand"), argStr(a, "stream"), argStr(a, "project")
 	if brand == "" || stream == "" || project == "" {
 		return errResult("brand, stream and project are required")
 	}
-	brandSlug, _, ok := cardtools.FindBrand(rt.Project, brand)
+	brandSlug, _, ok := cardtools.FindBrand(rt.ProjectService(), brand)
 	if !ok {
 		return errResult("brand %q not found", brand)
 	}
-	streamSlug, _, ok := cardtools.FindStream(rt.Project, brandSlug, stream)
+	streamSlug, _, ok := cardtools.FindStream(rt.ProjectService(), brandSlug, stream)
 	if !ok {
 		return errResult("stream %q not found", stream)
 	}
-	projectSlug, _, ok := cardtools.FindProject(rt.Project, brandSlug, streamSlug, project)
+	projectSlug, _, ok := cardtools.FindProject(rt.ProjectService(), brandSlug, streamSlug, project)
 	if !ok {
 		return errResult("project %q not found", project)
 	}
@@ -92,11 +91,11 @@ func hListCategories(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	return jsonResult(cats)
 }
 
-func hListCardTypes(rt *supervisor.Runtime, _ map[string]any) (string, bool) {
+func hListCardTypes(rt Board, _ map[string]any) (string, bool) {
 	return jsonResult(rt.ListCardTypes())
 }
 
-func hGetCard(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+func hGetCard(rt Board, a map[string]any) (string, bool) {
 	id := argStr(a, "card_id")
 	if id == "" {
 		return errResult("card_id is required")
@@ -108,7 +107,7 @@ func hGetCard(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	return jsonResult(card)
 }
 
-func hSearchCards(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+func hSearchCards(rt Board, a map[string]any) (string, bool) {
 	query := argStr(a, "query")
 	if query == "" {
 		return errResult("query is required")
@@ -126,7 +125,7 @@ func hSearchCards(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 
 // --- Create / capture ---
 
-func hCreateBrand(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+func hCreateBrand(rt Board, a map[string]any) (string, bool) {
 	name := argStr(a, "name")
 	if name == "" {
 		return errResult("name is required")
@@ -143,12 +142,12 @@ func hCreateBrand(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	return jsonResult(brand)
 }
 
-func hCreateStream(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+func hCreateStream(rt Board, a map[string]any) (string, bool) {
 	brand, name := argStr(a, "brand"), argStr(a, "name")
 	if brand == "" || name == "" {
 		return errResult("brand and name are required")
 	}
-	brandSlug, _, err := cardtools.EnsureBrand(rt.Project, brand)
+	brandSlug, _, err := cardtools.EnsureBrand(rt.ProjectService(), brand)
 	if err != nil {
 		return errResult("%v", err)
 	}
@@ -164,16 +163,16 @@ func hCreateStream(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	return jsonResult(stream)
 }
 
-func hCreateProject(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+func hCreateProject(rt Board, a map[string]any) (string, bool) {
 	brand, stream, name := argStr(a, "brand"), argStr(a, "stream"), argStr(a, "name")
 	if brand == "" || stream == "" || name == "" {
 		return errResult("brand, stream and name are required")
 	}
-	brandSlug, _, err := cardtools.EnsureBrand(rt.Project, brand)
+	brandSlug, _, err := cardtools.EnsureBrand(rt.ProjectService(), brand)
 	if err != nil {
 		return errResult("%v", err)
 	}
-	streamSlug, _, err := cardtools.EnsureStream(rt.Project, brandSlug, stream)
+	streamSlug, _, err := cardtools.EnsureStream(rt.ProjectService(), brandSlug, stream)
 	if err != nil {
 		return errResult("%v", err)
 	}
@@ -189,20 +188,20 @@ func hCreateProject(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	return jsonResult(project)
 }
 
-func hCreateCategory(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+func hCreateCategory(rt Board, a map[string]any) (string, bool) {
 	brand, stream, project, name := argStr(a, "brand"), argStr(a, "stream"), argStr(a, "project"), argStr(a, "name")
 	if brand == "" || stream == "" || project == "" || name == "" {
 		return errResult("brand, stream, project and name are required")
 	}
-	brandSlug, _, err := cardtools.EnsureBrand(rt.Project, brand)
+	brandSlug, _, err := cardtools.EnsureBrand(rt.ProjectService(), brand)
 	if err != nil {
 		return errResult("%v", err)
 	}
-	streamSlug, _, err := cardtools.EnsureStream(rt.Project, brandSlug, stream)
+	streamSlug, _, err := cardtools.EnsureStream(rt.ProjectService(), brandSlug, stream)
 	if err != nil {
 		return errResult("%v", err)
 	}
-	projectSlug, _, err := cardtools.EnsureProject(rt.Project, brandSlug, streamSlug, project)
+	projectSlug, _, err := cardtools.EnsureProject(rt.ProjectService(), brandSlug, streamSlug, project)
 	if err != nil {
 		return errResult("%v", err)
 	}
@@ -215,14 +214,14 @@ func hCreateCategory(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	return jsonResult(cat)
 }
 
-func hCreateCard(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+func hCreateCard(rt Board, a map[string]any) (string, bool) {
 	// The type resolves against the catalog (id or label match, unknown
 	// names created); an omitted type gets the built-in default.
 	spec, err := cardtools.ParseCardSpec(a)
 	if err != nil {
 		return errResult("%v", err)
 	}
-	created, err := cardtools.CreateCard(rt.Card, rt.Project, rt.Catalog, spec)
+	created, err := cardtools.CreateCard(rt.CardService(), rt.ProjectService(), rt.CatalogService(), spec)
 	if err != nil {
 		return errResult("%v", err)
 	}
@@ -241,7 +240,7 @@ func hCreateCard(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 
 // --- Populate existing cards ---
 
-func hAddCardBlocks(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+func hAddCardBlocks(rt Board, a map[string]any) (string, bool) {
 	cardID := argStr(a, "card_id")
 	if cardID == "" {
 		return errResult("card_id is required")
@@ -261,7 +260,7 @@ func hAddCardBlocks(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	return jsonResult(map[string]any{"card_id": cardID, "blocks_added": len(blocks)})
 }
 
-func hSetCardFields(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+func hSetCardFields(rt Board, a map[string]any) (string, bool) {
 	cardID := argStr(a, "card_id")
 	if cardID == "" {
 		return errResult("card_id is required")
@@ -303,7 +302,7 @@ func hSetCardFields(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	return jsonResult(map[string]any{"card_id": cardID, "updated_fields": updatedKeys})
 }
 
-func hAddCardTags(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+func hAddCardTags(rt Board, a map[string]any) (string, bool) {
 	cardID := argStr(a, "card_id")
 	if cardID == "" {
 		return errResult("card_id is required")
@@ -336,4 +335,3 @@ func hAddCardTags(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	}
 	return jsonResult(map[string]any{"card_id": cardID, "tags_added": added, "tags": merged})
 }
-

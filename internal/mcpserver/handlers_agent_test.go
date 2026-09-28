@@ -101,8 +101,8 @@ func TestConfigureCardAgentWarnsWhenUnscheduled(t *testing.T) {
 	h, _ := newTestHandler(t)
 	cardID := createTestCard(t, h, "agent")
 	text := mustCallTool(t, h, "configure_card_agent", map[string]any{"card_id": cardID, "enabled": true, "goal": "g"})
-	if !strings.Contains(text, "run_card_agent") {
-		t.Errorf("expected a no-schedule warning pointing at run_card_agent, got %s", text)
+	if !strings.Contains(text, "only when triggered") {
+		t.Errorf("expected a no-schedule warning, got %s", text)
 	}
 }
 

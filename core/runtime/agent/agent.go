@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -13,8 +12,6 @@ import (
 	"github.com/google/uuid"
 
 	chatrt "bruv/core/runtime/chat"
-	"bruv/core/runtime/promptfmt"
-	"bruv/core/runtime/tools"
 	llmsvc "bruv/core/services/llm"
 	"bruv/core/services/llm/routing"
 	agentlib "bruv/internal/agent"
@@ -440,14 +437,13 @@ func (rt *Runtime) executeAgent(ctx context.Context, cardID string) error {
 	// 6. Build system prompt
 	systemPrompt := rt.deps.Prompts().Agent(card, af.Config, cfg)
 
-	// 7. Build filtered tools
-	toolDefs := llm.AgentTools(af.Config.AllowedTools)
-	// Append any MCP tools exposed by the per-repo registry that
-	// this agent has been granted via per-card allowed-tools. MCP
-	// tool IDs are namespaced (server__tool) so they never collide
-	// with built-in tool names. Passing an empty allowed list
-	// means "all MCP tools", matching the built-in behaviour.
+	// 7. Build the tools this agent was granted: agent-only built-ins,
+	// native board tools and MCP tools (server__tool ids, which never
+	// collide with built-in names). An empty allowed_tools grants none.
+	toolDefs := append(llm.AgentTools(af.Config.AllowedTools), rt.nativeToolDefs(af.Config.AllowedTools)...)
 	toolDefs = append(toolDefs, rt.mcpToolDefs(af.Config.AllowedTools)...)
+	offered := offeredSet(toolDefs)
+	guard := newRunGuard()
 
 	// Select the model: the agent's own choice (or its pre-routing
 	// account/model pair), else the agent_run task's assignment.
@@ -520,8 +516,18 @@ func (rt *Runtime) executeAgent(ctx context.Context, cardID string) error {
 		Exhausted: &exhausted,
 		WrapUpPrompt: "You have used all of this run's turns and cannot call any more tools. " +
 			"Report now: what you completed, what you did not get to, and anything the user should check.",
+		// Stop a run that keeps failing (a blocked site, a dead API)
+		// instead of letting it search until the budget runs out.
+		Stop: guard.stopReason,
 		ExecuteTool: func(tc llm.ToolCall) (string, *model.ToolAction, *model.PinSuggestion) {
+			if !offered[tc.Name] {
+				return fmt.Sprintf("error: this agent isn't allowed to use %s", tc.Name), nil, nil
+			}
+			if note, repeat := guard.repeat(tc); repeat {
+				return note, nil, nil
+			}
 			result, action := rt.executeAgentToolCall(runCtx, cardID, card, tc)
+			guard.record(result)
 			if action != nil {
 				allToolActions = append(allToolActions, *action)
 			}
@@ -582,15 +588,11 @@ func (rt *Runtime) mcpToolDefs(allowedTools []string) []llm.ToolDef {
 	if len(tools) == 0 {
 		return nil
 	}
-	// Build allow-set once. An empty allow list means "allow all"
-	// for both built-ins and MCP tools.
-	var allow map[string]bool
-	if len(allowedTools) > 0 {
-		allow = make(map[string]bool, len(allowedTools))
-		for _, t := range allowedTools {
-			allow[t] = true
-		}
+	// Only granted MCP tools; an empty allow list grants none.
+	if len(allowedTools) == 0 {
+		return nil
 	}
+	allow := allowedSet(allowedTools)
 	out := make([]llm.ToolDef, 0, len(tools))
 	for _, t := range tools {
 		if allow != nil && !allow[t.NamespaceID] {
@@ -637,6 +639,17 @@ func (rt *Runtime) executeAgentToolCall(ctx context.Context, cardID string, card
 	// with a name that happens to include the separator.
 	if rt.deps.MCPRegistry() != nil && rt.deps.MCPRegistry().OwnsTool(tc.Name) {
 		return rt.executeMCPToolCall(ctx, tc, action)
+	}
+
+	// BRUV's native board tools (get_card, create_card, update_card,
+	// search_cards, …) — the same registry MCP and chat use, board-wide.
+	if n := rt.deps.Native(); n != nil && n.Has(tc.Name) {
+		result, isErr := n.Call(nil, tc.Name, tc.Arguments)
+		action.Result = result
+		if !isErr {
+			action.Result = n.Summary(tc.Name, tc.Arguments, result)
+		}
+		return result, action
 	}
 
 	switch tc.Name {
@@ -703,97 +716,10 @@ func (rt *Runtime) executeAgentToolCall(ctx context.Context, cardID string, card
 		action.Result = "card updated"
 		return "Card blocks updated successfully.", action
 
-	case "update_card":
-		// Any card by id — e.g. one this agent filed earlier. update_self
-		// stays the way to edit the agent's own card.
-		targetID, _ := tc.Arguments["card_id"].(string)
-		if strings.TrimSpace(targetID) == "" {
-			action.Result = "error: card_id is required"
-			return action.Result, action
-		}
-		if err := rt.updateCard(targetID, tc.Arguments); err != nil {
-			action.Result = "error: " + err.Error()
-			return action.Result, action
-		}
-		action.Result = "updated card " + targetID
-		return "Card " + targetID + " updated successfully.", action
-
-	case "read_card":
-		targetID, _ := tc.Arguments["card_id"].(string)
-		targetCard, err := rt.deps.Repo().GetCard(targetID)
-		if err != nil {
-			action.Result = "error: " + err.Error()
-			return action.Result, action
-		}
-		action.Result = "read card: " + targetCard.Title
-		return promptfmt.FormatCardContent(targetCard), action
-
-	case "create_card":
-		// Same create path as the MCP server's create_card: the card
-		// service seeds type blocks, logs activity and publishes events.
-		spec, err := tools.ParseCardSpec(tc.Arguments)
-		if err != nil {
-			action.Result = "error: " + err.Error()
-			return action.Result, action
-		}
-		created, err := tools.CreateCard(rt.deps.Card(), rt.deps.Project(), rt.deps.Catalog(), spec)
-		if err != nil {
-			action.Result = "error: " + err.Error()
-			return action.Result, action
-		}
-		where := "the inbox (unfiled)"
-		if created.PinnedTo != "" {
-			where = created.PinnedTo
-		}
-		action.Result = fmt.Sprintf("created card: %s (%s) in %s", created.Card.Title, created.Card.ID, where)
-		return fmt.Sprintf("Created card '%s' with ID %s in %s.", created.Card.Title, created.Card.ID, where), action
-
-	case "search_cards":
-		query, _ := tc.Arguments["query"].(string)
-		if strings.TrimSpace(query) == "" {
-			action.Result = "error: query is required"
-			return action.Result, action
-		}
-		limit := 20
-		if n, ok := tc.Arguments["limit"].(float64); ok && n > 0 {
-			limit = int(n)
-		}
-		idx := rt.deps.Index()
-		if idx == nil {
-			action.Result = "error: search index unavailable"
-			return action.Result, action
-		}
-		results, err := idx.Search(query, limit)
-		if err != nil {
-			action.Result = "error: " + err.Error()
-			return action.Result, action
-		}
-		action.Result = fmt.Sprintf("searched cards: %q (%d results)", query, len(results))
-		return formatJSON(results), action
-
-	case "list_cards":
-		board, err := tools.ListBoard(rt.deps.Repo(), rt.deps.Project(), tools.LocationArgs(tc.Arguments))
-		if err != nil {
-			action.Result = "error: " + err.Error()
-			return action.Result, action
-		}
-		action.Result = "listed board cards"
-		return formatJSON(board), action
-
 	default:
 		action.Result = "unknown tool"
 		return fmt.Sprintf("Unknown tool: %s", tc.Name), action
 	}
-}
-
-// formatJSON renders a tool result for the model. Marshalling plain
-// data can't fail in practice; if it does, the model gets the error.
-func formatJSON(v any) string {
-	b, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return "error: " + err.Error()
-	}
-	return string(b)
 }
 
 func (rt *Runtime) executeMCPToolCall(ctx context.Context, tc llm.ToolCall, action *model.ToolAction) (string, *model.ToolAction) {
@@ -853,15 +779,6 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%d hour(s)", int(d.Hours()))
 	}
 	return fmt.Sprintf("%d minutes", int(d.Minutes()))
-}
-
-func cardHasBlock(card *model.Card, name string) bool {
-	for _, b := range card.Blocks {
-		if strings.EqualFold(b.Key, name) || strings.EqualFold(b.Label, name) {
-			return true
-		}
-	}
-	return false
 }
 
 func truncateMCPOutput(content string) (string, bool) {

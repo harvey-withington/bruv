@@ -10,8 +10,11 @@
 package agentsvc
 
 import (
+	llmsvc "bruv/core/services/llm"
 	"bruv/internal/agent"
 	"bruv/internal/index"
+	"bruv/internal/llm"
+	"bruv/internal/mcp"
 	"bruv/internal/model"
 	"bruv/internal/repo"
 	"fmt"
@@ -24,6 +27,13 @@ type Deps interface {
 	Repo() *repo.Repository
 	Index() *index.Index
 	Publish(topic string, payload any)
+	// LLM and MCPRegistry feed Describe/Configure's option lists (models,
+	// routers, MCP tool ids). Either may be nil; the lists are then empty.
+	LLM() *llmsvc.Service
+	MCPRegistry() *mcp.Registry
+	// NativeToolDefs is BRUV's native board tool set (core/boardtools),
+	// which agents may be granted alongside their built-ins.
+	NativeToolDefs() []llm.ToolDef
 }
 
 // Service exposes agent config CRUD and schedule-preview.
@@ -32,13 +42,22 @@ type Service struct{ deps Deps }
 // New constructs an AgentService.
 func New(deps Deps) *Service { return &Service{deps: deps} }
 
-// GetConfig returns the agent file for a card.
+// GetConfig returns the agent file for a card. allowed_tools comes back
+// with current ids, so a saved legacy name (read_card) reads as its
+// native replacement (get_card) on every surface, including the UI.
 func (s *Service) GetConfig(cardID string) (*model.AgentFile, error) {
 	r := s.deps.Repo()
 	if r == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
-	return r.GetAgentConfig(cardID)
+	af, err := r.GetAgentConfig(cardID)
+	if err != nil {
+		return nil, err
+	}
+	for i, id := range af.Config.AllowedTools {
+		af.Config.AllowedTools[i] = llm.CanonicalAgentToolID(id)
+	}
+	return af, nil
 }
 
 // SaveConfig persists agent config, recomputes NextRunAt, and updates

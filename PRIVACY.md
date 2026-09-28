@@ -87,11 +87,7 @@ Agents can only use tools you've explicitly enabled for each card. The full tool
 | `http_request` | Makes an HTTP request (GET/POST/PUT/DELETE) | Public web |
 | `notify` | Sends you a desktop / in-app notification | Local |
 | `update_self` | Updates blocks on the card it's attached to | Local, scoped to one card |
-| `update_card` | Updates another card by id (e.g. one the agent filed) | Local, whole board |
-| `read_card` | Reads another card's content | Local, scoped to the current project |
-| `create_card` | Creates a new card, optionally filed into a category (missing levels are created) | Local, whole board |
-| `search_cards` | Full-text searches cards | Local, whole board |
-| `list_cards` | Lists the cards on a project board | Local, whole board |
+| BRUV board tools — `get_card`, `search_cards`, `list_cards`, `create_card`, `update_card`, `set_card_*`, `add_card_tags`, comments, attachments, pins, agent tools | The same tool set the in-app chat and the MCP connector use: read, create and change cards and their filing | Local, whole board |
 
 **Agents cannot:**
 

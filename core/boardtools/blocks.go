@@ -1,4 +1,4 @@
-package mcpserver
+package boardtools
 
 import (
 	"encoding/json"

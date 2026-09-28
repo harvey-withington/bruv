@@ -1,12 +1,9 @@
-package mcpserver
+package boardtools
 
 import (
-	"encoding/json"
 	"strings"
 
-	"bruv/core/services/agentsvc"
 	"bruv/core/services/catalog"
-	"bruv/core/supervisor"
 	"bruv/internal/llm"
 	"bruv/internal/mcp"
 )
@@ -15,10 +12,10 @@ import (
 // the model and whether that text represents an error (mapped to the
 // MCP result's isError flag). Tool-level failures flow back to the model
 // as text rather than JSON-RPC errors so it can recover.
-type toolFunc func(rt *supervisor.Runtime, args map[string]any) (string, bool)
+type toolFunc func(rt Board, args map[string]any) (string, bool)
 
 // toolHandlers maps tool name → implementation. Definitions advertised
-// to the client live in toolDefs; the two must stay in sync.
+// to the client live in Defs; the two must stay in sync.
 var toolHandlers = map[string]toolFunc{
 	// Discovery / read
 	"list_brands":     hListBrands,
@@ -43,6 +40,7 @@ var toolHandlers = map[string]toolFunc{
 	"set_card_description": hSetCardDescription,
 	"set_card_type":        hSetCardType,
 	"set_card_due_date":    hSetCardDueDate,
+	"update_card":          hUpdateCard,
 	// Attachments + comments
 	"add_card_attachment": hAddCardAttachment,
 	"add_card_comment":    hAddCardComment,
@@ -61,39 +59,49 @@ var toolHandlers = map[string]toolFunc{
 // richToolFunc is a tool whose result is more than one text block — an
 // embedded file, an image. It builds the CallToolResult itself. Kept as
 // a separate table so the common text-only handlers stay trivial.
-type richToolFunc func(rt *supervisor.Runtime, args map[string]any) mcp.CallToolResult
+type richToolFunc func(rt Board, args map[string]any) mcp.CallToolResult
 
 // richToolHandlers maps tool name → rich implementation. Advertised in
-// toolDefs alongside the text tools; the sync test covers both tables.
+// Defs alongside the text tools; the sync test covers both tables.
 var richToolHandlers = map[string]richToolFunc{
 	"get_card_attachment": hGetCardAttachment,
 }
 
-// callTool executes a tools/call request and wraps the result in an MCP
-// CallToolResult. Bad params or unknown tools surface as isError text so
-// the model can adjust rather than seeing a transport error.
-func callTool(rt *supervisor.Runtime, params json.RawMessage) mcp.CallToolResult {
-	var p struct {
-		Name      string         `json:"name"`
-		Arguments map[string]any `json:"arguments"`
+// Call runs one tool and wraps its result as an MCP CallToolResult. Tool
+// failures and unknown tools surface as isError text so the model can
+// adjust rather than seeing a transport error.
+func Call(rt Board, name string, args map[string]any) mcp.CallToolResult {
+	if args == nil {
+		args = map[string]any{}
 	}
-	if len(params) > 0 {
-		if err := json.Unmarshal(params, &p); err != nil {
-			return textResult("invalid tools/call params: "+err.Error(), true)
-		}
+	if rich, ok := richToolHandlers[name]; ok {
+		return rich(rt, args)
 	}
-	if p.Arguments == nil {
-		p.Arguments = map[string]any{}
-	}
-	if rich, ok := richToolHandlers[p.Name]; ok {
-		return rich(rt, p.Arguments)
-	}
-	fn, ok := toolHandlers[p.Name]
+	fn, ok := toolHandlers[name]
 	if !ok {
-		return textResult("unknown tool: "+p.Name, true)
+		return textResult("unknown tool: "+name, true)
 	}
-	text, isErr := fn(rt, p.Arguments)
+	text, isErr := fn(rt, args)
 	return textResult(text, isErr)
+}
+
+// Has reports whether name is a native board tool.
+func Has(name string) bool {
+	_, text := toolHandlers[name]
+	_, rich := richToolHandlers[name]
+	return text || rich
+}
+
+// Names lists every registered tool (both handler tables).
+func Names() []string {
+	out := make([]string, 0, len(toolHandlers)+len(richToolHandlers))
+	for n := range toolHandlers {
+		out = append(out, n)
+	}
+	for n := range richToolHandlers {
+		out = append(out, n)
+	}
+	return out
 }
 
 func textResult(text string, isErr bool) mcp.CallToolResult {
@@ -123,15 +131,6 @@ func intProp(desc string) map[string]any {
 func strArr(desc string) map[string]any {
 	return map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": desc}
 }
-func boolProp(desc string) map[string]any {
-	return map[string]any{"type": "boolean", "description": desc}
-}
-func numProp(desc string) map[string]any {
-	return map[string]any{"type": "number", "description": desc}
-}
-func enumArr(desc string, values []string) map[string]any {
-	return map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": values}, "description": desc}
-}
 
 // blockArrayProp is the shared schema for a list of card blocks. The
 // shape matches BRUV's internal block model: {type, label, value, key?}.
@@ -156,7 +155,7 @@ func blockArrayProp(desc string) map[string]any {
 // cardTypeRoster renders the board's live card types (built-in + user,
 // from the catalog) as a comma-separated list of labels for tool
 // descriptions, so clients pick a real type instead of guessing one.
-func cardTypeRoster(rt *supervisor.Runtime) string {
+func cardTypeRoster(rt Board) string {
 	types := rt.ListCardTypes()
 	labels := make([]string, 0, len(types))
 	for _, t := range types {
@@ -169,16 +168,18 @@ func cardTypeRoster(rt *supervisor.Runtime) string {
 	return strings.Join(labels, ", ")
 }
 
-// toolDefs returns the tool list, templating the repo name and the live
+// Defs returns the tool list, templating the repo name and the live
 // card-type roster into the descriptions so a multi-connector user sees
 // which board each tool writes to and which types it actually has.
-func toolDefs(rt *supervisor.Runtime, repoName string) []mcp.Tool {
+func Defs(rt Board, repoName string) []mcp.Tool {
 	board := "the \"" + repoName + "\" BRUV board"
-	omitted := " Omit for the built-in default '" + catalog.DefaultCardType + "'."
-	cardTypeDesc := "Card type — matched case-insensitively by id or label; an unrecognised name creates a new type." + omitted
+	// The live roster rides in the description, never as an enum: an
+	// unknown name is created as a new type, which an enum would forbid.
+	typeDesc := "Card type — matched case-insensitively by id or label; an unrecognised name creates a new type."
 	if roster := cardTypeRoster(rt); roster != "" {
-		cardTypeDesc = "Card type — one of: " + roster + " (matched case-insensitively by id or label; an unrecognised name creates a new type)." + omitted
+		typeDesc = "Card type — one of: " + roster + " (matched case-insensitively by id or label; an unrecognised name creates a new type)."
 	}
+	cardTypeDesc := typeDesc + " Omit for the built-in default '" + catalog.DefaultCardType + "'."
 
 	return []mcp.Tool{
 		// --- Discovery / read ---
@@ -343,7 +344,7 @@ func toolDefs(rt *supervisor.Runtime, repoName string) []mcp.Tool {
 			Description: "Change a card's type in " + board + ". See list_card_types for the available ids.",
 			InputSchema: obj(map[string]any{
 				"card_id":   strProp("The card's id."),
-				"card_type": strProp("Card type id or label, matched case-insensitively; an unrecognised name creates a new type."),
+				"card_type": strProp(typeDesc),
 			}, "card_id", "card_type"),
 		},
 		{
@@ -353,6 +354,14 @@ func toolDefs(rt *supervisor.Runtime, repoName string) []mcp.Tool {
 				"card_id":  strProp("The card's id."),
 				"due_date": strProp("YYYY-MM-DD, or an empty string to clear the due date."),
 			}, "card_id", "due_date"),
+		},
+		{
+			Name: "update_card",
+			Description: "Update a card in " + board + " in one call: title, due date, tags, and block values matched by key or label " +
+				"(a new key adds a text block). Values are shaped to each block's type — arrays for list/checklist, ISO 8601 for dates " +
+				"(a date-time block keeps the time and offset). Read the card first with get_card to see its blocks.",
+			// Same schema as the agent's update_self, plus card_id.
+			InputSchema: llm.CardUpdateParams(true),
 		},
 
 		// --- Attachments + comments ---
@@ -441,47 +450,17 @@ func toolDefs(rt *supervisor.Runtime, repoName string) []mcp.Tool {
 
 		// --- Card agents ---
 		{
-			Name: "get_card_agent",
-			Description: "Read the autonomous agent on a card in " + board + ": its config, its last few runs (status, summary, error), " +
-				"and `options` — the valid tool ids, LLM accounts, notification values and schedule syntax for configure_card_agent. " +
-				"Call this before configuring an agent and after run_card_agent to check the result.",
+			Name:        "get_card_agent",
+			Description: llm.AgentReadDescription + " Board: " + board + ".",
 			InputSchema: obj(map[string]any{
 				"card_id": strProp("The card's id."),
 			}, "card_id"),
 		},
 		{
-			Name: "configure_card_agent",
-			Description: "Set up or change the autonomous agent on a card in " + board + ". Any card can carry an agent; for a " +
-				"dedicated agent card, create it with card_type 'agent'. Only the fields you pass change. A working agent needs " +
-				"enabled=true, a specific goal, and a schedule (or trigger it with run_card_agent). The next run is computed " +
-				"automatically; the result lists warnings for anything that would stop it running.",
-			InputSchema: obj(map[string]any{
-				"card_id":  strProp("The card's id."),
-				"enabled":  boolProp("Whether the agent runs. Enabling requires a goal."),
-				"goal":     strProp("The agent's instruction for every run. Be specific about what to check, what to write to the card, and when to notify."),
-				"schedule": strProp(scheduleSyntax),
-				"allowed_tools": strArr("Tool ids the agent may call (see get_card_agent options.tools): built-ins such as web_search, " +
-					"web_fetch, update_self, read_card, create_card, notify, http_request, plus MCP tools as server__tool. " +
-					"An empty array allows every built-in and MCP tool."),
-				"notify_on":      enumArr("When to notify the user after a run.", agentsvc.NotifyTriggers),
-				"notify_channel": enumArr("Extra notification channels; in-app is always on.", agentsvc.NotifyChannels),
-				"llm": strProp("Model or router the agent runs on: a `ref` from get_card_agent options.llm " +
-					"('model:<id>' or 'router:<id>'). Empty string = whatever the user assigned to agent runs."),
-				"timezone":   strProp("IANA timezone for cron schedules and the active window, e.g. 'Europe/London'. Empty = server local time."),
-				"start_date": strProp("Don't run before this time (RFC 3339; zone-less times and dates are the BRUV server's local time). Empty string clears it."),
-				"end_date":   strProp("Disable the agent after this time (RFC 3339; zone-less times and dates are the BRUV server's local time). Empty string clears it."),
-				"active_window_start": strProp("Only run from this time of day, HH:MM 24-hour. Set with active_window_end; " +
-					"empty strings for both clear the window."),
-				"active_window_end":     strProp("Only run until this time of day, HH:MM 24-hour."),
-				"one_shot":              boolProp("Run once at the next scheduled time, then stop."),
-				"next_run_at":           strProp("Pin the next run to an exact time (RFC 3339, or zone-less in the BRUV server's local time) instead of the schedule's next slot."),
-				"max_tokens_budget":     intProp("Token cap per run. 0 = default (50000)."),
-				"max_turns":             intProp("Model turns per run (each turn = one response plus its tool calls), up to 100. 0 = default (25). A run that hits it is marked failed."),
-				"cost_budget_usd":       numProp("Total spend cap in USD. 0 = no cap."),
-				"min_interval_minutes":  intProp("Minimum minutes between runs. 0 = default (5)."),
-				"max_retries":           intProp("Retries after a failed run, 0–10. 0 = no retry."),
-				"retry_backoff_minutes": intProp("Minutes to wait before a retry. 0 = default (5)."),
-			}, "card_id"),
+			// Same schema as card/project chat's configure_agent (llm.AgentConfigParams).
+			Name:        "configure_card_agent",
+			Description: llm.AgentConfigDescription("get_card_agent") + " Board: " + board + ". Any card can carry an agent; for a dedicated agent card, create it with card_type 'agent'.",
+			InputSchema: llm.AgentConfigParams(true, "get_card_agent"),
 		},
 		{
 			Name: "run_card_agent",

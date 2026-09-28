@@ -235,13 +235,14 @@ func (b *Builder) Project(brandSlug, streamSlug, projectSlug string, brand *mode
 	sb.WriteString("## Your capabilities\n")
 	sb.WriteString("You can read and modify any property of this project, its cards, its categories, and its tag vocabulary. ")
 	sb.WriteString("USE THE TOOLS to make changes — do not just describe what would be done.\n\n")
-	sb.WriteString("Cards:\n")
-	sb.WriteString("- `create_card` — create a new card and optionally pin it to a category.\n")
-	sb.WriteString("- `update_card` / `update_cards` — change title, type, tags, due date, description, blocks. Prefer the plural for bulk edits.\n")
-	sb.WriteString("- For tags: use `tags_to_add` to append, `tags_to_remove` to drop specific tags, and `tags` only when the user explicitly wants to replace the whole tag list.\n")
-	sb.WriteString("- `add_tags_to_cards` — bulk-tag many cards in one call.\n")
-	sb.WriteString("- `move_card` — move a card between categories.\n")
-	sb.WriteString("- `configure_agent` — set a card's agent schedule, goal, enabled state, or tool whitelist.\n\n")
+	sb.WriteString("Cards — BRUV's standard board tools, scoped to this project (the same tools every BRUV surface uses):\n")
+	sb.WriteString("- `get_card`, `list_cards`, `search_cards` — read cards. Always `get_card` a card before rewriting any of its content.\n")
+	sb.WriteString("- `create_card` — create and fill a card; give `category` (a column of this project, created if missing). brand/stream/project default to this project.\n")
+	sb.WriteString("- `update_card` — change one card's title, due date, tags and block values in one call; `set_card_title`, `set_card_description`, `set_card_type`, `set_card_due_date`, `add_card_tags`, `set_card_fields`, `add_card_blocks` for single changes.\n")
+	sb.WriteString("- `update_cards` / `add_tags_to_cards` — batch edits across many cards. For tags there: `tags_to_add` appends, `tags_to_remove` drops, `tags` replaces the whole list only when the user asks.\n")
+	sb.WriteString("- `move_card` — move a card between categories; `pin_card` / `unpin_card` for extra locations.\n")
+	sb.WriteString("- `add_card_comment`, `list_card_comments`, `add_card_attachment`, `get_card_attachment`.\n")
+	sb.WriteString("- Agents: `get_card_agent` reads a card's agent (full goal, limits, recent runs, valid options); `configure_card_agent` changes only the fields you pass (the goal field REPLACES the whole goal — read it first); `run_card_agent` runs it now.\n\n")
 	sb.WriteString("Web:\n")
 	sb.WriteString("- `web_fetch` — fetch a URL and read its text. Use for known links.\n")
 	sb.WriteString("- `web_search` — search the web via DuckDuckGo. Use for open-ended lookups; follow up with `web_fetch` on the best result if you need full content.\n")
@@ -253,9 +254,9 @@ func (b *Builder) Project(brandSlug, streamSlug, projectSlug string, brand *mode
 	sb.WriteString("- `update_project_tag` — rename, recolor, or set an icon for an existing tag. Identify by `tag_id` or `tag_name`.\n")
 	sb.WriteString("- `delete_project_tag` — remove a tag from the project's vocabulary. The tag list above shows usage counts; tags marked UNUSED can usually be deleted directly.\n\n")
 	sb.WriteString("Categories (columns):\n")
-	sb.WriteString("- `create_category` / `update_category` / `delete_category` — manage the columns. update_category can set name, description, icon, and accepted_types.\n")
+	sb.WriteString("- `list_categories` / `create_category` / `update_category` / `delete_category` — manage the columns. update_category can set name, description, icon, and accepted_types.\n")
 	sb.WriteString("- `update_category` and `delete_category` accept either `category_id` (preferred) or `category_name`. Use the name when referring to a category you just created in the same conversation, since its ID won't be known yet.\n")
-	sb.WriteString("- When chaining `create_category` with `move_card` or `create_card` in the same turn, use the destination's NAME (`to_category_name` / `category_name`) — the apply phase resolves the name after the create runs.\n")
+	sb.WriteString("- When chaining `create_category` with `move_card` or `create_card` in the same turn, refer to the new column by NAME (`to_category_name`, or create_card's `category`) — the apply phase resolves it after the create runs.\n")
 	sb.WriteString("- `move_card` only requires `card_id` and the destination. The source (`from_category_id`) is auto-detected from the card's current pin in this project, so you usually don't need to supply it.\n\n")
 	sb.WriteString("Icon names (for `icon` parameters on `update_project`, `update_category`, `create_project_tag`, `update_project_tag`):\n")
 	sb.WriteString("Use ONLY these names — anything else will display as a placeholder. Names use kebab-case.\n")
@@ -334,8 +335,8 @@ func (b *Builder) serializeCardForProjectPrompt(card *model.Card) string {
 				sb.WriteString("\n")
 				if cfg.Goal != "" {
 					goal := cfg.Goal
-					if len(goal) > maxAgentGoalChars {
-						goal = goal[:maxAgentGoalChars] + "…"
+					if r := []rune(goal); len(r) > maxAgentGoalChars {
+						goal = string(r[:maxAgentGoalChars]) + "… (preview — call get_card_agent for the full goal before changing it)"
 					}
 					sb.WriteString("  agent goal: " + strings.ReplaceAll(goal, "\n", " ") + "\n")
 				}
@@ -374,16 +375,17 @@ RULES:
 - When researching, ALWAYS cite the source URLs returned by web_search in your final reply.
 - YOU HAVE WEB ACCESS via web_search and web_fetch. If the user asks about anything you don't already know, CALL those tools. Do NOT say "I can't search the web" or "use a search engine yourself" — those responses are wrong.
 
-TOOLS:
+TOOLS — BRUV's standard board tools (the same ones every BRUV surface uses) take this card's id as card_id; it is listed under "Current card" below. They reach cards in this card's project only.
 - set_card_type — Pick the best type. Only if type is not set or wrong. Decide the type TOGETHER with the pin location: first choose the category, then read its [accepts: …] list (if any) and pick the type from that list. Call set_card_type before suggest_pin in the same response.
-- set_fields — Fill field values with real content from the user's message. ALWAYS call this when fields are empty.
-- set_title — Write a clear, specific title. Only if title is "New Card" or generic.
-- set_description — Set the card's description (the free-text summary under the title). It is an intrinsic card property, NOT a field — never create a "description" field for it. Empty string clears.
-- set_due_date — YYYY-MM-DD format. Resolve relative dates from today (%s).
+- set_fields — Fill THIS card's field values with real content from the user's message. ALWAYS call this when fields are empty.
+- set_card_title — Write a clear, specific title. Only if title is "New Card" or generic.
+- set_card_description — Set the card's description (the free-text summary under the title). It is an intrinsic card property, NOT a field — never create a "description" field for it. Empty string clears.
+- set_card_due_date — YYYY-MM-DD format, or empty to clear. Resolve relative dates from today (%s).
 - suggest_pin — ALWAYS pin the card. STRONGLY prefer an existing category_id from the list below. The hierarchy is: Brand > Stream > Project > Category (e.g. "Big Ideas / YouTube Channels / Channel Brainstorm / Ideas"). Do NOT use the card title as a brand name. Only create new names if NOTHING existing fits. Type and location are one decision: a category marked [accepts: …] refuses every other card type, so when the best-fit category is restricted, keep the location and give the card one of its accepted types (set_card_type first, then suggest_pin, same response). Only choose a different category if none of its accepted types describes the card. Never pin a card to a category whose list excludes its type — that pin fails when applied.
-- add_tags — Add relevant tags. Prefer existing project tags listed below, but you may create new short, descriptive tags if none fit.
+- add_card_tags — Add relevant tags. Prefer existing project tags listed below, but you may create new short, descriptive tags if none fit.
 - add_field — Add a NEW field to the card (e.g. a list, a checklist, extra notes, a checkbox). Use when the user asks for a field that does not already exist. 'list' is plain bullet/dot points; 'checklist' has checkboxes — pick the one the user asked for. When the user wants several fields, call add_field once per field in the same response. ALWAYS pass the 'value' parameter in the same call when the user described what should go in the field — do NOT split into add_field followed by set_fields, that pattern frequently leaves the field empty. Only use set_fields afterward to update an EXISTING field.
-- configure_agent — Set up or modify the card's autonomous agent. Provide enabled, goal, schedule, and allowed_tools. The agent runs in the background and can fetch web pages, search, notify the user, and update this card. Use this when the user asks to "set up an agent", "run this on a schedule", "check daily", etc.
+- get_card_agent / configure_card_agent / run_card_agent — Read, set up or change, and run the card's autonomous agent. ALWAYS call get_card_agent first: it returns the full goal, limits (max_turns, budgets), recent runs and the valid tool/model options. configure_card_agent changes only the fields you pass; its goal REPLACES the whole goal, so rewrite from the full text. Use these when the user asks to "set up an agent", "run this on a schedule", "check daily", etc.
+- Other board tools (get_card, search_cards, list_cards, create_card, update_card, comments, attachments, pins) are available too — use them when the user asks about or wants changes to other cards in this project.
 - web_fetch — Fetch a specific URL and read its text content. Use when the user gives you a link or when you need up-to-date info from a known page.
 - web_search — Search the web via DuckDuckGo. Use for "look up…", "find the latest…", "what's happening with…" style asks. Returns titles, URLs, and snippets; follow up with web_fetch on the most relevant result if you need the full content.`, time.Now().Format("2006-01-02 (Monday)"), time.Now().Format("2006-01-02")))
 
@@ -399,7 +401,7 @@ TOOLS:
 
 	// Card context (always included)
 	var cardParts []string
-	cardParts = append(cardParts, fmt.Sprintf("Current card: %q", card.Title))
+	cardParts = append(cardParts, fmt.Sprintf("Current card: %q (card_id: %s)", card.Title, card.ID))
 	if card.Type != "" {
 		cardParts = append(cardParts, fmt.Sprintf("Type: %s", card.Type))
 	} else {
@@ -448,18 +450,26 @@ TOOLS:
 	// Agent context — show current agent config if it exists
 	if b.deps.Repo() != nil {
 		af, err := b.deps.Repo().GetAgentConfig(card.ID)
-		if err == nil && af.Config.Enabled {
-			agentParts := []string{"Agent: ENABLED"}
-			agentParts = append(agentParts, fmt.Sprintf("  Goal: %s", af.Config.Goal))
-			agentParts = append(agentParts, fmt.Sprintf("  Schedule: %s", af.Config.Schedule))
-			agentParts = append(agentParts, fmt.Sprintf("  Status: %s", af.Config.Status))
-			agentParts = append(agentParts, fmt.Sprintf("  Tools: %s", strings.Join(af.Config.AllowedTools, ", ")))
-			if af.Config.LastRunAt != nil {
-				agentParts = append(agentParts, fmt.Sprintf("  Last run: %s", af.Config.LastRunAt.Format("2006-01-02 15:04")))
+		if cfg := af; err == nil && (cfg.Config.Enabled || cfg.Config.Goal != "") {
+			state := "DISABLED"
+			if cfg.Config.Enabled {
+				state = "ENABLED"
+			}
+			tools := "none — it can only reply in text until tools are granted"
+			if len(cfg.Config.AllowedTools) > 0 {
+				tools = strings.Join(cfg.Config.AllowedTools, ", ")
+			}
+			agentParts := []string{"Agent: " + state + " (get_card_agent returns the full config, recent runs and options)"}
+			agentParts = append(agentParts, fmt.Sprintf("  Goal: %s", cfg.Config.Goal))
+			agentParts = append(agentParts, fmt.Sprintf("  Schedule: %s", cfg.Config.Schedule))
+			agentParts = append(agentParts, fmt.Sprintf("  Status: %s", cfg.Config.Status))
+			agentParts = append(agentParts, fmt.Sprintf("  Tools: %s", tools))
+			if cfg.Config.LastRunAt != nil {
+				agentParts = append(agentParts, fmt.Sprintf("  Last run: %s", cfg.Config.LastRunAt.Format("2006-01-02 15:04")))
 			}
 			parts = append(parts, strings.Join(agentParts, "\n"))
 		} else {
-			parts = append(parts, "Agent: not configured. Use configure_agent to set up an autonomous agent on this card.")
+			parts = append(parts, "Agent: not configured. Use configure_card_agent to set up an autonomous agent on this card.")
 		}
 	}
 

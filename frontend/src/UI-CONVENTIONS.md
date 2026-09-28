@@ -683,3 +683,22 @@ Anything that shows an agent is **running right now** uses the shared shimmer: t
 **Source of truth:** `board.runningAgentIds` (`lib/store.svelte.ts`) — seeded from `GetAllAgents().is_running` on every board load (so a run that began before the app opened still shows) and kept live by `agent:started` / `agent:completed` / `agent:failed`. Read it with a `$derived`; don't poll.
 
 **Where it appears:** the board tile (`CardItem`), the agents page and dashboard rows, the card detail tab bar (the Agent tab's dot shimmers instead of the static "has an agent" dot, so it's visible from every tab, with the localized `agent.running` tooltip), and a live "Running..." row at the top of the Runs tab showing `agent.running_since`. Reduced motion is handled by the global `prefers-reduced-motion` rule.
+---
+
+## 21. Agent permissions — `AgentToolPicker` + `lib/agentToolGroups.ts`
+
+**Contract (2026-09-29): the Agent tab shows a tick against every permission the agent actually has, whatever is stored.** An agent can use only the tools it was granted; an empty list grants none — the picker then shows "No tools granted: the agent can only reply in text."
+
+- **Rows come from the backend**, never a hand-kept list: `DescribeAgent(cardId).options.tools` is every tool an agent can be granted (agent-only built-ins plus BRUV's native board tools; the agent-management tools `configure_card_agent` / `run_card_agent` are never grantable). `buildToolGroups` groups them — Web, This card & alerts, Read the board, Create & edit cards, Filing, Brands/streams/projects — and anything new lands in **Other tools** rather than disappearing.
+- **MCP servers** get one group each, listing every tool with its own checkbox. A partly granted server shows its header **indeterminate**, not unticked. A server that isn't ready still lists its granted tools, marked *Not available right now — still granted*.
+- **Nothing is hidden:** a granted id the backend no longer offers (a retired tool, a removed server) appears ticked under **Granted but not available**, so the user can see and revoke it.
+- Group headers are tri-state; ticking a partly ticked header grants the rest.
+
+| Prop | Type | Notes |
+|---|---|---|
+| `allowedTools` | `string[]` (bindable) | The agent's `allowed_tools`. |
+| `options` | `AgentToolOption[]` | From `DescribeAgent`. |
+| `mcpServers` | `MCPServerView[]` | From `ListMCPServers`. |
+| `onchange` | `() => void` | Fired after a grant or revoke (the tab marks itself dirty). |
+
+Labels: built-ins keep `agent.tool_<id>` (+ `_desc`); native tools use `agent.tool.<id>`, falling back to the id for an unknown tool. Desktop only — mobile has no agent editor.

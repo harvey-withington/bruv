@@ -5,6 +5,7 @@ package mcpserver
 // real Supervisor over a fresh repo, driven through tools/call.
 
 import (
+	"bruv/core/boardtools"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -40,25 +41,20 @@ func TestToolsListAdvertisesNewTools(t *testing.T) {
 	for _, tool := range out.Tools {
 		advertised[tool.Name] = true
 	}
-	// Every registered handler must be advertised and vice versa — the two
-	// tables are maintained by hand.
-	for name := range toolHandlers {
+	// Every registered handler must be advertised and vice versa — the
+	// definitions and handler tables are maintained by hand.
+	registered := map[string]bool{}
+	for _, name := range boardtools.Names() {
+		if registered[name] {
+			t.Errorf("%q is registered in both handler tables", name)
+		}
+		registered[name] = true
 		if !advertised[name] {
 			t.Errorf("handler %q has no tools/list definition", name)
 		}
 	}
-	for name := range richToolHandlers {
-		if !advertised[name] {
-			t.Errorf("rich handler %q has no tools/list definition", name)
-		}
-		if _, dup := toolHandlers[name]; dup {
-			t.Errorf("%q is registered in both handler tables", name)
-		}
-	}
 	for name := range advertised {
-		_, text := toolHandlers[name]
-		_, rich := richToolHandlers[name]
-		if !text && !rich {
+		if !registered[name] {
 			t.Errorf("tools/list advertises %q but no handler is registered", name)
 		}
 	}
@@ -257,7 +253,7 @@ func TestCardComments(t *testing.T) {
 	if len(comments) != 2 {
 		t.Fatalf("comments = %+v, want 2", comments)
 	}
-	if comments[0].Author != defaultCommentAuthor || comments[0].Text != "Deployed and verified." {
+	if comments[0].Author != boardtools.DefaultCommentAuthor || comments[0].Text != "Deployed and verified." {
 		t.Errorf("first comment = %+v", comments[0])
 	}
 	if comments[1].Author != "Claude Code" {

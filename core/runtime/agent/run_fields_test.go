@@ -6,7 +6,6 @@ package agent
 // keeps the model's value. Findings is never touched by the runtime.
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
@@ -99,43 +98,5 @@ func TestFailedRunSummaryNamesTheError(t *testing.T) {
 	}
 	if v[fieldStatus] != "failed" || v[fieldError] != "ran out of turns (25)" {
 		t.Errorf("status/error = %v / %v", v[fieldStatus], v[fieldError])
-	}
-}
-
-// update_card edits another card by id through the same path as
-// update_self, including date-time blocks keeping their offset.
-func TestUpdateCardEditsAnotherCard(t *testing.T) {
-	a, r := testRuntime(t)
-	agentID := testCard(t, r, "Watcher", nil)
-	raceID := testCard(t, r, "Race 5", []model.Block{
-		{ID: "d", Type: model.BlockDate, Key: "race_start", Label: "Race start", Meta: map[string]any{"format": "date-time"}},
-	})
-	agentCard, _ := r.GetCard(agentID)
-
-	result, _ := a.executeAgentToolCall(context.Background(), agentID, agentCard, call("update_card", map[string]any{
-		"card_id": raceID, "title": "Race 5 — 2:35pm",
-		"updates": []any{map[string]any{"key": "race_start", "value": "2026-10-04T14:35:00+10:00"}},
-	}))
-	if strings.HasPrefix(result, "error") {
-		t.Fatalf("update_card failed: %s", result)
-	}
-	race, _ := r.GetCard(raceID)
-	if race.Title != "Race 5 — 2:35pm" {
-		t.Errorf("title = %q", race.Title)
-	}
-	if got := value(race, "race_start"); got != "2026-10-04T14:35:00+10:00" {
-		t.Errorf("race_start = %v, want the offset preserved", got)
-	}
-	if watcher, _ := r.GetCard(agentID); watcher.Title != "Watcher" {
-		t.Error("update_card must not touch the agent's own card")
-	}
-}
-
-func TestUpdateCardRequiresCardID(t *testing.T) {
-	a, r := testRuntime(t)
-	agentID := testCard(t, r, "Watcher", nil)
-	agentCard, _ := r.GetCard(agentID)
-	if result, _ := a.executeAgentToolCall(context.Background(), agentID, agentCard, call("update_card", map[string]any{"title": "x"})); !strings.HasPrefix(result, "error") {
-		t.Errorf("expected an error without card_id, got %q", result)
 	}
 }

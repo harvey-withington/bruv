@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { GetAgentConfig, SaveAgentConfig, TriggerAgent, CancelAgent, DeleteAgent, GetAgentRuns, IsLLMConfigured, ListAgentCardStates, ListMCPServers, ValidateSchedulePreview } from '@shared/api'
+  import { DescribeAgent, SaveAgentConfig, TriggerAgent, CancelAgent, DeleteAgent, GetAgentRuns, IsLLMConfigured, ListAgentCardStates, ListMCPServers, ValidateSchedulePreview } from '@shared/api'
   import { isoToLocalInput, localInputToIso } from '@shared/dateTimeInput'
   import type { MCPServerView } from '@shared/types'
   import { t } from '../lib/i18n.svelte'
@@ -7,9 +7,10 @@
   import { showConfirm } from '../lib/confirm.svelte'
   import { board } from '../lib/store.svelte'
   import { downloadBlob } from '@shared/download'
-  import type { AgentConfig, ModelRef } from '@shared/types'
+  import type { AgentConfig, AgentToolOption, ModelRef } from '@shared/types'
   import { Timer, Play, Square, Download, Trash2 } from 'lucide-svelte'
   import ModelChoiceSelect from './ModelChoiceSelect.svelte'
+  import AgentToolPicker from './AgentToolPicker.svelte'
   import { llmRegistry, loadLLMRegistry } from '../lib/llmRegistry'
   import { effectiveRef, refFromLegacyPair, refLabel } from '@shared/modelRefs'
   import { onMount, onDestroy } from 'svelte'
@@ -75,59 +76,9 @@
     'Asia/Tokyo', 'Asia/Shanghai', 'Australia/Sydney',
   ]
 
-  type ToolDef = { id: string; labelKey: string; descKey: string }
-  type ToolGroup = { titleKey: string; tools: ToolDef[] }
-
-  const TOOL_GROUPS: ToolGroup[] = [
-    {
-      titleKey: 'agent.tool_group_web',
-      tools: [
-        { id: 'web_fetch', labelKey: 'agent.tool_web_fetch', descKey: 'agent.tool_web_fetch_desc' },
-        { id: 'web_search', labelKey: 'agent.tool_web_search', descKey: 'agent.tool_web_search_desc' },
-        { id: 'http_request', labelKey: 'agent.tool_http_request', descKey: 'agent.tool_http_request_desc' },
-      ],
-    },
-    {
-      titleKey: 'agent.tool_group_card',
-      tools: [
-        { id: 'update_self', labelKey: 'agent.tool_update_self', descKey: 'agent.tool_update_self_desc' },
-        { id: 'update_card', labelKey: 'agent.tool_update_card', descKey: 'agent.tool_update_card_desc' },
-        { id: 'read_card', labelKey: 'agent.tool_read_card', descKey: 'agent.tool_read_card_desc' },
-        { id: 'search_cards', labelKey: 'agent.tool_search_cards', descKey: 'agent.tool_search_cards_desc' },
-        { id: 'list_cards', labelKey: 'agent.tool_list_cards', descKey: 'agent.tool_list_cards_desc' },
-        { id: 'create_card', labelKey: 'agent.tool_create_card', descKey: 'agent.tool_create_card_desc' },
-      ],
-    },
-    {
-      titleKey: 'agent.tool_group_system',
-      tools: [
-        { id: 'notify', labelKey: 'agent.tool_notify', descKey: 'agent.tool_notify_desc' },
-      ],
-    },
-  ]
-
-
-  // MCP servers — one checkbox per server, toggles all its tools.
+  // Grantable tools (DescribeAgent) and MCP servers for the permission list.
+  let toolOptions = $state<AgentToolOption[]>([])
   let mcpServers = $state<MCPServerView[]>([])
-
-  function mcpServerToolIds(server: MCPServerView): string[] {
-    return server.tools.map(t => t.namespace_id)
-  }
-
-  function isMcpServerEnabled(server: MCPServerView): boolean {
-    const ids = mcpServerToolIds(server)
-    return ids.length > 0 && ids.every(id => allowedTools.includes(id))
-  }
-
-  function toggleMcpServer(server: MCPServerView) {
-    const ids = mcpServerToolIds(server)
-    if (isMcpServerEnabled(server)) {
-      allowedTools = allowedTools.filter(id => !ids.includes(id))
-    } else {
-      allowedTools = [...new Set([...allowedTools, ...ids])]
-    }
-    dirty = true
-  }
 
   const SCHEDULE_PRESETS = [
     { label: '@hourly', value: '@hourly' },
@@ -181,9 +132,12 @@
     const seq = ++configLoadSeq
     if (!silent) loading = true
     try {
-      const [af, isConfigured, servers] = await Promise.all([GetAgentConfig(cardId), IsLLMConfigured(), ListMCPServers(), loadLLMRegistry(true)])
+      // DescribeAgent returns the config plus the tools it may be granted,
+      // so the permission list shows every grant the backend knows about.
+      const [af, isConfigured, servers] = await Promise.all([DescribeAgent(cardId), IsLLMConfigured(), ListMCPServers(), loadLLMRegistry(true)])
       if (seq !== configLoadSeq) return
       mcpServers = servers ?? []
+      toolOptions = af.options?.tools ?? []
       llmConfigured = isConfigured
       enabled = af.config.enabled
       goal = af.config.goal
@@ -344,15 +298,6 @@
     } finally {
       removing = false
     }
-  }
-
-  function toggleTool(toolId: string) {
-    if (allowedTools.includes(toolId)) {
-      allowedTools = allowedTools.filter(t => t !== toolId)
-    } else {
-      allowedTools = [...allowedTools, toolId]
-    }
-    dirty = true
   }
 
   function toggleNotifyChannel(ch: string) {
@@ -625,62 +570,7 @@
           <div class="config-card perm-column">
             <div class="config-label">{t('agent.tools')}</div>
             <div class="perm-scroll">
-              <div class="tools-list">
-                {#each TOOL_GROUPS as group}
-                  {@const groupIds = group.tools.map((t: ToolDef) => t.id)}
-                  {@const allChecked = groupIds.every((id: string) => allowedTools.includes(id))}
-                  {@const someChecked = groupIds.some((id: string) => allowedTools.includes(id)) && !allChecked}
-                  <div class="tool-group">
-                    <label class="tool-group-header">
-                      <input
-                        type="checkbox"
-                        checked={allChecked}
-                        indeterminate={someChecked}
-                        onchange={() => {
-                          if (allChecked) {
-                            allowedTools = allowedTools.filter(id => !groupIds.includes(id))
-                          } else {
-                            allowedTools = [...new Set([...allowedTools, ...groupIds])]
-                          }
-                          dirty = true
-                        }}
-                      />
-                      <span class="tool-group-title">{t(group.titleKey)}</span>
-                    </label>
-                    {#each group.tools as tool}
-                      <label class="tool-item">
-                        <input
-                          type="checkbox"
-                          checked={allowedTools.includes(tool.id)}
-                          onchange={() => toggleTool(tool.id)}
-                        />
-                        <div class="tool-info">
-                          <span class="tool-name">{t(tool.labelKey)}</span>
-                          <span class="tool-desc">{t(tool.descKey)}</span>
-                        </div>
-                      </label>
-                    {/each}
-                  </div>
-                {/each}
-                {#if mcpServers.some(s => s.health.status === 'ready' && s.tools.length > 0)}
-                  <div class="tool-group mcp-group">
-                    <span class="tool-group-title">{t('agent.tool_group_mcp')}</span>
-                    {#each mcpServers.filter(s => s.health.status === 'ready' && s.tools.length > 0) as server}
-                      <label class="tool-item">
-                        <input
-                          type="checkbox"
-                          checked={isMcpServerEnabled(server)}
-                          onchange={() => toggleMcpServer(server)}
-                        />
-                        <div class="tool-info">
-                          <span class="tool-name">{server.spec.name}</span>
-                          <span class="tool-desc">{server.tools.length === 1 ? t('agent.mcp_tool_count_one') : t('agent.mcp_tool_count_other', { n: server.tools.length })}</span>
-                        </div>
-                      </label>
-                    {/each}
-                  </div>
-                {/if}
-              </div>
+              <AgentToolPicker bind:allowedTools options={toolOptions} {mcpServers} onchange={markDirty} />
             </div>
           </div>
 
@@ -1120,50 +1010,6 @@
     max-height: 30vh;
     overflow-y: auto;
   }
-
-  .tools-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-  .tool-group {
-    margin-bottom: 0.4rem;
-  }
-  .tool-group-header {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.2rem 0.4rem;
-    cursor: pointer;
-  }
-  .tool-group-title {
-    font-size: 0.68rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--text-faint);
-  }
-  .mcp-group {
-    border-top: 1px solid var(--border-muted);
-    padding-top: 0.5rem;
-    margin-top: 0.3rem;
-  }
-  .tool-item {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.5rem;
-    margin-left: 0.6rem;
-    padding: 0.3rem 0.5rem;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background var(--duration-fast);
-    flex-shrink: 0;
-  }
-  .tool-item:hover { background: var(--bg-hover); }
-  .tool-item input { margin-top: 0.15rem; }
-  .tool-info { display: flex; flex-direction: column; }
-  .tool-name { font-size: 0.8rem; font-weight: 500; color: var(--text-body); }
-  .tool-desc { font-size: 0.7rem; color: var(--text-muted); }
 
   /* ── Safety stack (vertical) ── */
   .safety-stack {

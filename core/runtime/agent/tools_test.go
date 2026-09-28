@@ -8,6 +8,7 @@ import (
 
 	chatrt "bruv/core/runtime/chat"
 	"bruv/core/runtime/prompts"
+	"bruv/core/runtime/tools"
 	"bruv/core/services/card"
 	"bruv/core/services/catalog"
 	llmsvc "bruv/core/services/llm"
@@ -21,15 +22,12 @@ import (
 )
 
 // toolsTestDeps is the minimal Deps stub needed to drive
-// executeAgentToolCall through its built-in-tool switch. The tool
-// dispatch path only needs the repository — the LLM / scheduler /
-// chat runtime are unused by the update_self / read_card / create_card
-// branches that this test file exercises.
+// executeAgentToolCall. update_self and the other agent-only built-ins
+// need only the repository; native board tools go to `native` (a fake
+// in these tests — the registry itself is tested in core/boardtools).
 type toolsTestDeps struct {
-	repo    *repo.Repository
-	card    *card.Service
-	project *projectsvc.Service
-	catalog *catalog.Service
+	repo   *repo.Repository
+	native tools.NativeTools
 }
 
 func (d *toolsTestDeps) Repo() *repo.Repository       { return d.repo }
@@ -38,48 +36,24 @@ func (d *toolsTestDeps) Registry() *schema.Registry   { return nil }
 func (d *toolsTestDeps) Ctx() context.Context         { return context.Background() }
 func (d *toolsTestDeps) Publish(string, any)          {}
 func (d *toolsTestDeps) LLM() *llmsvc.Service         { return nil }
-func (d *toolsTestDeps) Card() *card.Service          { return d.card }
-func (d *toolsTestDeps) Project() *projectsvc.Service { return d.project }
-func (d *toolsTestDeps) Catalog() *catalog.Service    { return d.catalog }
+func (d *toolsTestDeps) Card() *card.Service          { return nil }
+func (d *toolsTestDeps) Project() *projectsvc.Service { return nil }
+func (d *toolsTestDeps) Catalog() *catalog.Service    { return nil }
 func (d *toolsTestDeps) Prompts() *prompts.Builder    { return nil }
 func (d *toolsTestDeps) ChatRT() *chatrt.Runtime      { return nil }
 func (d *toolsTestDeps) MCPRegistry() *mcp.Registry   { return nil }
 func (d *toolsTestDeps) LLMActors() *sync.Map         { return &sync.Map{} }
+func (d *toolsTestDeps) Native() tools.NativeTools    { return d.native }
 
 // testRuntime creates a minimal Runtime bound to a real on-disk repo
 // for tool-dispatch tests.
 func testRuntime(t *testing.T) (*Runtime, *repo.Repository) {
 	t.Helper()
-	dir := t.TempDir()
-	r, err := repo.Init(dir, "test")
+	r, err := repo.Init(t.TempDir(), "test")
 	if err != nil {
 		t.Fatalf("repo.Init: %v", err)
 	}
-	svc := &serviceTestDeps{r: r}
-	svc.card, svc.catalog = card.New(svc), catalog.New(svc)
-	rt := New(&toolsTestDeps{repo: r, card: svc.card, project: projectsvc.New(svc), catalog: svc.catalog})
-	return rt, r
-}
-
-// serviceTestDeps backs the real card, project and catalog services the
-// create_card / list_cards tools route through; side channels are no-ops.
-type serviceTestDeps struct {
-	r       *repo.Repository
-	card    *card.Service
-	catalog *catalog.Service
-}
-
-func (d *serviceTestDeps) Repo() *repo.Repository             { return d.r }
-func (d *serviceTestDeps) Index() *index.Index                { return nil }
-func (d *serviceTestDeps) Registry() *schema.Registry         { return nil }
-func (d *serviceTestDeps) Publish(string, any)                {}
-func (d *serviceTestDeps) LogActivity(string, string, string) {}
-func (d *serviceTestDeps) LogActivityWithContext(string, string, string, string, []card.CategoryPath) {
-}
-func (d *serviceTestDeps) ApplyTypeBlocks(id, t string)     { d.catalog.ApplyTypeBlocks(id, t) }
-func (d *serviceTestDeps) CardTypeExists(t string) bool     { return d.catalog.CardTypeExists(t) }
-func (d *serviceTestDeps) UpdateCardBlocks(id string, b []model.Block) (*model.Card, error) {
-	return d.card.UpdateBlocks(id, b)
+	return New(&toolsTestDeps{repo: r, native: &fakeNative{}}), r
 }
 
 // testCard creates a card with the given blocks and returns its ID.
@@ -837,121 +811,6 @@ func TestUpdateSelf_NoUpdatesNoTitle(t *testing.T) {
 	result, _ := a.executeAgentToolCall(context.Background(), id, card, call("update_self", map[string]any{}))
 	if result != "Card blocks updated successfully." {
 		t.Fatalf("expected success for no-op, got: %s", result)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// read_card
-// ---------------------------------------------------------------------------
-
-func TestReadCard(t *testing.T) {
-	a, r := testRuntime(t)
-	blocks := []model.Block{
-		{ID: "b1", Type: model.BlockText, Key: "desc", Label: "Description", Value: "Some content"},
-	}
-	id := testCard(t, r, "Test Card", blocks)
-
-	card, _ := r.GetCard(id)
-	result, action := a.executeAgentToolCall(context.Background(), "other-card", card, call("read_card", map[string]any{
-		"card_id": id,
-	}))
-	if action == nil || action.Tool != "read_card" {
-		t.Fatal("expected action record for read_card")
-	}
-	if result == "" {
-		t.Fatal("expected non-empty result")
-	}
-}
-
-func TestReadCard_NotFound(t *testing.T) {
-	a, r := testRuntime(t)
-	id := testCard(t, r, "Card", nil)
-
-	card, _ := r.GetCard(id)
-	result, _ := a.executeAgentToolCall(context.Background(), id, card, call("read_card", map[string]any{
-		"card_id": "nonexistent",
-	}))
-	if result == "" {
-		t.Fatal("expected error message")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// create_card
-// ---------------------------------------------------------------------------
-
-func TestCreateCard(t *testing.T) {
-	a, r := testRuntime(t)
-	seedID := testCard(t, r, "Seed", nil)
-
-	card, _ := r.GetCard(seedID)
-	result, action := a.executeAgentToolCall(context.Background(), seedID, card, call("create_card", map[string]any{
-		"title": "New Agent Card",
-	}))
-	if action == nil || action.Tool != "create_card" {
-		t.Fatal("expected action record for create_card")
-	}
-	if !strings.Contains(result, "inbox") {
-		t.Fatalf("expected an unfiled inbox card, got %q", result)
-	}
-}
-
-// create_card files the card, fills its content, and list_cards then
-// finds it on the board.
-func TestCreateCard_FiledAndPopulated(t *testing.T) {
-	a, r := testRuntime(t)
-	seedID := testCard(t, r, "Seed", nil)
-	seed, _ := r.GetCard(seedID)
-
-	result, _ := a.executeAgentToolCall(context.Background(), seedID, seed, call("create_card", map[string]any{
-		"title": "Cheap flight: BKK", "card_type": "task", "description": "Found by the agent.",
-		"due_date": "2026-12-01", "tags": []any{"travel"},
-		"brand": "Home", "stream": "Trips", "project": "Winter", "category": "Leads",
-		"blocks": []any{map[string]any{"type": "list", "label": "Options", "value": []any{"Thai $412", "Qantas $530"}}},
-	}))
-	if !strings.Contains(result, "Home / Trips / Winter / Leads") {
-		t.Fatalf("card not filed: %q", result)
-	}
-
-	listed, _ := a.executeAgentToolCall(context.Background(), seedID, seed, call("list_cards", map[string]any{
-		"brand": "home", "stream": "trips", "project": "winter",
-	}))
-	if !strings.Contains(listed, "Cheap flight: BKK") || !strings.Contains(listed, "Leads") {
-		t.Fatalf("list_cards did not show the new card: %s", listed)
-	}
-
-	id := result[strings.Index(result, "ID ")+3 : strings.Index(result, " in ")]
-	created, err := r.GetCard(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if created.Type != "task" || created.Description != "Found by the agent." || created.DueDate == nil ||
-		len(created.Tags) != 1 || len(created.Blocks) == 0 {
-		t.Errorf("card not fully populated: %+v", created)
-	}
-}
-
-func TestCreateCard_PartialLocationRejected(t *testing.T) {
-	a, r := testRuntime(t)
-	seedID := testCard(t, r, "Seed", nil)
-	seed, _ := r.GetCard(seedID)
-	result, _ := a.executeAgentToolCall(context.Background(), seedID, seed, call("create_card", map[string]any{
-		"title": "Half filed", "brand": "Home",
-	}))
-	if !strings.HasPrefix(result, "error:") {
-		t.Fatalf("expected an error for a partial location, got %q", result)
-	}
-}
-
-func TestListCards_UnknownProject(t *testing.T) {
-	a, r := testRuntime(t)
-	seedID := testCard(t, r, "Seed", nil)
-	seed, _ := r.GetCard(seedID)
-	result, _ := a.executeAgentToolCall(context.Background(), seedID, seed, call("list_cards", map[string]any{
-		"brand": "Nope", "stream": "x", "project": "y",
-	}))
-	if !strings.HasPrefix(result, "error:") {
-		t.Fatalf("expected an error, got %q", result)
 	}
 }
 

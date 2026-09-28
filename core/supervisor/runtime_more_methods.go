@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"bruv/core/services/agentsvc"
 	"bruv/internal/config"
 	"bruv/internal/model"
 )
@@ -120,6 +121,13 @@ func (r *Runtime) SaveDueDateSettings(enabled bool, thresholds []string, channel
 
 func (r *Runtime) GetAgentConfig(cardID string) (*model.AgentFile, error) {
 	return r.Agent.GetConfig(cardID)
+}
+// DescribeAgent returns a card's agent config, recent runs and the valid
+// option values (grantable tools, models) — the same view MCP
+// get_card_agent and chat serve, so the Agent tab lists exactly the
+// tools an agent can be granted.
+func (r *Runtime) DescribeAgent(cardID string) (*agentsvc.View, error) {
+	return r.Agent.Describe(cardID)
 }
 func (r *Runtime) SaveAgentConfig(cardID string, cfg model.AgentConfig) error {
 	return r.Agent.SaveConfig(cardID, cfg)

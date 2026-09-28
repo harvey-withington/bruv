@@ -45,6 +45,7 @@ import (
 	workspacesvc "bruv/core/services/workspace"
 	"bruv/internal/config"
 	"bruv/internal/index"
+	"bruv/internal/llm"
 	"bruv/internal/logging"
 	"bruv/internal/mcp"
 	"bruv/internal/model"
@@ -231,6 +232,13 @@ func (r *Runtime) Tools() *tools.Dispatcher         { return r.tools }
 func (r *Runtime) Prompts() *prompts.Builder        { return r.prompts }
 func (r *Runtime) ChatRT() *chatrt.Runtime          { return r.chatRT }
 func (r *Runtime) AgentRT() *agentrt.Runtime        { return r.agentRT }
+
+// Service accessors satisfy boardtools.Board, whose interface can't
+// reach the exported fields directly.
+func (r *Runtime) CardService() *card.Service          { return r.Card }
+func (r *Runtime) ProjectService() *projectsvc.Service { return r.Project }
+func (r *Runtime) CatalogService() *catalog.Service    { return r.Catalog }
+func (r *Runtime) AgentService() *agentsvc.Service     { return r.Agent }
 
 // Agent control surface — thin forwarders so the JSON-RPC reflection
 // dispatcher exposes the same method names the desktop binding does.
@@ -494,6 +502,9 @@ type agentDeps struct{ r *Runtime }
 func (d agentDeps) Repo() *repo.Repository            { return d.r.repo }
 func (d agentDeps) Index() *index.Index               { return d.r.idx }
 func (d agentDeps) Publish(topic string, payload any) { d.r.bus.Publish(topic, payload) }
+func (d agentDeps) LLM() *llmsvc.Service              { return d.r.LLM }
+func (d agentDeps) MCPRegistry() *mcp.Registry        { return d.r.mcpRegistry }
+func (d agentDeps) NativeToolDefs() []llm.ToolDef     { return nativeTools{d.r}.Defs(false) }
 
 type repoDeps struct{ r *Runtime }
 
@@ -520,6 +531,7 @@ func (d toolsRTDeps) Workspace() *workspacesvc.Service  { return d.r.Workspace }
 func (d toolsRTDeps) Project() *projectsvc.Service      { return d.r.Project }
 func (d toolsRTDeps) Catalog() *catalog.Service         { return d.r.Catalog }
 func (d toolsRTDeps) Agent() *agentsvc.Service          { return d.r.Agent }
+func (d toolsRTDeps) Native() tools.NativeTools         { return nativeTools{d.r} }
 
 type promptsRTDeps struct{ r *Runtime }
 
@@ -557,6 +569,7 @@ func (d agentRTDeps) Prompts() *prompts.Builder         { return d.r.prompts }
 func (d agentRTDeps) ChatRT() *chatrt.Runtime           { return d.r.chatRT }
 func (d agentRTDeps) MCPRegistry() *mcp.Registry        { return d.r.mcpRegistry }
 func (d agentRTDeps) LLMActors() *sync.Map              { return &d.r.llmActors }
+func (d agentRTDeps) Native() tools.NativeTools         { return nativeTools{d.r} }
 
 // Suppress unused-import warning for chatsvc / agentsvc / projectsvc /
 // reposvc when the build decides to flag them — the deps adapters use

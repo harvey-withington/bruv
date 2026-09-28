@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -56,6 +57,11 @@ type LoopConfig struct {
 	// the model finished on its own — so callers can tell an incomplete
 	// run from a successful one.
 	Exhausted *bool
+
+	// Stop, when set, is checked after each round of tool calls; a
+	// non-empty reason ends the loop with that error, like the token
+	// budget does (agents use it to cut off runs that keep failing).
+	Stop func() string
 
 	// TokenBudget is the maximum total tokens allowed across all iterations (0 = unlimited).
 	TokenBudget int
@@ -191,6 +197,15 @@ func (rt *Runtime) RunLoop(ctx context.Context, provider llm.Provider, modelName
 			})
 		}
 
+		if lc.Stop != nil {
+			if reason := lc.Stop(); reason != "" {
+				if lc.TotalTokensUsed != nil {
+					*lc.TotalTokensUsed = cumulativeTokens
+				}
+				return cf, errors.New(reason)
+			}
+		}
+
 		// Post-iteration hook: rebuild tools, inject nudge messages
 		if lc.AfterToolsRun != nil {
 			var nudges []llm.Message
@@ -294,7 +309,9 @@ func (rt *Runtime) SendProject(brandSlug, streamSlug, projectSlug, userMessage, 
 	for _, cat := range categories {
 		catMaps = append(catMaps, map[string]string{"id": cat.ID, "breadcrumb": cat.Name})
 	}
-	toolDefs := llm.ProjectTools(catalogTypeIDs(rt), catMaps)
+	// Project chat's own tools (batch edits, project metadata, tags,
+	// categories) plus the native board tools, scoped to this project.
+	toolDefs := append(llm.ProjectTools(catalogTypeIDs(rt), catMaps), rt.deps.Tools().NativeDefs(true)...)
 
 	// Workspace tools, offered only when a workspace is attached and gated
 	// by the session context level: `all` → everything incl. file reads;
@@ -315,18 +332,7 @@ func (rt *Runtime) SendProject(brandSlug, streamSlug, projectSlug, userMessage, 
 	// callbacks use the cardIDs set to reject IDs the LLM hallucinated or
 	// copied from a different project; the slugs let project-metadata tools
 	// (update_project, *_label, *_category) target the right project.
-	scope := tools.ProjectChatScope{
-		BrandSlug:   brandSlug,
-		StreamSlug:  streamSlug,
-		ProjectSlug: projectSlug,
-		CardIDs:     make(map[string]bool),
-	}
-	for _, cat := range categories {
-		pins, _ := rt.deps.Repo().ListCardsInCategory(cat.ID)
-		for _, p := range pins {
-			scope.CardIDs[p.CardID] = true
-		}
-	}
+	scope := tools.ScopeForProject(rt.deps.Repo(), brandSlug, streamSlug, projectSlug)
 
 	sel, err := rt.selectModel(llmsvc.TaskProjectChat, chatID, true, cf, systemPrompt, len(toolDefs) > 0)
 	if err != nil || sel == nil {
@@ -411,9 +417,6 @@ func (rt *Runtime) sendCard(cardID, userMessage, modeOverride string) (*model.Ch
 		systemPrompt += "\n\nThis card is already filed on a board. Do not pin it anywhere else; the user moves cards by hand."
 	}
 
-	// Build tool definitions. Types from the catalog, not the registry —
-	// see the project-chat note.
-	cardTypes := catalogTypeIDs(rt)
 	allCats, _ := rt.deps.Card().ListAllCategories()
 	var catMaps []map[string]string
 	for _, c := range allCats {
@@ -421,15 +424,10 @@ func (rt *Runtime) sendCard(cardID, userMessage, modeOverride string) (*model.Ch
 	}
 
 	buildToolDefs := func(c *model.Card) []llm.ToolDef {
-		// Collect MCP tool IDs so configure_agent's allowed_tools enum
-		// includes them — lets the LLM add MCP tools to agents via chat.
-		var mcpToolIDs []string
-		if rt.deps.MCPRegistry() != nil {
-			for _, t := range rt.deps.MCPRegistry().Tools() {
-				mcpToolIDs = append(mcpToolIDs, t.NamespaceID)
-			}
-		}
-		tools := llm.CardTools(cardTypes, catMaps, mcpToolIDs)
+		// Card chat's own tools (this card's fields, filing) plus BRUV's
+		// native board tools — the same set the MCP server exposes —
+		// scoped to the card's project.
+		tools := append(llm.CardTools(catMaps), rt.deps.Tools().NativeDefs(true)...)
 		if alreadyFiled {
 			tools = llm.WithoutTool(tools, "suggest_pin")
 		}
@@ -545,6 +543,9 @@ func (rt *Runtime) sendCard(cardID, userMessage, modeOverride string) (*model.Ch
 			// is bounced back to the model now, not on the user later.
 			switch tc.Name {
 			case "set_card_type":
+				if id, _ := tc.Arguments["card_id"].(string); id != cardID {
+					break // retyping another card doesn't affect this card's pin
+				}
 				if typ, _ := tc.Arguments["card_type"].(string); typ != "" {
 					stagedType = typ
 					if id, ok := rt.deps.Catalog().LookupTypeID(typ); ok {
@@ -557,7 +558,7 @@ func (rt *Runtime) sendCard(cardID, userMessage, modeOverride string) (*model.Ch
 					return conflict, nil
 				}
 			}
-			return rt.deps.Tools().StageCard(tc, allCats)
+			return rt.deps.Tools().StageCard(cardID, tc, allCats)
 		},
 		ExecuteTool: func(tc llm.ToolCall) (string, *model.ToolAction, *model.PinSuggestion) {
 			return rt.deps.Tools().ExecuteCard(cardID, card, tc, allCats)

@@ -80,3 +80,5 @@ Fix root causes, not symptoms — no `svelte-ignore`, no `--no-verify`.
 ```
 card share/export as markdown + json / import from json / fix pin-rejection orphan
 ```
+
+Present the message — and any other text the developer is meant to copy (commands, config values) — in its own fenced code block, never inline code, so it gets a copy button. Keep it plain ASCII.

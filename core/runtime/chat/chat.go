@@ -47,6 +47,16 @@ type LoopConfig struct {
 	// FallbackContent is the assistant message if max iterations are reached.
 	FallbackContent string
 
+	// WrapUpPrompt, when set, buys one extra tool-less turn after MaxIter
+	// runs out: it is sent as a user message so the model writes its
+	// report instead of the loop substituting FallbackContent.
+	WrapUpPrompt string
+
+	// Exhausted, when non-nil, is set to true if MaxIter ran out before
+	// the model finished on its own — so callers can tell an incomplete
+	// run from a successful one.
+	Exhausted *bool
+
 	// TokenBudget is the maximum total tokens allowed across all iterations (0 = unlimited).
 	TokenBudget int
 	// TotalTokensUsed is written back with the cumulative token count after the loop finishes.
@@ -190,10 +200,19 @@ func (rt *Runtime) RunLoop(ctx context.Context, provider llm.Provider, modelName
 	}
 
 	// Max iterations reached — save what we have
+	if lc.Exhausted != nil {
+		*lc.Exhausted = true
+	}
+	content := lc.FallbackContent
+	if lc.WrapUpPrompt != "" {
+		if wrapUp := rt.wrapUp(ctx, provider, modelName, lc, llmMessages, &cumulativeTokens); wrapUp != "" {
+			content = wrapUp
+		}
+	}
 	assistantMsg := model.ChatMessage{
 		ID:            uuid.New().String(),
 		Role:          model.RoleAssistant,
-		Content:       lc.FallbackContent,
+		Content:       content,
 		Timestamp:     time.Now().UTC(),
 		ToolActions:   allToolActions,
 		PinSuggestion: pinSuggestion,
@@ -205,6 +224,24 @@ func (rt *Runtime) RunLoop(ctx context.Context, provider llm.Provider, modelName
 		*lc.TotalTokensUsed = cumulativeTokens
 	}
 	return cf, nil
+}
+
+// wrapUp makes the one tool-less closing call WrapUpPrompt asks for and
+// returns the model's text, or "" when the call fails or says nothing.
+func (rt *Runtime) wrapUp(ctx context.Context, provider llm.Provider, modelName string, lc LoopConfig, history []llm.Message, tokens *int) string {
+	msgs := append(append([]llm.Message(nil), history...), llm.Message{Role: model.RoleUser, Content: lc.WrapUpPrompt})
+	resp, err := provider.ChatCompletion(ctx, llm.ChatRequest{
+		SystemPrompt: lc.SystemPrompt,
+		Messages:     msgs,
+		Model:        modelName,
+	})
+	if err != nil {
+		return ""
+	}
+	if resp.Usage != nil {
+		*tokens += resp.Usage.TotalTokens
+	}
+	return strings.TrimSpace(resp.Content)
 }
 
 // catalogTypeIDs returns every card type id the user can actually see —

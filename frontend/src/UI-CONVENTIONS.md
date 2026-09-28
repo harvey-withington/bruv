@@ -674,3 +674,12 @@ App-level: `App.svelte` restarts the SSE stream (`restartEvents`) and heals `rep
 ## 19. Settings forms load and save per section (`lib/settingsSections.svelte.ts`)
 
 A settings form backed by several Get/Set RPC pairs declares each pair as a section in `SettingsSections` (load + save). Sections load independently; a tab's fields render inside `SettingsSectionGate` only once its sections are ready — a failed section shows its error with **Try again** and the note that it won't be saved. **Save writes only sections that loaded** (a form must never persist the placeholder defaults it started with over settings it couldn't read — the pre-2026-09-26 `Promise.all` + `catch { use defaults }` did exactly that). Save is disabled while anything is loading; if some section's save fails the dialog stays open with the user's edits and a toast names the failed sections. Helpers that persist mid-edit (model Test / Find models) check the section is ready first.
+---
+
+## 20. Running-agent indicator — `.agent-running-dot` + global `agent-neon`
+
+Anything that shows an agent is **running right now** uses the shared shimmer: the `--agent-running-gradient` / `--agent-running-glow*` tokens animated by the global `@keyframes agent-neon` in `style.css`. Components reference `agent-neon` and **never redefine it** (four copies existed until 2026-09-29). For a small inline marker use the global `.agent-running-dot` class.
+
+**Source of truth:** `board.runningAgentIds` (`lib/store.svelte.ts`) — seeded from `GetAllAgents().is_running` on every board load (so a run that began before the app opened still shows) and kept live by `agent:started` / `agent:completed` / `agent:failed`. Read it with a `$derived`; don't poll.
+
+**Where it appears:** the board tile (`CardItem`), the agents page and dashboard rows, the card detail tab bar (the Agent tab's dot shimmers instead of the static "has an agent" dot, so it's visible from every tab, with the localized `agent.running` tooltip), and a live "Running..." row at the top of the Runs tab showing `agent.running_since`. Reduced motion is handled by the global `prefers-reduced-motion` rule.

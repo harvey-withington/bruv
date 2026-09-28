@@ -288,8 +288,9 @@ func (rt *Runtime) executeAgent(ctx context.Context, cardID string) error {
 		rt.agentCancels.Delete(cardID)
 	}()
 
-	// Emit started event
+	// Emit started event, and show the run on the card itself.
 	rt.deps.Publish("agent:started", map[string]any{"cardID": cardID})
+	afterStart := rt.stampCard(cardID, startValues(), nil)
 
 	// 3. Register in llmActors for activity attribution
 	rt.deps.LLMActors().Store(cardID, "agent")
@@ -387,6 +388,7 @@ func (rt *Runtime) executeAgent(ctx context.Context, cardID string) error {
 
 		_ = rt.deps.Repo().SaveAgentConfig(cardID, af.Config)
 		_ = rt.deps.Repo().AppendAgentRun(cardID, run)
+		rt.finishStamp(cardID, run, finishedAt, afterStart)
 
 		// Emit completion event
 		eventName := "agent:completed"
@@ -498,14 +500,26 @@ func (rt *Runtime) executeAgent(ctx context.Context, cardID string) error {
 	if budget == 0 {
 		budget = 50000
 	}
+	maxTurns := af.Config.MaxTurns
+	if maxTurns <= 0 {
+		maxTurns = model.DefaultAgentMaxTurns
+	}
+	var exhausted bool
 
 	resultCf, err := rt.deps.ChatRT().RunLoop(runCtx, sel.Provider, sel.Model, cf, chatrt.LoopConfig{
 		ChatID:          "__agent__" + cardID,
 		SystemPrompt:    systemPrompt,
 		Tools:           toolDefs,
-		MaxIter:         10,
+		MaxIter:         maxTurns,
 		TokenBudget:     budget,
 		TotalTokensUsed: &tokensUsed,
+		// Out of turns: one tool-less call so the run still ends with a
+		// real report, and the run is marked failed below — hitting a
+		// limit is never a successful run (the token budget already
+		// fails the same way).
+		Exhausted: &exhausted,
+		WrapUpPrompt: "You have used all of this run's turns and cannot call any more tools. " +
+			"Report now: what you completed, what you did not get to, and anything the user should check.",
 		ExecuteTool: func(tc llm.ToolCall) (string, *model.ToolAction, *model.PinSuggestion) {
 			result, action := rt.executeAgentToolCall(runCtx, cardID, card, tc)
 			if action != nil {
@@ -513,7 +527,7 @@ func (rt *Runtime) executeAgent(ctx context.Context, cardID string) error {
 			}
 			return result, action, nil
 		},
-		FallbackContent: "Agent run completed.",
+		FallbackContent: "The run stopped at its turn limit before the agent wrote a report.",
 	})
 
 	run.TokensUsed = tokensUsed
@@ -553,6 +567,10 @@ func (rt *Runtime) executeAgent(ctx context.Context, cardID string) error {
 		}
 	}
 
+	if exhausted {
+		run.Status = "failure"
+		run.Error = fmt.Sprintf("ran out of turns (%d) before finishing; raise the agent's max turns or narrow its goal", maxTurns)
+	}
 	return nil
 }
 
@@ -678,151 +696,27 @@ func (rt *Runtime) executeAgentToolCall(ctx context.Context, cardID string, card
 		return "Notification sent to user.", action
 
 	case "update_self":
-		updatedCard, err := rt.deps.Repo().GetCard(cardID)
-		if err != nil {
+		if err := rt.updateCard(cardID, tc.Arguments); err != nil {
 			action.Result = "error: " + err.Error()
 			return action.Result, action
 		}
-		// Optional top-level intrinsic field updates
-		if newTitle, ok := tc.Arguments["title"].(string); ok && newTitle != "" {
-			updatedCard.Title = newTitle
-		}
-		if newDueDate, ok := tc.Arguments["due_date"].(string); ok && newDueDate != "" {
-			parsed, perr := time.Parse("2006-01-02", newDueDate)
-			if perr != nil {
-				// Try RFC3339 as fallback
-				parsed, perr = time.Parse(time.RFC3339, newDueDate)
-			}
-			if perr == nil {
-				updatedCard.DueDate = &parsed
-			}
-		}
-		if newTags, ok := tc.Arguments["tags"].([]any); ok {
-			tags := make([]string, 0, len(newTags))
-			for _, t := range newTags {
-				if s, ok := t.(string); ok && s != "" {
-					tags = append(tags, s)
-				}
-			}
-			if len(tags) > 0 {
-				updatedCard.Tags = tags
-			}
-		}
-		updates, _ := tc.Arguments["updates"].([]any)
-		for _, u := range updates {
-			upd, ok := u.(map[string]any)
-			if !ok {
-				continue
-			}
-			key, _ := upd["key"].(string)
-			rawValue := upd["value"]
-			if key == "" {
-				continue
-			}
-			// LLMs frequently put intrinsic fields in the updates array
-			// instead of using top-level parameters. Intercept them here
-			// so the actual card fields change rather than creating
-			// spurious text blocks — but only when no real block with
-			// that key/label exists (a user-created "Tags" block wins).
-			if strings.EqualFold(key, "title") && !cardHasBlock(updatedCard, key) {
-				if s, ok := rawValue.(string); ok && s != "" {
-					updatedCard.Title = s
-				}
-				continue
-			}
-			if strings.EqualFold(key, "description") {
-				// Description is intrinsic on the card — never a block.
-				// Agents that send key="description" target Card.Description
-				// regardless of any block keyed similarly (which shouldn't
-				// exist post-refactor, but we don't trust that here).
-				if s, ok := rawValue.(string); ok {
-					updatedCard.Description = s
-				} else if rawValue != nil {
-					updatedCard.Description = fmt.Sprintf("%v", rawValue)
-				}
-				continue
-			}
-			if (strings.EqualFold(key, "due_date") || strings.EqualFold(key, "due date") || strings.EqualFold(key, "duedate")) && !cardHasBlock(updatedCard, key) {
-				if s, ok := rawValue.(string); ok && s != "" {
-					parsed, perr := time.Parse("2006-01-02", s)
-					if perr != nil {
-						parsed, perr = time.Parse(time.RFC3339, s)
-					}
-					if perr == nil {
-						updatedCard.DueDate = &parsed
-					}
-				}
-				continue
-			}
-			if strings.EqualFold(key, "tags") && !cardHasBlock(updatedCard, key) {
-				switch v := rawValue.(type) {
-				case []any:
-					for _, item := range v {
-						if s, ok := item.(string); ok && s != "" {
-							updatedCard.Tags = append(updatedCard.Tags, s)
-						}
-					}
-				case string:
-					if v != "" {
-						updatedCard.Tags = append(updatedCard.Tags, v)
-					}
-				}
-				continue
-			}
-			found := false
-			// Match by key first, then by label (case-insensitive) as
-			// fallback. tools.CoerceBlockValueForBlock (in app.go) reshapes the
-			// raw LLM input to match the target block's type AND applies
-			// meta-aware constraints: select/radio option validation,
-			// rating and progress clamping. A constraint violation is
-			// returned to the LLM so it can retry, rather than silently
-			// writing an invalid value.
-			for i, b := range updatedCard.Blocks {
-				if b.Key == key || strings.EqualFold(b.Label, key) {
-					coerced, cerr := tools.CoerceBlockValueForBlock(&updatedCard.Blocks[i], rawValue)
-					if cerr != nil {
-						slog.Warn("update_self coerce failed",
-							"block_key", key, "block_type", b.Type, "err", cerr)
-						action.Result = fmt.Sprintf("error: block %q: %v", key, cerr)
-						return action.Result, action
-					}
-					updatedCard.Blocks[i].Value = coerced
-					found = true
-					break
-				}
-			}
-			if !found {
-				// Create a new text block only if no existing block matches.
-				// New blocks are always text — the LLM can create a new list
-				// block via the editor if needed, but update_self never
-				// guesses at block types it didn't request.
-				strValue := ""
-				if s, ok := rawValue.(string); ok {
-					strValue = s
-				} else if rawValue != nil {
-					strValue = fmt.Sprintf("%v", rawValue)
-				}
-				updatedCard.Blocks = append(updatedCard.Blocks, model.Block{
-					ID:    fmt.Sprintf("blk-%s", uuid.New().String()[:8]),
-					Type:  model.BlockText,
-					Label: key,
-					Key:   strings.ToLower(strings.ReplaceAll(key, " ", "_")),
-					Value: strValue,
-				})
-			}
-		}
-		updatedCard.UpdatedAt = time.Now().UTC()
-		if err := rt.deps.Repo().UpdateCardDirect(cardID, updatedCard); err != nil {
-			action.Result = "error: " + err.Error()
-			return action.Result, action
-		}
-		if rt.deps.Index() != nil {
-			rt.idxIncrementalRefresh()
-		}
-		// Notify any open card detail view so it re-fetches the new content.
-		rt.emitCardUpdated(cardID)
 		action.Result = "card updated"
 		return "Card blocks updated successfully.", action
+
+	case "update_card":
+		// Any card by id — e.g. one this agent filed earlier. update_self
+		// stays the way to edit the agent's own card.
+		targetID, _ := tc.Arguments["card_id"].(string)
+		if strings.TrimSpace(targetID) == "" {
+			action.Result = "error: card_id is required"
+			return action.Result, action
+		}
+		if err := rt.updateCard(targetID, tc.Arguments); err != nil {
+			action.Result = "error: " + err.Error()
+			return action.Result, action
+		}
+		action.Result = "updated card " + targetID
+		return "Card " + targetID + " updated successfully.", action
 
 	case "read_card":
 		targetID, _ := tc.Arguments["card_id"].(string)

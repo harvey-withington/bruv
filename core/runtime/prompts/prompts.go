@@ -632,17 +632,12 @@ what you did discover and finish the run.
   or explicitly noted as unreachable. Silent omission is a failure.
 `, time.Now().Format("2006-01-02 (Monday)"), agentCfg.Goal))
 
-	// Agent card type guidance — but only list the fields that actually
-	// exist on this card. A previous version of this prompt listed all
-	// standard agent fields unconditionally, which wasted context on
-	// fields the card didn't have AND used soft "if they exist" language
-	// the LLM routinely ignored. Now we scan the card once, collect the
-	// real agent-style fields, and emit a hard MUST-update list scoped
-	// to what's present.
-	if card.Type == "agent" {
-		agentFields := promptfmt.CollectAgentFields(card)
-		if len(agentFields) > 0 {
-			sb.WriteString(`
+	// Tracking-field guidance for whatever card carries the agent — no
+	// card type is assumed; only fields that actually exist are listed.
+	// Status / Last Run At / Error are left out: the runtime stamps them
+	// (core/runtime/agent/run_fields.go). Findings is the model's alone.
+	if agentFields := promptfmt.CollectAgentFields(card); len(agentFields) > 0 {
+		sb.WriteString(`
 ## MANDATORY: Update These Card Fields Before Finishing
 
 This card has agent-tracking fields that MUST be updated at the end of
@@ -652,17 +647,15 @@ the following. A run that completes without updating these fields is a
 failed run.
 
 `)
-			for _, f := range agentFields {
-				sb.WriteString(fmt.Sprintf("- **`%s`** (type: `%s`) — %s\n", f.Key, f.BlockType, f.Guidance))
-			}
-			sb.WriteString(`
-You may batch all of these into a single update_self call with multiple
-updates in the "updates" array. Do this as the final step of your run,
-after completing the Goal's other deliverables.
-`)
+		for _, f := range agentFields {
+			sb.WriteString(fmt.Sprintf("- **`%s`** (type: `%s`) — %s\n", f.Key, f.BlockType, f.Guidance))
 		}
+		sb.WriteString(`
+You may batch all of these into a single update_self call with multiple
+updates in the "updates" array. Leave enough turns to do this — a run
+that runs out of turns before reporting is marked failed.
+`)
 	}
-
 	// Card context
 	sb.WriteString("\n## Current Card State\n")
 	sb.WriteString(fmt.Sprintf("Title: %s\n", card.Title))

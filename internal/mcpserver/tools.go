@@ -7,6 +7,7 @@ import (
 	"bruv/core/services/agentsvc"
 	"bruv/core/services/catalog"
 	"bruv/core/supervisor"
+	"bruv/internal/llm"
 	"bruv/internal/mcp"
 )
 
@@ -142,11 +143,12 @@ func blockArrayProp(desc string) map[string]any {
 			"type": map[string]any{
 				"type": "string",
 				"description": "Block type. Common: 'text' (freeform), 'checklist' (array of strings), " +
-					"'list' (array of strings), 'url', 'number', 'date' (YYYY-MM-DD), 'checkbox' (boolean).",
+					"'list' (array of strings), 'url', 'number', 'date' (YYYY-MM-DD; set format 'date-time' to keep a time), 'checkbox' (boolean).",
 			},
-			"label": strProp("Human-readable label for the block, e.g. 'Notes', 'To-Do'."),
-			"value": map[string]any{"description": "The block's content. String for text/url/date; array of strings for checklist/list; boolean for checkbox; number for number."},
-			"key":   strProp("Optional machine key (lowercase_with_underscores). Omit for freeform blocks."),
+			"label":  strProp("Human-readable label for the block, e.g. 'Notes', 'To-Do'."),
+			"format": map[string]any{"type": "string", "enum": []any{"date", "date-time"}, "description": llm.BlockFormatDesc},
+			"value":  map[string]any{"description": "The block's content. String for text/url/date; array of strings for checklist/list; boolean for checkbox; number for number."},
+			"key":    strProp("Optional machine key (lowercase_with_underscores). Omit for freeform blocks."),
 		}, "type", "value"),
 	}
 }
@@ -474,6 +476,7 @@ func toolDefs(rt *supervisor.Runtime, repoName string) []mcp.Tool {
 				"one_shot":              boolProp("Run once at the next scheduled time, then stop."),
 				"next_run_at":           strProp("Pin the next run to an exact time (RFC 3339, or zone-less in the BRUV server's local time) instead of the schedule's next slot."),
 				"max_tokens_budget":     intProp("Token cap per run. 0 = default (50000)."),
+				"max_turns":             intProp("Model turns per run (each turn = one response plus its tool calls), up to 100. 0 = default (25). A run that hits it is marked failed."),
 				"cost_budget_usd":       numProp("Total spend cap in USD. 0 = no cap."),
 				"min_interval_minutes":  intProp("Minimum minutes between runs. 0 = default (5)."),
 				"max_retries":           intProp("Retries after a failed run, 0–10. 0 = no retry."),

@@ -167,6 +167,11 @@ func ParseBlocks(raw any) []model.Block {
 			Key:   strings.TrimSpace(key),
 			Value: m["value"],
 		}
+		// A date block is date-only unless asked otherwise; "date-time"
+		// keeps the time and UTC offset (e.g. a race's jump time).
+		if format, _ := m["format"].(string); blockType == model.BlockDate && format == "date-time" {
+			b.Meta = map[string]any{"format": format}
+		}
 		// The coerced value is best-effort even when a constraint is
 		// violated, so it is always taken and the advisory error ignored.
 		if coerced, _ := CoerceBlockValueForBlock(&b, b.Value); coerced != nil {

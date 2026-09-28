@@ -42,6 +42,7 @@ type ConfigPatch struct {
 	NotifyChannels    *[]string
 	LLM               *string // config.ModelRef; "" = the agent_run task's assignment
 	MaxTokensBudget   *int
+	MaxTurns          *int
 	MinIntervalMins   *int
 	MaxRetries        *int
 	RetryBackoffMins  *int
@@ -74,6 +75,7 @@ func (p ConfigPatch) Apply(cfg *model.AgentConfig) {
 		cfg.LLM, cfg.LLMAccountID, cfg.LLMModel = *p.LLM, "", ""
 	}
 	setIf(&cfg.MaxTokensBudget, p.MaxTokensBudget)
+	setIf(&cfg.MaxTurns, p.MaxTurns)
 	setIf(&cfg.MinIntervalMins, p.MinIntervalMins)
 	setIf(&cfg.MaxRetries, p.MaxRetries)
 	setIf(&cfg.RetryBackoffMins, p.RetryBackoffMins)
@@ -168,6 +170,7 @@ func Validate(cfg model.AgentConfig) error {
 	}
 	for name, n := range map[string]int{
 		"max_tokens_budget":     cfg.MaxTokensBudget,
+		"max_turns":             cfg.MaxTurns,
 		"min_interval_minutes":  cfg.MinIntervalMins,
 		"max_retries":           cfg.MaxRetries,
 		"retry_backoff_minutes": cfg.RetryBackoffMins,
@@ -175,6 +178,9 @@ func Validate(cfg model.AgentConfig) error {
 		if n < 0 {
 			errs = append(errs, fmt.Errorf("%s must not be negative", name))
 		}
+	}
+	if cfg.MaxTurns > model.MaxAgentMaxTurns {
+		errs = append(errs, fmt.Errorf("max_turns must be at most %d", model.MaxAgentMaxTurns))
 	}
 	if cfg.MaxRetries > MaxRetriesLimit {
 		errs = append(errs, fmt.Errorf("max_retries must be at most %d", MaxRetriesLimit))

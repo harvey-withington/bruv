@@ -8,6 +8,7 @@
   import { Clock, CircleCheck, CircleX, TriangleAlert, Square, Trash2, Timer } from 'lucide-svelte'
   import { onMount, onDestroy } from 'svelte'
   import { onEvent } from '../lib/events'
+  import { board } from '../lib/store.svelte'
 
   let { cardId }: { cardId: string } = $props()
 
@@ -15,12 +16,17 @@
   let loadError = $state(false)
   let runs = $state<AgentRun[]>([])
   let expandedRun = $state<string | null>(null)
+  // The in-progress run isn't in the history until it finishes; show it
+  // as a live row so the Runs tab never looks idle mid-run.
+  let runStartedAt = $state<string | null>(null)
+  const running = $derived(!!board.runningAgentIds[cardId])
 
   async function loadRuns(silent: boolean = false) {
     if (!silent) loading = true
     try {
       const af = await GetAgentConfig(cardId)
       runs = af.runs || []
+      runStartedAt = af.config.run_started_at ?? null
       loadError = false
     } catch (e) {
       console.error('Failed to load agent runs:', e)
@@ -87,6 +93,8 @@
   let cleanupFns: (() => void)[] = []
   onMount(() => {
     cleanupFns = [
+      // Picks up run_started_at for the live row.
+      onEvent<{ cardID?: string }>('agent:started', (data) => { if (data?.cardID === cardId) loadRuns(true) }),
       // Silent reload — don't flash the loading placeholder every time
       // an agent run completes while the Runs tab is open.
       onEvent<{ cardID?: string }>('agent:completed', (data) => { if (data?.cardID === cardId) loadRuns(true) }),
@@ -113,6 +121,15 @@
   </div>
 {:else}
   <div class="runs-tab">
+    {#if running}
+      <div class="run-live" role="status">
+        <span class="agent-running-dot"></span>
+        <span class="run-live-label">{t('agent.running')}</span>
+        {#if runStartedAt}
+          <span class="run-time">{t('agent.running_since', { time: formatTime(runStartedAt) })}</span>
+        {/if}
+      </div>
+    {/if}
     {#if runs.length > 0}
       <div class="runs-header">
         <span class="runs-summary">
@@ -127,7 +144,7 @@
       </div>
     {/if}
 
-    {#if runs.length === 0}
+    {#if runs.length === 0 && !running}
       <p class="runs-empty">{t('agent.runs_empty')}</p>
     {:else}
       <div class="runs-list">
@@ -225,6 +242,13 @@
     color: var(--text-muted); font-size: 0.85rem; font-style: italic;
   }
   .runs-list { display: flex; flex-direction: column; }
+  .run-live {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.45rem 0.6rem; border-radius: 6px;
+    background: color-mix(in srgb, var(--accent) 8%, var(--bg-elevated));
+    border: 1px solid var(--border-muted); font-size: 0.8rem;
+  }
+  .run-live-label { color: var(--text-strong); font-weight: 500; }
   .run-row {
     display: flex; align-items: center; gap: 0.5rem;
     padding: 0.45rem 0.6rem; width: 100%;

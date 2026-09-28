@@ -84,22 +84,37 @@ func TestCollectAgentFieldsOrdering(t *testing.T) {
 	card := &model.Card{
 		Blocks: []model.Block{
 			{Key: "findings", Type: model.BlockText},
-			{Key: "status", Type: model.BlockSelect},
 			{Key: "last_run", Type: model.BlockText},
 		},
 	}
 	fields := CollectAgentFields(card)
-	if len(fields) != 3 {
-		t.Fatalf("expected 3 fields, got %d", len(fields))
+	if len(fields) != 2 {
+		t.Fatalf("expected 2 fields, got %d", len(fields))
 	}
-	if fields[0].Key != "status" {
-		t.Errorf("first field = %q, want status (canonical order)", fields[0].Key)
+	if fields[0].Key != "last_run" {
+		t.Errorf("first field = %q, want last_run (canonical order)", fields[0].Key)
 	}
-	if fields[1].Key != "last_run" {
-		t.Errorf("second field = %q, want last_run", fields[1].Key)
+	if fields[1].Key != "findings" {
+		t.Errorf("second field = %q, want findings", fields[1].Key)
 	}
-	if fields[2].Key != "findings" {
-		t.Errorf("third field = %q, want findings", fields[2].Key)
+}
+
+// The runtime stamps Status / Last Run At / Error itself, so the prompt
+// must not spend the model's turns on them — not even as custom fields
+// (status is a select, which would otherwise qualify).
+func TestCollectAgentFieldsSkipsSystemManaged(t *testing.T) {
+	card := &model.Card{
+		Blocks: []model.Block{
+			{Key: "status", Type: model.BlockSelect},
+			{Key: "last_run_at", Type: model.BlockDate},
+			{Key: "error", Type: model.BlockText},
+			{Key: "findings", Type: model.BlockText},
+		},
+	}
+	for _, f := range CollectAgentFields(card) {
+		if SystemManagedAgentFields[f.Key] {
+			t.Errorf("system-managed field %q listed for the model", f.Key)
+		}
 	}
 }
 

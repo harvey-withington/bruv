@@ -446,6 +446,24 @@ func TestCoerceBlockValueForBlock_DateTimeFormat(t *testing.T) {
 	}
 }
 
+// A new date block asked for as "date-time" keeps the time and offset
+// (e.g. a race's jump time); without a format it stays date-only.
+func TestParseBlocksDateTimeFormat(t *testing.T) {
+	blocks := ParseBlocks([]any{
+		map[string]any{"type": "date", "label": "Race start", "value": "2026-10-04T14:35:00+10:00", "format": "date-time"},
+		map[string]any{"type": "date", "label": "Race day", "value": "2026-10-04T14:35:00+10:00"},
+	})
+	if len(blocks) != 2 {
+		t.Fatalf("got %d blocks", len(blocks))
+	}
+	if blocks[0].Value != "2026-10-04T14:35:00+10:00" || blocks[0].Meta["format"] != "date-time" {
+		t.Errorf("date-time block = %v (meta %v)", blocks[0].Value, blocks[0].Meta)
+	}
+	if blocks[1].Value != "2026-10-04" {
+		t.Errorf("plain date block = %v, want YYYY-MM-DD", blocks[1].Value)
+	}
+}
+
 func TestCoerceBlockValueForBlock_DateInvalid(t *testing.T) {
 	b := &model.Block{Type: model.BlockDate}
 	_, err := CoerceBlockValueForBlock(b, "not a date")

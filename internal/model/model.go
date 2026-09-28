@@ -391,6 +391,7 @@ type AgentConfig struct {
 	LastRunAt         *time.Time `json:"last_run_at,omitempty"`
 	NextRunAt         *time.Time `json:"next_run_at,omitempty"`
 	MaxTokensBudget   int        `json:"max_tokens_budget,omitempty"`     // 0 = default (50000)
+	MaxTurns          int        `json:"max_turns,omitempty"`             // 0 = default (DefaultAgentMaxTurns); model↔tool rounds per run
 	RunStartedAt      *time.Time `json:"run_started_at,omitempty"`        // set when entering running state; used for stuck detection
 	MinIntervalMins   int        `json:"min_interval_minutes,omitempty"`  // 0 = default (5); minimum minutes between runs
 	MaxRetries        int        `json:"max_retries,omitempty"`           // 0 = no retry
@@ -405,6 +406,14 @@ type AgentConfig struct {
 	OneShot           bool       `json:"one_shot,omitempty"`
 	Timezone          string     `json:"timezone,omitempty"` // IANA timezone, empty = local
 }
+
+// Agent run turn limits: each turn is one model response plus the tool
+// calls it made. The old fixed limit of 10 ended multi-step goals
+// before their report step.
+const (
+	DefaultAgentMaxTurns = 25
+	MaxAgentMaxTurns     = 100
+)
 
 // AgentRun records a single execution of a card's agent.
 type AgentRun struct {

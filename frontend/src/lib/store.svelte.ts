@@ -1,5 +1,5 @@
 // Reactive app state using Svelte 5 module-level $state
-import { ListCategories, GetCard, GetCardPins, ListCardIDsInCategory, GetProjectLabels, ListCardTypes, GetTagColors, ListAgentCardStates, ListPresentingCards } from '@shared/api'
+import { ListCategories, GetCard, GetCardPins, ListCardIDsInCategory, GetProjectLabels, ListCardTypes, GetTagColors, ListAgentCardStates, ListPresentingCards, GetAllAgents } from '@shared/api'
 import { onEvent } from './events'
 import type { Card, CardTypeInfo, ChecklistItem } from '@shared/types'
 
@@ -258,6 +258,14 @@ export async function loadBoard(brandSlug: string, streamSlug: string, projectSl
       const presenting = (await ListPresentingCards()) || []
       board.presentingCardIds = Object.fromEntries(presenting.map((id) => [id, true]))
     } catch { board.presentingCardIds = {} }
+    // Seed from the runtime so a run that began before this load (app
+    // opened mid-run, reconnect) still shows; agent:* events keep it live.
+    try {
+      const agents = (await GetAllAgents()) || []
+      board.runningAgentIds = Object.fromEntries(
+        agents.filter((a) => a.is_running).map((a) => [a.card_id, true]),
+      )
+    } catch { /* keep the event-maintained set */ }
     if (seq !== boardLoadSeq) return
     board.categories = populated
     board.loadError = false

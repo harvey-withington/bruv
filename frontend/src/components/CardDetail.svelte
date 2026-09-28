@@ -2,7 +2,7 @@
   import { GetCard, UpdateCardTitle, UpdateCardType, RefreshTypeBlocks, UpdateCardDescription, UpdateCardDueDate,
     DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, GetProjectLabels, GetCategoryAcceptedTypes, GetAgentConfig, GetProjectMembers, CreateCardTypeFromCard } from '@shared/api'
   import { onEvent } from '../lib/events'
-  import { projectTags, nav, cardTypes, loadCardTypes } from '../lib/store.svelte'
+  import { projectTags, nav, cardTypes, loadCardTypes, board } from '../lib/store.svelte'
   import { X, Trash2, BotMessageSquare, ClipboardList, History, Timer, ArrowUpRight } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import PinPicker from './PinPicker.svelte'
@@ -58,6 +58,9 @@
   // svelte-ignore state_referenced_locally
   let acceptedTypes = $state<string[] | undefined>(categoryAcceptedTypes)
   let hasAgent = $state(false)
+  // Live from agent:* events (seeded on board load), so the tab bar shows
+  // a running agent whichever tab is open.
+  const agentRunning = $derived(!!board.runningAgentIds[cardId])
   let showPinPicker = $state(false)
   let pinPickerMode = $state<'pin' | 'move'>('pin')
   let pinPickerSourcePin = $state<CardPin | null>(null)
@@ -607,7 +610,9 @@
         <button class="card-tab" class:active={activeTab === 'agent'} onclick={() => activeTab = 'agent'}>
           <Timer size={13} />
           <span>{t('card.tab_agent')}</span>
-          {#if hasAgent}
+          {#if agentRunning}
+            <span class="agent-running-dot" title={t('agent.running')} aria-label={t('agent.running')} role="status"></span>
+          {:else if hasAgent}
             <span class="agent-dot"></span>
           {/if}
         </button>

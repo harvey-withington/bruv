@@ -56,6 +56,7 @@
     label: refLabel(effectiveRef('', 'agent_run', llmRegistry.routing), llmRegistry.routing, t, t('llm_routing.first_model')),
   }))
   let maxTokensBudget = $state(0)
+  let maxTurns = $state(0)
   let minIntervalMins = $state(0)
   let maxRetries = $state(0)
   let retryBackoffMins = $state(0)
@@ -90,6 +91,7 @@
       titleKey: 'agent.tool_group_card',
       tools: [
         { id: 'update_self', labelKey: 'agent.tool_update_self', descKey: 'agent.tool_update_self_desc' },
+        { id: 'update_card', labelKey: 'agent.tool_update_card', descKey: 'agent.tool_update_card_desc' },
         { id: 'read_card', labelKey: 'agent.tool_read_card', descKey: 'agent.tool_read_card_desc' },
         { id: 'search_cards', labelKey: 'agent.tool_search_cards', descKey: 'agent.tool_search_cards_desc' },
         { id: 'list_cards', labelKey: 'agent.tool_list_cards', descKey: 'agent.tool_list_cards_desc' },
@@ -197,6 +199,7 @@
       llmChoice = af.config.llm || refFromLegacyPair(legacyAccountId, legacyModel, llmRegistry.routing)
       llmChoiceTouched = false
       maxTokensBudget = af.config.max_tokens_budget || 0
+      maxTurns = af.config.max_turns || 0
       minIntervalMins = af.config.min_interval_minutes || 0
       maxRetries = af.config.max_retries || 0
       retryBackoffMins = af.config.retry_backoff_minutes || 0
@@ -274,6 +277,7 @@
         last_run_at: lastRunAt,
         next_run_at: nextRunAt,
         max_tokens_budget: maxTokensBudget,
+        max_turns: maxTurns,
         run_started_at: runStartedAt,
         min_interval_minutes: minIntervalMins,
         max_retries: maxRetries,
@@ -690,6 +694,11 @@
                   <span class="safety-hint">{t('agent.token_budget_hint')}</span>
                 </label>
                 <label class="safety-field">
+                  <span class="safety-label">{t('agent.max_turns')}</span>
+                  <input type="number" class="agent-input" placeholder={t('agent.max_turns_placeholder')} bind:value={maxTurns} oninput={markDirty} min="0" max="100" />
+                  <span class="safety-hint">{t('agent.max_turns_hint')}</span>
+                </label>
+                <label class="safety-field">
                   <span class="safety-label">{t('agent.min_interval')}</span>
                   <input type="number" class="agent-input" placeholder={t('agent.min_interval_placeholder')} bind:value={minIntervalMins} oninput={markDirty} min="0" />
                   <span class="safety-hint">{t('agent.min_interval_hint')}</span>
@@ -906,11 +915,6 @@
     /* Same token as the sibling badges in AgentDashboard/AgentsPage —
        the hand-tuned rgba pair here had already drifted from them. */
     box-shadow: var(--agent-running-glow-sm);
-  }
-  @keyframes agent-neon {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
   }
 
   .save-btn {

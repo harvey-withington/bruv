@@ -217,6 +217,28 @@ button.press-still:not(:disabled):active,
     animation: none;
 }
 
+/* Running-agent shimmer. One global definition so every surface (board
+   tile, card tab dot, runs list, agents page) animates identically;
+   components reference `agent-neon` without redefining it. */
+@keyframes agent-neon {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+/* A small dot that shimmers while an agent runs (UI-CONVENTIONS §20). */
+.agent-running-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--agent-running-gradient);
+    background-size: 300% 300%;
+    animation: agent-neon 2s ease infinite;
+    box-shadow: var(--agent-running-glow-sm);
+}
+
 /* Reduce motion for users who prefer it */
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {

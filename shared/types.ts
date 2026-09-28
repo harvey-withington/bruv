@@ -764,6 +764,8 @@ export type AgentConfig = {
   last_run_at: string | null
   next_run_at: string | null
   max_tokens_budget: number
+  /** Model turns per run; 0 = the default (25). Hitting it fails the run. */
+  max_turns: number
   run_started_at: string | null
   min_interval_minutes: number
   max_retries: number

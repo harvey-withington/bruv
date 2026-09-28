@@ -59,44 +59,14 @@ var allAgentTools = []ToolDef{
 			"  - select / radio: send the chosen option as a string.\n" +
 			"If you send a plain string to a list or checklist block it will be split by newlines as a fallback, but sending an array is strongly preferred. Use existing block keys to update them; use a new key to create a new text block.\n" +
 			"To change intrinsic card fields, use the top-level 'title', 'due_date', or 'tags' parameters.",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"title": map[string]any{
-					"type":        "string",
-					"description": "New card title. Omit to leave unchanged.",
-				},
-				"due_date": map[string]any{
-					"type":        "string",
-					"description": "Due date in YYYY-MM-DD or ISO-8601 format. Omit to leave unchanged.",
-				},
-				"tags": map[string]any{
-					"type":        "array",
-					"description": "Set the card's tags. Omit to leave unchanged.",
-					"items":       map[string]any{"type": "string"},
-				},
-				"updates": map[string]any{
-					"type":        "array",
-					"description": "List of block updates",
-					"items": map[string]any{
-						"type": "object",
-						"properties": map[string]any{
-							"key": map[string]any{
-								"type":        "string",
-								"description": "The block key or label to update (e.g. 'description', 'Flight Options')",
-							},
-							"value": map[string]any{
-								// Deliberately NOT typed — different block types accept
-								// different value shapes (string, array, number, object).
-								// The Go handler parses based on the target block's type.
-								"description": "The new value. See the tool description for format requirements per block type.",
-							},
-						},
-						"required": []string{"key", "value"},
-					},
-				},
-			},
-		},
+		Parameters: cardUpdateParams(false),
+	},
+	{
+		Name: "update_card",
+		Description: "Update ANOTHER card by id — e.g. one you created earlier, found with search_cards or list_cards — " +
+			"when its details change. Same fields and value formats as update_self (read it first with read_card to see its blocks). " +
+			"Use update_self for this agent's own card.",
+		Parameters: cardUpdateParams(true),
 	},
 	{
 		Name:        "read_card",
@@ -135,9 +105,10 @@ var allAgentTools = []ToolDef{
 					"items": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
-							"type":  map[string]any{"type": "string", "description": "'text', 'list', 'checklist', 'url', 'number', 'date' (YYYY-MM-DD) or 'checkbox'."},
-							"label": map[string]any{"type": "string", "description": "Block label, e.g. 'Notes'."},
-							"value": map[string]any{"description": "String for text/url/date; array of strings for list/checklist; number; boolean."},
+							"type":   map[string]any{"type": "string", "description": "'text', 'list', 'checklist', 'url', 'number', 'date' or 'checkbox'."},
+							"label":  map[string]any{"type": "string", "description": "Block label, e.g. 'Notes'."},
+							"value":  map[string]any{"description": "String for text/url/date; array of strings for list/checklist; number; boolean."},
+							"format": map[string]any{"type": "string", "enum": []any{"date", "date-time"}, "description": BlockFormatDesc},
 						},
 						"required": []string{"type", "value"},
 					},
@@ -195,6 +166,57 @@ var allAgentTools = []ToolDef{
 			"required": []string{"method", "url"},
 		},
 	},
+}
+
+// BlockFormatDesc documents a new date block's optional format, shared by
+// the agent's and the MCP server's create_card block schemas.
+const BlockFormatDesc = "Date blocks only: 'date' (YYYY-MM-DD, the default) or 'date-time', which keeps the time " +
+	"and the UTC offset of an ISO 8601 value such as '2026-10-04T14:35:00+10:00'."
+
+// cardUpdateParams is the schema shared by update_self and update_card;
+// withCardID adds the target card for update_card.
+func cardUpdateParams(withCardID bool) map[string]any {
+	props := map[string]any{
+		"title": map[string]any{
+			"type":        "string",
+			"description": "New card title. Omit to leave unchanged.",
+		},
+		"due_date": map[string]any{
+			"type":        "string",
+			"description": "Due date in YYYY-MM-DD or ISO-8601 format. Omit to leave unchanged.",
+		},
+		"tags": map[string]any{
+			"type":        "array",
+			"description": "Set the card's tags. Omit to leave unchanged.",
+			"items":       map[string]any{"type": "string"},
+		},
+		"updates": map[string]any{
+			"type":        "array",
+			"description": "List of block updates",
+			"items": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"key": map[string]any{
+						"type":        "string",
+						"description": "The block key or label to update (e.g. 'description', 'Flight Options')",
+					},
+					"value": map[string]any{
+						// Deliberately NOT typed — different block types accept
+						// different value shapes (string, array, number, object).
+						// The Go handler parses based on the target block's type.
+						"description": "The new value. See the tool description for format requirements per block type.",
+					},
+				},
+				"required": []string{"key", "value"},
+			},
+		},
+	}
+	required := []string{}
+	if withCardID {
+		props["card_id"] = map[string]any{"type": "string", "description": "The id of the card to update."}
+		required = []string{"card_id"}
+	}
+	return map[string]any{"type": "object", "properties": props, "required": required}
 }
 
 // WebTools returns just the web-browsing tool definitions (web_fetch

@@ -6,7 +6,7 @@ import "strings"
 // granted via configure_agent. MCP tools are appended dynamically at call
 // time by buildAllowedToolsEnum.
 var builtinAgentToolNames = []string{
-	"web_fetch", "web_search", "notify", "update_self",
+	"web_fetch", "web_search", "notify", "update_self", "update_card",
 	"create_card", "read_card", "search_cards", "list_cards", "http_request",
 }
 

@@ -140,6 +140,7 @@ func PatchFromArgs(a map[string]any) (ConfigPatch, error) {
 	p.NotifyChannels = listArg("notify_channel")
 	p.LLM = strArg("llm")
 	p.MaxTokensBudget = intArg("max_tokens_budget")
+	p.MaxTurns = intArg("max_turns")
 	p.MinIntervalMins = intArg("min_interval_minutes")
 	p.MaxRetries = intArg("max_retries")
 	p.RetryBackoffMins = intArg("retry_backoff_minutes")

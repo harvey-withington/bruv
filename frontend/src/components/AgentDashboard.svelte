@@ -515,11 +515,6 @@
     animation: agent-neon 2s ease infinite;
     box-shadow: var(--agent-running-glow-sm);
   }
-  @keyframes agent-neon {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
-  }
 
   .row-error {
     padding: 0.15rem 1rem 0.4rem 1rem;

@@ -262,14 +262,17 @@ type AgentField struct {
 // well-known tracking field. Custom tracking fields fall back to a
 // generic guidance string.
 var AgentFieldGuidance = map[string]string{
-	"status":      "Set to one of: \"success\", \"failed\", \"idle\". Use \"success\" if the Goal was completed, \"failed\" if something blocked you.",
-	"last_run":    "Write a 1–2 sentence summary of what you actually did this run — tools called, findings, or errors encountered.",
-	"last_run_at": "Set to the CURRENT timestamp as an ISO 8601 string (see System Context below for the exact value).",
-	"findings":    "Append new findings to the existing value. Do not overwrite prior findings — the value should accumulate across runs. If there's nothing new this run, restate the latest.",
+	"last_run": "Write a 1–2 sentence summary of what you actually did this run — tools called, findings, or errors encountered. (If you run out of turns first, the runtime fills this in from your final report.)",
+	"findings": "Append new findings to the existing value. Do not overwrite prior findings — the value should accumulate across runs. If there's nothing new this run, restate the latest.",
 	"description": "Only update if the description is empty or materially out of date; otherwise leave it alone.",
 	"next_check":  "If the Goal involves ongoing monitoring, set this to the ISO 8601 timestamp of when you should next run.",
-	"error":       "Set to a brief error message if the run failed, or clear it (empty string) on success.",
 }
+
+// SystemManagedAgentFields are the tracking blocks the agent runtime
+// writes itself at the start and end of every run (see
+// core/runtime/agent/run_fields.go), so they are left out of the
+// prompt's must-update list — the model shouldn't spend turns on them.
+var SystemManagedAgentFields = map[string]bool{"status": true, "last_run_at": true, "error": true}
 
 const customAgentFieldGuidance = "This is a custom tracking field — update it with whatever value this run produces for it. If this run didn't produce a new value, leave it alone."
 
@@ -278,8 +281,11 @@ const customAgentFieldGuidance = "This is a custom tracking field — update it 
 // a deterministic order (aids prompt caching + consistency across
 // runs); custom fields follow.
 func CollectAgentFields(card *model.Card) []AgentField {
-	orderedKnown := []string{"status", "last_run", "last_run_at", "findings", "description", "next_check", "error"}
-	seen := make(map[string]bool)
+	orderedKnown := []string{"last_run", "findings", "description", "next_check"}
+	seen := make(map[string]bool, len(SystemManagedAgentFields))
+	for k := range SystemManagedAgentFields {
+		seen[k] = true // never listed, not even as a custom field
+	}
 	var fields []AgentField
 
 	for _, knownKey := range orderedKnown {

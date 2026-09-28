@@ -87,6 +87,36 @@ var BuiltinTypes = []CardTypeInfo{
 	{ID: "agent", Label: "Agent", Color: "#ef4444", Builtin: true},
 }
 
+// DefaultCardType is the type given to a card created by an LLM surface
+// (MCP, chat, agents) that names none. Always a built-in, so it exists
+// in every repo.
+const DefaultCardType = "brainstorm"
+
+// FindCardType resolves a card type by id or label, case-insensitively,
+// returning the canonical id. Never creates a type.
+func (s *Service) FindCardType(idOrLabel string) (id string, ok bool) {
+	q := strings.TrimSpace(idOrLabel)
+	if q == "" {
+		return "", false
+	}
+	for _, t := range s.ListCardTypes() {
+		if strings.EqualFold(t.ID, q) || strings.EqualFold(t.Label, q) {
+			return t.ID, true
+		}
+	}
+	return "", false
+}
+
+// CardTypeExists reports whether id names an existing card type exactly.
+func (s *Service) CardTypeExists(id string) bool {
+	for _, t := range s.ListCardTypes() {
+		if t.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 // seedTypes are pre-installed as user types on first run.
 var seedTypes = []config.UserCardType{
 	{ID: "feature", Label: "Feature", Color: "#6366f1"},
@@ -123,6 +153,9 @@ func (s *Service) ListCardTypes() []CardTypeInfo {
 		if ov, ok := store.BuiltinOverrides[b.ID]; ok {
 			if ov.Color != "" {
 				info.Color = ov.Color
+			}
+			if ov.Icon != "" {
+				info.Icon = ov.Icon
 			}
 			if ov.TemplateID != "" {
 				info.TemplateID = ov.TemplateID
@@ -253,7 +286,10 @@ func (s *Service) DeleteUserCardType(id string) error {
 	return fmt.Errorf("card type %q not found", id)
 }
 
-func (s *Service) UpdateBuiltinCardType(id, color, templateID string) error {
+// UpdateBuiltinCardType replaces the user's override for a built-in type.
+// Every overridable field is passed on each save, so an omitted one is
+// cleared rather than silently kept from a stale override.
+func (s *Service) UpdateBuiltinCardType(id, color, icon, templateID string) error {
 	isBuiltin := false
 	for _, b := range BuiltinTypes {
 		if b.ID == id {
@@ -275,8 +311,12 @@ func (s *Service) UpdateBuiltinCardType(id, color, templateID string) error {
 	if store.BuiltinOverrides == nil {
 		store.BuiltinOverrides = make(map[string]config.BuiltinOverride)
 	}
-	store.BuiltinOverrides[id] = config.BuiltinOverride{Color: color, TemplateID: templateID}
-	return r.SaveUserTypeStore(store)
+	store.BuiltinOverrides[id] = config.BuiltinOverride{Color: color, Icon: icon, TemplateID: templateID}
+	if err := r.SaveUserTypeStore(store); err != nil {
+		return err
+	}
+	s.deps.Publish("cardtype:updated", map[string]any{"id": id})
+	return nil
 }
 
 // --- Templates ---

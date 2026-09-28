@@ -10,7 +10,7 @@ import {
 } from '@shared/cardTransfer'
 import type { BruvCardExport } from '@shared/cardJson'
 import type { CardMarkdownLabels } from '@shared/cardMarkdown'
-import type { Card, CardComment } from '@shared/types'
+import type { Card, CardComment, CardTypeInfo } from '@shared/types'
 import { t } from './i18n.svelte'
 
 // Mobile binding of @shared/cardTransfer: injects the repoRPC
@@ -23,6 +23,7 @@ const api: CardTransferApi = {
   deleteCard: async (cardId) => { await repoRPC('DeleteCard', [cardId]) },
   pinCard: async (cardId, categoryId) => { await repoRPC('PinCard', [cardId, categoryId]) },
   getCategoryAcceptedTypes: (categoryId) => repoRPC<string[] | null>('GetCategoryAcceptedTypes', [categoryId]),
+  listCardTypeIds: async () => ((await repoRPC<CardTypeInfo[]>('ListCardTypes')) ?? []).map(ct => ct.id),
   updateCardType: (cardId, cardType) => repoRPC('UpdateCardType', [cardId, cardType]),
   updateCardDescription: (cardId, description) => repoRPC('UpdateCardDescription', [cardId, description]),
   updateCardBlocks: (cardId, blocks) => repoRPC('UpdateCardBlocks', [cardId, blocks]),
@@ -67,4 +68,4 @@ export function cardMarkdownLabels(): CardMarkdownLabels {
 }
 
 export { ImportError } from '@shared/cardTransfer'
-export type { ImportOutcome, MergeOutcome, TypeConflictResolution } from '@shared/cardTransfer'
+export type { ImportOutcome, MergeOutcome, TypeConflictReason, TypeConflictResolution } from '@shared/cardTransfer'

@@ -29,6 +29,7 @@ type CardTemplate struct {
 // BuiltinOverride stores user customisations for a built-in card type.
 type BuiltinOverride struct {
 	Color      string `json:"color,omitempty"`
+	Icon       string `json:"icon,omitempty"` // lucide icon name; empty keeps the default
 	TemplateID string `json:"template_id,omitempty"`
 }
 

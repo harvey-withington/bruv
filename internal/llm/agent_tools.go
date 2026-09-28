@@ -113,21 +113,63 @@ var allAgentTools = []ToolDef{
 		},
 	},
 	{
-		Name:        "create_card",
-		Description: "Create a new card in the repository.",
+		Name: "create_card",
+		Description: "Create and populate a new card. Call search_cards first so you don't create a duplicate. " +
+			"To file it on a board give ALL of brand, stream, project and category (missing levels are created); " +
+			"omit all four to leave it unfiled in the inbox. Use list_cards to see a board's existing categories.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"title": map[string]any{
-					"type":        "string",
-					"description": "The card title",
-				},
-				"card_type": map[string]any{
-					"type":        "string",
-					"description": "The card type (e.g. 'brainstorm', 'task'). Optional.",
+				"title":       map[string]any{"type": "string", "description": "The card title"},
+				"card_type":   map[string]any{"type": "string", "description": "An existing card type's id or label (e.g. 'task', 'reference'). Unknown types are rejected. Default 'brainstorm'."},
+				"description": map[string]any{"type": "string", "description": "Free-text summary under the title (Markdown)."},
+				"due_date":    map[string]any{"type": "string", "description": "Due date, YYYY-MM-DD."},
+				"tags":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Tags for the card."},
+				"brand":       map[string]any{"type": "string", "description": "Brand to file under (name or slug)."},
+				"stream":      map[string]any{"type": "string", "description": "Stream to file under."},
+				"project":     map[string]any{"type": "string", "description": "Project to file under."},
+				"category":    map[string]any{"type": "string", "description": "Category (board column) to file into."},
+				"blocks": map[string]any{
+					"type":        "array",
+					"description": "Content blocks to add to the card.",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"type":  map[string]any{"type": "string", "description": "'text', 'list', 'checklist', 'url', 'number', 'date' (YYYY-MM-DD) or 'checkbox'."},
+							"label": map[string]any{"type": "string", "description": "Block label, e.g. 'Notes'."},
+							"value": map[string]any{"description": "String for text/url/date; array of strings for list/checklist; number; boolean."},
+						},
+						"required": []string{"type", "value"},
+					},
 				},
 			},
 			"required": []string{"title"},
+		},
+	},
+	{
+		Name:        "search_cards",
+		Description: "Full-text search every card's title and content. Returns id, title, type and board location for each match. Use it to check whether a card already exists before creating one, or to find cards to read.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{"type": "string", "description": "Search words; each matches as a prefix."},
+				"limit": map[string]any{"type": "integer", "description": "Max results (default 20)."},
+			},
+			"required": []string{"query"},
+		},
+	},
+	{
+		Name:        "list_cards",
+		Description: "List the cards on a project board, grouped by category in board order (id, title, type, due date, tags). Pass category to list one column only. Use read_card for a card's content.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"brand":    map[string]any{"type": "string", "description": "Brand name or slug."},
+				"stream":   map[string]any{"type": "string", "description": "Stream name or slug."},
+				"project":  map[string]any{"type": "string", "description": "Project name or slug."},
+				"category": map[string]any{"type": "string", "description": "Optional: only this category."},
+			},
+			"required": []string{"brand", "stream", "project"},
 		},
 	},
 	{

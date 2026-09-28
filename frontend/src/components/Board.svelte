@@ -12,7 +12,7 @@
   import { focusTrap } from '../lib/actions'
   import { showToast } from '../lib/toast.svelte'
   import { showConfirm } from '../lib/confirm.svelte'
-  import { importCardFromJson, ImportError, type TypeConflictResolution } from '../lib/cardExport'
+  import { importCardFromJson, ImportError, type TypeConflictReason, type TypeConflictResolution } from '../lib/cardExport'
   import ImportConfirmDialog from './ImportConfirmDialog.svelte'
 
   let renamingCategorySlug = $state<string | null>(null)
@@ -77,6 +77,7 @@
     cardType: string
     categoryName: string
     acceptedTypes: string[]
+    reason: TypeConflictReason
     resolve: (resolution: TypeConflictResolution | null) => void
   } | null>(null)
   // Category with an import replay in flight — its column button shows
@@ -90,9 +91,9 @@
       const text = await file.text()
       const result = await importCardFromJson(text, categoryId, {
         categoryName,
-        resolveTypeConflict: (cardType, catName, acceptedTypes) =>
+        resolveTypeConflict: (cardType, catName, acceptedTypes, reason) =>
           new Promise((resolve) => {
-            importConflict = { cardType, categoryName: catName, acceptedTypes, resolve }
+            importConflict = { cardType, categoryName: catName, acceptedTypes, reason, resolve }
           }),
       })
       if (result === null) return // user cancelled the type-conflict dialog — nothing created
@@ -600,6 +601,7 @@
     cardType={importConflict.cardType}
     categoryName={importConflict.categoryName}
     acceptedTypes={importConflict.acceptedTypes}
+    reason={importConflict.reason}
     onResolve={(resolution) => {
       importConflict?.resolve(resolution)
       importConflict = null

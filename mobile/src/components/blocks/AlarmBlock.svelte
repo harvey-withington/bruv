@@ -2,6 +2,7 @@
   import { Bell, BellRing } from 'lucide-svelte'
   import { t } from '../../lib/i18n.svelte'
   import type { Block } from '@shared/types'
+  import { isoToLocalInput, localInputToIso } from '@shared/dateTimeInput'
   import { withMeta } from './narrow'
 
   let { block, onChange }: { block: Block; onChange: (next: Block) => void } = $props()
@@ -9,31 +10,11 @@
   const fired = $derived(!!block.meta?.alarm_fired)
   const channels = $derived(block.meta?.alarm_channels ?? 'in-app')
 
-  // ISO datetime → local datetime-local input value.
-  const inputVal = $derived(toInputValue(block.meta?.alarm_time ?? ''))
-
-  function toInputValue(raw: string): string {
-    if (!raw) return ''
-    const d = new Date(raw)
-    if (Number.isNaN(d.getTime())) return ''
-    const yr = d.getFullYear().toString().padStart(4, '0')
-    const mo = (d.getMonth() + 1).toString().padStart(2, '0')
-    const dy = d.getDate().toString().padStart(2, '0')
-    const hr = d.getHours().toString().padStart(2, '0')
-    const mn = d.getMinutes().toString().padStart(2, '0')
-    return `${yr}-${mo}-${dy}T${hr}:${mn}`
-  }
-
-  function fromInputValue(s: string): string {
-    if (!s) return ''
-    const d = new Date(s)
-    if (Number.isNaN(d.getTime())) return s
-    return d.toISOString()
-  }
+  const inputVal = $derived(isoToLocalInput(block.meta?.alarm_time))
 
   function setTime(e: Event) {
     const next = (e.currentTarget as HTMLInputElement).value
-    onChange(withMeta(block, { alarm_time: fromInputValue(next), alarm_fired: false }))
+    onChange(withMeta(block, { alarm_time: localInputToIso(next) ?? '', alarm_fired: false }))
   }
 
   function toggleChannel(ch: string) {

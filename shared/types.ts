@@ -1247,7 +1247,7 @@ export interface BackendAdapter {
   UpdateUserCardType(id: string, label: string, color: string, description: string, aiHint: string, templateId: string): Promise<UserCardType>
   DeleteUserCardType(id: string): Promise<void>
   UpdateUserCardTypeIcon(id: string, icon: string): Promise<UserCardType>
-  UpdateBuiltinCardType(id: string, color: string, templateId: string): Promise<void>
+  UpdateBuiltinCardType(id: string, color: string, icon: string, templateId: string): Promise<void>
   // Create a new user card type from an existing card's blocks: the chosen
   // blocks become the type's template (values stripped, keys/meta kept), and
   // the originating card is switched to the new type. blockIDs in keepValueBlockIDs

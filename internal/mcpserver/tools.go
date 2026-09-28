@@ -3,6 +3,8 @@ package mcpserver
 import (
 	"encoding/json"
 
+	"bruv/core/services/agentsvc"
+	"bruv/core/services/catalog"
 	"bruv/core/supervisor"
 	"bruv/internal/mcp"
 )
@@ -48,6 +50,10 @@ var toolHandlers = map[string]toolFunc{
 	"unpin_card":   hUnpinCard,
 	"list_cards":   hListCards,
 	"recent_cards": hRecentCards,
+	// Card agents
+	"get_card_agent":       hGetCardAgent,
+	"configure_card_agent": hConfigureCardAgent,
+	"run_card_agent":       hRunCardAgent,
 }
 
 // richToolFunc is a tool whose result is more than one text block — an
@@ -115,6 +121,15 @@ func intProp(desc string) map[string]any {
 func strArr(desc string) map[string]any {
 	return map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": desc}
 }
+func boolProp(desc string) map[string]any {
+	return map[string]any{"type": "boolean", "description": desc}
+}
+func numProp(desc string) map[string]any {
+	return map[string]any{"type": "number", "description": desc}
+}
+func enumArr(desc string, values []string) map[string]any {
+	return map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": values}, "description": desc}
+}
 
 // blockArrayProp is the shared schema for a list of card blocks. The
 // shape matches BRUV's internal block model: {type, label, value, key?}.
@@ -174,7 +189,7 @@ func toolDefs(repoName string) []mcp.Tool {
 		},
 		{
 			Name:        "list_card_types",
-			Description: "List the available card types in " + board + " (e.g. idea, task, note). Use one of these as `card_type` when creating a card.",
+			Description: "List the available card types in " + board + " (e.g. brainstorm, task, reference, agent, plus any the user defined). Use one of these as `card_type`; unknown types are rejected.",
 			InputSchema: obj(map[string]any{}),
 		},
 		{
@@ -239,13 +254,14 @@ func toolDefs(repoName string) []mcp.Tool {
 				"exist); omit all four to leave it unfiled in the inbox. Pass `description` and/or `blocks` to fill it in.",
 			InputSchema: obj(map[string]any{
 				"title":       strProp("Card title."),
-				"card_type":   strProp("Card type (default 'idea'). See list_card_types."),
+				"card_type":   strProp("An existing card type's id or label (default '" + catalog.DefaultCardType + "'). See list_card_types."),
 				"brand":       strProp("Brand to file under (created if missing). Provide all four hierarchy fields or none."),
 				"stream":      strProp("Stream to file under (created if missing)."),
 				"project":     strProp("Project to file under (created if missing)."),
 				"category":    strProp("Category to file the card into (created if missing)."),
 				"tags":        strArr("Tags to add to the card."),
 				"description": strProp("Freeform description text for the card."),
+				"due_date":    strProp("Optional due date, YYYY-MM-DD."),
 				"blocks":      blockArrayProp("Structured content blocks to add to the card."),
 			}, "title"),
 		},
@@ -303,7 +319,7 @@ func toolDefs(repoName string) []mcp.Tool {
 			Description: "Change a card's type in " + board + ". See list_card_types for the available ids.",
 			InputSchema: obj(map[string]any{
 				"card_id":   strProp("The card's id."),
-				"card_type": strProp("Card type id, e.g. 'task', 'idea'."),
+				"card_type": strProp("An existing card type's id or label, e.g. 'task', 'brainstorm'."),
 			}, "card_id", "card_type"),
 		},
 		{
@@ -397,6 +413,58 @@ func toolDefs(repoName string) []mcp.Tool {
 			InputSchema: obj(map[string]any{
 				"limit": intProp("Max results (default 20)."),
 			}),
+		},
+
+		// --- Card agents ---
+		{
+			Name: "get_card_agent",
+			Description: "Read the autonomous agent on a card in " + board + ": its config, its last few runs (status, summary, error), " +
+				"and `options` — the valid tool ids, LLM accounts, notification values and schedule syntax for configure_card_agent. " +
+				"Call this before configuring an agent and after run_card_agent to check the result.",
+			InputSchema: obj(map[string]any{
+				"card_id": strProp("The card's id."),
+			}, "card_id"),
+		},
+		{
+			Name: "configure_card_agent",
+			Description: "Set up or change the autonomous agent on a card in " + board + ". Any card can carry an agent; for a " +
+				"dedicated agent card, create it with card_type 'agent'. Only the fields you pass change. A working agent needs " +
+				"enabled=true, a specific goal, and a schedule (or trigger it with run_card_agent). The next run is computed " +
+				"automatically; the result lists warnings for anything that would stop it running.",
+			InputSchema: obj(map[string]any{
+				"card_id":  strProp("The card's id."),
+				"enabled":  boolProp("Whether the agent runs. Enabling requires a goal."),
+				"goal":     strProp("The agent's instruction for every run. Be specific about what to check, what to write to the card, and when to notify."),
+				"schedule": strProp(scheduleSyntax),
+				"allowed_tools": strArr("Tool ids the agent may call (see get_card_agent options.tools): built-ins such as web_search, " +
+					"web_fetch, update_self, read_card, create_card, notify, http_request, plus MCP tools as server__tool. " +
+					"An empty array allows every built-in and MCP tool."),
+				"notify_on":      enumArr("When to notify the user after a run.", agentsvc.NotifyTriggers),
+				"notify_channel": enumArr("Extra notification channels; in-app is always on.", agentsvc.NotifyChannels),
+				"llm_account_id": strProp("LLM account id from options.llm_accounts. Empty string = the default account."),
+				"llm_model":      strProp("Model override for that account. Empty string = the account's model."),
+				"timezone":       strProp("IANA timezone for cron schedules and the active window, e.g. 'Europe/London'. Empty = server local time."),
+				"start_date":     strProp("Don't run before this time (RFC 3339; zone-less times and dates are the BRUV server's local time). Empty string clears it."),
+				"end_date":       strProp("Disable the agent after this time (RFC 3339; zone-less times and dates are the BRUV server's local time). Empty string clears it."),
+				"active_window_start": strProp("Only run from this time of day, HH:MM 24-hour. Set with active_window_end; " +
+					"empty strings for both clear the window."),
+				"active_window_end":     strProp("Only run until this time of day, HH:MM 24-hour."),
+				"one_shot":              boolProp("Run once at the next scheduled time, then stop."),
+				"next_run_at":           strProp("Pin the next run to an exact time (RFC 3339, or zone-less in the BRUV server's local time) instead of the schedule's next slot."),
+				"max_tokens_budget":     intProp("Token cap per run. 0 = default (50000)."),
+				"cost_budget_usd":       numProp("Total spend cap in USD. 0 = no cap."),
+				"min_interval_minutes":  intProp("Minimum minutes between runs. 0 = default (5)."),
+				"max_retries":           intProp("Retries after a failed run, 0–10. 0 = no retry."),
+				"retry_backoff_minutes": intProp("Minutes to wait before a retry. 0 = default (5)."),
+			}, "card_id"),
+		},
+		{
+			Name: "run_card_agent",
+			Description: "Run a card's agent in " + board + " now, ignoring its schedule. The card must have a goal. " +
+				"Runs are asynchronous: call get_card_agent afterwards to see the result.",
+			InputSchema: obj(map[string]any{
+				"card_id": strProp("The card's id."),
+			}, "card_id"),
 		},
 	}
 }

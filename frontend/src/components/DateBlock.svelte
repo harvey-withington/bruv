@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t } from '../lib/i18n.svelte'
   import type { BlockMeta } from '@shared/types'
+  import { isoToDateInput, isoToLocalInput, localInputToIso } from '@shared/dateTimeInput'
 
   let {
     value,
@@ -17,54 +18,14 @@
   // timestamp, not just a calendar date. Default is date-only.
   const isDateTime = $derived(meta?.format === 'date-time')
 
-  // The underlying HTML inputs require very specific formats:
-  //   <input type="date">          YYYY-MM-DD
-  //   <input type="datetime-local"> YYYY-MM-DDTHH:MM (NO seconds, NO tz)
-  //
-  // The storage format is ISO-8601 (possibly with timezone) because
-  // that's what the LLM produces and what the backend persists. These
-  // two functions convert between the two.
-
-  function toInputValue(iso: string | null | undefined): string {
-    if (!iso) return ''
-    // Empty or already in the short form — pass through.
-    if (isDateTime) {
-      // datetime-local wants YYYY-MM-DDTHH:MM. Parse and reformat in
-      // LOCAL time so the user sees the wall-clock time they'd expect.
-      const d = new Date(iso)
-      if (isNaN(d.getTime())) return ''
-      const pad = (n: number) => String(n).padStart(2, '0')
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-    }
-    // Date-only: take the first 10 chars if it's already ISO-ish,
-    // otherwise parse and reformat.
-    if (/^\d{4}-\d{2}-\d{2}/.test(iso)) {
-      return iso.slice(0, 10)
-    }
-    const d = new Date(iso)
-    if (isNaN(d.getTime())) return ''
-    const pad = (n: number) => String(n).padStart(2, '0')
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-  }
-
-  function fromInputValue(raw: string): string | null {
-    if (!raw) return null
-    if (isDateTime) {
-      // The input gave us YYYY-MM-DDTHH:MM in local time. Construct a
-      // Date and emit as an ISO string so the stored value round-trips.
-      const d = new Date(raw)
-      if (isNaN(d.getTime())) return null
-      return d.toISOString()
-    }
-    // Date-only: pass through as-is. YYYY-MM-DD is valid ISO.
-    return raw
-  }
-
-  const inputValue = $derived(toInputValue(value))
+  // Storage is ISO-8601 (what the LLM produces and the backend persists);
+  // the native inputs want local "YYYY-MM-DD" / "YYYY-MM-DDTHH:MM".
+  // Date-only values are already valid ISO, so they pass through as-is.
+  const inputValue = $derived(isDateTime ? isoToLocalInput(value) : isoToDateInput(value))
 
   function handleChange(e: Event) {
-    const target = e.target as HTMLInputElement
-    onUpdate(fromInputValue(target.value))
+    const raw = (e.target as HTMLInputElement).value
+    onUpdate(isDateTime ? localInputToIso(raw) : raw || null)
   }
 </script>
 

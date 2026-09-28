@@ -172,6 +172,7 @@ describe('mergeCardFromJson', () => {
       deleteCard: async () => { throw new Error('merge must not delete cards') },
       pinCard: async () => { throw new Error('merge must not pin cards') },
       getCategoryAcceptedTypes: async () => null,
+      listCardTypeIds: async () => [],
       updateCardType: async () => { throw new Error('merge must not change the type') },
       updateCardDescription: async (id, d) => { rec('updateCardDescription', id, d) },
       updateCardBlocks: async (id, b) => { rec('updateCardBlocks', id, b) },

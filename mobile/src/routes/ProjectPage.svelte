@@ -26,7 +26,7 @@
     uniqueName,
   } from '../lib/browse.svelte'
   import type { Category, CardSummary } from '../lib/model'
-  import { importCardFromJson, ImportError, type TypeConflictResolution } from '../lib/cardExport'
+  import { importCardFromJson, ImportError, type TypeConflictReason, type TypeConflictResolution } from '../lib/cardExport'
   import { showToast } from '../lib/toast.svelte'
   import ImportConfirmSheet from '../components/ImportConfirmSheet.svelte'
   import CategoryTypesSheet from '../components/CategoryTypesSheet.svelte'
@@ -509,6 +509,7 @@
     cardType: string
     categoryName: string
     acceptedTypes: string[]
+    reason: TypeConflictReason
     resolve: (resolution: TypeConflictResolution | null) => void
   } | null>(null)
 
@@ -530,9 +531,9 @@
       const text = await file.text()
       const result = await importCardFromJson(text, target.id, {
         categoryName: target.name,
-        resolveTypeConflict: (cardType, catName, acceptedTypes) =>
+        resolveTypeConflict: (cardType, catName, acceptedTypes, reason) =>
           new Promise((resolve) => {
-            importConflict = { cardType, categoryName: catName, acceptedTypes, resolve }
+            importConflict = { cardType, categoryName: catName, acceptedTypes, reason, resolve }
           }),
       })
       if (result === null) return // user cancelled the type-conflict sheet — nothing created
@@ -1038,6 +1039,7 @@
     cardType={importConflict.cardType}
     categoryName={importConflict.categoryName}
     acceptedTypes={importConflict.acceptedTypes}
+    reason={importConflict.reason}
     onResolve={(resolution) => {
       importConflict?.resolve(resolution)
       importConflict = null

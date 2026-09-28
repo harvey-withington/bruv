@@ -139,6 +139,7 @@
         await UpdateBuiltinCardType(
           editingType.id,
           saved.color,
+          saved.icon ?? '',
           resolvedTemplateId,
         )
       } else if (editingType) {
@@ -163,7 +164,7 @@
 
       // Icon isn't part of Create/UpdateUserCardType — persist it separately via
       // the dedicated RPC (mirrors CreateCardTypeFromCard's backend flow). Builtin
-      // types don't support icon overrides, so skip those.
+      // types carry their icon in UpdateBuiltinCardType's override instead.
       if (!editingType?.builtin) {
         const previousIcon = editingType?.icon ?? ''
         const nextIcon = saved.icon ?? ''

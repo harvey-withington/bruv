@@ -88,7 +88,9 @@ Agents can only use tools you've explicitly enabled for each card. The full tool
 | `notify` | Sends you a desktop / in-app notification | Local |
 | `update_self` | Updates blocks on the card it's attached to | Local, scoped to one card |
 | `read_card` | Reads another card's content | Local, scoped to the current project |
-| `create_card` | Creates a new card | Local, scoped to the current project |
+| `create_card` | Creates a new card, optionally filed into a category (missing levels are created) | Local, whole board |
+| `search_cards` | Full-text searches cards | Local, whole board |
+| `list_cards` | Lists the cards on a project board | Local, whole board |
 
 **Agents cannot:**
 

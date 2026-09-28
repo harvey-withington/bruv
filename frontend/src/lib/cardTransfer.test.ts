@@ -15,8 +15,11 @@ import type { Card } from '@shared/types'
 
 type Call = { method: string; args: unknown[] }
 
+const KNOWN_TYPES = ['brainstorm', 'task', 'reference', 'agent', 'feature', 'episode']
+
 function makeApi(overrides: {
   acceptedTypes?: string[] | null
+  knownTypes?: string[]
   pinFails?: boolean
 } = {}): { api: CardTransferApi; calls: Call[] } {
   const calls: Call[] = []
@@ -39,6 +42,9 @@ function makeApi(overrides: {
       rec('getCategoryAcceptedTypes', categoryId)
       return overrides.acceptedTypes ?? null
     },
+    // Read-only lookup, deliberately not recorded: the ordering
+    // assertions below cover mutations and the category pre-flight.
+    listCardTypeIds: async () => overrides.knownTypes ?? KNOWN_TYPES,
     updateCardType: async (cardId, cardType) => { rec('updateCardType', cardId, cardType) },
     updateCardDescription: async (cardId, description) => { rec('updateCardDescription', cardId, description) },
     updateCardBlocks: async (cardId, blocks) => { rec('updateCardBlocks', cardId, blocks) },
@@ -162,12 +168,12 @@ describe('importCardFromJson — type conflict', () => {
     await importCardFromJson(api, conflictEnvelope, 'cat-1', {
       fallbackTitle: 'F',
       categoryName: 'Backlog',
-      resolveTypeConflict: async (cardType, categoryName, acceptedTypes) => {
-        seen = [cardType, categoryName, acceptedTypes]
+      resolveTypeConflict: async (cardType, categoryName, acceptedTypes, reason) => {
+        seen = [cardType, categoryName, acceptedTypes, reason]
         return null
       },
     })
-    expect(seen).toEqual(['episode', 'Backlog', ['task', 'feature']])
+    expect(seen).toEqual(['episode', 'Backlog', ['task', 'feature'], 'not_accepted'])
   })
 
   it('cancel creates NOTHING and resolves null', async () => {
@@ -213,6 +219,52 @@ describe('importCardFromJson — type conflict', () => {
     })
     expect(methods(calls)).not.toContain('updateCardType')
     expect(methods(calls)).toContain('updateCardBlocks')
+  })
+})
+
+describe('importCardFromJson — type missing from this repo', () => {
+  it('prompts with every existing type in an unrestricted category', async () => {
+    const { api, calls } = makeApi({ acceptedTypes: null, knownTypes: ['brainstorm', 'task'] })
+    let seen: unknown[] = []
+    const result = await importCardFromJson(api, envelope({ type: 'idea' }), 'cat-1', {
+      fallbackTitle: 'F',
+      resolveTypeConflict: async (cardType, _cat, acceptedTypes, reason) => {
+        seen = [cardType, acceptedTypes, reason]
+        return null
+      },
+    })
+    expect(seen).toEqual(['idea', ['brainstorm', 'task'], 'unknown'])
+    expect(result).toBeNull()
+    expect(methods(calls)).not.toContain('createCard')
+  })
+
+  it('offers only accepted types that exist in a restricted category', async () => {
+    const { api } = makeApi({ acceptedTypes: ['task', 'ghost'], knownTypes: ['brainstorm', 'task'] })
+    let offered: string[] = []
+    await importCardFromJson(api, envelope({ type: 'idea' }), 'cat-1', {
+      fallbackTitle: 'F',
+      resolveTypeConflict: async (_t, _c, acceptedTypes) => { offered = acceptedTypes; return null },
+    })
+    expect(offered).toEqual(['task'])
+  })
+
+  it('never creates or retypes the card with the unknown type', async () => {
+    const { api, calls } = makeApi({ knownTypes: ['brainstorm'] })
+    await importCardFromJson(api, envelope({ type: 'idea' }), 'cat-1', {
+      fallbackTitle: 'F',
+      resolveTypeConflict: async () => ({ type: '', merge: false }),
+    })
+    const typesUsed = calls
+      .filter(c => c.method === 'createCard' || c.method === 'updateCardType')
+      .map(c => (c.method === 'createCard' ? c.args[0] : c.args[1]))
+    expect(typesUsed).not.toContain('idea')
+  })
+
+  it('aborts with nothing created when the surface has no conflict handler', async () => {
+    const { api, calls } = makeApi({ knownTypes: ['brainstorm'] })
+    const result = await importCardFromJson(api, envelope({ type: 'idea' }), 'cat-1', { fallbackTitle: 'F' })
+    expect(result).toBeNull()
+    expect(methods(calls)).not.toContain('createCard')
   })
 })
 

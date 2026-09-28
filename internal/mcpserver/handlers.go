@@ -37,7 +37,7 @@ func hListStreams(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	if brand == "" {
 		return errResult("brand is required")
 	}
-	brandSlug, _, ok := resolveBrandSlug(rt, brand)
+	brandSlug, _, ok := cardtools.FindBrand(rt.Project, brand)
 	if !ok {
 		return errResult("brand %q not found", brand)
 	}
@@ -53,11 +53,11 @@ func hListProjects(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	if brand == "" || stream == "" {
 		return errResult("brand and stream are required")
 	}
-	brandSlug, _, ok := resolveBrandSlug(rt, brand)
+	brandSlug, _, ok := cardtools.FindBrand(rt.Project, brand)
 	if !ok {
 		return errResult("brand %q not found", brand)
 	}
-	streamSlug, _, ok := resolveStreamSlug(rt, brandSlug, stream)
+	streamSlug, _, ok := cardtools.FindStream(rt.Project, brandSlug, stream)
 	if !ok {
 		return errResult("stream %q not found", stream)
 	}
@@ -73,15 +73,15 @@ func hListCategories(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	if brand == "" || stream == "" || project == "" {
 		return errResult("brand, stream and project are required")
 	}
-	brandSlug, _, ok := resolveBrandSlug(rt, brand)
+	brandSlug, _, ok := cardtools.FindBrand(rt.Project, brand)
 	if !ok {
 		return errResult("brand %q not found", brand)
 	}
-	streamSlug, _, ok := resolveStreamSlug(rt, brandSlug, stream)
+	streamSlug, _, ok := cardtools.FindStream(rt.Project, brandSlug, stream)
 	if !ok {
 		return errResult("stream %q not found", stream)
 	}
-	projectSlug, _, ok := resolveProjectSlug(rt, brandSlug, streamSlug, project)
+	projectSlug, _, ok := cardtools.FindProject(rt.Project, brandSlug, streamSlug, project)
 	if !ok {
 		return errResult("project %q not found", project)
 	}
@@ -148,7 +148,7 @@ func hCreateStream(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	if brand == "" || name == "" {
 		return errResult("brand and name are required")
 	}
-	brandSlug, _, err := ensureBrand(rt, brand)
+	brandSlug, _, err := cardtools.EnsureBrand(rt.Project, brand)
 	if err != nil {
 		return errResult("%v", err)
 	}
@@ -169,11 +169,11 @@ func hCreateProject(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	if brand == "" || stream == "" || name == "" {
 		return errResult("brand, stream and name are required")
 	}
-	brandSlug, _, err := ensureBrand(rt, brand)
+	brandSlug, _, err := cardtools.EnsureBrand(rt.Project, brand)
 	if err != nil {
 		return errResult("%v", err)
 	}
-	streamSlug, _, err := ensureStream(rt, brandSlug, stream)
+	streamSlug, _, err := cardtools.EnsureStream(rt.Project, brandSlug, stream)
 	if err != nil {
 		return errResult("%v", err)
 	}
@@ -194,15 +194,15 @@ func hCreateCategory(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	if brand == "" || stream == "" || project == "" || name == "" {
 		return errResult("brand, stream, project and name are required")
 	}
-	brandSlug, _, err := ensureBrand(rt, brand)
+	brandSlug, _, err := cardtools.EnsureBrand(rt.Project, brand)
 	if err != nil {
 		return errResult("%v", err)
 	}
-	streamSlug, _, err := ensureStream(rt, brandSlug, stream)
+	streamSlug, _, err := cardtools.EnsureStream(rt.Project, brandSlug, stream)
 	if err != nil {
 		return errResult("%v", err)
 	}
-	projectSlug, _, err := ensureProject(rt, brandSlug, streamSlug, project)
+	projectSlug, _, err := cardtools.EnsureProject(rt.Project, brandSlug, streamSlug, project)
 	if err != nil {
 		return errResult("%v", err)
 	}
@@ -216,69 +216,21 @@ func hCreateCategory(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 }
 
 func hCreateCard(rt *supervisor.Runtime, a map[string]any) (string, bool) {
-	title := argStr(a, "title")
-	if title == "" {
-		return errResult("title is required")
-	}
-	cardType := argStr(a, "card_type")
-	if cardType == "" {
-		cardType = "idea"
-	}
-	// CreateCard seeds the type's schema blocks automatically.
-	card, err := rt.CreateCard(cardType, title)
+	spec, err := cardtools.ParseCardSpec(a)
 	if err != nil {
 		return errResult("%v", err)
 	}
-	cardID := card.ID
-
-	// File into the hierarchy if requested — all-or-nothing so we never
-	// half-resolve a location.
-	brand, stream := argStr(a, "brand"), argStr(a, "stream")
-	project, category := argStr(a, "project"), argStr(a, "category")
-	anyHierarchy := brand != "" || stream != "" || project != "" || category != ""
-	pinnedTo := ""
-	if anyHierarchy {
-		if brand == "" || stream == "" || project == "" || category == "" {
-			return errResult("to file the card, provide all of brand, stream, project and category (or none to leave it in the inbox)")
-		}
-		catID, breadcrumb, err := resolveOrCreateHierarchy(rt, brand, stream, project, category)
-		if err != nil {
-			return errResult("%v", err)
-		}
-		if err := rt.PinCard(cardID, catID); err != nil {
-			return errResult("pin card: %v", err)
-		}
-		pinnedTo = breadcrumb
+	created, err := cardtools.CreateCard(rt.Card, rt.Project, rt.Catalog, spec)
+	if err != nil {
+		return errResult("%v", err)
 	}
-
-	if tags := argStrSlice(a, "tags"); len(tags) > 0 {
-		if _, err := rt.UpdateCardTags(cardID, tags); err != nil {
-			return errResult("set tags: %v", err)
-		}
+	pinnedTo := created.PinnedTo
+	if pinnedTo == "" {
+		pinnedTo = "inbox (unfiled)"
 	}
-	if desc := argStr(a, "description"); desc != "" {
-		if _, err := rt.UpdateCardDescription(cardID, desc); err != nil {
-			return errResult("set description: %v", err)
-		}
-	}
-	if blocks := parseBlocks(a["blocks"]); len(blocks) > 0 {
-		current, err := rt.GetCard(cardID)
-		if err != nil {
-			return errResult("reload card: %v", err)
-		}
-		current.Blocks = append(current.Blocks, blocks...)
-		if _, err := rt.UpdateCardBlocks(cardID, current.Blocks); err != nil {
-			return errResult("add blocks: %v", err)
-		}
-	}
-
-	out := map[string]any{"card_id": cardID, "title": title, "type": card.Type}
-	if pinnedTo != "" {
-		out["pinned_to"] = pinnedTo
-	} else {
-		out["pinned_to"] = "inbox (unfiled)"
-	}
-	return jsonResult(out)
+	return jsonResult(map[string]any{
+		"card_id": created.Card.ID, "title": created.Card.Title, "type": created.Card.Type, "pinned_to": pinnedTo,
+	})
 }
 
 // --- Populate existing cards ---
@@ -288,7 +240,7 @@ func hAddCardBlocks(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	if cardID == "" {
 		return errResult("card_id is required")
 	}
-	blocks := parseBlocks(a["blocks"])
+	blocks := cardtools.ParseBlocks(a["blocks"])
 	if len(blocks) == 0 {
 		return errResult("blocks is required and must be a non-empty array")
 	}
@@ -379,106 +331,3 @@ func hAddCardTags(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	return jsonResult(map[string]any{"card_id": cardID, "tags_added": added, "tags": merged})
 }
 
-// --- hierarchy resolution ---
-
-func resolveBrandSlug(rt *supervisor.Runtime, nameOrSlug string) (slug, name string, ok bool) {
-	brands, _ := rt.ListBrands()
-	for _, b := range brands {
-		if strings.EqualFold(b.Name, nameOrSlug) || strings.EqualFold(b.Slug, nameOrSlug) {
-			return b.Slug, b.Name, true
-		}
-	}
-	return "", "", false
-}
-
-func resolveStreamSlug(rt *supervisor.Runtime, brandSlug, nameOrSlug string) (slug, name string, ok bool) {
-	streams, _ := rt.ListStreams(brandSlug)
-	for _, s := range streams {
-		if strings.EqualFold(s.Name, nameOrSlug) || strings.EqualFold(s.Slug, nameOrSlug) {
-			return s.Slug, s.Name, true
-		}
-	}
-	return "", "", false
-}
-
-func resolveProjectSlug(rt *supervisor.Runtime, brandSlug, streamSlug, nameOrSlug string) (slug, name string, ok bool) {
-	projects, _ := rt.ListProjects(brandSlug, streamSlug)
-	for _, p := range projects {
-		if strings.EqualFold(p.Name, nameOrSlug) || strings.EqualFold(p.Slug, nameOrSlug) {
-			return p.Slug, p.Name, true
-		}
-	}
-	return "", "", false
-}
-
-func ensureBrand(rt *supervisor.Runtime, nameOrSlug string) (slug, name string, err error) {
-	if s, n, ok := resolveBrandSlug(rt, nameOrSlug); ok {
-		return s, n, nil
-	}
-	b, err := rt.CreateBrand(nameOrSlug)
-	if err != nil {
-		return "", "", fmt.Errorf("create brand %q: %w", nameOrSlug, err)
-	}
-	return b.Slug, b.Name, nil
-}
-
-func ensureStream(rt *supervisor.Runtime, brandSlug, nameOrSlug string) (slug, name string, err error) {
-	if s, n, ok := resolveStreamSlug(rt, brandSlug, nameOrSlug); ok {
-		return s, n, nil
-	}
-	s, err := rt.CreateStream(brandSlug, nameOrSlug)
-	if err != nil {
-		return "", "", fmt.Errorf("create stream %q: %w", nameOrSlug, err)
-	}
-	return s.Slug, s.Name, nil
-}
-
-func ensureProject(rt *supervisor.Runtime, brandSlug, streamSlug, nameOrSlug string) (slug, name string, err error) {
-	if s, n, ok := resolveProjectSlug(rt, brandSlug, streamSlug, nameOrSlug); ok {
-		return s, n, nil
-	}
-	p, err := rt.CreateProject(brandSlug, streamSlug, nameOrSlug)
-	if err != nil {
-		return "", "", fmt.Errorf("create project %q: %w", nameOrSlug, err)
-	}
-	return p.Slug, p.Name, nil
-}
-
-// resolveOrCreateHierarchy walks Brand → Stream → Project → Category,
-// creating any level that doesn't already exist, and returns the leaf
-// category id plus a human-readable breadcrumb.
-func resolveOrCreateHierarchy(rt *supervisor.Runtime, brand, stream, project, category string) (catID, breadcrumb string, err error) {
-	brandSlug, brandName, err := ensureBrand(rt, brand)
-	if err != nil {
-		return "", "", err
-	}
-	streamSlug, streamName, err := ensureStream(rt, brandSlug, stream)
-	if err != nil {
-		return "", "", err
-	}
-	projectSlug, projectName, err := ensureProject(rt, brandSlug, streamSlug, project)
-	if err != nil {
-		return "", "", err
-	}
-
-	cats, _ := rt.ListCategories(brandSlug, streamSlug, projectSlug)
-	categoryName := category
-	for _, c := range cats {
-		if strings.EqualFold(c.Name, category) || strings.EqualFold(c.Slug, category) {
-			catID = c.ID
-			categoryName = c.Name
-			break
-		}
-	}
-	if catID == "" {
-		c, err := rt.CreateCategory(brandSlug, streamSlug, projectSlug, category, len(cats))
-		if err != nil {
-			return "", "", fmt.Errorf("create category %q: %w", category, err)
-		}
-		catID = c.ID
-		categoryName = c.Name
-	}
-
-	breadcrumb = strings.Join([]string{brandName, streamName, projectName, categoryName}, " / ")
-	return catID, breadcrumb, nil
-}

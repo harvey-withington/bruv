@@ -181,6 +181,7 @@
   "card.importing": "Importing card…",
   "card.import_confirm_title": "Import Card",
   "card.import_confirm_msg": "{category} doesn't accept '{type}' cards. Import it as one of the accepted types instead:",
+  "card.import_unknown_type_msg": "This board has no '{type}' card type. Import it as one of your existing types instead:",
   "card.import_confirm_pick": "Import as type",
   "card.import_merge_q": "Merge {type}'s template blocks into the imported card, or keep the imported blocks exactly?",
   "card.import_merge_keep": "Keep the imported blocks exactly",

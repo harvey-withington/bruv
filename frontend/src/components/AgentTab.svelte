@@ -1,5 +1,6 @@
 <script lang="ts">
   import { GetAgentConfig, SaveAgentConfig, TriggerAgent, CancelAgent, DeleteAgent, GetAgentRuns, IsLLMConfigured, ListAgentCardStates, GetLLMAccounts, ListMCPServers, ValidateSchedulePreview } from '@shared/api'
+  import { isoToLocalInput, localInputToIso } from '@shared/dateTimeInput'
   import type { MCPServerView } from '@shared/types'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
@@ -81,6 +82,8 @@
       tools: [
         { id: 'update_self', labelKey: 'agent.tool_update_self', descKey: 'agent.tool_update_self_desc' },
         { id: 'read_card', labelKey: 'agent.tool_read_card', descKey: 'agent.tool_read_card_desc' },
+        { id: 'search_cards', labelKey: 'agent.tool_search_cards', descKey: 'agent.tool_search_cards_desc' },
+        { id: 'list_cards', labelKey: 'agent.tool_list_cards', descKey: 'agent.tool_list_cards_desc' },
         { id: 'create_card', labelKey: 'agent.tool_create_card', descKey: 'agent.tool_create_card_desc' },
       ],
     },
@@ -132,12 +135,6 @@
   let schedulePreviewSeq = 0
   let schedulePreviewTimer: ReturnType<typeof setTimeout> | undefined
 
-  function toRFC3339(localDateTime: string): string {
-    if (!localDateTime) return ''
-    const d = new Date(localDateTime)
-    return isNaN(d.getTime()) ? '' : d.toISOString()
-  }
-
   function updateSchedulePreview() {
     clearTimeout(schedulePreviewTimer)
     const sched = schedule.trim()
@@ -149,7 +146,7 @@
     schedulePreviewTimer = setTimeout(async () => {
       const seq = ++schedulePreviewSeq
       try {
-        const runs = await ValidateSchedulePreview(sched, toRFC3339(startDate), toRFC3339(endDate), timezone, 3)
+        const runs = await ValidateSchedulePreview(sched, localInputToIso(startDate) ?? '', localInputToIso(endDate) ?? '', timezone, 3)
         if (seq !== schedulePreviewSeq) return // stale — schedule changed again while this was in flight
         schedulePreviewRuns = runs || []
         // An empty result with no error means the backend couldn't parse
@@ -195,8 +192,8 @@
       retryBackoffMins = af.config.retry_backoff_minutes || 0
       costBudgetUSD = af.config.cost_budget_usd || 0
       costSpentUSD = af.config.cost_spent_usd || 0
-      startDate = af.config.start_date || ''
-      endDate = af.config.end_date || ''
+      startDate = isoToLocalInput(af.config.start_date)
+      endDate = isoToLocalInput(af.config.end_date)
       activeWindowStart = af.config.active_window_start || ''
       activeWindowEnd = af.config.active_window_end || ''
       oneShot = af.config.one_shot || false
@@ -273,8 +270,8 @@
         retry_backoff_minutes: retryBackoffMins,
         cost_budget_usd: costBudgetUSD,
         cost_spent_usd: costSpentUSD,
-        start_date: startDate || null,
-        end_date: endDate || null,
+        start_date: localInputToIso(startDate),
+        end_date: localInputToIso(endDate),
         active_window_start: activeWindowStart,
         active_window_end: activeWindowEnd,
         one_shot: oneShot,

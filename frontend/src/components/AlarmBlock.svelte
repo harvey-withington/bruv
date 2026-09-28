@@ -2,6 +2,7 @@
   import { t } from '../lib/i18n.svelte'
   import { Bell, BellOff, BellRing, RotateCcw } from 'lucide-svelte'
   import type { BlockMeta } from '@shared/types'
+  import { isoToLocalInput, localInputToIso } from '@shared/dateTimeInput'
 
   let {
     value,
@@ -26,7 +27,8 @@
     const target = e.target as HTMLInputElement
     const dt = target.value
     if (!dt) return
-    const iso = new Date(dt).toISOString()
+    const iso = localInputToIso(dt)
+    if (!iso) return
     const channels = buildChannels()
     onUpdate(dt, { ...meta, alarm_time: iso, alarm_fired: false, alarm_channels: channels })
   }
@@ -77,7 +79,7 @@
     <input
       type="datetime-local"
       class="alarm-datetime"
-      value={alarmTime ? new Date(alarmTime).toISOString().slice(0, 16) : ''}
+      value={isoToLocalInput(alarmTime)}
       onchange={setAlarm}
     />
   </div>

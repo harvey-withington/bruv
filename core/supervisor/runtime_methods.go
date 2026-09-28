@@ -290,8 +290,8 @@ func (r *Runtime) UpdateUserCardTypeIcon(id, icon string) (config.UserCardType, 
 
 func (r *Runtime) DeleteUserCardType(id string) error { return r.Catalog.DeleteUserCardType(id) }
 
-func (r *Runtime) UpdateBuiltinCardType(id, color, templateID string) error {
-	return r.Catalog.UpdateBuiltinCardType(id, color, templateID)
+func (r *Runtime) UpdateBuiltinCardType(id, color, icon, templateID string) error {
+	return r.Catalog.UpdateBuiltinCardType(id, color, icon, templateID)
 }
 
 func (r *Runtime) ListCardTemplates() ([]config.CardTemplate, error) {

@@ -9,11 +9,11 @@ package mcpserver
 import (
 	"encoding/base64"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	cardtools "bruv/core/runtime/tools"
 	"bruv/core/supervisor"
 	"bruv/internal/mcp"
 	"bruv/internal/model"
@@ -60,15 +60,28 @@ func hSetCardDescription(rt *supervisor.Runtime, a map[string]any) (string, bool
 }
 
 func hSetCardType(rt *supervisor.Runtime, a map[string]any) (string, bool) {
-	cardID, cardType := argStr(a, "card_id"), strings.TrimSpace(argStr(a, "card_type"))
-	if cardID == "" || cardType == "" {
+	cardID, input := argStr(a, "card_id"), argStr(a, "card_type")
+	if cardID == "" || input == "" {
 		return errResult("card_id and card_type are required")
+	}
+	cardType, ok := rt.Catalog.FindCardType(input)
+	if !ok {
+		return errResult("unknown card type %q; use one of: %s", input, strings.Join(cardTypeIDs(rt), ", "))
 	}
 	card, err := rt.UpdateCardType(cardID, cardType)
 	if err != nil {
 		return errResult("%v", err)
 	}
 	return jsonResult(map[string]any{"card_id": card.ID, "type": card.Type})
+}
+
+func cardTypeIDs(rt *supervisor.Runtime) []string {
+	types := rt.ListCardTypes()
+	ids := make([]string, len(types))
+	for i, t := range types {
+		ids[i] = t.ID
+	}
+	return ids
 }
 
 func hSetCardDueDate(rt *supervisor.Runtime, a map[string]any) (string, bool) {
@@ -176,7 +189,7 @@ func hPinCard(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	if _, err := rt.GetCard(cardID); err != nil {
 		return errResult("%v", err)
 	}
-	catID, breadcrumb, err := resolveOrCreateHierarchy(rt, brand, stream, project, category)
+	catID, breadcrumb, err := cardtools.ResolveOrCreateCategory(rt.Project, cardtools.Location{Brand: brand, Stream: stream, Project: project, Category: category})
 	if err != nil {
 		return errResult("%v", err)
 	}
@@ -205,84 +218,12 @@ func hUnpinCard(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 
 // --- Browsing ---
 
-// cardSummary is the compact per-card shape list_cards returns: enough to
-// pick a card without paying for its blocks. Fetch details with get_card.
-type cardSummary struct {
-	CardID   string     `json:"card_id"`
-	Title    string     `json:"title"`
-	Type     string     `json:"type"`
-	Position int        `json:"position"`
-	DueDate  *time.Time `json:"due_date,omitempty"`
-	Tags     []string   `json:"tags,omitempty"`
-}
-
-type categoryCards struct {
-	Category   string        `json:"category"`
-	CategoryID string        `json:"category_id"`
-	Cards      []cardSummary `json:"cards"`
-}
-
 func hListCards(rt *supervisor.Runtime, a map[string]any) (string, bool) {
-	brand, stream, project := argStr(a, "brand"), argStr(a, "stream"), argStr(a, "project")
-	if brand == "" || stream == "" || project == "" {
-		return errResult("brand, stream and project are required (category is optional)")
-	}
-	brandSlug, _, ok := resolveBrandSlug(rt, brand)
-	if !ok {
-		return errResult("brand %q not found", brand)
-	}
-	streamSlug, _, ok := resolveStreamSlug(rt, brandSlug, stream)
-	if !ok {
-		return errResult("stream %q not found", stream)
-	}
-	projectSlug, _, ok := resolveProjectSlug(rt, brandSlug, streamSlug, project)
-	if !ok {
-		return errResult("project %q not found", project)
-	}
-	cats, err := rt.ListCategories(brandSlug, streamSlug, projectSlug)
+	board, err := cardtools.ListBoard(rt.Repo(), rt.Project, cardtools.LocationArgs(a))
 	if err != nil {
 		return errResult("%v", err)
 	}
-	onlyCategory := argStr(a, "category")
-	out := []categoryCards{}
-	for _, cat := range cats {
-		if onlyCategory != "" && !strings.EqualFold(cat.Name, onlyCategory) && !strings.EqualFold(cat.Slug, onlyCategory) {
-			continue
-		}
-		pins, err := rt.ListCategoryCards(cat.ID)
-		if err != nil {
-			return errResult("list category %q: %v", cat.Name, err)
-		}
-		// The store orders by Position only, and Position is per-card (the
-		// index within that card's own pin file), so cards pinned fresh
-		// into the same category all tie at 0 and fall back to directory
-		// order. Break ties by pin time, then id, so repeated calls agree.
-		sort.SliceStable(pins, func(i, j int) bool {
-			if pins[i].Position != pins[j].Position {
-				return pins[i].Position < pins[j].Position
-			}
-			if !pins[i].PinnedAt.Equal(pins[j].PinnedAt) {
-				return pins[i].PinnedAt.Before(pins[j].PinnedAt)
-			}
-			return pins[i].CardID < pins[j].CardID
-		})
-		entry := categoryCards{Category: cat.Name, CategoryID: cat.ID, Cards: []cardSummary{}}
-		for _, p := range pins {
-			card, err := rt.GetCard(p.CardID)
-			if err != nil {
-				continue // a dangling pin shouldn't sink the whole listing
-			}
-			entry.Cards = append(entry.Cards, cardSummary{
-				CardID: card.ID, Title: card.Title, Type: card.Type,
-				Position: p.Position, DueDate: card.DueDate, Tags: card.Tags,
-			})
-		}
-		out = append(out, entry)
-	}
-	if onlyCategory != "" && len(out) == 0 {
-		return errResult("category %q not found in that project", onlyCategory)
-	}
-	return jsonResult(out)
+	return jsonResult(board)
 }
 
 func hRecentCards(rt *supervisor.Runtime, a map[string]any) (string, bool) {
@@ -298,18 +239,18 @@ func hRecentCards(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 }
 
 // resolveExistingCategory walks Brand → Stream → Project → Category
-// WITHOUT creating anything — the counterpart to resolveOrCreateHierarchy
+// WITHOUT creating anything — the counterpart to ResolveOrCreateCategory
 // for tools where a typo must fail rather than spawn a new column.
 func resolveExistingCategory(rt *supervisor.Runtime, brand, stream, project, category string) (*model.Category, string, error) {
-	brandSlug, brandName, ok := resolveBrandSlug(rt, brand)
+	brandSlug, brandName, ok := cardtools.FindBrand(rt.Project, brand)
 	if !ok {
 		return nil, "", fmt.Errorf("brand %q not found", brand)
 	}
-	streamSlug, streamName, ok := resolveStreamSlug(rt, brandSlug, stream)
+	streamSlug, streamName, ok := cardtools.FindStream(rt.Project, brandSlug, stream)
 	if !ok {
 		return nil, "", fmt.Errorf("stream %q not found", stream)
 	}
-	projectSlug, projectName, ok := resolveProjectSlug(rt, brandSlug, streamSlug, project)
+	projectSlug, projectName, ok := cardtools.FindProject(rt.Project, brandSlug, streamSlug, project)
 	if !ok {
 		return nil, "", fmt.Errorf("project %q not found", project)
 	}

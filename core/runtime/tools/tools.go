@@ -27,6 +27,8 @@ package tools
 // prompt tuning don't collide in the same 7k-line file.
 
 import (
+	"bruv/core/services/agentsvc"
+	"bruv/core/services/catalog"
 	"bruv/internal/agent"
 	"bruv/internal/config"
 	"bruv/internal/llm"
@@ -648,14 +650,11 @@ func (d *Dispatcher) resolveCardType(input string) (id string, created bool, err
 	if name == "" {
 		return "", false, nil
 	}
-	lower := strings.ToLower(name)
-	for _, t := range d.deps.Catalog().ListCardTypes() {
-		if strings.ToLower(t.ID) == lower || strings.ToLower(t.Label) == lower {
-			return t.ID, false, nil
-		}
+	if id, ok := d.deps.Catalog().FindCardType(name); ok {
+		return id, false, nil
 	}
 	h := fnv.New32a()
-	h.Write([]byte(lower))
+	h.Write([]byte(strings.ToLower(name)))
 	color := aiTypePalette[int(h.Sum32())%len(aiTypePalette)]
 	t, err := d.deps.Catalog().CreateUserCardType(name, color, "", "", "")
 	if err != nil {
@@ -944,99 +943,28 @@ func (d *Dispatcher) toolSuggestPin(cardID string, card *model.Card, tc llm.Tool
 }
 
 func (d *Dispatcher) toolConfigureAgent(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath) (string, *model.ToolAction, *model.PinSuggestion) {
-	enabled, _ := tc.Arguments["enabled"].(bool)
-	goal, _ := tc.Arguments["goal"].(string)
-	schedule, _ := tc.Arguments["schedule"].(string)
+	result, action := d.configureAgent(cardID, tc)
+	return result, action, nil
+}
 
-	var allowedTools []string
-	if tools, ok := tc.Arguments["allowed_tools"].([]any); ok {
-		for _, t := range tools {
-			if s, ok := t.(string); ok {
-				allowedTools = append(allowedTools, s)
-			}
-		}
-	}
-
-	var notifyOn []string
-	if triggers, ok := tc.Arguments["notify_on"].([]any); ok {
-		for _, t := range triggers {
-			if s, ok := t.(string); ok {
-				notifyOn = append(notifyOn, s)
-			}
-		}
-	}
-	notifyChannel, _ := tc.Arguments["notify_channel"].(string)
-
-	af, err := d.deps.Repo().GetAgentConfig(cardID)
+// configureAgent is the shared body of the card- and project-chat
+// configure_agent tools. agentsvc.Patch validates, schedules the next
+// run, updates the index and publishes card:updated so an open Agent
+// tab re-fetches.
+func (d *Dispatcher) configureAgent(cardID string, tc llm.ToolCall) (string, *model.ToolAction) {
+	patch, err := agentsvc.PatchFromArgs(tc.Arguments)
 	if err != nil {
-		return "error: " + err.Error(), nil, nil
+		return "error: " + err.Error(), nil
 	}
-
-	af.Config.Enabled = enabled
-	if goal != "" {
-		af.Config.Goal = goal
+	if patch.IsEmpty() {
+		return "No changes applied", nil
 	}
-	if schedule != "" {
-		af.Config.Schedule = schedule
+	cfg, err := d.deps.Agent().Patch(cardID, patch)
+	if err != nil {
+		return "error: " + err.Error(), nil
 	}
-	if len(allowedTools) > 0 {
-		af.Config.AllowedTools = allowedTools
-	}
-	if len(notifyOn) > 0 {
-		af.Config.NotifyOn = notifyOn
-	}
-	if notifyChannel != "" {
-		af.Config.NotifyChannel = notifyChannel
-	}
-
-	// Handle dynamic rescheduling: next_run_at and new_schedule
-	if nextRunAtStr, ok := tc.Arguments["next_run_at"].(string); ok && nextRunAtStr != "" {
-		if t, err := time.Parse(time.RFC3339, nextRunAtStr); err == nil {
-			af.Config.NextRunAt = &t
-		}
-	}
-	if newSchedule, ok := tc.Arguments["new_schedule"].(string); ok && newSchedule != "" {
-		af.Config.Schedule = newSchedule
-		schedule = newSchedule
-	}
-
-	// Set status and calculate next run
-	if enabled {
-		af.Config.Status = model.AgentStatusIdle
-		if af.Config.NextRunAt == nil && af.Config.Schedule != "" {
-			now := time.Now()
-			opts := agent.ScheduleOpts{
-				StartDate:         af.Config.StartDate,
-				EndDate:           af.Config.EndDate,
-				ActiveWindowStart: af.Config.ActiveWindowStart,
-				ActiveWindowEnd:   af.Config.ActiveWindowEnd,
-				OneShot:           af.Config.OneShot,
-				LastRunAt:         af.Config.LastRunAt,
-				Timezone:          af.Config.Timezone,
-			}
-			if next, err := agent.NextRunTimeWithOpts(af.Config.Schedule, now, opts); err == nil {
-				af.Config.NextRunAt = &next
-			}
-		}
-	} else {
-		af.Config.Status = model.AgentStatusDisabled
-	}
-
-	if err := d.deps.Repo().SaveAgentConfig(cardID, af.Config); err != nil {
-		return "error: " + err.Error(), nil, nil
-	}
-
-	// Notify any open CardDetail so the Agent tab re-fetches and
-	// shows the updated goal / schedule / tools immediately. Without
-	// this, the user sees the chat say "I updated the goal" but the
-	// Agent tab still shows the old value until they close + reopen
-	// the card — which is exactly the bug Harvey reported on
-	// 2026-04-12.
-	d.emitCardUpdated(cardID)
-
-	summary := fmt.Sprintf("Agent %s — schedule: %s, tools: %s", map[bool]string{true: "enabled", false: "disabled"}[enabled], schedule, strings.Join(allowedTools, ", "))
-	action := &model.ToolAction{Tool: "configure_agent", Input: tc.Arguments, Result: summary}
-	return summary, action, nil
+	summary := agentsvc.Summary(*cfg)
+	return summary, &model.ToolAction{Tool: "configure_agent", Input: tc.Arguments, Result: summary}
 }
 
 func (d *Dispatcher) toolWebFetch(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath) (string, *model.ToolAction, *model.PinSuggestion) {
@@ -1108,7 +1036,7 @@ func (d *Dispatcher) ExecuteProject(tc llm.ToolCall, scope ProjectChatScope) (st
 		}
 		cardType, _ := tc.Arguments["card_type"].(string)
 		if cardType == "" {
-			cardType = "idea"
+			cardType = catalog.DefaultCardType
 		}
 		// Match by id or label, create when unknown (ruling 2026-08-14).
 		if resolved, _, err := d.resolveCardType(cardType); err == nil && resolved != "" {
@@ -1297,47 +1225,7 @@ func (d *Dispatcher) ExecuteProject(tc llm.ToolCall, scope ProjectChatScope) (st
 		if cardID == "" {
 			return "error: card_id is required", nil
 		}
-		af, err := d.deps.Repo().GetAgentConfig(cardID)
-		if err != nil {
-			return "error: " + err.Error(), nil
-		}
-		var changes []string
-		if v, ok := tc.Arguments["enabled"].(bool); ok {
-			af.Config.Enabled = v
-			changes = append(changes, fmt.Sprintf("enabled=%t", v))
-		}
-		if v, ok := tc.Arguments["schedule"].(string); ok {
-			af.Config.Schedule = v
-			if v == "" {
-				changes = append(changes, "schedule=cleared")
-			} else {
-				changes = append(changes, "schedule="+v)
-			}
-		}
-		if v, ok := tc.Arguments["goal"].(string); ok {
-			af.Config.Goal = v
-			changes = append(changes, "goal")
-		}
-		if raw, ok := tc.Arguments["allowed_tools"].([]any); ok {
-			tools := make([]string, 0, len(raw))
-			for _, t := range raw {
-				if s, ok := t.(string); ok && s != "" {
-					tools = append(tools, s)
-				}
-			}
-			af.Config.AllowedTools = tools
-			changes = append(changes, "allowed_tools")
-		}
-		if len(changes) == 0 {
-			return "No changes applied", nil
-		}
-		if err := d.deps.Repo().SaveAgentConfig(cardID, af.Config); err != nil {
-			return "error: " + err.Error(), nil
-		}
-		d.emitCardUpdated(cardID)
-		result := "Configured agent: " + strings.Join(changes, ", ")
-		action := &model.ToolAction{Tool: "configure_agent", Input: tc.Arguments, Result: result}
-		return result, action
+		return d.configureAgent(cardID, tc)
 
 	// --- Project metadata ---
 	case "update_project":
@@ -2185,7 +2073,7 @@ func (d *Dispatcher) StageProject(tc llm.ToolCall, scope ProjectChatScope) (stri
 		title, _ := tc.Arguments["title"].(string)
 		cardType, _ := tc.Arguments["card_type"].(string)
 		if cardType == "" {
-			cardType = "idea"
+			cardType = catalog.DefaultCardType
 		}
 		label := "Create card: " + title
 		detail := fmt.Sprintf("Type: %s", cardType)

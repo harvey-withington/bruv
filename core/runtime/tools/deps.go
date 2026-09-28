@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bruv/core/services/agentsvc"
 	"bruv/core/services/card"
 	"bruv/core/services/catalog"
 	projectsvc "bruv/core/services/project"
@@ -35,6 +36,7 @@ type Deps interface {
 	Project() *projectsvc.Service
 	Catalog() *catalog.Service
 	Workspace() *workspacesvc.Service
+	Agent() *agentsvc.Service
 }
 
 // Dispatcher is the tool-execution entry point. Construct once with

@@ -7,7 +7,13 @@ import "strings"
 // time by buildAllowedToolsEnum.
 var builtinAgentToolNames = []string{
 	"web_fetch", "web_search", "notify", "update_self",
-	"create_card", "read_card", "http_request",
+	"create_card", "read_card", "search_cards", "list_cards", "http_request",
+}
+
+// BuiltinAgentToolNames returns a copy of the built-in tool names an
+// agent's allowed_tools list may contain.
+func BuiltinAgentToolNames() []string {
+	return append([]string(nil), builtinAgentToolNames...)
 }
 
 // buildAllowedToolsEnum merges the static built-in tool names with any

@@ -91,7 +91,7 @@ func callToolContent(t *testing.T, h *Handler, name string, args map[string]any)
 func TestGetCardAttachment(t *testing.T) {
 	h, sup := newTestHandler(t)
 	rt := sup.Resolve(testRepoID)
-	created, _ := rt.CreateCard("idea", "Spec holder")
+	created, _ := rt.CreateCard("brainstorm", "Spec holder")
 	id := created.ID
 
 	const spec = "# Spec\n\nThe definitive source.\n"
@@ -145,7 +145,7 @@ func TestGetCardAttachment(t *testing.T) {
 func TestSetCardIntrinsics(t *testing.T) {
 	h, sup := newTestHandler(t)
 	rt := sup.Resolve(testRepoID)
-	created, err := rt.CreateCard("idea", "Draft")
+	created, err := rt.CreateCard("brainstorm", "Draft")
 	if err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestSetCardIntrinsics(t *testing.T) {
 func TestAddCardAttachment(t *testing.T) {
 	h, sup := newTestHandler(t)
 	rt := sup.Resolve(testRepoID)
-	created, _ := rt.CreateCard("idea", "With files")
+	created, _ := rt.CreateCard("brainstorm", "With files")
 	id := created.ID
 
 	text := mustCallTool(t, h, "add_card_attachment", map[string]any{
@@ -238,7 +238,7 @@ func TestAddCardAttachment(t *testing.T) {
 func TestCardComments(t *testing.T) {
 	h, sup := newTestHandler(t)
 	rt := sup.Resolve(testRepoID)
-	created, _ := rt.CreateCard("idea", "Discussed")
+	created, _ := rt.CreateCard("brainstorm", "Discussed")
 	id := created.ID
 
 	empty := mustCallTool(t, h, "list_card_comments", map[string]any{"card_id": id})
@@ -268,8 +268,8 @@ func TestCardComments(t *testing.T) {
 func TestPinUnpinAndListCards(t *testing.T) {
 	h, sup := newTestHandler(t)
 	rt := sup.Resolve(testRepoID)
-	a, _ := rt.CreateCard("idea", "Alpha")
-	b, _ := rt.CreateCard("idea", "Beta")
+	a, _ := rt.CreateCard("brainstorm", "Alpha")
+	b, _ := rt.CreateCard("brainstorm", "Beta")
 
 	// pin_card creates the whole hierarchy on first use.
 	text := mustCallTool(t, h, "pin_card", map[string]any{
@@ -347,7 +347,7 @@ func TestPinUnpinAndListCards(t *testing.T) {
 func TestRecentCards(t *testing.T) {
 	h, sup := newTestHandler(t)
 	rt := sup.Resolve(testRepoID)
-	if _, err := rt.CreateCard("idea", "Newest"); err != nil {
+	if _, err := rt.CreateCard("brainstorm", "Newest"); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
 	text := mustCallTool(t, h, "recent_cards", map[string]any{"limit": 5})

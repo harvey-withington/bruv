@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -820,27 +821,71 @@ func (rt *Runtime) executeAgentToolCall(ctx context.Context, cardID string, card
 		return promptfmt.FormatCardContent(targetCard), action
 
 	case "create_card":
-		title, _ := tc.Arguments["title"].(string)
-		cardType, _ := tc.Arguments["card_type"].(string)
-		if title == "" {
-			action.Result = "error: title is required"
-			return action.Result, action
-		}
-		newCard, err := rt.deps.Repo().CreateCard(cardType, title)
+		// Same create path as the MCP server's create_card: the card
+		// service seeds type blocks, logs activity and publishes events.
+		spec, err := tools.ParseCardSpec(tc.Arguments)
 		if err != nil {
 			action.Result = "error: " + err.Error()
 			return action.Result, action
 		}
-		if rt.deps.Index() != nil {
-			rt.idxIncrementalRefresh()
+		created, err := tools.CreateCard(rt.deps.Card(), rt.deps.Project(), rt.deps.Catalog(), spec)
+		if err != nil {
+			action.Result = "error: " + err.Error()
+			return action.Result, action
 		}
-		action.Result = fmt.Sprintf("created card: %s (%s)", newCard.Title, newCard.ID)
-		return fmt.Sprintf("Created card '%s' with ID %s.", newCard.Title, newCard.ID), action
+		where := "the inbox (unfiled)"
+		if created.PinnedTo != "" {
+			where = created.PinnedTo
+		}
+		action.Result = fmt.Sprintf("created card: %s (%s) in %s", created.Card.Title, created.Card.ID, where)
+		return fmt.Sprintf("Created card '%s' with ID %s in %s.", created.Card.Title, created.Card.ID, where), action
+
+	case "search_cards":
+		query, _ := tc.Arguments["query"].(string)
+		if strings.TrimSpace(query) == "" {
+			action.Result = "error: query is required"
+			return action.Result, action
+		}
+		limit := 20
+		if n, ok := tc.Arguments["limit"].(float64); ok && n > 0 {
+			limit = int(n)
+		}
+		idx := rt.deps.Index()
+		if idx == nil {
+			action.Result = "error: search index unavailable"
+			return action.Result, action
+		}
+		results, err := idx.Search(query, limit)
+		if err != nil {
+			action.Result = "error: " + err.Error()
+			return action.Result, action
+		}
+		action.Result = fmt.Sprintf("searched cards: %q (%d results)", query, len(results))
+		return formatJSON(results), action
+
+	case "list_cards":
+		board, err := tools.ListBoard(rt.deps.Repo(), rt.deps.Project(), tools.LocationArgs(tc.Arguments))
+		if err != nil {
+			action.Result = "error: " + err.Error()
+			return action.Result, action
+		}
+		action.Result = "listed board cards"
+		return formatJSON(board), action
 
 	default:
 		action.Result = "unknown tool"
 		return fmt.Sprintf("Unknown tool: %s", tc.Name), action
 	}
+}
+
+// formatJSON renders a tool result for the model. Marshalling plain
+// data can't fail in practice; if it does, the model gets the error.
+func formatJSON(v any) string {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return "error: " + err.Error()
+	}
+	return string(b)
 }
 
 func (rt *Runtime) executeMCPToolCall(ctx context.Context, tc llm.ToolCall, action *model.ToolAction) (string, *model.ToolAction) {

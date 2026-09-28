@@ -1,7 +1,8 @@
 <script lang="ts">
   // Type-conflict step of the card-import flow (slide-up sheet, matching
   // CardTypePicker's idiom): the target category doesn't accept the
-  // imported card's type, so the user picks one of the accepted types
+  // imported card's type, or the type doesn't exist in this repo, so the
+  // user picks an existing type the category accepts
   // (or "no type" — Pin accepts typeless cards everywhere) and chooses
   // whether to merge that type's template blocks into the imported
   // blocks. Closing/cancelling aborts the import with nothing created
@@ -11,13 +12,14 @@
   import { repoMeta } from '../lib/repoMeta.svelte'
   import { getCardTypeColor, getCardTypeTextColor, getCardTypeLabel } from '@shared/cardTypes'
   import { t } from '../lib/i18n.svelte'
-  import type { TypeConflictResolution } from '../lib/cardExport'
+  import type { TypeConflictReason, TypeConflictResolution } from '../lib/cardExport'
 
-  let { cardType, categoryName, acceptedTypes, onResolve }: {
+  let { cardType, categoryName, acceptedTypes, reason, onResolve }: {
     /** The imported card's original (rejected) type. */
     cardType: string
     categoryName: string
     acceptedTypes: string[]
+    reason: TypeConflictReason
     /** null = cancel — the import creates nothing. */
     onResolve: (resolution: TypeConflictResolution | null) => void
   } = $props()
@@ -60,7 +62,9 @@
   </div>
 
   <div class="body">
-    <p class="message">{t('card.import_confirm_msg', { category: categoryName, type: typeLabel(cardType) })}</p>
+    <p class="message">{reason === 'unknown'
+      ? t('card.import_unknown_type_msg', { type: cardType })
+      : t('card.import_confirm_msg', { category: categoryName, type: typeLabel(cardType) })}</p>
 
     <ul class="types" role="radiogroup" aria-label={t('card.import_confirm_pick')}>
       {#each acceptedTypes as typeId (typeId)}

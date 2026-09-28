@@ -33,6 +33,7 @@ type cardTestDeps struct{ d *testDeps }
 func (c cardTestDeps) Repo() *repo.Repository                                          { return c.d.r }
 func (c cardTestDeps) Index() *index.Index                                             { return nil }
 func (c cardTestDeps) ApplyTypeBlocks(_, _ string)                                     {}
+func (c cardTestDeps) CardTypeExists(string) bool                                      { return true }
 func (c cardTestDeps) LogActivity(_, _, _ string)                                      {}
 func (c cardTestDeps) LogActivityWithContext(_, _, _, _ string, _ []card.CategoryPath) {}
 func (c cardTestDeps) Publish(topic string, _ any)                                     { c.d.topics = append(c.d.topics, topic) }

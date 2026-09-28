@@ -28,6 +28,8 @@ export interface CardTransferApi {
   pinCard(cardId: string, categoryId: string): Promise<void>
   /** null/empty result = the category accepts every type. */
   getCategoryAcceptedTypes(categoryId: string): Promise<string[] | null>
+  /** Ids of every card type defined in this repo (built-in + user). */
+  listCardTypeIds(): Promise<string[]>
   updateCardType(cardId: string, cardType: string): Promise<unknown>
   updateCardDescription(cardId: string, description: string): Promise<unknown>
   updateCardBlocks(cardId: string, blocks: Card['blocks']): Promise<unknown>
@@ -98,7 +100,14 @@ export type ImportOutcome = {
   failedComments: string[]
 }
 
-/** The user's answer to a type-not-accepted conflict. */
+/**
+ * Why the export's type can't be used as-is: the target category doesn't
+ * accept it, or it isn't defined in this repo at all (cards are never
+ * stamped with a type that doesn't exist).
+ */
+export type TypeConflictReason = 'not_accepted' | 'unknown'
+
+/** The user's answer to a type conflict. */
 export type TypeConflictResolution = {
   /** Substitute card type to import as; '' = import with no type. */
   type: string
@@ -113,16 +122,19 @@ export type ImportOptions = {
   categoryName?: string
   /**
    * Called (pre-flight, before ANY mutation) when the export's card type
-   * isn't in the target category's accepted-types list. The surface shows
-   * its ImportConfirm dialog and resolves with the user's choice, or null
-   * to cancel — cancelling aborts the import with nothing created.
-   * `acceptedTypes` is the category's restriction list; '' (no type) is
+   * can't be used: the target category doesn't accept it, or the type
+   * doesn't exist in this repo. The surface shows its ImportConfirm
+   * dialog and resolves with the user's choice, or null to cancel —
+   * cancelling aborts the import with nothing created. `acceptedTypes`
+   * lists the existing types the card may take (the category's
+   * restriction list, or every type when unrestricted); '' (no type) is
    * also always importable (Pin accepts typeless cards everywhere).
    */
   resolveTypeConflict?: (
     cardType: string,
     categoryName: string,
     acceptedTypes: string[],
+    reason: TypeConflictReason,
   ) => Promise<TypeConflictResolution | null>
 }
 
@@ -159,18 +171,27 @@ export async function importCardFromJson(
   if (!parsed.ok) throw new ImportError(parsed.error)
   const env = parsed.value
 
-  // Pre-flight: check the card's type against the category BEFORE any
-  // mutation, so a cancelled conflict dialog leaves zero traces. The
-  // common path (unrestricted category / accepted type / typeless card)
-  // proceeds silently with no prompt.
-  const accepted = (await api.getCategoryAcceptedTypes(categoryId)) ?? []
+  // Pre-flight: check the card's type exists here and is accepted by the
+  // category BEFORE any mutation, so a cancelled conflict dialog leaves
+  // zero traces. The common path (known type in an unrestricted
+  // category / accepted type / typeless card) proceeds with no prompt.
+  const [acceptedOrNull, known] = await Promise.all([
+    api.getCategoryAcceptedTypes(categoryId),
+    api.listCardTypeIds(),
+  ])
+  const accepted = acceptedOrNull ?? []
   let importType = env.card.type
   let resolution: TypeConflictResolution | null = null
-  if (env.card.type && accepted.length > 0 && !accepted.includes(env.card.type)) {
-    if (!opts.resolveTypeConflict) return null
-    resolution = await opts.resolveTypeConflict(env.card.type, opts.categoryName ?? '', accepted)
-    if (resolution === null) return null // user cancelled — nothing created
-    importType = resolution.type
+  if (env.card.type) {
+    const exists = known.includes(env.card.type)
+    if (!exists || (accepted.length > 0 && !accepted.includes(env.card.type))) {
+      if (!opts.resolveTypeConflict) return null
+      const choices = (accepted.length > 0 ? accepted : known).filter(id => known.includes(id))
+      const reason: TypeConflictReason = exists ? 'not_accepted' : 'unknown'
+      resolution = await opts.resolveTypeConflict(env.card.type, opts.categoryName ?? '', choices, reason)
+      if (resolution === null) return null // user cancelled — nothing created
+      importType = resolution.type
+    }
   }
 
   const title = env.card.title.trim() || opts.fallbackTitle

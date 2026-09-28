@@ -45,32 +45,51 @@ func (s *Service) GetConfig(cardID string) (*model.AgentFile, error) {
 // the search index's agent-state row. Status is never accepted as
 // 'running' from the frontend — only the executor sets that.
 func (s *Service) SaveConfig(cardID string, cfg model.AgentConfig) error {
-	r := s.deps.Repo()
-	if r == nil {
-		return fmt.Errorf("no repository open")
-	}
+	normalizeForSave(&cfg)
+	return s.persist(cardID, cfg)
+}
+
+// normalizeForSave derives status and NextRunAt from the enabled flag
+// and schedule, so every save path schedules an agent the same way.
+func normalizeForSave(cfg *model.AgentConfig) {
 	if cfg.Status == model.AgentStatusRunning {
 		cfg.Status = model.AgentStatusIdle
 	}
-	if cfg.Enabled && cfg.Schedule != "" {
-		opts := agent.ScheduleOpts{
-			StartDate:         cfg.StartDate,
-			EndDate:           cfg.EndDate,
-			ActiveWindowStart: cfg.ActiveWindowStart,
-			ActiveWindowEnd:   cfg.ActiveWindowEnd,
-			OneShot:           cfg.OneShot,
-			LastRunAt:         cfg.LastRunAt,
-			Timezone:          cfg.Timezone,
-		}
-		if next, err := agent.NextRunTimeWithOpts(cfg.Schedule, time.Now(), opts); err == nil {
-			cfg.NextRunAt = &next
-		}
-		if cfg.Status == model.AgentStatusDisabled {
-			cfg.Status = model.AgentStatusIdle
-		}
-	} else if !cfg.Enabled {
+	if !cfg.Enabled {
 		cfg.Status = model.AgentStatusDisabled
 		cfg.NextRunAt = nil
+		return
+	}
+	if cfg.Status == model.AgentStatusDisabled {
+		cfg.Status = model.AgentStatusIdle
+	}
+	if cfg.Schedule == "" {
+		// Enabled but unscheduled: runs only when triggered.
+		cfg.NextRunAt = nil
+		return
+	}
+	opts := agent.ScheduleOpts{
+		StartDate:         cfg.StartDate,
+		EndDate:           cfg.EndDate,
+		ActiveWindowStart: cfg.ActiveWindowStart,
+		ActiveWindowEnd:   cfg.ActiveWindowEnd,
+		OneShot:           cfg.OneShot,
+		LastRunAt:         cfg.LastRunAt,
+		Timezone:          cfg.Timezone,
+	}
+	if next, err := agent.NextRunTimeWithOpts(cfg.Schedule, time.Now(), opts); err == nil {
+		cfg.NextRunAt = &next
+	} else {
+		// Nothing left to run (one-shot already fired, past end date).
+		cfg.NextRunAt = nil
+	}
+}
+
+// persist writes the config and updates the search index's agent-state row.
+func (s *Service) persist(cardID string, cfg model.AgentConfig) error {
+	r := s.deps.Repo()
+	if r == nil {
+		return fmt.Errorf("no repository open")
 	}
 	if err := r.SaveAgentConfig(cardID, cfg); err != nil {
 		return err

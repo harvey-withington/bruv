@@ -29,6 +29,9 @@ type Deps interface {
 	// ApplyTypeBlocks merges a type's template blocks into a card.
 	// Implemented on the host via catalog.Service.ApplyTypeBlocks.
 	ApplyTypeBlocks(cardID, cardType string)
+	// CardTypeExists reports whether a type id is defined (built-in or
+	// user). Implemented on the host via catalog.Service.CardTypeExists.
+	CardTypeExists(cardType string) bool
 
 	// LogActivity records a card mutation in the activity feed.
 	// Implemented on the host (resolves user vs LLM actor context).
@@ -56,6 +59,15 @@ func (s *Service) emitCardUpdated(card *model.Card) {
 		"cardID": card.ID,
 		"card":   card,
 	})
+}
+
+// checkType refuses a type id that isn't defined, so no surface can
+// stamp a card with an arbitrary type. Empty is allowed: an untyped card.
+func (s *Service) checkType(cardType string) error {
+	if cardType != "" && !s.deps.CardTypeExists(cardType) {
+		return fmt.Errorf("unknown card type %q", cardType)
+	}
+	return nil
 }
 
 // Service exposes card CRUD, mutations, pins, moves, and comments.
@@ -122,6 +134,9 @@ func (s *Service) Create(cardType, title string) (*model.Card, error) {
 	r := s.deps.Repo()
 	if r == nil {
 		return nil, fmt.Errorf("no repository open")
+	}
+	if err := s.checkType(cardType); err != nil {
+		return nil, err
 	}
 	card, err := r.CreateCard(cardType, title)
 	if err != nil {
@@ -264,6 +279,9 @@ func (s *Service) UpdateType(id, cardType string) (*model.Card, error) {
 	r := s.deps.Repo()
 	if r == nil {
 		return nil, fmt.Errorf("no repository open")
+	}
+	if err := s.checkType(cardType); err != nil {
+		return nil, err
 	}
 	card, err := r.UpdateCard(id, func(c *model.Card) { c.Type = cardType })
 	if err != nil {

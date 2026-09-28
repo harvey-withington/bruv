@@ -466,6 +466,7 @@ func (d cardDeps) Index() *index.Index    { return d.r.idx }
 func (d cardDeps) ApplyTypeBlocks(cardID, cardType string) {
 	d.r.Catalog.ApplyTypeBlocks(cardID, cardType)
 }
+func (d cardDeps) CardTypeExists(cardType string) bool { return d.r.Catalog.CardTypeExists(cardType) }
 func (d cardDeps) LogActivity(cardID, action, field string) {
 	d.r.logActivity(cardID, action, field)
 }
@@ -509,6 +510,7 @@ func (d toolsRTDeps) Card() *card.Service               { return d.r.Card }
 func (d toolsRTDeps) Workspace() *workspacesvc.Service  { return d.r.Workspace }
 func (d toolsRTDeps) Project() *projectsvc.Service      { return d.r.Project }
 func (d toolsRTDeps) Catalog() *catalog.Service         { return d.r.Catalog }
+func (d toolsRTDeps) Agent() *agentsvc.Service          { return d.r.Agent }
 
 type promptsRTDeps struct{ r *Runtime }
 

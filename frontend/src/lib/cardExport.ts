@@ -6,6 +6,7 @@ import {
   GetCard,
   GetCategoryAcceptedTypes,
   ListCardComments,
+  ListCardTypes,
   PinCard,
   SignAttachmentURL,
   UpdateCardBlocks,
@@ -38,6 +39,7 @@ const api: CardTransferApi = {
   deleteCard: async (cardId) => { await DeleteCard(cardId) },
   pinCard: async (cardId, categoryId) => { await PinCard(cardId, categoryId) },
   getCategoryAcceptedTypes: (categoryId) => GetCategoryAcceptedTypes(categoryId),
+  listCardTypeIds: async () => ((await ListCardTypes()) ?? []).map(ct => ct.id),
   updateCardType: (cardId, cardType) => UpdateCardType(cardId, cardType),
   updateCardDescription: (cardId, description) => UpdateCardDescription(cardId, description),
   updateCardBlocks: (cardId, blocks) => UpdateCardBlocks(cardId, blocks),
@@ -82,4 +84,4 @@ export function cardMarkdownLabels(): CardMarkdownLabels {
 }
 
 export { ImportError } from '@shared/cardTransfer'
-export type { ImportOutcome, MergeOutcome, TypeConflictResolution } from '@shared/cardTransfer'
+export type { ImportOutcome, MergeOutcome, TypeConflictReason, TypeConflictResolution } from '@shared/cardTransfer'

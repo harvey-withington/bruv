@@ -17,6 +17,7 @@ import (
 	"bruv/internal/schema"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -89,23 +90,8 @@ var BuiltinTypes = []CardTypeInfo{
 
 // DefaultCardType is the type given to a card created by an LLM surface
 // (MCP, chat, agents) that names none. Always a built-in, so it exists
-// in every repo.
+// in every repo and can never mint a phantom type.
 const DefaultCardType = "brainstorm"
-
-// FindCardType resolves a card type by id or label, case-insensitively,
-// returning the canonical id. Never creates a type.
-func (s *Service) FindCardType(idOrLabel string) (id string, ok bool) {
-	q := strings.TrimSpace(idOrLabel)
-	if q == "" {
-		return "", false
-	}
-	for _, t := range s.ListCardTypes() {
-		if strings.EqualFold(t.ID, q) || strings.EqualFold(t.Label, q) {
-			return t.ID, true
-		}
-	}
-	return "", false
-}
 
 // CardTypeExists reports whether id names an existing card type exactly.
 func (s *Service) CardTypeExists(id string) bool {
@@ -214,6 +200,55 @@ func (s *Service) CreateUserCardType(label, color, description, aiHint, template
 	}
 	s.deps.Publish("cardtype:updated", t)
 	return t, nil
+}
+
+// aiTypePalette colours AI-created card types deterministically — a type
+// the model just created must never render as the grey unknown-type
+// fallback. Hues match the builtin/seed families.
+var aiTypePalette = []string{
+	"#6366f1", "#ec4899", "#38bdf8", "#fb923c",
+	"#22c55e", "#eab308", "#a855f7", "#14b8a6",
+}
+
+// ResolveOrCreateType canonicalises an LLM-supplied card type (ruling
+// 2026-08-14: "if it assigns a type that doesn't exist, create it first;
+// if it assigns one that does exist, it should match"). Case-insensitive
+// match on the ID or LABEL of any existing type (built-in or user) wins
+// and returns the canonical id; anything else creates a user card type
+// with the input as its label and a palette colour picked by name hash.
+// Empty input resolves to the empty id (an untyped card).
+func (s *Service) ResolveOrCreateType(input string) (id string, created bool, err error) {
+	name := strings.TrimSpace(input)
+	if name == "" {
+		return "", false, nil
+	}
+	if id, ok := s.LookupTypeID(name); ok {
+		return id, false, nil
+	}
+	h := fnv.New32a()
+	h.Write([]byte(strings.ToLower(name)))
+	color := aiTypePalette[int(h.Sum32())%len(aiTypePalette)]
+	t, err := s.CreateUserCardType(name, color, "", "", "")
+	if err != nil {
+		return "", false, fmt.Errorf("create card type %q: %w", name, err)
+	}
+	return t.ID, true, nil
+}
+
+// LookupTypeID matches input against the catalog by id or label, case
+// insensitively, without creating anything. ok is false for an unknown
+// type — the name the model gave is then the only handle there is.
+func (s *Service) LookupTypeID(input string) (id string, ok bool) {
+	lower := strings.ToLower(strings.TrimSpace(input))
+	if lower == "" {
+		return "", false
+	}
+	for _, t := range s.ListCardTypes() {
+		if strings.ToLower(t.ID) == lower || strings.ToLower(t.Label) == lower {
+			return t.ID, true
+		}
+	}
+	return "", false
 }
 
 func (s *Service) UpdateUserCardType(id, label, color, description, aiHint, templateID string) (config.UserCardType, error) {

@@ -7,6 +7,7 @@ import type {
   MediaItem,
   SurveyQuestion,
 } from './types'
+import { asWorkspaceFiles } from './blockValues'
 
 // --- Card → readable Markdown (one-way export) ---
 //
@@ -227,6 +228,11 @@ function renderBlockBody(block: Block, labels: Required<CardMarkdownLabels>): st
         .filter(q => q.prompt?.trim())
         .map(q => renderSurveyQuestion(q, labels.noAnswer))
         .join('\n\n')
+    }
+
+    case 'workspace_files': {
+      const entries = asWorkspaceFiles(block.value)
+      return entries.map(e => `- ${e.is_dir ? e.path.replace(/\/?$/, '/') : e.path}`).join('\n')
     }
 
     default:

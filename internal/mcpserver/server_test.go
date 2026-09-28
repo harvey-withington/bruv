@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"bruv/core/services/catalog"
 	"bruv/core/supervisor"
 	"bruv/internal/config"
 	"bruv/internal/repo"
@@ -188,6 +189,73 @@ func TestGetMethodNotAllowed(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("GET status = %d, want 405", rec.Code)
+	}
+}
+
+// TestCreateCardTypeResolution: card_type resolves against the catalog —
+// an existing label matches case-insensitively to its canonical id, an
+// unknown name mints a new user type (flagged in the result), and an
+// omitted type gets the built-in default.
+func TestCreateCardTypeResolution(t *testing.T) {
+	h, sup := newTestHandler(t)
+	rt := sup.Resolve(testRepoID)
+
+	create := func(args map[string]any) map[string]any {
+		t.Helper()
+		text, isErr := callToolRPC(t, h, "create_card", args)
+		if isErr {
+			t.Fatalf("create_card reported error: %s", text)
+		}
+		var out map[string]any
+		if err := json.Unmarshal([]byte(text), &out); err != nil {
+			t.Fatalf("decode create_card result %q: %v", text, err)
+		}
+		return out
+	}
+
+	// Existing seeded type, matched by label with the wrong case.
+	out := create(map[string]any{"title": "Match by label", "card_type": "FEATURE"})
+	if out["type"] != "feature" {
+		t.Errorf("type = %v, want canonical id \"feature\"", out["type"])
+	}
+	if out["type_created"] != nil {
+		t.Errorf("type_created = %v for an existing type, want absent", out["type_created"])
+	}
+
+	// Omitted type → the built-in default, which exists on every board.
+	out = create(map[string]any{"title": "No type"})
+	if out["type"] != catalog.DefaultCardType {
+		t.Errorf("type = %v, want the built-in default %q", out["type"], catalog.DefaultCardType)
+	}
+	if out["type_created"] != nil {
+		t.Errorf("type_created = %v for the default, want absent", out["type_created"])
+	}
+
+	// Built-in type matched by label — must never re-create it.
+	out = create(map[string]any{"title": "Built-in", "card_type": "Brainstorm"})
+	if out["type"] != "brainstorm" {
+		t.Errorf("type = %v, want built-in id \"brainstorm\"", out["type"])
+	}
+	if out["type_created"] != nil {
+		t.Errorf("type_created = %v for a built-in type, want absent", out["type_created"])
+	}
+
+	// Unknown type → created as a user type and flagged.
+	out = create(map[string]any{"title": "New type", "card_type": "Field Note"})
+	if out["type"] != "field-note" {
+		t.Errorf("type = %v, want slugged id \"field-note\"", out["type"])
+	}
+	if out["type_created"] != true {
+		t.Errorf("type_created = %v, want true", out["type_created"])
+	}
+	var found bool
+	for _, ti := range rt.ListCardTypes() {
+		if ti.ID == "field-note" && ti.Label == "Field Note" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("created type \"field-note\" missing from the catalog roster")
 	}
 }
 

@@ -60,7 +60,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 90;
+    /* Above CardDetail (100): the editor opens FROM a card and is portaled
+       to <body>, so it competes with the card at root level. Below
+       ConfirmDialog (99990), whose prompts it raises. */
+    z-index: 110;
   }
   .viewer {
     width: min(1280px, 94vw);

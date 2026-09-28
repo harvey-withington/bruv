@@ -166,9 +166,11 @@
     flex-direction: column;
     gap: 0.2rem;
   }
+  /* Top-aligned: an item can be several lines tall now, and its handle,
+     tick and delete belong on the first line, not floating mid-paragraph. */
   .row {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 0.4rem;
     padding: 0.2rem 0;
   }

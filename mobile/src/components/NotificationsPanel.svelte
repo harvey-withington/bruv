@@ -4,6 +4,7 @@
   import { machineRPC, repoRPC } from '../lib/auth'
   import { replace, cardURL } from '../lib/router.svelte'
   import { onEvent } from '../lib/events.svelte'
+  import { onReconnect } from '../lib/connectivity.svelte'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
@@ -30,6 +31,7 @@
   async function reload() {
     try {
       items = (await machineRPC<AppNotification[]>('GetNotifications')) ?? []
+      errorMsg = null
     } catch (err) {
       errorMsg = err instanceof Error ? err.message : t('notifications.err_load')
     } finally {
@@ -49,7 +51,9 @@
     history.pushState({ notifications: true }, '')
     const onPop = () => onClose()
     window.addEventListener('popstate', onPop)
+    const offReconnect = onReconnect(() => void reload())
     return () => {
+      offReconnect()
       window.removeEventListener('popstate', onPop)
       if (!navigatedAway && history.state?.notifications) history.back()
     }

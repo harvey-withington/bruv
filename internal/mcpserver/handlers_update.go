@@ -64,24 +64,23 @@ func hSetCardType(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	if cardID == "" || input == "" {
 		return errResult("card_id and card_type are required")
 	}
-	cardType, ok := rt.Catalog.FindCardType(input)
-	if !ok {
-		return errResult("unknown card type %q; use one of: %s", input, strings.Join(cardTypeIDs(rt), ", "))
+	// Check the card first so a typo'd id can't leave a stray new type.
+	if _, err := rt.GetCard(cardID); err != nil {
+		return errResult("%v", err)
+	}
+	cardType, typeCreated, err := rt.ResolveOrCreateCardType(input)
+	if err != nil {
+		return errResult("%v", err)
 	}
 	card, err := rt.UpdateCardType(cardID, cardType)
 	if err != nil {
 		return errResult("%v", err)
 	}
-	return jsonResult(map[string]any{"card_id": card.ID, "type": card.Type})
-}
-
-func cardTypeIDs(rt *supervisor.Runtime) []string {
-	types := rt.ListCardTypes()
-	ids := make([]string, len(types))
-	for i, t := range types {
-		ids[i] = t.ID
+	out := map[string]any{"card_id": card.ID, "type": card.Type}
+	if typeCreated {
+		out["type_created"] = true
 	}
-	return ids
+	return jsonResult(out)
 }
 
 func hSetCardDueDate(rt *supervisor.Runtime, a map[string]any) (string, bool) {

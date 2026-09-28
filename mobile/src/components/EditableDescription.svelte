@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Tap-to-edit multi-line markdown. Used for Card.description on
-  // mobile. Renders markdown when displayed; swaps to an autosizing
+  // Tap-to-edit multi-line markdown. Used for Card.description and,
+  // via TextBlock, every text block on mobile. Renders markdown when displayed; swaps to an autosizing
   // textarea when the user taps in. Keyboard behaviour comes from the
   // shared inlineEdit action (mobile multiline variant per the keyboard
   // entry contract: Enter inserts a newline, blur or the ✓ Done button
@@ -18,15 +18,19 @@
   import { tapGuardActive } from '../lib/tapGuard'
   import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import { t } from '../lib/i18n.svelte'
+  import { mentionable, followMention } from '../lib/mentions.svelte'
   import EditorDoneButton from './EditorDoneButton.svelte'
 
   let {
     value,
     placeholder = '',
+    editLabel = t('card.edit_description'),
     onSave,
   }: {
     value: string
     placeholder?: string
+    /** Accessible name of the tap-to-edit surface. */
+    editLabel?: string
     onSave: (next: string) => void | Promise<void>
   } = $props()
 
@@ -63,6 +67,7 @@
     bind:this={textareaEl}
     bind:value={draft}
     use:autoGrow
+    use:mentionable
     use:inlineEdit={{ multiline: true, enterInsertsNewline: true, onCommit: commit, onCancel: cancel, scope: editScope }}
     placeholder={placeholder}
     class="editor"
@@ -72,11 +77,11 @@
     <EditorDoneButton onDone={commit} />
   </div>
 {:else if value}
-  <button type="button" class="display" onclick={startEdit} aria-label={t('card.edit_description')}>
+  <button type="button" class="display" onclick={(e) => { if (followMention(e.target)) { e.preventDefault(); e.stopPropagation(); return } void startEdit() }} aria-label={editLabel}>
     <div class="prose">{@html renderMarkdown(value)}</div>
   </button>
 {:else}
-  <button type="button" class="display empty" onclick={startEdit} aria-label={t('card.edit_description')}>
+  <button type="button" class="display empty" onclick={startEdit} aria-label={editLabel}>
     {placeholder}
   </button>
 {/if}

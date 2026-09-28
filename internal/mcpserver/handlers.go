@@ -216,6 +216,8 @@ func hCreateCategory(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 }
 
 func hCreateCard(rt *supervisor.Runtime, a map[string]any) (string, bool) {
+	// The type resolves against the catalog (id or label match, unknown
+	// names created); an omitted type gets the built-in default.
 	spec, err := cardtools.ParseCardSpec(a)
 	if err != nil {
 		return errResult("%v", err)
@@ -228,9 +230,13 @@ func hCreateCard(rt *supervisor.Runtime, a map[string]any) (string, bool) {
 	if pinnedTo == "" {
 		pinnedTo = "inbox (unfiled)"
 	}
-	return jsonResult(map[string]any{
+	out := map[string]any{
 		"card_id": created.Card.ID, "title": created.Card.Title, "type": created.Card.Type, "pinned_to": pinnedTo,
-	})
+	}
+	if created.TypeCreated {
+		out["type_created"] = true
+	}
+	return jsonResult(out)
 }
 
 // --- Populate existing cards ---

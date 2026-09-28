@@ -19,6 +19,7 @@
   import { renderMarkdown } from '@shared/markdown'
   import { t } from '../lib/i18n.svelte'
   import { focusOnMount } from '../lib/actions'
+  import { mentionable } from '../lib/mentions.svelte'
   import type { Card } from '@shared/types'
 
   let {
@@ -27,7 +28,6 @@
     descriptionDraft = $bindable(),
     descTextareaEl = $bindable(),
     onKeydown,
-    onInput,
     onBlur,
   }: {
     card: Card
@@ -35,7 +35,6 @@
     descriptionDraft: string
     descTextareaEl: HTMLTextAreaElement | null
     onKeydown: (e: KeyboardEvent) => void
-    onInput: (e: Event) => void
     onBlur: () => void
   } = $props()
 </script>
@@ -46,10 +45,10 @@
     <textarea
       class="desc-textarea"
       use:focusOnMount
+      use:mentionable
       bind:this={descTextareaEl}
       bind:value={descriptionDraft}
       onkeydown={onKeydown}
-      oninput={onInput}
       onblur={onBlur}
       rows="4"
     ></textarea>

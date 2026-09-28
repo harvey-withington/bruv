@@ -13,6 +13,7 @@ import (
 
 	"bruv/core/services/agentsvc"
 	"bruv/core/supervisor"
+	"bruv/internal/config"
 	"bruv/internal/llm"
 	"bruv/internal/mcp"
 	"bruv/internal/model"
@@ -27,12 +28,14 @@ type agentToolOption struct {
 	Ready       bool   `json:"ready"`
 }
 
-type llmAccountOption struct {
-	ID        string `json:"id"`
-	Label     string `json:"label"`
-	Provider  string `json:"provider"`
-	Model     string `json:"model,omitempty"`
-	IsDefault bool   `json:"is_default"`
+// llmOption is one value the agent's `llm` field accepts: a registry
+// model or a router, as a config.ModelRef.
+type llmOption struct {
+	Ref           string `json:"ref"`
+	Label         string `json:"label"`
+	Kind          string `json:"kind"` // "model" | "router"
+	Tier          string `json:"tier,omitempty"`
+	SupportsTools *bool  `json:"supports_tools,omitempty"`
 }
 
 type agentRunSummary struct {
@@ -49,12 +52,12 @@ type agentRunSummary struct {
 // agentOptions lists the values configure_card_agent accepts, so a
 // client can build a working config without guessing ids.
 type agentOptions struct {
-	Tools          []agentToolOption  `json:"tools"`
-	LLMAccounts    []llmAccountOption `json:"llm_accounts"`
-	LLMConfigured  bool               `json:"llm_configured"`
-	NotifyOn       []string           `json:"notify_on"`
-	NotifyChannels []string           `json:"notify_channel"`
-	ScheduleSyntax string             `json:"schedule_syntax"`
+	Tools          []agentToolOption `json:"tools"`
+	LLM            []llmOption       `json:"llm"`
+	LLMConfigured  bool              `json:"llm_configured"`
+	NotifyOn       []string          `json:"notify_on"`
+	NotifyChannels []string          `json:"notify_channel"`
+	ScheduleSyntax string            `json:"schedule_syntax"`
 }
 
 const scheduleSyntax = "Interval ('30m', '2h', '1d'; minimum 1m), cron shortcut ('@hourly', '@daily', '@weekly', '@every 45m') " +
@@ -128,9 +131,14 @@ func hConfigureCardAgent(rt *supervisor.Runtime, a map[string]any) (string, bool
 		}
 		warnings = append(warnings, w...)
 	}
-	if patch.LLMAccountID != nil && *patch.LLMAccountID != "" &&
-		!slices.ContainsFunc(opts.LLMAccounts, func(o llmAccountOption) bool { return o.ID == *patch.LLMAccountID }) {
-		return errResult("llm_account_id %q is not a configured account; see get_card_agent options.llm_accounts", *patch.LLMAccountID)
+	if patch.LLM != nil && *patch.LLM != "" {
+		i := slices.IndexFunc(opts.LLM, func(o llmOption) bool { return o.Ref == *patch.LLM })
+		if i < 0 {
+			return errResult("llm %q is not a configured model or router; see get_card_agent options.llm", *patch.LLM)
+		}
+		if st := opts.LLM[i].SupportsTools; st != nil && !*st {
+			warnings = append(warnings, fmt.Sprintf("model %q doesn't support tool calls, so the agent can't use any of its tools", opts.LLM[i].Label))
+		}
 	}
 	cfg, err := rt.Agent.Patch(cardID, patch)
 	if err != nil {
@@ -171,7 +179,7 @@ func buildAgentOptions(rt *supervisor.Runtime) (agentOptions, error) {
 		NotifyOn:       agentsvc.NotifyTriggers,
 		NotifyChannels: agentsvc.NotifyChannels,
 		ScheduleSyntax: scheduleSyntax,
-		LLMAccounts:    []llmAccountOption{},
+		LLM:            []llmOption{},
 	}
 	for _, t := range llm.AgentTools(llm.BuiltinAgentToolNames()) {
 		opts.Tools = append(opts.Tools, agentToolOption{ID: t.Name, Description: firstSentence(t.Description), Ready: true})
@@ -186,14 +194,24 @@ func buildAgentOptions(rt *supervisor.Runtime) (agentOptions, error) {
 			opts.Tools = append(opts.Tools, agentToolOption{ID: t.NamespaceID, Description: firstSentence(t.Description), Ready: ready})
 		}
 	}
-	accounts, err := rt.GetLLMAccounts()
+	// The key-free registry view: API keys never leave the machine.
+	reg, err := rt.LLM.GetRegistryView()
 	if err != nil {
-		return opts, fmt.Errorf("list LLM accounts: %w", err)
+		return opts, fmt.Errorf("load model registry: %w", err)
 	}
-	// API keys and base URLs never leave the machine.
-	for _, acc := range accounts {
-		opts.LLMAccounts = append(opts.LLMAccounts, llmAccountOption{
-			ID: acc.ID, Label: acc.Label, Provider: acc.Provider, Model: acc.Model, IsDefault: acc.IsDefault,
+	for _, m := range reg.Routing.Models {
+		if !m.Enabled {
+			continue
+		}
+		st := m.SupportsTools
+		opts.LLM = append(opts.LLM, llmOption{
+			Ref: string(config.ModelRefTo(config.RefModel, m.ID)), Label: m.DisplayLabel(),
+			Kind: string(config.RefModel), Tier: string(m.Tier), SupportsTools: &st,
+		})
+	}
+	for _, r := range reg.Routing.Routers {
+		opts.LLM = append(opts.LLM, llmOption{
+			Ref: string(config.ModelRefTo(config.RefRouter, r.ID)), Label: r.Name, Kind: string(config.RefRouter),
 		})
 	}
 	return opts, nil

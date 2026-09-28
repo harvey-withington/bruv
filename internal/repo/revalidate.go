@@ -8,15 +8,19 @@ import (
 
 // RevalidateStats tracks what was repaired during a revalidation pass.
 type RevalidateStats struct {
-	StalePinsRemoved  int
-	OrphanedPinDirs   int
-	OrphanedChatFiles int
+	StalePinsRemoved     int
+	DuplicatePinsRemoved int
+	OrphanedPinDirs      int
+	OrphanedChatFiles    int
 }
 
 func (s RevalidateStats) String() string {
 	parts := []string{}
 	if s.StalePinsRemoved > 0 {
 		parts = append(parts, fmt.Sprintf("%d stale pins removed", s.StalePinsRemoved))
+	}
+	if s.DuplicatePinsRemoved > 0 {
+		parts = append(parts, fmt.Sprintf("%d duplicate pins removed", s.DuplicatePinsRemoved))
 	}
 	if s.OrphanedPinDirs > 0 {
 		parts = append(parts, fmt.Sprintf("%d orphaned pin dirs removed", s.OrphanedPinDirs))
@@ -36,10 +40,43 @@ func (r *Repository) Revalidate() (*RevalidateStats, error) {
 	stats := &RevalidateStats{}
 
 	r.repairStalePins(stats)
+	r.repairDuplicatePins(stats)
 	r.repairOrphanedPinDirs(stats)
 	r.repairOrphanedChatFiles(stats)
 
 	return stats, nil
+}
+
+// repairDuplicatePins collapses pins that name the same category twice
+// (written by the pre-2026-09-17 MoveCardToCategory when the destination
+// was already pinned). The first occurrence wins; the index's unique key
+// would otherwise refuse every later pin write for the card.
+func (r *Repository) repairDuplicatePins(stats *RevalidateStats) {
+	cardIDs, err := listSubdirs(r.pinsBasePath())
+	if err != nil {
+		return
+	}
+	for _, cardID := range cardIDs {
+		pinFile, err := r.loadPinFile(cardID)
+		if err != nil || len(pinFile.Pins) < 2 {
+			continue
+		}
+		seen := map[string]bool{}
+		filtered := pinFile.Pins[:0]
+		for _, p := range pinFile.Pins {
+			if seen[p.CategoryID] {
+				stats.DuplicatePinsRemoved++
+				continue
+			}
+			seen[p.CategoryID] = true
+			filtered = append(filtered, p)
+		}
+		if len(filtered) == len(pinFile.Pins) {
+			continue
+		}
+		pinFile.Pins = filtered
+		_ = r.savePinFile(pinFile)
+	}
 }
 
 // repairStalePins removes pin entries that reference categories no longer on disk.

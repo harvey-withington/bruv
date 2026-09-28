@@ -5,7 +5,6 @@
   import { projectTags, nav, cardTypes, loadCardTypes } from '../lib/store.svelte'
   import { X, Trash2, BotMessageSquare, ClipboardList, History, Timer, ArrowUpRight } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
-  import MentionPicker from './MentionPicker.svelte'
   import PinPicker from './PinPicker.svelte'
   import PinPanel from './PinPanel.svelte'
   import CardHeader from './CardHeader.svelte'
@@ -17,8 +16,8 @@
   import CardShareMenu from './CardShareMenu.svelte'
   import CardMetaPanel from './CardMetaPanel.svelte'
   import CardTagsField from './CardTagsField.svelte'
-  import CardFolderChip from './workspace/CardFolderChip.svelte'
   import CardBlocks from './CardBlocks.svelte'
+  import { isMentionPickerOpenFor } from '@shared/mentions'
   import CreateTypeFromCardDialog from './CreateTypeFromCardDialog.svelte'
   import PromoteCardDialog from './PromoteCardDialog.svelte'
   import SaveIndicator from './SaveIndicator.svelte'
@@ -174,11 +173,6 @@
     return editScope.register({ commit: () => { void saveDescription() }, cancel: cancelDescription })
   })
 
-  // @ mention picker state (description only — block/checklist mentions
-  // are handled by CardBlocks' own picker)
-  let mentionVisible = $state(false)
-  let mentionAnchor = $state<{ top: number; left: number } | null>(null)
-  let mentionTriggerPos = $state<number>(0)
 
   $effect(() => {
     loadCard()
@@ -369,7 +363,7 @@
   }
 
   async function handleDescKeydown(e: KeyboardEvent) {
-    if (mentionVisible || e.isComposing) return
+    if (e.isComposing) return
     if (e.key === 'Enter') {
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault()
@@ -392,37 +386,9 @@
   }
 
   function handleDescBlur() {
-    if (!editingDescription || mentionVisible) return
+    // The @mention picker taking focus is not the user leaving the field.
+    if (!editingDescription || isMentionPickerOpenFor(descTextareaEl)) return
     saveDescription()
-  }
-
-  function handleDescInput(e: Event) {
-    const el = e.target as HTMLTextAreaElement
-    const pos = el.selectionStart ?? 0
-    const text = el.value
-    if (pos > 0 && text[pos - 1] === '@') {
-      if (pos === 1 || /\s/.test(text[pos - 2])) {
-        mentionTriggerPos = pos - 1
-        const rect = el.getBoundingClientRect()
-        mentionAnchor = { top: rect.bottom + 4, left: rect.left }
-        mentionVisible = true
-      }
-    }
-  }
-
-  function handleMentionSelect(markdown: string) {
-    const before = descriptionDraft.slice(0, mentionTriggerPos)
-    const after = descriptionDraft.slice(descTextareaEl?.selectionStart ?? mentionTriggerPos + 1)
-    descriptionDraft = before + markdown + after
-    mentionVisible = false
-    const newPos = before.length + markdown.length
-    setTimeout(() => { descTextareaEl?.focus(); descTextareaEl?.setSelectionRange(newPos, newPos) }, 0)
-  }
-
-  function handleMentionClose() {
-    mentionVisible = false
-    // Refocus the description so the user can continue editing
-    setTimeout(() => descTextareaEl?.focus(), 0)
   }
 
   // Applies a card snapshot returned by a child component's mutation
@@ -686,9 +652,6 @@
             <span class="field-label">{t('card.tags')}</span>
             <CardTagsField {card} {cardId} {pinBreadcrumbs} track={tracked} onCardUpdated={applyCardUpdate} />
           </div>
-          <!-- Renders nothing when the project has no workspace and the
-               card no binding (Card Folders availability rule). -->
-          <CardFolderChip {card} onCardUpdated={applyCardUpdate} />
         </div>
 
         <DescriptionSection
@@ -697,7 +660,6 @@
           bind:descriptionDraft
           bind:descTextareaEl
           onKeydown={handleDescKeydown}
-          onInput={handleDescInput}
           onBlur={handleDescBlur}
         />
 
@@ -752,13 +714,6 @@
     </div>
   </div>
 </div>
-
-<MentionPicker
-  visible={mentionVisible}
-  anchor={mentionAnchor}
-  onSelect={handleMentionSelect}
-  onClose={handleMentionClose}
-/>
 
 <PinPicker
   visible={showPinPicker}

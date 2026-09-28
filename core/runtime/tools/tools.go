@@ -34,7 +34,6 @@ import (
 	"bruv/internal/llm"
 	"bruv/internal/model"
 	"fmt"
-	"hash/fnv"
 	"slices"
 	"strconv"
 	"strings"
@@ -526,6 +525,7 @@ var cardToolHandlers = map[string]cardToolHandler{
 	"configure_agent": (*Dispatcher).toolConfigureAgent,
 	"web_fetch":       (*Dispatcher).toolWebFetch,
 	"web_search":      (*Dispatcher).toolWebSearch,
+	"read_card_file":  (*Dispatcher).toolReadCardFile,
 }
 
 // ExecuteCard runs a single tool and returns (result string, action record, pin suggestion).
@@ -631,36 +631,10 @@ func (d *Dispatcher) toolSetCardType(cardID string, card *model.Card, tc llm.Too
 	return resultMsg, action, nil
 }
 
-// aiTypePalette colours AI-created card types deterministically — a type
-// the model just created must never render as the grey unknown-type
-// fallback. Hues match the builtin/seed families.
-var aiTypePalette = []string{
-	"#6366f1", "#ec4899", "#38bdf8", "#fb923c",
-	"#22c55e", "#eab308", "#a855f7", "#14b8a6",
-}
-
-// resolveCardType canonicalises an LLM-supplied card type (ruling
-// 2026-08-14: "if it assigns a type that doesn't exist, create it first;
-// if it assigns one that does exist, it should match"). Case-insensitive
-// match on the ID or LABEL of any existing type (built-in or user) wins
-// and returns the canonical id; anything else creates a user card type
-// with the input as its label and a palette colour picked by name hash.
+// resolveCardType canonicalises an LLM-supplied card type — see
+// catalog.Service.ResolveOrCreateType for the matching/creation rules.
 func (d *Dispatcher) resolveCardType(input string) (id string, created bool, err error) {
-	name := strings.TrimSpace(input)
-	if name == "" {
-		return "", false, nil
-	}
-	if id, ok := d.deps.Catalog().FindCardType(name); ok {
-		return id, false, nil
-	}
-	h := fnv.New32a()
-	h.Write([]byte(strings.ToLower(name)))
-	color := aiTypePalette[int(h.Sum32())%len(aiTypePalette)]
-	t, err := d.deps.Catalog().CreateUserCardType(name, color, "", "", "")
-	if err != nil {
-		return "", false, fmt.Errorf("create card type %q: %w", name, err)
-	}
-	return t.ID, true, nil
+	return d.deps.Catalog().ResolveOrCreateType(input)
 }
 
 func (d *Dispatcher) toolSetFields(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath) (string, *model.ToolAction, *model.PinSuggestion) {
@@ -882,6 +856,13 @@ func (d *Dispatcher) toolSuggestPin(cardID string, card *model.Card, tc llm.Tool
 	reason, _ := tc.Arguments["reason"].(string)
 	confidence, _ := tc.Arguments["confidence"].(string)
 
+	// Only Inbox cards get filed by the AI. Checked here, not just when
+	// the tool is offered: a Suggest-mode batch can be accepted long after
+	// it was staged, and the card may have been filed by hand meanwhile.
+	if existing, _ := d.deps.Repo().GetCardPins(cardID); len(existing) > 0 {
+		return "error: this card is already filed on a board — the AI never pins a card twice; the user moves cards by hand", nil, nil
+	}
+
 	var catName, breadcrumb string
 
 	if catID != "" {
@@ -895,6 +876,15 @@ func (d *Dispatcher) toolSuggestPin(cardID string, card *model.Card, tc llm.Tool
 		}
 		if catName == "" {
 			return "error: category not found", nil, nil
+		}
+		// Same refusal the Suggest path gives at staging, so the model is
+		// steered the same way (change the type, keep the location) in
+		// edit mode. Type read from disk: a set_card_type earlier in this
+		// response has already landed there.
+		if current, err := d.deps.Repo().GetCard(cardID); err == nil {
+			if conflict := PinTypeConflict(allCats, catID, current.Type); conflict != "" {
+				return conflict, nil, nil
+			}
 		}
 	} else {
 		// Create new hierarchy from brand/stream/project/category names
@@ -1034,11 +1024,13 @@ func (d *Dispatcher) ExecuteProject(tc llm.ToolCall, scope ProjectChatScope) (st
 		if title == "" {
 			return "error: title is required", nil
 		}
+		// Match by id or label, create when unknown (ruling 2026-08-14).
+		// An omitted card_type gets the built-in default, which exists on
+		// every board, so it can never mint a phantom type.
 		cardType, _ := tc.Arguments["card_type"].(string)
 		if cardType == "" {
 			cardType = catalog.DefaultCardType
 		}
-		// Match by id or label, create when unknown (ruling 2026-08-14).
 		if resolved, _, err := d.resolveCardType(cardType); err == nil && resolved != "" {
 			cardType = resolved
 		}
@@ -2076,7 +2068,10 @@ func (d *Dispatcher) StageProject(tc llm.ToolCall, scope ProjectChatScope) (stri
 			cardType = catalog.DefaultCardType
 		}
 		label := "Create card: " + title
-		detail := fmt.Sprintf("Type: %s", cardType)
+		detail := ""
+		if cardType != "" {
+			detail = fmt.Sprintf("Type: %s", cardType)
+		}
 		// Pin destination — prefer name (more meaningful in the row), fall
 		// back to resolving the ID to a name, finally raw ID.
 		catName, _ := tc.Arguments["category_name"].(string)
@@ -2091,6 +2086,7 @@ func (d *Dispatcher) StageProject(tc llm.ToolCall, scope ProjectChatScope) (stri
 		if desc, _ := tc.Arguments["description"].(string); desc != "" {
 			detail += "\n\n" + desc
 		}
+		detail = strings.TrimLeft(detail, "\n")
 		return "Card creation staged", []model.PendingEdit{{
 			ID: uuid.New().String(), Tool: tc.Name, Input: tc.Arguments,
 			Label: label, Detail: detail, Status: "pending",

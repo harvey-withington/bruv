@@ -302,12 +302,17 @@ export function dragSortable(node: HTMLElement, options: Options) {
     activeDropTarget = target
   }
 
-  /** Find the container we should insert dragRow into. When the
-   *  drop target is the outer wrapper of an accordion (a `<section>`),
-   *  the actual card-list `<ul>` lives inside and is the right place
-   *  to put the row. data-card-list marks it explicitly; absent that,
-   *  we fall back to the drop target itself (the original layout). */
+  /** Find the container we should insert dragRow into. A target whose
+   *  direct children are rows (the Browse tree's lists, the Project
+   *  page's category list) is its own container. Otherwise the target
+   *  is the outer wrapper of an accordion (a category `<section>`) and
+   *  the card-list `<ul>` marked data-card-list inside it is the right
+   *  place; absent that, the target itself. The direct-child check
+   *  matters for nested levels: the category list CONTAINS card lists,
+   *  and blindly taking the first one parked a dragged category inside
+   *  another category's hidden body (field report 2026-09-20). */
   function dropContainer(target: HTMLElement): HTMLElement {
+    if (target.querySelector(`:scope > ${rowSel()}`)) return target
     const inner = target.querySelector('[data-card-list]') as HTMLElement | null
     return inner ?? target
   }

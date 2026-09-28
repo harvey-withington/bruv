@@ -1,12 +1,26 @@
 <script lang="ts">
   // A single list/checklist item's text: renders inline markdown when idle,
-  // swaps to a text input on tap. Mobile's analog of desktop's EditableText
-  // (inlineMarkdown mode) so checklist/list items render markdown the same
-  // way on both surfaces. Owns its own draft + edit state; the parent only
-  // sees committed text via onSave (or onEmpty when the row ends up blank).
-  import { getContext } from 'svelte'
+  // swaps to a multi-line, auto-growing textarea on tap. Mobile's analog of
+  // desktop's EditableText (inlineMarkdown mode) so checklist/list items
+  // render markdown the same way on both surfaces. Owns its own draft +
+  // edit state; the parent only sees committed text via onSave (or onEmpty
+  // when the row ends up blank).
+  //
+  // Multi-line since 2026-09-20 (Harvey): editing a long item in a
+  // single-line input on a phone meant the text scrolled out of view and
+  // the caret was hard to place. The editor now wraps and grows, and takes
+  // the mobile multiline contract (UI-CONVENTIONS §8): virtual Enter
+  // inserts a newline, tap-away or ✓ Done commits, Ctrl+Enter commits and
+  // closes the page, Escape/Back cancels. Adding rows stays the + button's
+  // job.
+  import { getContext, tick } from 'svelte'
   import { renderInline } from '@shared/markdown'
+  import { inlineEdit } from '@shared/inlineEdit'
   import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
+  import { autoGrow } from '../../lib/actions/autoGrow'
+  import { tapGuardActive } from '../../lib/tapGuard'
+  import { mentionable, followMention } from '../../lib/mentions.svelte'
+  import EditorDoneButton from '../EditorDoneButton.svelte'
 
   let {
     text = '',
@@ -35,28 +49,22 @@
   let editing = $state(autoEdit)
   /* svelte-ignore state_referenced_locally */
   let draft = $state(text)
-  let inputEl = $state<HTMLInputElement | null>(null)
+  let inputEl = $state<HTMLTextAreaElement | null>(null)
 
   // Keep the draft in sync with upstream text while idle; never clobber it
   // mid-edit (matches EditableText).
   $effect(() => { if (!editing) draft = text })
 
-  $effect(() => { if (editing && inputEl) inputEl.focus() })
-
-  // Keyboard entry contract: count as an active edit while editing so
-  // the containing page's Escape doesn't close underneath us and
-  // Ctrl+Enter commits this row too. Handlers stay hand-rolled because
-  // plain Enter must commit WITHOUT closing the containing page, and
-  // Escape must be consumed here (cancel this row only, not the card).
   const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
-  $effect(() => {
-    if (!editing || !editScope) return
-    return editScope.register({ commit: save, cancel })
-  })
 
-  function startEdit() {
+  async function startEdit() {
+    // The ✓ Done tap on the row above can retarget its tail here as the
+    // rows reflow — ignore it (see lib/tapGuard.ts).
+    if (tapGuardActive()) return
     draft = text
     editing = true
+    await tick()
+    inputEl?.focus()
   }
 
   function save() {
@@ -78,41 +86,26 @@
     // blank-commit path.
     if (text.trim() === '') onEmpty?.()
   }
-
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter') {
-      if (e.ctrlKey || e.metaKey) {
-        // Contract: Ctrl+Enter commits and closes the containing page.
-        e.preventDefault()
-        e.stopPropagation()
-        save()
-        editScope?.requestClose?.()
-        return
-      }
-      // Plain Enter (the mobile keyboard's ✓/Done tick) JUST commits —
-      // no next-row advance. Adding rows is the + button's job; rapid-
-      // entry chaining on tick surprised users (ruling 2026-07-10).
-      e.preventDefault()
-      save()
-    } else if (e.key === 'Escape') {
-      // Revert, and never let Escape bubble up to close the card.
-      e.preventDefault()
-      e.stopPropagation()
-      cancel()
-    }
-  }
 </script>
 
 {#if editing}
-  <input
-    class="field"
-    type="text"
-    bind:this={inputEl}
-    bind:value={draft}
-    onblur={save}
-    onkeydown={handleKeydown}
-    enterkeyhint="done"
-  />
+  <div class="editor">
+    <!-- inlineEdit owns the contract: blur commits, Escape cancels (and is
+         consumed so the card underneath stays open), Ctrl+Enter commits
+         and closes the page, plain Enter inserts a newline. -->
+    <textarea
+      class="field"
+      rows="1"
+      bind:this={inputEl}
+      bind:value={draft}
+      use:autoGrow={{ minHeight: 0, maxHeight: 200 }}
+      use:mentionable
+      use:inlineEdit={{ multiline: true, enterInsertsNewline: true, onCommit: save, onCancel: cancel, scope: editScope }}
+      enterkeyhint="enter"
+      {placeholder}
+    ></textarea>
+    <EditorDoneButton onDone={() => inputEl?.blur()} />
+  </div>
 {:else}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <span
@@ -120,8 +113,8 @@
     class:done
     role="button"
     tabindex="0"
-    onclick={(e) => { if ((e.target as HTMLElement).closest('a')) return; startEdit() }}
-    onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startEdit() } }}
+    onclick={(e) => { if (followMention(e.target)) { e.preventDefault(); e.stopPropagation(); return } if ((e.target as HTMLElement).closest('a')) return; void startEdit() }}
+    onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void startEdit() } }}
   >
     {#if text}
       {@html renderInline(text)}
@@ -132,22 +125,43 @@
 {/if}
 
 <style>
-  /* Shared shape so the display span and the input line up pixel-for-pixel. */
-  .field {
+  .editor {
     flex: 1;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.3rem;
+  }
+  /* Shared shape so the display span and the textarea line up pixel-for-pixel. */
+  .field {
+    width: 100%;
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
     background: transparent;
     border: 1px solid transparent;
     border-radius: 6px;
     color: var(--text);
     font: inherit;
     font-size: 0.95rem;
+    line-height: 1.4;
     padding: 0.4rem 0.5rem;
   }
   .field:hover {
     border-color: var(--border);
   }
-  input.field:focus {
+  /* NOT a flex item with a 0 basis: `.field { flex: 1 }` made flex-basis
+     win over the height autoGrow sets, pinning the textarea to one line
+     no matter how many newlines it held. Grows to ~8 lines, then scrolls. */
+  textarea.field {
+    flex: none;
+    resize: none;
+    overflow-y: auto;
+    display: block;
+    min-height: 0;
+  }
+  textarea.field:focus {
     outline: none;
     border-color: var(--accent);
     background: var(--bg-elev-1);
@@ -156,6 +170,7 @@
     cursor: text;
     display: block;
     word-break: break-word;
+    white-space: pre-wrap;
   }
   .display.done {
     text-decoration: line-through;

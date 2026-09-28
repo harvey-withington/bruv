@@ -24,9 +24,11 @@ package supervisor
 // point: it works regardless of repo state.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
+	llmsvc "bruv/core/services/llm"
 	"bruv/internal/config"
 	"bruv/internal/push"
 )
@@ -39,10 +41,20 @@ type MachineService struct {
 	// rather than panicking.
 	vapid    *push.VAPID
 	registry *push.Registry
+
+	llm *llmsvc.Service
 }
 
 // NewMachineService constructs a MachineService.
-func NewMachineService() *MachineService { return &MachineService{} }
+func NewMachineService() *MachineService {
+	return &MachineService{llm: llmsvc.New(backgroundCtx{})}
+}
+
+// backgroundCtx satisfies llmsvc.Deps for probes that have no Runtime
+// context to inherit; each probe bounds itself with its own timeout.
+type backgroundCtx struct{}
+
+func (backgroundCtx) Ctx() context.Context { return context.Background() }
 
 // WithPush wires the VAPID keypair + subscription registry into the
 // service. Optional — only the headless server bootstrap calls this
@@ -81,28 +93,46 @@ func (m *MachineService) GetLLMAccounts() ([]config.LLMAccount, error) {
 func (m *MachineService) SaveLLMAccounts(x []config.LLMAccount) error {
 	return config.SaveLLMAccounts(x)
 }
+
 // Token-pricing RPCs deleted 2026-07-10 (ruled: costs stay estimates
 // from the built-in table; hand-editing <configDir>/pricing.json is
 // still honoured by config.EstimateCost's merge).
 
-// IsLLMConfigured returns true if any usable LLM provider exists.
-// Mirrors core/services/llm.IsConfigured but doesn't require a Runtime
-// — the boot LLM-nudge check fires before any repo is open.
-func (m *MachineService) IsLLMConfigured() bool {
-	cfg, err := config.LoadLLMConfig()
-	if err == nil && cfg.Provider != "" {
-		return true
-	}
-	accounts, err := config.LoadLLMAccounts()
-	if err != nil {
-		return false
-	}
-	for _, acct := range accounts {
-		if acct.APIKey != "" || acct.Provider == "ollama" {
-			return true
-		}
-	}
-	return false
+// IsLLMConfigured returns true if any usable model exists. Doesn't
+// require a Runtime — the boot LLM-nudge check fires before any repo
+// is open.
+func (m *MachineService) IsLLMConfigured() bool { return m.llm.IsConfigured() }
+
+// --- Model registry and routing (plan/2026-09-25 multiple models and
+// model routing.md) ---
+
+func (m *MachineService) GetLLMRouting() (config.LLMRouting, error) { return m.llm.GetRouting() }
+
+// GetLLMRegistry is the key-free registry for model pickers (chat chips,
+// agent tab, the phone).
+func (m *MachineService) GetLLMRegistry() (llmsvc.RegistryView, error) { return m.llm.GetRegistryView() }
+func (m *MachineService) SaveLLMRouting(r config.LLMRouting) error  { return m.llm.SaveRouting(r) }
+
+// DiscoverLLMModels lists the models a provider offers. Reads the
+// SAVED provider credentials — the settings editor saves before asking.
+func (m *MachineService) DiscoverLLMModels(accountID string) ([]llmsvc.DiscoveredModel, error) {
+	return m.llm.DiscoverModels(accountID)
+}
+
+// TestLLMModel sends a one-line prompt to a saved model.
+func (m *MachineService) TestLLMModel(modelID string) (string, error) {
+	return m.llm.TestModel(modelID)
+}
+
+// NewLLMRouter returns a seeded, unsaved rules router.
+func (m *MachineService) NewLLMRouter(name string) config.LLMRouter {
+	return m.llm.NewRulesRouter(name)
+}
+
+// PreviewLLMRoute runs a router from the settings being edited against
+// a sample message ("Try it"). No model is called.
+func (m *MachineService) PreviewLLMRoute(reg config.LLMRouting, accountIDs []string, routerID, task, message string, toolsOffered bool) (llmsvc.RoutePreview, error) {
+	return m.llm.PreviewRoute(reg, accountIDs, routerID, task, message, toolsOffered)
 }
 
 // --- Notifications config (per-machine; the actual notification list

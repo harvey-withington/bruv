@@ -1,11 +1,13 @@
 <script lang="ts">
   import { onMount, getContext } from 'svelte'
+  import { onReconnect } from '../lib/connectivity.svelte'
   import { Send, Trash2, Pencil, Check, X } from 'lucide-svelte'
   import { repoRPC } from '../lib/auth'
   import { renderMarkdown } from '@shared/markdown'
   import { inlineEdit } from '@shared/inlineEdit'
   import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import { t } from '../lib/i18n.svelte'
+  import { mentionable } from '../lib/mentions.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import type { CardComment } from '@shared/types'
 
@@ -40,6 +42,7 @@
   async function reload() {
     try {
       comments = (await repoRPC<CardComment[]>('ListCardComments', [cardId])) ?? []
+      errorMsg = null
     } catch (err) {
       errorMsg = err instanceof Error ? err.message : t('comments.err_load')
     } finally {
@@ -47,7 +50,15 @@
     }
   }
 
-  onMount(reload)
+  // Comments posted elsewhere during an outage (or a load that failed
+  // offline) come back with the connection. The composer's draft is
+  // separate state, so a reload never touches it.
+  onMount(() => {
+    void reload()
+    return onReconnect(() => {
+      if (!editingId) void reload()
+    })
+  })
 
   async function add() {
     const text = draft.trim()
@@ -149,6 +160,7 @@
               class="edit-area"
               bind:value={editDraft}
               rows="3"
+              use:mentionable
               use:inlineEdit={{
                 multiline: true,
                 enterInsertsNewline: true,
@@ -192,6 +204,7 @@
       bind:this={textareaEl}
       bind:value={draft}
       oninput={autoGrow}
+      use:mentionable
       use:inlineEdit={{
         serial: true,
         multiline: true,

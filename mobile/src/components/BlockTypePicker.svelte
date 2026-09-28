@@ -3,7 +3,7 @@
   import {
     X, Type, ListChecks, List, Film, Link, Minus, ChevronDown, Hash,
     Calendar, Star, ToggleLeft, CircleDot, Image as ImageIcon, ChartColumn,
-    Bell, ClipboardList,
+    Bell, ClipboardList, FolderTree,
   } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
 
@@ -32,6 +32,7 @@
     { type: 'progress', Icon: ChartColumn },
     { type: 'alarm', Icon: Bell },
     { type: 'survey', Icon: ClipboardList },
+    { type: 'workspace_files', Icon: FolderTree },
   ]
 
   let dragStartY = 0

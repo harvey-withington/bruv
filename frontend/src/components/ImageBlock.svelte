@@ -1,5 +1,7 @@
 <script lang="ts">
   import { t } from '../lib/i18n.svelte'
+  import { renderInline } from '@shared/markdown'
+  import { mentionable } from '../lib/mentions.svelte'
   import { SignAttachmentURL } from '@shared/api'
   import { parseAttachmentRef } from '@shared/attachmentRefs'
 
@@ -80,6 +82,7 @@
         type="text"
         class="image-caption-input"
         placeholder={t('block.image_caption_placeholder')}
+        use:mentionable
         bind:value={captionDraft}
         onkeydown={(e) => { if (e.key === 'Enter') save() }}
       />
@@ -91,7 +94,7 @@
     <div class="image-display" onclick={() => { urlDraft = imgData.url; captionDraft = imgData.caption || ''; editing = true }}>
       <img src={resolvedURL} alt={imgData.caption || ''} class="block-image" />
       {#if imgData.caption}
-        <p class="image-caption">{imgData.caption}</p>
+        <p class="image-caption">{@html renderInline(imgData.caption)}</p>
       {/if}
     </div>
   {/if}

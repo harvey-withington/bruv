@@ -25,7 +25,6 @@ import (
 	"bruv/core/services/card"
 	"bruv/core/services/catalog"
 	chatsvc "bruv/core/services/chat"
-	llmsvc "bruv/core/services/llm"
 	"bruv/core/services/mcpsvc"
 	"bruv/internal/config"
 	"bruv/internal/importer"
@@ -107,6 +106,20 @@ func (r *Runtime) ReadCardAttachment(cardID, attachmentID string) ([]byte, *mode
 }
 func (r *Runtime) RemoveCardAttachment(cardID, attachmentID string) (*model.Card, error) {
 	return r.Card.RemoveAttachment(cardID, attachmentID)
+}
+
+// OpenCardAttachmentText / StatCardAttachmentText / SaveCardAttachmentText
+// are the document editor's attachment source — the same open/stat/
+// guarded-save contract as the workspace file RPCs, so a text attachment
+// opens in the same editor on both surfaces.
+func (r *Runtime) OpenCardAttachmentText(cardID, attachmentID string) (*model.WorkspaceFileContent, error) {
+	return r.Card.OpenAttachmentText(cardID, attachmentID)
+}
+func (r *Runtime) StatCardAttachmentText(cardID, attachmentID string) (*model.WorkspaceFileStamp, error) {
+	return r.Card.StatAttachmentText(cardID, attachmentID)
+}
+func (r *Runtime) SaveCardAttachmentText(cardID, attachmentID, content, expectedHash string) (*model.WorkspaceSaveResult, error) {
+	return r.Card.SaveAttachmentText(cardID, attachmentID, content, expectedHash)
 }
 func (r *Runtime) UpdateCardTags(id string, tags []string) (*model.Card, error) {
 	return r.Card.UpdateTags(id, tags)
@@ -272,6 +285,13 @@ type CardTypesImportResult = catalog.CardTypesImportResult
 // ListCardTypes returns all card types (built-in first, then user).
 func (r *Runtime) ListCardTypes() []CardTypeInfo { return r.Catalog.ListCardTypes() }
 
+// ResolveOrCreateCardType canonicalises an LLM-supplied card type against
+// the catalog (match by id or label, create when unknown, empty stays
+// untyped) — see catalog.Service.ResolveOrCreateType.
+func (r *Runtime) ResolveOrCreateCardType(input string) (id string, created bool, err error) {
+	return r.Catalog.ResolveOrCreateType(input)
+}
+
 func (r *Runtime) ValidateCardFields(cardType string, fields map[string]any) []string {
 	return r.Catalog.ValidateCardFields(cardType, fields)
 }
@@ -386,6 +406,14 @@ func (r *Runtime) ClearCardChatHistory(cardID string) error {
 // Forwards to the chat runtime.
 func (r *Runtime) SendChatMessage(cardID, userMessage string) (*model.ChatFile, error) {
 	return r.chatRT.SendCard(cardID, userMessage)
+}
+
+// PopulateCardWithAI runs one card-chat turn in edit mode regardless of
+// the configured AI mode, so the model's edits and pin land on the card
+// without an approval round-trip. Quick capture's "Create with AI" uses
+// it; the exchange is kept in the card's chat history.
+func (r *Runtime) PopulateCardWithAI(cardID, userMessage string) (*model.ChatFile, error) {
+	return r.chatRT.SendCardEdit(cardID, userMessage)
 }
 
 // SendProjectChatMessage is the Wails-bound entry point for
@@ -599,25 +627,62 @@ func (r *Runtime) ListRecentlyUpdatedCards(limit int) ([]RecentCard, error) {
 	return result, nil
 }
 
-// Wails-bound forwarders for LLM config, accounts, token pricing, and
-// health probes. Domain logic lives in core/services/llm.
-//
-// loadLLMProvider / loadLLMProviderForAccount remain as App-level
-// helpers because app_chat.go and app_agent.go still call them
-// directly; they'll migrate to receiving the llm.Service via their
-// Deps when chat and agent are extracted into services.
-
-// --- Wails-bound forwarders ---
+// RPC forwarders for LLM config, providers, the model registry and
+// health probes. Domain logic lives in core/services/llm. The same
+// per-machine methods are also on MachineService (reachable before a
+// repo is picked); these copies serve clients on the per-repo route.
 
 func (r *Runtime) GetLLMConfig() (config.LLMConfig, error)      { return r.LLM.GetConfig() }
 func (r *Runtime) SetLLMConfig(c config.LLMConfig) error        { return r.LLM.SetConfig(c) }
 func (r *Runtime) GetLLMAccounts() ([]config.LLMAccount, error) { return r.LLM.GetAccounts() }
 func (r *Runtime) SaveLLMAccounts(x []config.LLMAccount) error  { return r.LLM.SaveAccounts(x) }
-func (r *Runtime) TestLLMAccountConnection(id string) (string, error) {
-	return r.LLM.TestAccountConnection(id)
+func (r *Runtime) IsLLMConfigured() bool                        { return r.LLM.IsConfigured() }
+
+// Per-chat model choice. The chat id is derived here so the frontend
+// never builds synthetic project-chat ids.
+
+func (r *Runtime) GetCardChatModel(cardID string) (config.ModelRef, error) {
+	return r.chatModelChoice(cardID)
 }
-func (r *Runtime) IsLLMConfigured() bool              { return r.LLM.IsConfigured() }
-func (r *Runtime) TestLLMConnection() (string, error) { return r.LLM.TestConnection() }
+func (r *Runtime) SetCardChatModel(cardID string, ref config.ModelRef) error {
+	return r.setChatModelChoice(cardID, ref)
+}
+func (r *Runtime) GetProjectChatModel(brandSlug, streamSlug, projectSlug string) (config.ModelRef, error) {
+	id, err := r.projectChatID(brandSlug, streamSlug, projectSlug)
+	if err != nil {
+		return "", err
+	}
+	return r.chatModelChoice(id)
+}
+func (r *Runtime) SetProjectChatModel(brandSlug, streamSlug, projectSlug string, ref config.ModelRef) error {
+	id, err := r.projectChatID(brandSlug, streamSlug, projectSlug)
+	if err != nil {
+		return err
+	}
+	return r.setChatModelChoice(id, ref)
+}
+
+func (r *Runtime) projectChatID(brandSlug, streamSlug, projectSlug string) (string, error) {
+	project, err := r.repo.GetProject(brandSlug, streamSlug, projectSlug)
+	if err != nil {
+		return "", err
+	}
+	return chatsvc.ProjectChatID(project.ID), nil
+}
+
+func (r *Runtime) chatModelChoice(chatID string) (config.ModelRef, error) {
+	if r.repo == nil {
+		return "", fmt.Errorf("no repository open")
+	}
+	return config.GetChatModelChoice(r.repo.Manifest.ID, chatID)
+}
+
+func (r *Runtime) setChatModelChoice(chatID string, ref config.ModelRef) error {
+	if r.repo == nil {
+		return fmt.Errorf("no repository open")
+	}
+	return config.SetChatModelChoice(r.repo.Manifest.ID, chatID, ref)
+}
 
 // TestSystemNotification is wired here because the button that calls
 // it sits in the LLM settings panel. It belongs in NotifyService
@@ -625,26 +690,6 @@ func (r *Runtime) TestLLMConnection() (string, error) { return r.LLM.TestConnect
 // directly.
 func (r *Runtime) TestSystemNotification() error {
 	return notify.TestSystemNotification()
-}
-
-// --- Internal helpers used by chat and agent execution paths ---
-
-// loadLLMProvider resolves the default provider.
-func (r *Runtime) loadLLMProvider() (config.LLMConfig, llm.Provider, error) {
-	return r.LLM.LoadProvider()
-}
-
-// loadLLMProviderForAccount resolves a provider with optional account
-// ID and model override. Precedence documented on the service method.
-func (r *Runtime) loadLLMProviderForAccount(accountID, modelOverride string) (config.LLMConfig, llm.Provider, error) {
-	return r.LLM.LoadProviderForAccount(accountID, modelOverride)
-}
-
-// defaultModelForProvider is kept as a package-level helper because
-// app_chat.go and app_agent.go reference it directly. The canonical
-// implementation lives in core/services/llm.
-func defaultModelForProvider(provider string) string {
-	return llmsvc.DefaultModelForProvider(provider)
 }
 
 // listCardTypeIDs stays on App because it's not an LLM concern — it
@@ -866,10 +911,9 @@ func (r *Runtime) ApplyProjectPendingEdits(brandSlug, streamSlug, projectSlug, m
 
 	// Walk the target message, applying accepted edits in order and marking
 	// the rest rejected. Edits run synchronously through the project executor.
-	// Failures are stamped into the edit's Detail so the user can hover to see
-	// them, and we collect a count to surface as a returned error after save —
-	// the frontend uses that to fire a toast.
-	var failures int
+	// A tool error marks that one edit failed (reason on the edit, see
+	// resolvePendingEdit) and the walk carries on; the call itself still
+	// succeeds so the caller gets the resolved rows back.
 	for i, m := range cf.Messages {
 		if m.ID != msgID {
 			continue
@@ -881,13 +925,7 @@ func (r *Runtime) ApplyProjectPendingEdits(brandSlug, streamSlug, projectSlug, m
 			if acceptSet[edit.ID] {
 				tc := llm.ToolCall{ID: edit.ID, Name: edit.Tool, Arguments: edit.Input}
 				result, _ := r.executeProjectToolCall(tc, applyScope)
-				if strings.HasPrefix(result, "error:") {
-					// Leave it pending so the user can retry; record the error in detail.
-					cf.Messages[i].PendingEdits[j].Detail = result
-					failures++
-					continue
-				}
-				cf.Messages[i].PendingEdits[j].Status = "accepted"
+				resolvePendingEdit(&cf.Messages[i].PendingEdits[j], result)
 			} else {
 				cf.Messages[i].PendingEdits[j].Status = "rejected"
 			}
@@ -898,16 +936,27 @@ func (r *Runtime) ApplyProjectPendingEdits(brandSlug, streamSlug, projectSlug, m
 	if err := config.SaveChatFor(r.repo.Manifest.ID, cf); err != nil {
 		return nil, err
 	}
-	// Failures are surfaced via the per-edit Detail field (which starts with
-	// "error:" for failed rows). The frontend scans for those after a refresh
-	// and toasts the user. We don't return a Go error here because Wails would
-	// drop the cf value, and the user needs to see the updated rows so they
-	// can retry the failed ones.
-	_ = failures
 	return cf, nil
 }
 
-// AcceptPendingEdit applies a single pending edit from Suggest mode and marks it accepted.
+// resolvePendingEdit stamps the outcome of an accepted edit's tool call.
+// Tool handlers report failure as an "error…" result string rather than
+// a Go error, so that is what decides between accepted and failed. A
+// failed edit keeps its label and detail (what was proposed) and gains
+// the reason; the UI shows it as a red cross with the reason on hover.
+// Failure is terminal — the batch never returns a Go error for it,
+// because a transport error would hide the other rows' outcomes.
+func resolvePendingEdit(edit *model.PendingEdit, result string) {
+	if strings.HasPrefix(strings.ToLower(result), "error") {
+		edit.Status = model.PendingEditFailed
+		edit.Error = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(result[len("error"):]), ":"))
+		return
+	}
+	edit.Status = "accepted"
+}
+
+// AcceptPendingEdit applies a single pending edit from Suggest mode and
+// marks it accepted, or failed with the tool's reason (resolvePendingEdit).
 func (r *Runtime) AcceptPendingEdit(cardID, msgID, editID string) (*model.ChatFile, error) {
 	if r.repo == nil {
 		return nil, fmt.Errorf("no repository open")
@@ -931,11 +980,7 @@ func (r *Runtime) AcceptPendingEdit(cardID, msgID, editID string) (*model.ChatFi
 			}
 			tc := llm.ToolCall{ID: editID, Name: edit.Tool, Arguments: edit.Input}
 			result, _, _ := r.executeToolCall(cardID, card, tc, allCats)
-			if strings.HasPrefix(result, "error:") {
-				return nil, fmt.Errorf("could not apply edit: %s", result)
-			}
-			card, _ = r.repo.GetCard(cardID) // refresh for subsequent edits in same batch
-			cf.Messages[i].PendingEdits[j].Status = "accepted"
+			resolvePendingEdit(&cf.Messages[i].PendingEdits[j], result)
 			if err := config.SaveChatFor(r.repo.Manifest.ID, cf); err != nil {
 				return nil, err
 			}
@@ -999,6 +1044,8 @@ func (r *Runtime) ApplyPendingEdits(cardID, msgID string, acceptIDs []string) (*
 		break
 	}
 
+	// Each accept reloads the chat and the card, so a failed edit never
+	// stops the ones after it; the outcome of every row rides back on cf.
 	var firstErr error
 	for _, eid := range toAccept {
 		if updated, err2 := r.AcceptPendingEdit(cardID, msgID, eid); err2 == nil {
@@ -1079,6 +1126,11 @@ func (r *Runtime) AcceptPinSuggestion(cardID, messageID string) error {
 	}
 	for i, m := range cf.Messages {
 		if m.ID == messageID && m.PinSuggestion != nil && m.PinSuggestion.Status == "pending" {
+			// A suggestion staged while the card was in the Inbox may be
+			// accepted after the user filed it by hand — never double-pin.
+			if existing, _ := r.repo.GetCardPins(cardID); len(existing) > 0 {
+				return fmt.Errorf("card is already filed on a board — move it by hand instead of pinning it again")
+			}
 			if err := r.PinCard(cardID, m.PinSuggestion.CategoryID); err != nil {
 				return err
 			}

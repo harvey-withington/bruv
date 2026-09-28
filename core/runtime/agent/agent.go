@@ -16,6 +16,7 @@ import (
 	"bruv/core/runtime/promptfmt"
 	"bruv/core/runtime/tools"
 	llmsvc "bruv/core/services/llm"
+	"bruv/core/services/llm/routing"
 	agentlib "bruv/internal/agent"
 	"bruv/internal/config"
 	"bruv/internal/llm"
@@ -426,26 +427,13 @@ func (rt *Runtime) executeAgent(ctx context.Context, cardID string) error {
 		return err
 	}
 
-	// 5. Load LLM provider (per-agent account/model override)
-	cfg, provider, err := rt.deps.LLM().LoadProviderForAccount(af.Config.LLMAccountID, af.Config.LLMModel)
-	if err != nil || provider == nil {
+	// 5. Load AI behaviour config (user context for the prompt)
+	cfg, err := rt.deps.LLM().GetConfig()
+	if err != nil {
 		run.Status = "failure"
-		// Distinguish "nothing configured" from "configured but failed
-		// to load" — the run history is where the user debugs this.
-		if err != nil {
-			run.Error = "LLM provider load failed: " + err.Error()
-			return fmt.Errorf("llm provider load failed: %w", err)
-		}
-		run.Error = "LLM not configured"
-		return fmt.Errorf("LLM not configured")
+		run.Error = "LLM config load failed: " + err.Error()
+		return fmt.Errorf("llm config load failed: %w", err)
 	}
-
-	modelName := cfg.Model
-	if modelName == "" {
-		modelName = llmsvc.DefaultModelForProvider(cfg.Provider)
-	}
-	run.ModelUsed = modelName
-	run.ProviderUsed = cfg.Provider
 
 	// 6. Build system prompt
 	systemPrompt := rt.deps.Prompts().Agent(card, af.Config, cfg)
@@ -458,6 +446,32 @@ func (rt *Runtime) executeAgent(ctx context.Context, cardID string) error {
 	// with built-in tool names. Passing an empty allowed list
 	// means "all MCP tools", matching the built-in behaviour.
 	toolDefs = append(toolDefs, rt.mcpToolDefs(af.Config.AllowedTools)...)
+
+	// Select the model: the agent's own choice (or its pre-routing
+	// account/model pair), else the agent_run task's assignment.
+	sel, err := rt.deps.LLM().Select(ctx, llmsvc.RouteRequest{
+		Task:            llmsvc.TaskAgentRun,
+		Choice:          config.ModelRef(af.Config.LLM),
+		LegacyAccountID: af.Config.LLMAccountID,
+		LegacyModel:     af.Config.LLMModel,
+		UserMessage:     af.Config.Goal,
+		ContextTokens:   routing.EstimateTokens(systemPrompt),
+		ToolsOffered:    len(toolDefs) > 0,
+	})
+	if err != nil || sel == nil {
+		run.Status = "failure"
+		// Distinguish "nothing configured" from "configured but failed
+		// to load" — the run history is where the user debugs this.
+		if err != nil {
+			run.Error = "LLM provider load failed: " + err.Error()
+			return fmt.Errorf("llm provider load failed: %w", err)
+		}
+		run.Error = "LLM not configured"
+		return fmt.Errorf("LLM not configured")
+	}
+	run.ModelUsed = sel.Model
+	run.ProviderUsed = sel.Decision.Provider
+	run.Route = &sel.Decision
 
 	// 8. Create ephemeral chat file (not persisted to card chat)
 	cf := &model.ChatFile{
@@ -485,7 +499,7 @@ func (rt *Runtime) executeAgent(ctx context.Context, cardID string) error {
 		budget = 50000
 	}
 
-	resultCf, err := rt.deps.ChatRT().RunLoop(runCtx, provider, modelName, cf, chatrt.LoopConfig{
+	resultCf, err := rt.deps.ChatRT().RunLoop(runCtx, sel.Provider, sel.Model, cf, chatrt.LoopConfig{
 		ChatID:          "__agent__" + cardID,
 		SystemPrompt:    systemPrompt,
 		Tools:           toolDefs,

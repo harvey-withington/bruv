@@ -40,8 +40,7 @@ type ConfigPatch struct {
 	AllowedTools      *[]string
 	NotifyOn          *[]string
 	NotifyChannels    *[]string
-	LLMAccountID      *string
-	LLMModel          *string
+	LLM               *string // config.ModelRef; "" = the agent_run task's assignment
 	MaxTokensBudget   *int
 	MinIntervalMins   *int
 	MaxRetries        *int
@@ -68,8 +67,12 @@ func (p ConfigPatch) Apply(cfg *model.AgentConfig) {
 	if p.NotifyChannels != nil {
 		cfg.NotifyChannel = strings.Join(*p.NotifyChannels, ",")
 	}
-	setIf(&cfg.LLMAccountID, p.LLMAccountID)
-	setIf(&cfg.LLMModel, p.LLMModel)
+	if p.LLM != nil {
+		// A routing-era choice replaces the pre-routing pair, as the
+		// Agent tab does on save; otherwise the legacy pair would still
+		// win whenever LLM is cleared back to inherit.
+		cfg.LLM, cfg.LLMAccountID, cfg.LLMModel = *p.LLM, "", ""
+	}
 	setIf(&cfg.MaxTokensBudget, p.MaxTokensBudget)
 	setIf(&cfg.MinIntervalMins, p.MinIntervalMins)
 	setIf(&cfg.MaxRetries, p.MaxRetries)

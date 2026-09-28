@@ -3,6 +3,8 @@
   import { Pencil, Trash2, Check, X } from 'lucide-svelte'
   import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import { inlineEdit } from '../lib/actions'
+  import { mentionable } from '../lib/mentions.svelte'
+  import { renderMarkdown } from '@shared/markdown'
   import { t } from '../lib/i18n.svelte'
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
@@ -152,6 +154,7 @@
             <textarea
               class="comment-edit-input"
               bind:value={editDraft}
+              use:mentionable
               use:inlineEdit={{
                 multiline: true,
                 blurCommits: false,
@@ -170,7 +173,7 @@
               </button>
             </div>
           {:else}
-            <p class="comment-body">{c.text}</p>
+            <div class="comment-body markdown-content">{@html renderMarkdown(c.text)}</div>
           {/if}
         </li>
       {/each}
@@ -182,6 +185,7 @@
       class="comment-input"
       bind:this={composerEl}
       bind:value={draft}
+      use:mentionable
       use:inlineEdit={{
         serial: true,
         multiline: true,

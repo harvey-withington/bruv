@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { ChevronRight, ChevronDown, Folder, FileText, Link2, LayoutTemplate, AlertTriangle } from 'lucide-svelte'
-  import type { WorkspaceDirCache } from '../../lib/workspaceTree.svelte'
+  import { ChevronRight, Folder, FileText, Link2, LayoutTemplate, AlertTriangle, Square, SquareCheck, FilePlus, FolderPlus } from 'lucide-svelte'
+  import type { WorkspaceDirCache, WorkspaceTreeNode } from '../../lib/workspaceTree.svelte'
   import { t } from '../../lib/i18n.svelte'
+  import { setWorkspaceDrag } from '../../lib/workspaceDrag'
   import WorkspaceFileTree from './WorkspaceFileTree.svelte'
 
   // Recursive collapsible tree over a LAZY per-directory cache
@@ -16,7 +17,12 @@
   // whole tree instead of per-level islands. A directory is expanded ONLY
   // when `collapsed[path] === false`: absent means collapsed, so the tree
   // opens closed and stays cheap.
-  let { cache, dir = '', onOpenFile, depth = 0, collapsed, mode = 'multi' }: {
+  //
+  // Three optional behaviours ride the same rows (plan/2026-09-17):
+  // structure actions on folders (`onCreateIn`), multi-select as a picker
+  // (`selected` + `onToggleSelect`), and drag-out as a Workspace Files
+  // entry (`workspaceId`). Absent props = plain browse tree.
+  let { cache, dir = '', onOpenFile, depth = 0, collapsed, mode = 'multi', workspaceId, onCreateIn, selected, onToggleSelect }: {
     cache: WorkspaceDirCache
     /** Directory this instance renders the children of ('' = root). */
     dir?: string
@@ -26,10 +32,20 @@
     /** 'single': expanding a folder collapses its siblings (accordion),
      *  matching the Sidebar project tree's mode toggle. */
     mode?: 'single' | 'multi'
+    /** When set, rows drag out as Workspace Files entries of this workspace. */
+    workspaceId?: string
+    /** New file / New folder / From template on a folder row (hover-revealed). */
+    onCreateIn?: (dir: string, kind: 'file' | 'dir' | 'template') => void
+    /** Picker mode: shared selection record (path → selected), same
+     *  ownership rule as `collapsed`. Rows show a checkbox; a file click
+     *  toggles instead of opening. */
+    selected?: Record<string, boolean>
+    onToggleSelect?: (node: WorkspaceTreeNode) => void
   } = $props()
 
   const state = $derived(cache.get(dir))
   const children = $derived(state?.status === 'ready' ? state.children : [])
+  const selectable = $derived(selected !== undefined && onToggleSelect !== undefined)
 
   $effect(() => {
     // Reading the cache entry (not just calling ensure) is deliberate: after a
@@ -52,6 +68,16 @@
     }
     collapsed[path] = !expanding
   }
+
+  function onFileClick(n: WorkspaceTreeNode) {
+    if (selectable) onToggleSelect?.(n)
+    else onOpenFile?.(n.path)
+  }
+
+  function dragStart(e: DragEvent, n: WorkspaceTreeNode) {
+    if (!workspaceId) return
+    setWorkspaceDrag(e.dataTransfer, { workspaceId, path: n.path, isDir: n.isDir })
+  }
 </script>
 
 <ul class="tree" style:padding-left={depth > 0 ? '0.9rem' : '0'}>
@@ -67,23 +93,37 @@
     </li>
   {:else}
     {#each children as n (n.path)}
-      <li>
-        {#if n.isDir}
-          <button class="node dir" class:tpl={cache.isTemplateRoot(n.path)} onclick={() => toggleDir(n.path)}>
-            {#if isExpanded(n.path)}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}
-            {#if cache.isTemplateRoot(n.path)}<LayoutTemplate size={13} />{:else}<Folder size={13} />{/if}
-            <span class="name">{n.name}</span>
-          </button>
-          <!-- Children mount only while expanded, and mounting is what loads
-               them: collapsed subtrees cost neither DOM nor an RPC. -->
-          {#if isExpanded(n.path)}
-            <WorkspaceFileTree {cache} dir={n.path} {onOpenFile} depth={depth + 1} {collapsed} {mode} />
+      <li class="row-host">
+        <div class="row" draggable={!!workspaceId} ondragstart={(e) => dragStart(e, n)} role="presentation">
+          {#if selectable}
+            <button class="check" class:on={selected?.[n.path]} onclick={() => onToggleSelect?.(n)} aria-pressed={selected?.[n.path] === true} aria-label={t('workspace.select_entry', { name: n.name })}>
+              {#if selected?.[n.path]}<SquareCheck size={13} />{:else}<Square size={13} />{/if}
+            </button>
           {/if}
-        {:else}
-          <button class="node file" onclick={() => onOpenFile?.(n.path)}>
-            {#if n.symlink}<Link2 size={13} />{:else}<FileText size={13} />{/if}
-            <span class="name">{n.name}</span>
-          </button>
+          {#if n.isDir}
+            <button class="node dir press-still" class:tpl={cache.isTemplateRoot(n.path)} onclick={() => toggleDir(n.path)}>
+              <span class="chev" class:open={isExpanded(n.path)}><ChevronRight size={12} /></span>
+              {#if cache.isTemplateRoot(n.path)}<LayoutTemplate size={13} />{:else}<Folder size={13} />{/if}
+              <span class="name">{n.name}</span>
+            </button>
+            {#if onCreateIn}
+              <span class="create-actions">
+                <button class="mini" onclick={() => onCreateIn?.(n.path, 'file')} title={t('workspace.new_file')} aria-label={t('workspace.new_file')}><FilePlus size={12} /></button>
+                <button class="mini" onclick={() => onCreateIn?.(n.path, 'dir')} title={t('workspace.new_folder')} aria-label={t('workspace.new_folder')}><FolderPlus size={12} /></button>
+                <button class="mini" onclick={() => onCreateIn?.(n.path, 'template')} title={t('workspace.from_template')} aria-label={t('workspace.from_template')}><LayoutTemplate size={12} /></button>
+              </span>
+            {/if}
+          {:else}
+            <button class="node file press-still" onclick={() => onFileClick(n)}>
+              {#if n.symlink}<Link2 size={13} />{:else}<FileText size={13} />{/if}
+              <span class="name">{n.name}</span>
+            </button>
+          {/if}
+        </div>
+        <!-- Children mount only while expanded, and mounting is what loads
+             them: collapsed subtrees cost neither DOM nor an RPC. -->
+        {#if n.isDir && isExpanded(n.path)}
+          <WorkspaceFileTree {cache} dir={n.path} {onOpenFile} depth={depth + 1} {collapsed} {mode} {workspaceId} {onCreateIn} {selected} {onToggleSelect} />
         {/if}
       </li>
     {/each}
@@ -96,13 +136,24 @@
     margin: 0;
     padding: 0;
   }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 0.1rem;
+    border-radius: 4px;
+  }
+  .row:hover,
+  .row:focus-within {
+    background: var(--accent-glow-2);
+  }
   /* Row treatment mirrors the Sidebar's project tree (.tree-item):
      body-contrast text, accent-glow hover, primary for emphasis. */
   .node {
     display: flex;
     align-items: center;
     gap: 0.35rem;
-    width: 100%;
+    flex: 1;
+    min-width: 0;
     padding: 0.2rem 0.35rem;
     border: none;
     background: none;
@@ -112,9 +163,8 @@
     border-radius: 4px;
     cursor: pointer;
   }
-  .node:hover,
+  .row:hover .node,
   .node:focus-visible {
-    background: var(--accent-glow-2);
     color: var(--text-primary);
   }
   .node.dir {
@@ -123,13 +173,40 @@
   }
   /* Folder-Template roots: cyan-tinted (--template-accent, theme-aware) so
      they read as generators, not ordinary content folders. */
-  .node.dir.tpl {
+  .node.dir.tpl,
+  .row:hover .node.dir.tpl {
     color: var(--template-accent);
   }
-  .node.dir.tpl:hover,
-  .node.dir.tpl:focus-visible {
-    color: var(--template-accent);
+  .row:hover .node.dir.tpl {
     filter: brightness(1.15);
+  }
+  .check,
+  .mini {
+    display: flex;
+    align-items: center;
+    padding: 0.15rem;
+    border: none;
+    background: none;
+    color: var(--text-faint);
+    cursor: pointer;
+    border-radius: 3px;
+  }
+  .check.on { color: var(--accent); }
+  .check:hover,
+  .mini:hover,
+  .mini:focus-visible {
+    color: var(--text-primary);
+  }
+  /* Structure actions reveal on the folder row's hover/focus only —
+     three icons per row at rest would drown the tree. */
+  .create-actions {
+    display: none;
+    gap: 0;
+    padding-right: 0.2rem;
+  }
+  .row:hover .create-actions,
+  .row:focus-within .create-actions {
+    display: flex;
   }
   /* Per-level loading / failure rows, indented with the children they stand
      in for. */
@@ -166,4 +243,10 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .chev {
+    display: inline-flex;
+    flex-shrink: 0;
+    transition: transform 120ms ease;
+  }
+  .chev.open { transform: rotate(90deg); }
 </style>

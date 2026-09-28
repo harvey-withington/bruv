@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Trash2, Plus, GripVertical } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
+  import { mentionable } from '../lib/mentions.svelte'
   import type { SurveyQuestion, SurveyQuestionType } from '@shared/types'
   import { computeReorder, wouldReorder, DROP_END } from '../lib/reorder'
 
@@ -172,6 +173,7 @@
         <input
           class="survey-prompt"
           type="text"
+          use:mentionable
           bind:value={q.prompt}
           onchange={(e) => updateQuestion(q.id, { prompt: (e.target as HTMLInputElement).value })}
           placeholder={t('block.survey.question_placeholder')}
@@ -195,6 +197,7 @@
       {#if q.type === 'text'}
         <textarea
           class="survey-answer-text"
+          use:mentionable
           value={typeof q.answer === 'string' ? q.answer : ''}
           onchange={(e) => updateQuestion(q.id, { answer: (e.target as HTMLTextAreaElement).value })}
           placeholder={t('block.survey.answer_placeholder')}
@@ -237,6 +240,7 @@
               <input
                 class="survey-option-text"
                 type="text"
+                use:mentionable
                 value={opt}
                 onchange={(e) => updateOption(q.id, i, (e.target as HTMLInputElement).value)}
                 placeholder={t('block.survey.option_placeholder')}

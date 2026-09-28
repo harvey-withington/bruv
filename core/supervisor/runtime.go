@@ -287,7 +287,17 @@ func (r *Runtime) ResolveAttachment(cardID, attachmentID string) (path, mime, na
 	if err != nil || att == nil {
 		return "", "", "", false
 	}
-	return r.repo.AttachmentPath(cardID, attachmentID), att.Mime, att.Name, true
+	mime = att.Mime
+	// Mime is frozen at upload from the extension table of that day;
+	// attachments added before the table learned .md/.csv/.yaml are stuck
+	// at octet-stream in the card JSON. Re-derive at serve time so they
+	// render as what they are.
+	if mime == "" || mime == "application/octet-stream" {
+		if detected := repo.DetectMime(att.Name); detected != "application/octet-stream" {
+			mime = detected
+		}
+	}
+	return r.repo.AttachmentPath(cardID, attachmentID), mime, att.Name, true
 }
 
 // CurrentRepoInfo is the JSON-stable view of "which repo is this".
@@ -494,7 +504,6 @@ type workspaceDeps struct{ r *Runtime }
 
 func (d workspaceDeps) Repo() *repo.Repository            { return d.r.repo }
 func (d workspaceDeps) Publish(topic string, payload any) { d.r.bus.Publish(topic, payload) }
-func (d workspaceDeps) Card() *card.Service               { return d.r.Card }
 
 // ---------------------------------------------------------------------
 // LLM runtime Deps adapters. "RT" suffix to avoid colliding with the

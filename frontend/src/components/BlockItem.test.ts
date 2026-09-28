@@ -55,7 +55,6 @@ describe('BlockItem — ID-keyed callbacks', () => {
         collapsedBlocks: new Set<string>(),
         expandedTextBlocks: new Set<string>(),
         draggingBlockId: null,
-        mentionVisible: false,
         textBlockOverflows: new Set<string>(),
         blockTextareaEls: {},
         textBlockEls: {},

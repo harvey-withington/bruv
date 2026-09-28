@@ -94,7 +94,7 @@ export type ListItem = {
 // Runtime list of every block type the model knows. `BlockType` derives
 // from it so the union and the list can never drift — import validation
 // (cardJson.ts) checks incoming blocks against this.
-export const BLOCK_TYPES = ['text', 'checklist', 'list', 'media', 'url', 'divider', 'select', 'number', 'date', 'rating', 'checkbox', 'radio', 'checkbox_group', 'image', 'progress', 'alarm', 'survey', 'slide_deck'] as const
+export const BLOCK_TYPES = ['text', 'checklist', 'list', 'media', 'url', 'divider', 'select', 'number', 'date', 'rating', 'checkbox', 'radio', 'checkbox_group', 'image', 'progress', 'alarm', 'survey', 'slide_deck', 'workspace_files'] as const
 
 export type BlockType = (typeof BLOCK_TYPES)[number]
 
@@ -116,6 +116,20 @@ export type MediaItem = {
   caption?: string
   mime?: string
 }
+
+// --- Workspace Files block ---
+// One file or folder in a project Workspace that the card is about. Path
+// is slash-relative to the workspace root; the entry carries its own
+// workspace id so the block renders wherever the card renders.
+// Design: plan/2026-09-17 workspace files block.md.
+export type WorkspaceFileEntry = {
+  id: string
+  workspace_id: string
+  path: string
+  is_dir?: boolean
+}
+
+export type WorkspaceFilesDisplay = 'tree' | 'flat'
 
 // --- Slide Deck block ---
 // A deck lives inside a card as block data, so it stays pinnable, taggable,
@@ -427,6 +441,8 @@ export type BlockMeta = {
   alarm_time?: string      // ISO 8601 datetime for the alarm
   alarm_channels?: string  // notification channels: "in-app,system"
   alarm_fired?: boolean    // whether the alarm has already fired
+  // Workspace Files block: how entries render
+  display?: WorkspaceFilesDisplay
 }
 
 export type Block = {
@@ -434,7 +450,7 @@ export type Block = {
   type: BlockType
   label: string
   key: string
-  value: string | number | boolean | string[] | ChecklistItem[] | ListItem[] | MediaItem[] | SurveyQuestion[] | SlideDeckValue | { url: string; caption?: string } | null
+  value: string | number | boolean | string[] | ChecklistItem[] | ListItem[] | MediaItem[] | SurveyQuestion[] | SlideDeckValue | WorkspaceFileEntry[] | { url: string; caption?: string } | null
   meta?: BlockMeta
 }
 
@@ -475,7 +491,10 @@ export type PendingEdit = {
   input: Record<string, unknown>
   label: string
   detail: string
-  status: 'pending' | 'accepted' | 'rejected'
+  /** `failed` = accepted, but the tool refused it at apply time; terminal. */
+  status: 'pending' | 'accepted' | 'rejected' | 'failed'
+  /** Why a `failed` edit did not apply. */
+  error?: string
 }
 
 export type ChatMessage = {
@@ -488,6 +507,8 @@ export type ChatMessage = {
   pending_edits?: PendingEdit[]
   /** Jump-back marker for the chat panel's bookmark navigation. */
   bookmarked?: boolean
+  /** Which model answered and why (assistant replies and provider errors). */
+  route?: RouteDecision
 }
 
 // ChatHistory mirrors Go's model.ChatFile — the unit returned by the
@@ -603,7 +624,6 @@ export type Card = {
   updated_at?: string
   context_level?: string    // "isolated" | "project" | "brand" | "global"
   labels?: string[]         // label IDs from the project's tags.json
-  folder?: CardFolder       // workspace subfolder binding (Card Folders)
   blocks: Block[]
   file_attachments: Attachment[]
   members?: string[]
@@ -736,6 +756,9 @@ export type AgentConfig = {
   status: AgentStatus
   notify_on: string[]
   notify_channel: string
+  /** The agent's model choice; '' = the agent_run task's assignment. */
+  llm?: ModelRef
+  /** Pre-routing account/model pair; honoured when llm is empty, cleared on save. */
   llm_account_id: string
   llm_model: string
   last_run_at: string | null
@@ -766,6 +789,9 @@ export type AgentRun = {
   tool_calls: { tool: string; input: Record<string, unknown>; result?: string }[]
   error: string
   tokens_used: number
+  model_used?: string
+  provider_used?: string
+  route?: RouteDecision
 }
 
 export type AgentFile = {
@@ -848,15 +874,123 @@ export type NotifyConfig = {
   webhook_auth_header: string
 }
 
-// --- LLM accounts ---
+// --- LLM providers (accounts), models and routing ---
+// plan/2026-09-25 multiple models and model routing.md. Go types live in
+// internal/config/llm_routing.go and internal/model (RouteDecision).
+
+export type LLMProviderKind = 'anthropic' | 'openai' | 'ollama' | 'openai_compatible'
+
+/** A provider connection. model / is_default are pre-routing fields the
+ * settings UI no longer writes (the registry's models + default replace them). */
 export type LLMAccount = {
   id: string
   label: string
-  provider: string
-  model: string
+  provider: LLMProviderKind
+  model?: string
   api_key: string
   base_url: string
-  is_default: boolean
+  is_default?: boolean
+}
+
+/** A provider without credentials — what model pickers need. */
+export type LLMProviderSummary = Pick<LLMAccount, 'id' | 'label' | 'provider'>
+
+/** GetLLMRegistry: the registry for pickers, with no API keys. */
+export type LLMRegistryView = { routing: LLMRouting; providers: LLMProviderSummary[] }
+
+/** What serves an AI request: a model, a router, a tier (router targets
+ * only), or '' to inherit. */
+export type ModelRef = `model:${string}` | `router:${string}` | `tier:${string}` | ''
+
+export type ModelTier = 'fast' | 'balanced' | 'powerful'
+
+export type LLMModel = {
+  id: string
+  account_id: string
+  /** Provider model id sent on the wire. */
+  name: string
+  label?: string
+  tier: ModelTier
+  supports_tools: boolean
+  enabled: boolean
+}
+
+export type ComplexityBand = 'low' | 'medium' | 'high'
+
+export type RuleToolsCondition = '' | 'yes' | 'no'
+
+export type RoutingRule = {
+  id: string
+  name?: string
+  tasks?: string[]
+  bands?: ComplexityBand[]
+  min_tokens?: number
+  max_tokens?: number
+  keywords?: string[]
+  tools?: RuleToolsCondition
+  target: ModelRef
+}
+
+export type LLMRouterKind = 'rules'
+
+export type LLMRouter = {
+  id: string
+  name: string
+  kind: LLMRouterKind
+  rules?: RoutingRule[]
+  fallback?: ModelRef
+  thresholds: { medium?: number; high?: number }
+  reasoning_keywords?: string[]
+  light_keywords?: string[]
+}
+
+export type LLMRouting = {
+  models: LLMModel[]
+  routers: LLMRouter[]
+  default?: ModelRef
+  /** Task id → model choice. */
+  tasks: Record<string, ModelRef>
+}
+
+export type LLMTask = 'card_chat' | 'project_chat' | 'card_populate' | 'agent_run'
+
+export type DiscoveredModel = { id: string; label?: string; tier: ModelTier }
+
+export type RouteSource = 'override' | 'task' | 'default' | 'first' | 'legacy'
+
+export type SkippedChoice = {
+  source: RouteSource
+  ref: string
+  why: 'missing' | 'disabled' | 'no_account' | 'no_eligible' | 'router_error'
+}
+
+export type RouteVia = 'rule' | 'fallback' | 'first'
+
+export type RouteDecision = {
+  model_id?: string
+  model: string
+  model_label?: string
+  provider: string
+  provider_label?: string
+  source: RouteSource
+  router_id?: string
+  router_name?: string
+  via?: RouteVia
+  rule_index?: number
+  rule_name?: string
+  band?: ComplexityBand
+  score?: number
+  skipped?: SkippedChoice[]
+}
+
+export type ComplexitySignal = { key: string; points: number; detail?: string }
+
+export type RoutePreview = {
+  assessment: { score: number; band: ComplexityBand; signals: ComplexitySignal[]; message_tokens: number }
+  via: RouteVia | ''
+  rule_index?: number
+  rule_name?: string
+  model_id: string
 }
 
 // --- LLM: AI-specific configuration (grows independently) ---
@@ -1319,12 +1453,20 @@ export interface BackendAdapter {
   // Delete a vault-resident template folder (vault-relative id only).
   DeleteWorkspaceTemplate(ref: string): Promise<void>
 
-  // Card Folders: bind a card to a subfolder of its project's workspace,
-  // generated from a template. Workspace-resident templates list first.
+  // Structure lives in the workspace tree (plan/2026-09-17 workspace
+  // files block.md): new files/folders and template generation act on the
+  // tree and return the cleaned workspace-relative path they made.
+  // Workspace-resident templates list first.
   ListProjectTemplates(brandSlug: string, streamSlug: string, projectSlug: string): Promise<WorkspaceTemplateEntry[]>
-  GenerateCardFolder(brandSlug: string, streamSlug: string, projectSlug: string, cardID: string, ref: string, targetRel: string, values: Record<string, string>): Promise<Card>
-  ClearCardFolder(cardID: string): Promise<Card>
-  LinkCardFolder(brandSlug: string, streamSlug: string, projectSlug: string, cardID: string, rel: string): Promise<Card>
+  GenerateWorkspaceTemplate(brandSlug: string, streamSlug: string, projectSlug: string, ref: string, targetRel: string, cardTitle: string, values: Record<string, string>): Promise<string>
+  CreateWorkspaceDir(brandSlug: string, streamSlug: string, projectSlug: string, rel: string): Promise<string>
+  CreateWorkspaceFile(brandSlug: string, streamSlug: string, projectSlug: string, rel: string): Promise<string>
+  // Commit BRUV's own writes on a published workspace so the host tree
+  // stays clean for clones to push into.
+  SetWorkspaceCommitOnSave(brandSlug: string, streamSlug: string, projectSlug: string, on: boolean): Promise<Workspace>
+  // A Workspace Files entry carries only its workspace id; this turns it
+  // into the slugs every workspace RPC wants.
+  ResolveWorkspace(workspaceID: string): Promise<WorkspaceLocation>
 
   // Index / search
   SearchCards(query: string, limit: number): Promise<SearchResult[]>
@@ -1377,6 +1519,8 @@ export interface BackendAdapter {
   // Chat
   LoadChatHistory(cardID: string): Promise<ChatHistory>
   SendChatMessage(cardID: string, userMessage: string): Promise<ChatHistory>
+  /** One card-chat turn forced into edit mode (tools apply directly). */
+  PopulateCardWithAI(cardID: string, userMessage: string): Promise<ChatHistory>
 
   // Project chat
   LoadProjectChatHistory(brandSlug: string, streamSlug: string, projectSlug: string): Promise<ChatHistory>
@@ -1386,14 +1530,25 @@ export interface BackendAdapter {
   ToggleChatBookmark(cardID: string, messageID: string): Promise<ChatHistory>
   ToggleProjectChatBookmark(brandSlug: string, streamSlug: string, projectSlug: string, messageID: string): Promise<ChatHistory>
 
-  // LLM accounts
+  // LLM providers, models and routing
   GetLLMAccounts(): Promise<LLMAccount[]>
   SaveLLMAccounts(accounts: LLMAccount[]): Promise<void>
-  TestLLMAccountConnection(accountID: string): Promise<string>
+  GetLLMRouting(): Promise<LLMRouting>
+  GetLLMRegistry(): Promise<LLMRegistryView>
+  SaveLLMRouting(routing: LLMRouting): Promise<void>
+  DiscoverLLMModels(accountID: string): Promise<DiscoveredModel[]>
+  TestLLMModel(modelID: string): Promise<string>
+  NewLLMRouter(name: string): Promise<LLMRouter>
+  PreviewLLMRoute(routing: LLMRouting, accountIDs: string[], routerID: string, task: string, message: string, toolsOffered: boolean): Promise<RoutePreview>
+
+  // Per-chat model choice
+  GetCardChatModel(cardID: string): Promise<ModelRef>
+  SetCardChatModel(cardID: string, ref: ModelRef): Promise<void>
+  GetProjectChatModel(brandSlug: string, streamSlug: string, projectSlug: string): Promise<ModelRef>
+  SetProjectChatModel(brandSlug: string, streamSlug: string, projectSlug: string, ref: ModelRef): Promise<void>
 
   // LLM utilities
   IsLLMConfigured(): Promise<boolean>
-  TestLLMConnection(): Promise<string>
   TestSystemNotification(): Promise<void>
 
   // Pin suggestions (from AI)
@@ -1411,6 +1566,11 @@ export interface BackendAdapter {
   // Attachments
   AddCardAttachment(cardID: string, name: string, data: string): Promise<Card>
   RemoveCardAttachment(cardID: string, attachmentID: string): Promise<Card>
+  // Text attachments open in the document editor through the same
+  // open/stat/guarded-save contract as workspace files.
+  OpenCardAttachmentText(cardID: string, attachmentID: string): Promise<WorkspaceFileContent>
+  StatCardAttachmentText(cardID: string, attachmentID: string): Promise<WorkspaceFileStamp>
+  SaveCardAttachmentText(cardID: string, attachmentID: string, content: string, expectedHash: string): Promise<WorkspaceSaveResult>
 
   // Comments
   ListCardComments(cardID: string): Promise<CardComment[]>
@@ -1485,6 +1645,10 @@ export interface Workspace {
   git_serve?: GitServeState
   git_serve_error?: string
   default_branch?: string
+  // Commit BRUV's own writes on the host (editor save, new file, template
+  // generation) so clones can keep pushing. On by default for repositories
+  // BRUV created; a setting for ones the user brought.
+  commit_on_save?: boolean
   created_at: string
   updated_at: string
 }
@@ -1586,11 +1750,12 @@ export interface WorkspaceState {
   index?: WorkspaceIndex
 }
 
-// CardFolder binds a card to a subfolder of a project Workspace (intrinsic,
-// 0-or-1 per card — see plan/2026-07-05 card folders design.md).
-export interface CardFolder {
-  workspace_id: string
-  path: string
+// Where a workspace lives — the project slugs the workspace RPCs take.
+export interface WorkspaceLocation {
+  brand_slug: string
+  stream_slug: string
+  project_slug: string
+  workspace: Workspace
 }
 
 // .ft/template.json parameter — camelCase keys, matching the on-disk

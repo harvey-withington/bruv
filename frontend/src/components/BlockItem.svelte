@@ -18,7 +18,9 @@
   import { t } from '../lib/i18n.svelte'
   import { focusOnMount, inlineEdit, clickOutside } from '../lib/actions'
   import { promoteTargets } from '@shared/promote'
-  import { asUrlValue } from '@shared/blockValues'
+  import { asUrlValue, asWorkspaceFiles, asWorkspaceFilesDisplay } from '@shared/blockValues'
+  import { isMentionPickerOpenFor } from '@shared/mentions'
+  import { mentionable } from '../lib/mentions.svelte'
   import { getContext } from 'svelte'
   import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import { showToast } from '../lib/toast.svelte'
@@ -39,6 +41,7 @@
   import AlarmBlock from './AlarmBlock.svelte'
   import SurveyBlock from './SurveyBlock.svelte'
   import SlideDeckBlock from './SlideDeckBlock.svelte'
+  import WorkspaceFilesBlock from './workspace/WorkspaceFilesBlock.svelte'
 
   let {
     block,
@@ -56,7 +59,6 @@
     expandedTextBlocks,
     // Read-only state from parent
     draggingBlockId,
-    mentionVisible,
     textBlockOverflows,
     // Element refs — bindable so parent can focus/measure them
     blockTextareaEls = $bindable(),
@@ -77,7 +79,6 @@
     onDelete,
     onPromote,
     onTextKeydown,
-    onTextInput,
     onSaveText,
     onSaveUrl,
     onToggleTextExpand,
@@ -95,7 +96,6 @@
     collapsedBlocks: Set<string>
     expandedTextBlocks: Set<string>
     draggingBlockId: string | null
-    mentionVisible: boolean
     textBlockOverflows: Set<string>
     blockTextareaEls: Record<string, HTMLTextAreaElement | null>
     textBlockEls: Record<string, HTMLElement | null>
@@ -112,7 +112,6 @@
     onDelete: (blockId: string) => void
     onPromote?: (block: Block, target: Block['type']) => void
     onTextKeydown: (e: KeyboardEvent, blockId: string) => void
-    onTextInput: (e: Event, blockId: string) => void
     onSaveText: (blockId: string) => void
     onSaveUrl: (blockId: string) => void
     onToggleTextExpand: (blockId: string) => void
@@ -209,7 +208,7 @@
           {#if items.length > 0}
             <span class="checklist-progress">{items.length}</span>
           {/if}
-        {:else if block.type === 'media'}
+        {:else if block.type === 'media' || block.type === 'workspace_files'}
           {@const items = Array.isArray(block.value) ? block.value : []}
           {#if items.length > 0}
             <span class="checklist-progress">{items.length}</span>
@@ -248,11 +247,11 @@
             <textarea
               class="desc-textarea"
               use:focusOnMount
+              use:mentionable
               bind:this={blockTextareaEls[block.id]}
               bind:value={blockDrafts[block.id]}
               onkeydown={(e) => onTextKeydown(e, block.id)}
-              oninput={(e) => onTextInput(e, block.id)}
-              onblur={() => { if (!mentionVisible) onSaveText(block.id) }}
+              onblur={() => { if (!isMentionPickerOpenFor(blockTextareaEls[block.id])) onSaveText(block.id) }}
               rows="4"
             ></textarea>
           {:else}
@@ -444,6 +443,15 @@
             cardId={cardId}
             blockId={block.id}
             onUpdate={(val) => commitBlock(block, val)}
+          />
+        {:else if block.type === 'workspace_files'}
+          <WorkspaceFilesBlock
+            entries={asWorkspaceFiles(block.value)}
+            display={asWorkspaceFilesDisplay(block.meta?.display)}
+            {cardId}
+            cardTitle={card?.title ?? ''}
+            onUpdate={(val) => commitBlock(block, val)}
+            onDisplayChange={(display) => commitBlock(block, block.value, { display })}
           />
 
         {:else}

@@ -121,7 +121,7 @@ var allAgentTools = []ToolDef{
 			"type": "object",
 			"properties": map[string]any{
 				"title":       map[string]any{"type": "string", "description": "The card title"},
-				"card_type":   map[string]any{"type": "string", "description": "An existing card type's id or label (e.g. 'task', 'reference'). Unknown types are rejected. Default 'brainstorm'."},
+				"card_type":   map[string]any{"type": "string", "description": "Card type id or label (e.g. 'task', 'reference'), matched case-insensitively; an unrecognised name creates a new type. Default 'brainstorm'."},
 				"description": map[string]any{"type": "string", "description": "Free-text summary under the title (Markdown)."},
 				"due_date":    map[string]any{"type": "string", "description": "Due date, YYYY-MM-DD."},
 				"tags":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Tags for the card."},

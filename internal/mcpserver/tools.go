@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"strings"
 
 	"bruv/core/services/agentsvc"
 	"bruv/core/services/catalog"
@@ -150,11 +151,32 @@ func blockArrayProp(desc string) map[string]any {
 	}
 }
 
-// toolDefs returns the tool list, templating the repo name into the
-// descriptions so a multi-connector user sees which board each tool
-// writes to.
-func toolDefs(repoName string) []mcp.Tool {
+// cardTypeRoster renders the board's live card types (built-in + user,
+// from the catalog) as a comma-separated list of labels for tool
+// descriptions, so clients pick a real type instead of guessing one.
+func cardTypeRoster(rt *supervisor.Runtime) string {
+	types := rt.ListCardTypes()
+	labels := make([]string, 0, len(types))
+	for _, t := range types {
+		label := t.Label
+		if label == "" {
+			label = t.ID
+		}
+		labels = append(labels, label)
+	}
+	return strings.Join(labels, ", ")
+}
+
+// toolDefs returns the tool list, templating the repo name and the live
+// card-type roster into the descriptions so a multi-connector user sees
+// which board each tool writes to and which types it actually has.
+func toolDefs(rt *supervisor.Runtime, repoName string) []mcp.Tool {
 	board := "the \"" + repoName + "\" BRUV board"
+	omitted := " Omit for the built-in default '" + catalog.DefaultCardType + "'."
+	cardTypeDesc := "Card type — matched case-insensitively by id or label; an unrecognised name creates a new type." + omitted
+	if roster := cardTypeRoster(rt); roster != "" {
+		cardTypeDesc = "Card type — one of: " + roster + " (matched case-insensitively by id or label; an unrecognised name creates a new type)." + omitted
+	}
 
 	return []mcp.Tool{
 		// --- Discovery / read ---
@@ -189,7 +211,7 @@ func toolDefs(repoName string) []mcp.Tool {
 		},
 		{
 			Name:        "list_card_types",
-			Description: "List the available card types in " + board + " (e.g. brainstorm, task, reference, agent, plus any the user defined). Use one of these as `card_type`; unknown types are rejected.",
+			Description: "List the available card types in " + board + " with their descriptions and colours. Use one of these as `card_type` when creating a card.",
 			InputSchema: obj(map[string]any{}),
 		},
 		{
@@ -254,13 +276,13 @@ func toolDefs(repoName string) []mcp.Tool {
 				"exist); omit all four to leave it unfiled in the inbox. Pass `description` and/or `blocks` to fill it in.",
 			InputSchema: obj(map[string]any{
 				"title":       strProp("Card title."),
-				"card_type":   strProp("An existing card type's id or label (default '" + catalog.DefaultCardType + "'). See list_card_types."),
+				"card_type":   strProp(cardTypeDesc),
 				"brand":       strProp("Brand to file under (created if missing). Provide all four hierarchy fields or none."),
 				"stream":      strProp("Stream to file under (created if missing)."),
 				"project":     strProp("Project to file under (created if missing)."),
 				"category":    strProp("Category to file the card into (created if missing)."),
 				"tags":        strArr("Tags to add to the card."),
-				"description": strProp("Freeform description text for the card."),
+				"description": strProp("Freeform description text for the card (Markdown)." + mentionNote),
 				"due_date":    strProp("Optional due date, YYYY-MM-DD."),
 				"blocks":      blockArrayProp("Structured content blocks to add to the card."),
 			}, "title"),
@@ -269,7 +291,7 @@ func toolDefs(repoName string) []mcp.Tool {
 		// --- Populate existing cards ---
 		{
 			Name:        "add_card_blocks",
-			Description: "Append structured content blocks to an existing card in " + board + ".",
+			Description: "Append structured content blocks to an existing card in " + board + "." + mentionNote,
 			InputSchema: obj(map[string]any{
 				"card_id": strProp("The card's id."),
 				"blocks":  blockArrayProp("Blocks to append."),
@@ -278,7 +300,7 @@ func toolDefs(repoName string) []mcp.Tool {
 		{
 			Name: "set_card_fields",
 			Description: "Set values on a card's existing typed fields in " + board + ", matched by field key. " +
-				"Use get_card first to see the available field keys.",
+				"Use get_card first to see the available field keys." + mentionNote,
 			InputSchema: obj(map[string]any{
 				"card_id": strProp("The card's id."),
 				"fields": map[string]any{
@@ -311,7 +333,7 @@ func toolDefs(repoName string) []mcp.Tool {
 				"distinct from its blocks. Call this when the user asks to describe, summarise or explain a card. Markdown is rendered.",
 			InputSchema: obj(map[string]any{
 				"card_id":     strProp("The card's id."),
-				"description": strProp("New description (Markdown). Empty string clears it."),
+				"description": strProp("New description (Markdown). Empty string clears it." + mentionNote),
 			}, "card_id", "description"),
 		},
 		{
@@ -319,7 +341,7 @@ func toolDefs(repoName string) []mcp.Tool {
 			Description: "Change a card's type in " + board + ". See list_card_types for the available ids.",
 			InputSchema: obj(map[string]any{
 				"card_id":   strProp("The card's id."),
-				"card_type": strProp("An existing card type's id or label, e.g. 'task', 'brainstorm'."),
+				"card_type": strProp("Card type id or label, matched case-insensitively; an unrecognised name creates a new type."),
 			}, "card_id", "card_type"),
 		},
 		{
@@ -441,11 +463,11 @@ func toolDefs(repoName string) []mcp.Tool {
 					"An empty array allows every built-in and MCP tool."),
 				"notify_on":      enumArr("When to notify the user after a run.", agentsvc.NotifyTriggers),
 				"notify_channel": enumArr("Extra notification channels; in-app is always on.", agentsvc.NotifyChannels),
-				"llm_account_id": strProp("LLM account id from options.llm_accounts. Empty string = the default account."),
-				"llm_model":      strProp("Model override for that account. Empty string = the account's model."),
-				"timezone":       strProp("IANA timezone for cron schedules and the active window, e.g. 'Europe/London'. Empty = server local time."),
-				"start_date":     strProp("Don't run before this time (RFC 3339; zone-less times and dates are the BRUV server's local time). Empty string clears it."),
-				"end_date":       strProp("Disable the agent after this time (RFC 3339; zone-less times and dates are the BRUV server's local time). Empty string clears it."),
+				"llm": strProp("Model or router the agent runs on: a `ref` from get_card_agent options.llm " +
+					"('model:<id>' or 'router:<id>'). Empty string = whatever the user assigned to agent runs."),
+				"timezone":   strProp("IANA timezone for cron schedules and the active window, e.g. 'Europe/London'. Empty = server local time."),
+				"start_date": strProp("Don't run before this time (RFC 3339; zone-less times and dates are the BRUV server's local time). Empty string clears it."),
+				"end_date":   strProp("Disable the agent after this time (RFC 3339; zone-less times and dates are the BRUV server's local time). Empty string clears it."),
 				"active_window_start": strProp("Only run from this time of day, HH:MM 24-hour. Set with active_window_end; " +
 					"empty strings for both clear the window."),
 				"active_window_end":     strProp("Only run until this time of day, HH:MM 24-hour."),
@@ -468,3 +490,7 @@ func toolDefs(repoName string) []mcp.Tool {
 		},
 	}
 }
+
+// mentionNote teaches assistants the one markup for cross-card links, so
+// they stop pasting raw ids into item text (field report 2026-09-15).
+const mentionNote = " To link another card inside any text (description, block text, list or checklist items, captions, comments), write a mention as Markdown: [Card title](bruv:card:<card id>) - ids come from search_cards / list_cards / get_card. It renders as a clickable link on every surface."

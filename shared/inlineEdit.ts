@@ -22,6 +22,7 @@
 // desktop never sets it.
 
 import type { EditScope } from './editScope'
+import { isMentionPickerOpenFor } from './mentions'
 
 export interface InlineEditParams {
   onCommit: () => void
@@ -136,6 +137,9 @@ export function inlineEdit(
   }
 
   function handleBlur(e: FocusEvent) {
+    // The @mention picker takes focus while the field is mid-entry; that
+    // blur is not the user leaving the field (shared/mentions.ts).
+    if (isMentionPickerOpenFor(node)) return
     if (params.container) {
       const container = node.closest(params.container)
       const related = e.relatedTarget as HTMLElement | null

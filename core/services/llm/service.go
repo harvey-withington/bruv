@@ -1,11 +1,7 @@
-// Package llm is the LLMService — config + accounts + provider
-// resolution + token pricing + health probes. Named llm at the service
-// layer; uses internal/llm as the underlying provider library.
-//
-// loadLLMProvider / loadLLMProviderForAccount are the entry points
-// other services (chat, agent) use to obtain a configured provider.
-// When those services are extracted they'll receive this service via
-// their Deps interface; for now App forwards to it.
+// Package llm is the LLMService — AI behaviour config, provider
+// accounts, the model registry, model selection (Select, select.go),
+// model discovery and health probes. Named llm at the service layer;
+// uses internal/llm as the underlying provider library.
 package llm
 
 import (
@@ -17,12 +13,12 @@ import (
 )
 
 // Deps is the narrow host contract: a context source for bounding
-// test-connection probes. The service is otherwise stateless.
+// probes. The service is otherwise stateless.
 type Deps interface {
 	Ctx() context.Context
 }
 
-// Service exposes LLM configuration and provider resolution.
+// Service exposes LLM configuration and model selection.
 type Service struct{ deps Deps }
 
 // New constructs an LLMService.
@@ -33,36 +29,64 @@ func New(deps Deps) *Service { return &Service{deps: deps} }
 func (s *Service) GetConfig() (config.LLMConfig, error) { return config.LoadLLMConfig() }
 func (s *Service) SetConfig(c config.LLMConfig) error   { return config.SaveLLMConfig(c) }
 
-// --- Accounts ---
+// --- Providers (accounts) and the model registry ---
 
 func (s *Service) GetAccounts() ([]config.LLMAccount, error) { return config.LoadLLMAccounts() }
 func (s *Service) SaveAccounts(a []config.LLMAccount) error  { return config.SaveLLMAccounts(a) }
 
-// TestAccountConnection probes a configured account with a minimal
-// prompt and returns the model name echoed back on success.
-func (s *Service) TestAccountConnection(accountID string) (string, error) {
-	accounts, err := config.LoadLLMAccounts()
+func (s *Service) GetRouting() (config.LLMRouting, error) { return config.LoadLLMRouting() }
+func (s *Service) SaveRouting(r config.LLMRouting) error  { return config.SaveLLMRouting(r) }
+
+// DiscoveredModel is a model a provider offers, with a tier guessed
+// from its name for the settings UI to pre-fill.
+type DiscoveredModel struct {
+	ID    string           `json:"id"`
+	Label string           `json:"label,omitempty"`
+	Tier  config.ModelTier `json:"tier"`
+}
+
+// DiscoverModels lists the models a provider account offers.
+func (s *Service) DiscoverModels(accountID string) ([]DiscoveredModel, error) {
+	acct, err := findAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+	found, err := llm.ListModels(s.deps.Ctx(), acct.Provider, acct.APIKey, acct.BaseURL)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]DiscoveredModel, len(found))
+	for i, m := range found {
+		out[i] = DiscoveredModel{ID: m.ID, Label: m.Label, Tier: config.GuessModelTier(m.ID)}
+	}
+	return out, nil
+}
+
+// TestModel probes one registry model with a minimal prompt and returns
+// the model name the provider echoes back.
+func (s *Service) TestModel(modelID string) (string, error) {
+	routing, err := config.LoadLLMRouting()
 	if err != nil {
 		return "", err
 	}
-	acct := config.FindAccountByID(accounts, accountID)
-	if acct == nil {
-		return "", fmt.Errorf("account not found")
+	m := routing.FindModel(modelID)
+	if m == nil {
+		return "", fmt.Errorf("model not found")
+	}
+	acct, err := findAccount(m.AccountID)
+	if err != nil {
+		return "", err
 	}
 	provider, err := llm.NewProvider(acct.Provider, acct.APIKey, acct.BaseURL)
 	if err != nil {
 		return "", err
-	}
-	modelName := acct.Model
-	if modelName == "" {
-		modelName = DefaultModelForProvider(acct.Provider)
 	}
 	ctx, cancel := context.WithTimeout(s.deps.Ctx(), 30*time.Second)
 	defer cancel()
 	resp, err := provider.ChatCompletion(ctx, llm.ChatRequest{
 		SystemPrompt: "You are a test. Reply with exactly: OK",
 		Messages:     []llm.Message{{Role: "user", Content: "Hello"}},
-		Model:        modelName,
+		Model:        m.Name,
 	})
 	if err != nil {
 		return "", err
@@ -70,73 +94,22 @@ func (s *Service) TestAccountConnection(accountID string) (string, error) {
 	return resp.Model, nil
 }
 
-// --- Provider resolution ---
-
-// LoadProvider resolves the default provider (no account ID, no override).
-func (s *Service) LoadProvider() (config.LLMConfig, llm.Provider, error) {
-	return s.LoadProviderForAccount("", "")
-}
-
-// LoadProviderForAccount resolves a provider following this precedence:
-//  1. Explicit account ID (if non-empty)
-//  2. Default account recorded in llm_config.json
-//  3. First account in llm_accounts.json
-//  4. Legacy single-provider fields in llm_config.json
-//
-// Returns (cfg, nil, nil) when nothing is configured — callers check
-// the provider for nil. A non-nil error means something IS configured
-// but couldn't be loaded (unreadable config, bad provider credentials
-// shape) — callers should surface that, not treat it as unconfigured.
-func (s *Service) LoadProviderForAccount(accountID, modelOverride string) (config.LLMConfig, llm.Provider, error) {
-	cfg, err := config.LoadLLMConfig()
+func findAccount(id string) (*config.LLMAccount, error) {
+	accounts, err := config.LoadLLMAccounts()
 	if err != nil {
-		return cfg, nil, fmt.Errorf("load llm config: %w", err)
+		return nil, err
 	}
-
-	accounts, _ := config.LoadLLMAccounts()
-	var acct *config.LLMAccount
-
-	if accountID != "" {
-		acct = config.FindAccountByID(accounts, accountID)
-	}
-	if acct == nil && cfg.DefaultAccountID != "" {
-		acct = config.FindAccountByID(accounts, cfg.DefaultAccountID)
-	}
+	acct := config.FindAccountByID(accounts, id)
 	if acct == nil {
-		acct = config.GetDefaultAccount(accounts)
+		return nil, fmt.Errorf("provider not found")
 	}
-
-	if acct != nil {
-		provider, err := llm.NewProvider(acct.Provider, acct.APIKey, acct.BaseURL)
-		if err != nil {
-			return cfg, nil, fmt.Errorf("create %s provider: %w", acct.Provider, err)
-		}
-		model := modelOverride
-		if model == "" {
-			model = acct.Model
-		}
-		if model == "" {
-			model = DefaultModelForProvider(acct.Provider)
-		}
-		cfg.Model = model
-		cfg.Provider = acct.Provider
-		return cfg, provider, nil
-	}
-
-	// Legacy fallback
-	if cfg.Provider == "" {
-		return cfg, nil, nil
-	}
-	provider, err := llm.NewProvider(cfg.Provider, cfg.APIKey, cfg.BaseURL)
-	if err != nil {
-		return cfg, nil, fmt.Errorf("create %s provider (legacy config): %w", cfg.Provider, err)
-	}
-	return cfg, provider, nil
+	return acct, nil
 }
 
 // --- Health ---
 
-// IsConfigured returns true when any LLM credentials are present.
+// IsConfigured returns true when any usable model or legacy provider
+// is configured.
 func (s *Service) IsConfigured() bool {
 	cfg, err := config.LoadLLMConfig()
 	if err != nil {
@@ -145,59 +118,47 @@ func (s *Service) IsConfigured() bool {
 	if cfg.Provider != "" {
 		return true
 	}
-	accounts, err := config.LoadLLMAccounts()
+	routing, err := config.LoadLLMRouting()
 	if err != nil {
 		return false
 	}
-	return len(accounts) > 0
+	for _, m := range routing.Models {
+		if m.Enabled {
+			return true
+		}
+	}
+	return false
 }
 
-// TestConnection probes the legacy single-provider configuration.
-func (s *Service) TestConnection() (string, error) {
-	cfg, err := config.LoadLLMConfig()
-	if err != nil {
-		return "", err
-	}
-	if cfg.Provider == "" {
-		return "", fmt.Errorf("no provider configured")
-	}
-	provider, err := llm.NewProvider(cfg.Provider, cfg.APIKey, cfg.BaseURL)
-	if err != nil {
-		return "", err
-	}
-	modelName := cfg.Model
-	if modelName == "" {
-		modelName = DefaultModelForProvider(cfg.Provider)
-	}
-	ctx, cancel := context.WithTimeout(s.deps.Ctx(), 30*time.Second)
-	defer cancel()
-	resp, err := provider.ChatCompletion(ctx, llm.ChatRequest{
-		SystemPrompt: "You are a test. Reply with exactly: OK",
-		Messages:     []llm.Message{{Role: "user", Content: "Hello"}},
-		Model:        modelName,
-	})
-	if err != nil {
-		return "", err
-	}
-	return resp.Model, nil
+// ProviderSummary is a provider without its credentials — what model
+// pickers need for group labels and order.
+type ProviderSummary struct {
+	ID       string `json:"id"`
+	Label    string `json:"label"`
+	Provider string `json:"provider"`
 }
 
-// DefaultModelForProvider returns the provider's house default when
-// no explicit model is configured on the account or legacy config.
-func DefaultModelForProvider(provider string) string {
-	switch provider {
-	// Keep in sync with shared/llmDefaults.ts (frontend placeholders) and
-	// DefaultPricing in internal/config/pricing.go. Refreshed 2026-09-06
-	// against each provider's live model list.
-	case "openai":
-		return "gpt-5.5"
-	case "anthropic":
-		return "claude-opus-5"
-	case "ollama":
-		// llama3.1 is the smallest Llama with tool support, which BRUV's
-		// chat and agents rely on; plain llama3 silently ignores tools.
-		return "llama3.1"
-	default:
-		return ""
+// RegistryView is the model registry for pickers: routing plus the
+// providers, with no API keys, so chat and agent pickers (including the
+// phone) never receive secrets.
+type RegistryView struct {
+	Routing   config.LLMRouting `json:"routing"`
+	Providers []ProviderSummary `json:"providers"`
+}
+
+// GetRegistryView loads the key-free registry view.
+func (s *Service) GetRegistryView() (RegistryView, error) {
+	routing, err := config.LoadLLMRouting()
+	if err != nil {
+		return RegistryView{}, err
 	}
+	accounts, err := config.LoadLLMAccounts()
+	if err != nil {
+		return RegistryView{}, err
+	}
+	providers := make([]ProviderSummary, len(accounts))
+	for i, a := range accounts {
+		providers[i] = ProviderSummary{ID: a.ID, Label: a.Label, Provider: a.Provider}
+	}
+	return RegistryView{Routing: routing, Providers: providers}, nil
 }

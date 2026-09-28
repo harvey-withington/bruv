@@ -19,10 +19,11 @@ import (
 	"github.com/google/uuid"
 )
 
-// TypeResolver finds an existing card type by id or label. Satisfied by
-// *catalog.Service; capture never creates types.
+// TypeResolver canonicalises a card type by id or label, creating an
+// unknown one first (ruling 2026-08-14) so a card is never stamped with a
+// type that doesn't exist. Satisfied by *catalog.Service.
 type TypeResolver interface {
-	FindCardType(idOrLabel string) (id string, ok bool)
+	ResolveOrCreateType(input string) (id string, created bool, err error)
 }
 
 // Location names a category by its Brand → Stream → Project → Category
@@ -41,7 +42,7 @@ func (l Location) complete() bool {
 // CardSpec is a card to create and populate in one call.
 type CardSpec struct {
 	Title       string
-	Type        string // id or label of an existing type; empty = catalog.DefaultCardType
+	Type        string // id or label; unknown is created; empty = catalog.DefaultCardType
 	Description string
 	DueDate     string // YYYY-MM-DD; empty = none
 	Tags        []string
@@ -51,8 +52,9 @@ type CardSpec struct {
 
 // CreatedCard is the outcome of CreateCard.
 type CreatedCard struct {
-	Card     *model.Card
-	PinnedTo string // breadcrumb, or "" when left in the inbox
+	Card        *model.Card
+	PinnedTo    string // breadcrumb, or "" when left in the inbox
+	TypeCreated bool   // the named type didn't exist and was created
 }
 
 // ParseCardSpec reads create_card tool arguments: title, card_type,
@@ -87,21 +89,20 @@ func ParseCardSpec(a map[string]any) (CardSpec, error) {
 }
 
 // CreateCard creates a card and applies everything in spec, creating any
-// missing level of the filing path. The type and location are resolved
-// first so a bad value fails before a half-populated card exists.
+// missing level of the filing path and an unknown type. The location is
+// resolved before the type so a bad path can't leave a stray new type.
 func CreateCard(cs *card.Service, ps *projectsvc.Service, types TypeResolver, spec CardSpec) (*CreatedCard, error) {
-	cardType := catalog.DefaultCardType
-	if spec.Type != "" {
-		id, ok := types.FindCardType(spec.Type)
-		if !ok {
-			return nil, fmt.Errorf("unknown card type %q: use an existing type's id or label, or omit card_type for %q", spec.Type, catalog.DefaultCardType)
-		}
-		cardType = id
-	}
 	var catID, breadcrumb string
 	if !spec.Location.IsEmpty() {
 		var err error
 		if catID, breadcrumb, err = ResolveOrCreateCategory(ps, spec.Location); err != nil {
+			return nil, err
+		}
+	}
+	cardType, typeCreated := catalog.DefaultCardType, false
+	if spec.Type != "" {
+		var err error
+		if cardType, typeCreated, err = types.ResolveOrCreateType(spec.Type); err != nil {
 			return nil, err
 		}
 	}
@@ -135,7 +136,7 @@ func CreateCard(cs *card.Service, ps *projectsvc.Service, types TypeResolver, sp
 			return nil, fmt.Errorf("add blocks: %w", err)
 		}
 	}
-	return &CreatedCard{Card: c, PinnedTo: breadcrumb}, nil
+	return &CreatedCard{Card: c, PinnedTo: breadcrumb, TypeCreated: typeCreated}, nil
 }
 
 // ParseBlocks converts the tool block shape ({type,label,value,key?})

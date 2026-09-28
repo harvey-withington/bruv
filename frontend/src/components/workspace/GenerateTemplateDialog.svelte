@@ -1,37 +1,43 @@
 <script lang="ts">
-  import { X, ArrowLeft, FolderPlus, LayoutTemplate, Link2, Folder } from 'lucide-svelte'
-  import { GenerateCardFolder, GetWorkspaceState, LinkCardFolder, ListProjectTemplates } from '@shared/api'
-  import type { Card, WorkspaceEntry, WorkspaceTemplateEntry } from '@shared/types'
+  import { X, ArrowLeft, LayoutTemplate } from 'lucide-svelte'
+  import { GenerateWorkspaceTemplate, ListProjectTemplates } from '@shared/api'
+  import type { WorkspaceTemplateEntry } from '@shared/types'
   import { t } from '../../lib/i18n.svelte'
   import { showToast } from '../../lib/toast.svelte'
   import { focusTrap } from '../../lib/actions'
 
-  // Create a card folder: pick a template (workspace-resident ones first,
-  // auto-selected when there's exactly one), fill params (card title
-  // pre-fills title-ish params), confirm the workspace-relative target.
-  let { brandSlug, streamSlug, projectSlug, card, onCreated, onClose }: {
+  // Generate a Folder Template into the workspace: pick a template
+  // (workspace-resident ones first, auto-selected when there's exactly
+  // one), fill params, confirm the workspace-relative target. Reached
+  // from a folder in the tree (target prefilled) or from a card's
+  // Workspace Files picker (cardTitle prefills title-ish params and feeds
+  // {{$bruvCard}}).
+  let { brandSlug, streamSlug, projectSlug, targetDir = '', cardTitle = '', onGenerated, onClose }: {
     brandSlug: string
     streamSlug: string
     projectSlug: string
-    card: Card
-    onCreated: (updated: Card) => void
+    /** Folder to generate under; '' lets the template's default target decide. */
+    targetDir?: string
+    cardTitle?: string
+    onGenerated: (rel: string) => void
     onClose: () => void
   } = $props()
 
-  // menu → (template list → params) | link-existing dir list
-  let view = $state<'menu' | 'template' | 'link'>('menu')
   let templates = $state<WorkspaceTemplateEntry[] | null>(null)
   let selected = $state<WorkspaceTemplateEntry | null>(null)
   let values = $state<Record<string, string>>({})
-  let targetRel = $state('')
-  let dirs = $state<WorkspaceEntry[] | null>(null)
+  // Prefilled from the folder the dialog was opened on; typing overrides.
+  let targetOverride = $state<string | null>(null)
+  const targetRel = $derived(targetOverride ?? targetDir)
   let busy = $state(false)
 
   const visibleParams = $derived(selected?.parameters?.filter(p => p.name && p.prompt) ?? [])
 
-  async function openTemplates() {
-    view = 'template'
-    if (templates !== null) return
+  $effect(() => {
+    void loadTemplates()
+  })
+
+  async function loadTemplates() {
     try {
       templates = (await ListProjectTemplates(brandSlug, streamSlug, projectSlug)) ?? []
       // Preselect when the workspace scope has exactly one template —
@@ -44,100 +50,53 @@
     }
   }
 
-  async function openLink() {
-    view = 'link'
-    if (dirs !== null) return
-    try {
-      const state = await GetWorkspaceState(brandSlug, streamSlug, projectSlug)
-      dirs = (state.index?.tree ?? []).filter(e => e.is_dir)
-    } catch (e) {
-      dirs = []
-      showToast(t('workspace.load_failed', { error: e instanceof Error ? e.message : String(e) }), 'error')
-    }
-  }
-
-  async function linkExisting(rel: string) {
-    busy = true
-    try {
-      const updated = await LinkCardFolder(brandSlug, streamSlug, projectSlug, card.id, rel)
-      showToast(t('workspace.folder_linked'), 'success')
-      onCreated(updated)
-    } catch (e) {
-      showToast(t('workspace.folder_link_failed', { error: e instanceof Error ? e.message : String(e) }), 'error')
-    } finally {
-      busy = false
-    }
-  }
-
   function chooseTemplate(tpl: WorkspaceTemplateEntry) {
     selected = tpl
     values = {}
     for (const p of tpl.parameters ?? []) {
       if (!p.name || !p.prompt) continue
-      // Card-aware prefill: a title-ish param gets the card's title.
-      values[p.name] = /title|name/i.test(p.name) ? card.title : (p.defaultValue ?? '')
+      values[p.name] = cardTitle && /title|name/i.test(p.name) ? cardTitle : (p.defaultValue ?? '')
     }
-    targetRel = '' // workspace root by default; template may suggest better
   }
 
   async function generate() {
-    if (!selected) return
+    if (!selected || busy) return
     busy = true
     try {
-      const updated = await GenerateCardFolder(brandSlug, streamSlug, projectSlug, card.id, selected.id, targetRel, values)
-      showToast(t('workspace.folder_created'), 'success')
-      onCreated(updated)
+      const rel = await GenerateWorkspaceTemplate(brandSlug, streamSlug, projectSlug, selected.id, targetRel, cardTitle, values)
+      showToast(t('workspace.generated_at', { path: rel }), 'success')
+      onGenerated(rel)
     } catch (e) {
-      showToast(t('workspace.folder_create_failed', { error: e instanceof Error ? e.message : String(e) }), 'error')
+      showToast(t('workspace.generate_failed', { error: e instanceof Error ? e.message : String(e) }), 'error')
     } finally {
       busy = false
     }
   }
 
+  function back() {
+    if (selected && (templates?.length ?? 0) > 1) selected = null
+    else onClose()
+  }
+
+  // Layered dialog: shield both window keys (UI-CONVENTIONS §8.1).
   function onKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') onClose()
+    e.stopPropagation()
+    if (e.key === 'Escape') { e.preventDefault(); onClose() }
+    else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void generate() }
   }
 </script>
 
 <div class="dialog-overlay" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) onClose() }}>
-  <div class="dialog" role="dialog" aria-label={t('workspace.folder_create_title')} tabindex="-1" use:focusTrap onkeydown={onKeydown}>
+  <div class="dialog" role="dialog" aria-label={t('workspace.from_template')} tabindex="-1" use:focusTrap onkeydown={onKeydown}>
     <header>
-      {#if view !== 'menu'}
-        <button class="icon-btn" onclick={() => { if (selected && (templates?.length ?? 0) > 1) { selected = null } else { selected = null; view = 'menu' } }} title={t('common.back')} aria-label={t('common.back')}><ArrowLeft size={16} /></button>
+      {#if selected}
+        <button class="icon-btn" onclick={back} title={t('common.back')} aria-label={t('common.back')}><ArrowLeft size={16} /></button>
       {/if}
-      <h3><FolderPlus size={15} /> {t('workspace.folder_create_title')}</h3>
+      <h3><LayoutTemplate size={15} /> {t('workspace.from_template')}</h3>
       <button class="icon-btn" onclick={onClose} title={t('common.close')} aria-label={t('common.close')}><X size={16} /></button>
     </header>
 
-    {#if view === 'menu'}
-      <div class="choices">
-        <button class="choice" onclick={openTemplates}>
-          <LayoutTemplate size={20} />
-          <strong>{t('workspace.from_template')}</strong>
-          <span>{t('workspace.folder_from_template_hint')}</span>
-        </button>
-        <button class="choice" onclick={openLink}>
-          <Link2 size={20} />
-          <strong>{t('workspace.folder_link')}</strong>
-          <span>{t('workspace.folder_link_hint')}</span>
-        </button>
-      </div>
-    {:else if view === 'link'}
-      <div class="list">
-        {#if dirs === null}
-          <p class="muted">{t('common.loading')}</p>
-        {:else if dirs.length === 0}
-          <p class="muted">{t('workspace.folder_link_empty')}</p>
-        {:else}
-          {#each dirs as d (d.path)}
-            <button class="dir-row" disabled={busy} style:padding-left={`${0.7 + (d.path.split('/').length - 1) * 0.8}rem`} onclick={() => linkExisting(d.path)}>
-              <Folder size={13} />
-              <span class="name">{d.path.split('/').pop()}</span>
-            </button>
-          {/each}
-        {/if}
-      </div>
-    {:else if templates === null}
+    {#if templates === null}
       <p class="muted">{t('common.loading')}</p>
     {:else if !selected}
       <div class="list">
@@ -163,16 +122,17 @@
           </label>
         {/each}
         <label>
-          <span>{t('workspace.folder_target')}</span>
+          <span>{t('workspace.generate_target')}</span>
           <!-- Blank = the template's own defaultTargetPath (shown as the
                placeholder); typing overrides with a workspace-root-relative
                path. -->
           <input
             type="text"
-            bind:value={targetRel}
+            value={targetRel}
+            oninput={(e) => targetOverride = e.currentTarget.value}
             placeholder={selected.default_target_path
-              ? t('workspace.folder_target_tpl_default', { path: selected.default_target_path })
-              : t('workspace.folder_target_placeholder')}
+              ? t('workspace.generate_target_tpl_default', { path: selected.default_target_path })
+              : t('workspace.generate_target_placeholder')}
           />
         </label>
         <footer>
@@ -195,7 +155,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 97;
+    z-index: 98;
   }
   .dialog {
     width: min(440px, 92vw);
@@ -245,47 +205,6 @@
     cursor: pointer;
   }
   .template-row:hover { border-color: var(--accent); }
-  .choices {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.75rem;
-    padding: 1rem;
-  }
-  .choice {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.4rem;
-    padding: 0.9rem;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--bg-base);
-    color: var(--text-secondary);
-    text-align: left;
-    cursor: pointer;
-  }
-  .choice:hover { border-color: var(--accent); color: var(--text-primary); }
-  .choice strong { font-size: 0.85rem; color: var(--text-primary); }
-  .choice span { font-size: 0.72rem; color: var(--text-faint); }
-  .dir-row {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.3rem 0.7rem;
-    border: none;
-    border-radius: 5px;
-    background: none;
-    color: var(--text-body);
-    font-size: 0.82rem;
-    text-align: left;
-    cursor: pointer;
-  }
-  .dir-row:hover,
-  .dir-row:focus-visible {
-    background: var(--accent-glow-2);
-    color: var(--text-primary);
-  }
-  .dir-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .template-row strong { font-size: 0.82rem; color: var(--text-primary); }
   .template-row .desc { font-size: 0.74rem; color: var(--text-muted); }
   .template-row .scope { font-size: 0.66rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; }
@@ -296,19 +215,8 @@
     gap: 0.7rem;
     overflow: auto;
   }
-  .tpl-name {
-    margin: 0;
-    font-size: 0.82rem;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-  label {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    font-size: 0.78rem;
-    color: var(--text-muted);
-  }
+  .tpl-name { margin: 0; font-size: 0.82rem; font-weight: 600; color: var(--text-primary); }
+  label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.78rem; color: var(--text-muted); }
   input {
     background: var(--bg-base);
     border: 1px solid var(--border);
@@ -318,12 +226,7 @@
     font-size: 0.82rem;
   }
   input:focus { outline: none; border-color: var(--accent); }
-  footer {
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.5rem;
-    padding-top: 0.25rem;
-  }
+  footer { display: flex; justify-content: flex-end; gap: 0.5rem; padding-top: 0.25rem; }
   .icon-btn {
     background: none;
     border: none;

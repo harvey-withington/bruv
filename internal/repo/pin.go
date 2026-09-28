@@ -192,16 +192,41 @@ func (r *Repository) MoveCardToCategory(cardID, fromCategoryID, toCategoryID str
 		return err
 	}
 
-	found := false
+	// A card already pinned to the destination (pinned there by the AI's
+	// suggest_pin, say, then dragged across on a board that hadn't caught
+	// up) must end up there ONCE: the source pin is dropped and the
+	// existing destination pin takes the new position. Rewriting the
+	// source pin in place — what this did before 2026-09-17 — produced two
+	// pins to the same category, which the index's unique key refused and
+	// the boards rendered twice (a keyed each with a duplicate key halts
+	// the mobile page).
+	alreadyThere := -1
 	for i := range pinFile.Pins {
-		if pinFile.Pins[i].CategoryID == fromCategoryID {
-			pinFile.Pins[i].ProjectID = toCategoryID
-			pinFile.Pins[i].CategoryID = toCategoryID
-			pinFile.Pins[i].Position = newPosition
-			found = true
+		if pinFile.Pins[i].CategoryID == toCategoryID {
+			alreadyThere = i
 			break
 		}
 	}
+
+	found := false
+	kept := pinFile.Pins[:0]
+	for i := range pinFile.Pins {
+		p := pinFile.Pins[i]
+		if p.CategoryID == fromCategoryID && fromCategoryID != toCategoryID {
+			found = true
+			if alreadyThere >= 0 {
+				continue // destination pin exists — this one goes
+			}
+			p.ProjectID = toCategoryID
+			p.CategoryID = toCategoryID
+			p.Position = newPosition
+		} else if i == alreadyThere {
+			found = found || fromCategoryID == toCategoryID
+			p.Position = newPosition
+		}
+		kept = append(kept, p)
+	}
+	pinFile.Pins = kept
 
 	if !found {
 		return fmt.Errorf("card %q is not pinned to category %q", cardID, fromCategoryID)

@@ -26,7 +26,7 @@
   import ConfirmDialog from '../components/ConfirmDialog.svelte'
   import ErrorState from '../components/ErrorState.svelte'
   import { navigate, projectURL } from '../lib/router.svelte'
-  import { readActiveRepoID, apiFetch, repoRPC, machineRPC } from '../lib/auth'
+  import { readActiveRepoID, apiFetch, repoRPC, machineRPC, readActiveRepoName, saveActiveRepoName } from '../lib/auth'
   import { showToast } from '../lib/toast.svelte'
   import { onEvent } from '../lib/events.svelte'
   import { onReconnect } from '../lib/connectivity.svelte'
@@ -46,7 +46,7 @@
   // recently-updated cards shelf, and the Brand → Stream → Project tree
   // (with full DnD reordering / cross-parent moves / two-finger copy).
 
-  let activeRepoName = $state<string | null>(null)
+  let activeRepoName = $state<string | null>(readActiveRepoName())
   // Expansion state lives in the browse store so it survives the
   // BrowsePage being unmounted while the user is inside a project /
   // category / card. Local component state would reset on every
@@ -351,21 +351,34 @@
     }
   }
 
-  onMount(async () => {
-    loadBrands()
-    void loadUnread()
-    // Cosmetic: show the active vault name in the header. Best-effort;
-    // missing/failed lookup doesn't block browsing.
+  // The header's vault name. Shown from the cached name at once, then
+  // confirmed from /repos — on mount AND on reconnect, so an offline
+  // start doesn't leave the header on "Loading…" after the link returns.
+  // Best-effort: a failed lookup keeps whatever is shown.
+  let vaultNameLoading = $state(true)
+  async function loadVaultName() {
+    const activeID = readActiveRepoID()
+    if (!activeID) return
     try {
-      const activeID = readActiveRepoID()
-      if (!activeID) return
       const res = await apiFetch('/repos')
       if (!res.ok) return
       const repos = (await res.json()) as Array<{ id: string; name: string }>
-      activeRepoName = repos.find((r) => r.id === activeID)?.name ?? null
+      const name = repos.find((r) => r.id === activeID)?.name
+      if (name) {
+        activeRepoName = name
+        saveActiveRepoName(name)
+      }
     } catch {
-      /* silent — header label is decorative */
+      /* offline or server error — the overlay / cached name cover it */
+    } finally {
+      vaultNameLoading = false
     }
+  }
+
+  onMount(() => {
+    loadBrands()
+    void loadUnread()
+    void loadVaultName()
   })
 
   const unsubEvents = onEvent((ev) => {
@@ -390,6 +403,7 @@
       }
     }
     void loadUnread()
+    void loadVaultName()
   }
   onDestroy(onReconnect(refreshBrowse))
 
@@ -641,7 +655,7 @@
 
 <header class="topbar">
   <button type="button" class="vault-button" onclick={() => navigate('/repos')} title={t('browse.switch_vault')}>
-    <span class="vault-name">{activeRepoName ?? t('common.loading')}</span>
+    <span class="vault-name">{activeRepoName ?? (vaultNameLoading ? t('common.loading') : t('browse.vault_fallback'))}</span>
     <span class="vault-arrow">›</span>
   </button>
   <div class="topbar-actions">

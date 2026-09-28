@@ -1,8 +1,10 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import { Send, MapPin, Check, X, Wrench, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Bookmark, MessageCircle, PencilLine, ListChecks, Trash2, BotMessageSquare } from 'lucide-svelte'
-  import { LoadChatHistory, SendChatMessage, IsLLMConfigured, AcceptPinSuggestion, RejectPinSuggestion, GetLLMConfig, SetLLMConfig, ApplyPendingEdits, ClearCardChatHistory, ToggleChatBookmark } from '@shared/api'
-  import type { ChatHistory, ChatMessage, ToolAction } from '@shared/types'
+  import { LoadChatHistory, SendChatMessage, IsLLMConfigured, AcceptPinSuggestion, RejectPinSuggestion, GetLLMConfig, SetLLMConfig, ApplyPendingEdits, ClearCardChatHistory, ToggleChatBookmark, GetCardChatModel, SetCardChatModel } from '@shared/api'
+  import type { ChatHistory, ChatMessage, ModelRef, PendingEdit, ToolAction } from '@shared/types'
+  import { decisionLabel, describeDecision } from '@shared/modelRefs'
+  import ChatModelChip from './ChatModelChip.svelte'
   import { showConfirm } from '../lib/confirm.svelte'
   import { renderMarkdown } from '@shared/markdown'
   import { t } from '../lib/i18n.svelte'
@@ -51,6 +53,8 @@
     clearFn,
     applyFn,
     bookmarkFn,
+    loadModelFn,
+    saveModelFn,
   }: {
     cardId: string
     visible: boolean
@@ -77,6 +81,10 @@
      *  ToggleProjectChatBookmark). Card mode uses ToggleChatBookmark
      *  directly. */
     bookmarkFn?: (messageID: string) => Promise<ChatHistory>
+    /** Read / write this chat's model choice in projectMode (routes to
+     *  Get/SetProjectChatModel). Card mode uses Get/SetCardChatModel. */
+    loadModelFn?: () => Promise<ModelRef>
+    saveModelFn?: (ref: ModelRef) => Promise<void>
   } = $props()
 
   // --- Project chat: context level (persisted globally in localStorage) ---
@@ -181,6 +189,13 @@
   // Inline preview for a pending edit's value. Cropped to ~60 chars and
   // collapsed to a single line so the row stays compact. Full value is
   // available on hover via the existing fixed-position tooltip.
+  // What the row says on hover: the proposal, or for a failed edit the
+  // reason it was refused (the proposal stays in the label).
+  function editTooltip(edit: PendingEdit): string {
+    if (edit.status === 'failed' && edit.error) return t('chat.edit_failed_reason', { reason: edit.error })
+    return edit.detail
+  }
+
   function previewEditValue(detail: string | undefined): string {
     if (!detail) return ''
     const oneLine = detail.replace(/\s+/g, ' ').trim()
@@ -235,15 +250,6 @@
         document.dispatchEvent(new CustomEvent('bruv:board-changed'))
         document.dispatchEvent(new CustomEvent('bruv:sidebar-changed'))
         document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
-        // Backend leaves failed edits in `pending` status with the error in
-        // their `detail` field — surface a toast so the user notices.
-        const updatedMsg = messages.find(m => m.id === msgId)
-        const failed = updatedMsg?.pending_edits?.filter(e =>
-          acceptIDs.includes(e.id) && e.status === 'pending' && e.detail.startsWith('error:')
-        ) ?? []
-        if (failed.length > 0) {
-          showToast(t('error.edit_apply_some_failed', { count: failed.length }), 'error')
-        }
       } else {
         onCardChanged?.()
         if (hasPinEdit) {
@@ -251,10 +257,20 @@
           document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
         }
       }
+      // The batch succeeds as a call even when a tool refused an edit;
+      // those rows come back `failed` with the reason, so say so.
+      const failed = failedEditCount(messages.find(m => m.id === msgId), acceptIDs)
+      if (failed > 0) {
+        showToast(t('error.edit_apply_some_failed', { count: failed }), 'error')
+      }
     } catch (e) {
       showToast(t('error.edit_apply_failed'), 'error')
       console.error('Failed to apply edits:', e)
     }
+  }
+
+  function failedEditCount(msg: ChatMessage | undefined, acceptIDs: string[]): number {
+    return msg?.pending_edits?.filter(e => acceptIDs.includes(e.id) && e.status === 'failed').length ?? 0
   }
 
   function hasPendingEdits(msg: ChatMessage): boolean {
@@ -680,6 +696,14 @@
           </div>
         </div>
       {/if}
+      <div class="chat-model">
+        <ChatModelChip
+          task={projectMode ? 'project_chat' : 'card_chat'}
+          reloadKey={projectMode ? (reloadKey ?? '') : cardId}
+          loadChoice={projectMode && loadModelFn ? loadModelFn : () => GetCardChatModel(cardId)}
+          saveChoice={projectMode && saveModelFn ? saveModelFn : (ref) => SetCardChatModel(cardId, ref)}
+        />
+      </div>
     </div>
 
     {#if !configured}
@@ -747,11 +771,12 @@
                 </div>
 
                 {#each msg.pending_edits as edit (edit.id)}
+                  {@const tooltip = editTooltip(edit)}
                   <div
                     class="pending-edit-row"
                     class:edit-accepted={edit.status === 'accepted'}
                     class:edit-rejected={edit.status === 'rejected'}
-                    class:edit-error={edit.status === 'pending' && edit.detail?.startsWith('error:')}
+                    class:edit-failed={edit.status === 'failed'}
                   >
                     {#if edit.status === 'pending'}
                       <input
@@ -761,18 +786,26 @@
                         onchange={() => toggleEdit(msg.id, edit.id)}
                       />
                     {:else if edit.status === 'accepted'}
-                      <Check size={11} class="edit-resolved-icon accepted" />
+                      <Check size={11} class="edit-resolved-icon accepted" aria-label={t('chat.edit_accepted')} />
+                    {:else if edit.status === 'failed'}
+                      <span
+                        class="edit-failed-mark"
+                        role="img"
+                        aria-label={t('chat.edit_failed')}
+                        onmouseenter={(e) => showEditTooltip(e, tooltip)}
+                        onmouseleave={hideEditTooltip}
+                      ><X size={11} class="edit-resolved-icon failed" /></span>
                     {:else}
-                      <X size={11} class="edit-resolved-icon rejected" />
+                      <X size={11} class="edit-resolved-icon rejected" aria-label={t('chat.edit_rejected')} />
                     {/if}
                     <span class="edit-label">{edit.label}</span>
-                    {#if edit.detail}
+                    {#if tooltip}
                       <span
                         class="edit-preview"
                         role="tooltip"
-                        onmouseenter={(e) => showEditTooltip(e, edit.detail)}
+                        onmouseenter={(e) => showEditTooltip(e, tooltip)}
                         onmouseleave={hideEditTooltip}
-                      >{previewEditValue(edit.detail)}</span>
+                      >{previewEditValue(edit.status === 'failed' ? edit.error || edit.detail : edit.detail)}</span>
                     {/if}
                   </div>
                 {/each}
@@ -806,7 +839,12 @@
               </div>
             {/if}
 
-            <span class="chat-msg-time">{formatTime(msg.timestamp)}</span>
+            <span class="chat-msg-time">
+              {formatTime(msg.timestamp)}
+              {#if msg.route}
+                <span class="chat-msg-model" title={describeDecision(msg.route, t)}>· {decisionLabel(msg.route)}</span>
+              {/if}
+            </span>
           </div>
         {/each}
         {#if sending}
@@ -980,8 +1018,25 @@
     border-bottom: 1px solid var(--border-muted);
     flex-shrink: 0;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.5rem;
+  }
+  .chat-model {
+    display: flex;
+    min-width: 0;
+  }
+  /* Card chat sits under CardDetail's absolutely-positioned close button
+     (.modal-actions, top-right of the dialog): keep the header's right
+     edge — where the model chip lives — clear of it. Hosted (project)
+     chat has no overlay button. */
+  .chat-panel:not(.hosted) .chat-header {
+    padding-right: 2.75rem;
+  }
+  /* Card chat: the model chip takes the header's right edge. Project
+     chat: the context selector already does, the chip follows it. */
+  .chat-title + .chat-model {
+    margin-left: auto;
   }
   /* Matches WorkspacePanel's header title: icon + Proper Case, never
      all-caps (panel-header convention — see UI-CONVENTIONS §13). */
@@ -1182,6 +1237,9 @@
     color: var(--text-muted);
     margin-top: 2px;
   }
+  .chat-msg-model {
+    cursor: help;
+  }
   .chat-msg-user .chat-msg-time {
     color: rgba(255,255,255,0.6);
     text-align: right;
@@ -1375,14 +1433,20 @@
     opacity: 0.6;
   }
 
-  .pending-edit-row.edit-error {
+  /* Failed: accepted, but refused at apply time. Reason on hover. */
+  .pending-edit-row.edit-failed {
     background: color-mix(in srgb, var(--danger, #ef4444) 8%, transparent);
     border-radius: 4px;
     padding-left: 4px;
     padding-right: 4px;
   }
-  .pending-edit-row.edit-error .edit-preview {
+  .pending-edit-row.edit-failed .edit-preview {
     color: var(--danger, #ef4444);
+  }
+  .edit-failed-mark {
+    display: inline-flex;
+    flex-shrink: 0;
+    cursor: help;
   }
 
   :global(.edit-resolved-icon) {
@@ -1394,6 +1458,9 @@
   :global(.edit-resolved-icon.rejected) {
     color: var(--text-muted);
     opacity: 0.45;
+  }
+  :global(.edit-resolved-icon.failed) {
+    color: var(--danger, #ef4444);
   }
 
   .edit-label {

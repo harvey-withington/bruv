@@ -7,7 +7,7 @@
   import { draggable } from '../lib/draggable'
   import { setContext } from 'svelte'
   import { EditScope, EDIT_SCOPE_KEY } from '@shared/editScope'
-  import { GripVertical, Plus, Trash2, Type, ListChecks, List, Film, Link, Minus, X, ChevronDown, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell } from 'lucide-svelte'
+  import { GripVertical, Plus, Trash2, Type, ListChecks, List, Film, Link, Minus, X, ChevronDown, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell, FolderTree } from 'lucide-svelte'
   import EditableChecklist from './EditableChecklist.svelte'
   import EditableList from './EditableList.svelte'
   import type { CardTemplate, Block, BlockMeta, ChecklistItem, ListItem } from '@shared/types'
@@ -57,11 +57,12 @@
     { type: 'image',          label: t('block.image'),          icon: 'ImageIcon' },
     { type: 'progress',       label: t('block.progress'),       icon: 'ChartColumn' },
     { type: 'alarm',          label: t('block.alarm'),          icon: 'Bell' },
+    { type: 'workspace_files', label: t('block.workspace_files'), icon: 'FolderTree' },
   ] as const
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const BLOCK_ICON_MAP: Record<string, any> = {
-    Type, ListChecks, List, Film, Link, Minus, ChevronDown, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell,
+    Type, ListChecks, List, Film, Link, Minus, ChevronDown, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell, FolderTree,
   }
 
   function labelToKey(label: string): string {
@@ -197,6 +198,7 @@
     else if (blockType === 'image') value = null
     else if (blockType === 'progress') value = 0
     else if (blockType === 'alarm') { value = null; meta = { alarm_channels: 'in-app,system' } }
+    else if (blockType === 'workspace_files') value = []
     blocks = [...blocks, { id, type: blockType as Block['type'], label, key: labelToKey(label), value, meta }]
   }
 

@@ -22,7 +22,6 @@
   import { getContext } from 'svelte'
   import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import { t } from '../lib/i18n.svelte'
-  import MentionPicker from './MentionPicker.svelte'
   import BlockItem from './BlockItem.svelte'
   import { showOptionsEditor } from '../lib/optionsEditor.svelte'
   import { computeReorder, wouldReorder, DROP_END } from '../lib/reorder'
@@ -65,7 +64,7 @@
 
   function getEmptyValue(type: string): Block['value'] {
     switch (type) {
-      case 'checklist': case 'list': case 'media': return []
+      case 'checklist': case 'list': case 'media': case 'workspace_files': return []
       case 'checkbox_group': return []
       case 'number': case 'rating': case 'progress': return 0
       case 'checkbox': return false
@@ -116,8 +115,6 @@
   let editingBlockId = $state<string | null>(null)
   let blockDrafts = $state<Record<string, string>>({})
   let blockTextareaEls = $state<Record<string, HTMLTextAreaElement | null>>({})
-  let checklistInputEls = $state<Record<string, HTMLInputElement | null>>({})
-  let newChecklistTexts = $state<Record<string, string>>({})
 
   // The dialog's edit scope (Escape-layering + Ctrl+Enter + silent-
   // reload guard). Text-block edits register here via the effect below;
@@ -147,7 +144,6 @@
    *  after every card load; also runs on mount below). */
   export function resetDrafts() {
     blockDrafts = {}
-    newChecklistTexts = {}
     for (const b of card.blocks) {
       if (b.type === 'text' || b.type === 'url') blockDrafts[b.id] = String(b.value ?? '')
     }
@@ -423,6 +419,7 @@
     else if (blockType === 'alarm') { value = null; meta = { alarm_channels: 'in-app,system' } }
     else if (blockType === 'survey') value = []
     else if (blockType === 'slide_deck') value = { slides: [] }
+    else if (blockType === 'workspace_files') value = []
 
     // User-added blocks have no schema key — `key` identifies a card-type
     // field, and a freeform block isn't one. A derived key would collide
@@ -442,12 +439,6 @@
     onCardUpdated(updated)
   }
 
-  // @ mention picker state (text blocks + checklist inputs; the
-  // description's mention picker lives in CardDetail)
-  let mentionVisible = $state(false)
-  let mentionAnchor = $state<{ top: number; left: number } | null>(null)
-  let mentionTarget = $state<{ type: 'text'; blockId: string } | { type: 'checklist'; blockId: string } | null>(null)
-  let mentionTriggerPos = $state<number>(0)
 
   async function deleteBlock(blockId: string) {
     const block = card.blocks.find((b: Block) => b.id === blockId)
@@ -544,7 +535,7 @@
   }
 
   async function handleTextBlockKeydown(e: KeyboardEvent, blockId: string) {
-    if (mentionVisible || e.isComposing) return
+    if (e.isComposing) return
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
@@ -564,66 +555,6 @@
     }
   }
 
-  function handleTextBlockInput(e: Event, blockId: string) {
-    const el = e.target as HTMLTextAreaElement
-    checkForMention(el, { type: 'text', blockId })
-  }
-
-  function checkForMention(el: HTMLTextAreaElement | HTMLInputElement, target: { type: 'text'; blockId: string } | { type: 'checklist'; blockId: string }) {
-    const pos = el.selectionStart ?? 0
-    const text = el.value
-    if (pos > 0 && text[pos - 1] === '@') {
-      if (pos === 1 || /\s/.test(text[pos - 2])) {
-        mentionTriggerPos = pos - 1
-        mentionTarget = target
-        const rect = el.getBoundingClientRect()
-        mentionAnchor = { top: rect.bottom + 4, left: rect.left }
-        mentionVisible = true
-        return
-      }
-    }
-  }
-
-  function handleMentionSelect(markdown: string) {
-    if (!mentionTarget) return
-    if (mentionTarget.type === 'text') {
-      const blockId = mentionTarget.blockId
-      const el = blockTextareaEls[blockId]
-      const draft = blockDrafts[blockId] || ''
-      const before = draft.slice(0, mentionTriggerPos)
-      const after = draft.slice(el?.selectionStart ?? mentionTriggerPos + 1)
-      blockDrafts[blockId] = before + markdown + after
-      mentionVisible = false
-      mentionTarget = null
-      const newPos = before.length + markdown.length
-      setTimeout(() => { el?.focus(); el?.setSelectionRange(newPos, newPos) }, 0)
-    } else if (mentionTarget.type === 'checklist') {
-      const blockId = mentionTarget.blockId
-      const el = checklistInputEls[blockId]
-      const text = newChecklistTexts[blockId] || ''
-      const before = text.slice(0, mentionTriggerPos)
-      const after = text.slice(el?.selectionStart ?? mentionTriggerPos + 1)
-      newChecklistTexts[blockId] = before + markdown + after
-      mentionVisible = false
-      mentionTarget = null
-      const newPos = before.length + markdown.length
-      setTimeout(() => { el?.focus(); el?.setSelectionRange(newPos, newPos) }, 0)
-    }
-  }
-
-  function handleMentionClose() {
-    const target = mentionTarget
-    mentionVisible = false
-    mentionTarget = null
-    // Refocus the source field so the user can continue editing
-    if (target?.type === 'text') {
-      setTimeout(() => blockTextareaEls[target.blockId]?.focus(), 0)
-    } else if (target?.type === 'checklist') {
-      setTimeout(() => checklistInputEls[target.blockId]?.focus(), 0)
-    }
-  }
-
-  // --- Keyboard navigation ---
   function handleBlockKeydown(e: KeyboardEvent, blockIdx: number) {
     if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
       const blocks = card.blocks.filter(b => b.key !== 'description')
@@ -712,7 +643,6 @@
         {collapsedBlocks}
         {expandedTextBlocks}
         {draggingBlockId}
-        {mentionVisible}
         {textBlockOverflows}
         bind:blockTextareaEls
         bind:textBlockEls
@@ -729,7 +659,6 @@
         onDelete={deleteBlock}
         onPromote={promoteBlock}
         onTextKeydown={handleTextBlockKeydown}
-        onTextInput={handleTextBlockInput}
         onSaveText={saveTextBlock}
         onSaveUrl={saveUrlBlock}
         onToggleTextExpand={toggleTextExpand}
@@ -743,13 +672,6 @@
     <div class="block-drop-indicator" class:copy-mode={blockCopyMode}></div>
   {/if}
 </div>
-
-<MentionPicker
-  visible={mentionVisible}
-  anchor={mentionAnchor}
-  onSelect={handleMentionSelect}
-  onClose={handleMentionClose}
-/>
 
 <style>
   .block-toolbar-divider {

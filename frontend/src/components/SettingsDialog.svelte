@@ -2,11 +2,17 @@
   import { X, Eye, EyeOff, Search, Bell } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
-  import { GetPreferences, SetPreferences, GetUIPreferences, SetUIPreferences, GetLLMConfig, SetLLMConfig, GetNotifyConfig, SetNotifyConfig, GetLLMAccounts, SaveLLMAccounts, TestSystemNotification, GetDueDateSettings, SaveDueDateSettings, GetCapturePrefs, SetCapturePrefs } from '@shared/api'
-  import LLMAccountsManager from './LLMAccountsManager.svelte'
+  import { GetPreferences, SetPreferences, GetUIPreferences, SetUIPreferences, GetLLMConfig, SetLLMConfig, GetNotifyConfig, SetNotifyConfig, GetLLMAccounts, SaveLLMAccounts, GetLLMRouting, SaveLLMRouting, TestSystemNotification, GetDueDateSettings, SaveDueDateSettings, GetCapturePrefs, SetCapturePrefs } from '@shared/api'
+  import LLMProvidersManager from './LLMProvidersManager.svelte'
+  import TaskRoutingTable from './TaskRoutingTable.svelte'
+  import LLMRoutersManager from './LLMRoutersManager.svelte'
+  import { loadLLMRegistry } from '../lib/llmRegistry'
+  import { normalizeRouting } from '@shared/modelRefs'
   import SlideTemplatePrefsSection from './SlideTemplatePrefsSection.svelte'
   import CaptureSettingsSection from './CaptureSettingsSection.svelte'
-  import type { LLMAccount, CapturePrefs } from '@shared/types'
+  import SettingsSectionGate from './SettingsSectionGate.svelte'
+  import { SettingsSections } from '../lib/settingsSections.svelte'
+  import type { LLMAccount, LLMRouting, CapturePrefs } from '@shared/types'
   import { theme, setTheme } from '../lib/theme.svelte'
   import { setLocale, availableLocales } from '../lib/i18n.svelte'
   import { nav, prefs as prefsStore } from '../lib/store.svelte'
@@ -62,6 +68,7 @@
     webhook_auth_header: '',
   })
   let llmAccounts = $state<LLMAccount[]>([])
+  let llmRouting = $state<LLMRouting>({ models: [], routers: [], default: '', tasks: {} })
   let showSmtpPassword = $state(false)
   let testingSystem = $state(false)
 
@@ -96,29 +103,25 @@
     },
   })
 
-  let loaded = $state(false)
+  // Each section loads and saves on its own (lib/settingsSections): a
+  // section that failed to load shows an error with Try again and is
+  // never saved, so a flaky RPC can't overwrite real settings with the
+  // defaults above. Server-zone prefs come over RPC; per-device prefs
+  // (theme, locale, layout) come from the local shell / localStorage.
+  type SectionId = 'prefs' | 'ui' | 'llmConfig' | 'llmProviders' | 'notify' | 'dueDate' | 'capture'
 
-  $effect(() => { loadAll() })
-
-  async function loadAll() {
-    try {
-      // Server-zone prefs (default category name, due-date config) come
-      // over RPC; per-device prefs (theme, locale, layout) come from the
-      // local shell / localStorage. One form, two stores.
-      const [p, ui, c, nc, accts, dd, cp] = await Promise.all([
-        GetPreferences(),
-        GetUIPreferences(),
-        GetLLMConfig(),
-        GetNotifyConfig(),
-        GetLLMAccounts(),
-        GetDueDateSettings(),
-        GetCapturePrefs(),
-      ])
-      llmAccounts = accts || []
-      if (p) {
-        prefs.default_category_name = p.default_category_name || t('prefs.default_category_placeholder')
-      }
-      if (ui) {
+  const sections = new SettingsSections<SectionId>({
+    prefs: {
+      load: async () => {
+        const p = await GetPreferences()
+        prefs.default_category_name = p?.default_category_name || t('prefs.default_category_placeholder')
+      },
+      save: () => SetPreferences({ default_category_name: prefs.default_category_name }),
+    },
+    ui: {
+      load: async () => {
+        const ui = await GetUIPreferences()
+        if (!ui) return
         prefs.reopen_last_repo = ui.reopen_last_repo ?? false
         prefs.theme = ui.theme || 'dark'
         prefs.locale = ui.locale || 'en'
@@ -129,8 +132,24 @@
         prefs.inbox_activity_limit = ui.inbox_activity_limit || 25
         prefs.sidebar_collapse_default = ui.sidebar_collapse_default ?? false
         prefs.local_server_port = ui.local_server_port || 0
-      }
-      if (c) {
+      },
+      save: () => {
+        // Sync the live theme into prefs before persisting so whatever
+        // the user (or the sidebar footer toggle) chose is written to
+        // disk. setTheme itself is not called here — the dropdown's
+        // onchange already applies it live.
+        prefs.theme = theme.mode
+        const { default_category_name: _serverOwned, ...uiPrefs } = prefs
+        // sidebar_width is an int server-side; the splitter can leave a
+        // fractional px value, so coerce before persisting.
+        uiPrefs.sidebar_width = Math.round(uiPrefs.sidebar_width)
+        return SetUIPreferences(uiPrefs)
+      },
+    },
+    llmConfig: {
+      load: async () => {
+        const c = await GetLLMConfig()
+        if (!c) return
         llm.context = c.context || ''
         llm.provider = c.provider || ''
         llm.model = c.model || ''
@@ -138,8 +157,21 @@
         llm.base_url = c.base_url || ''
         llm.ai_mode = c.ai_mode || 'edit'
         llm.min_confidence = c.min_confidence || ''
-      }
-      if (nc) {
+      },
+      save: () => SetLLMConfig(llm),
+    },
+    llmProviders: {
+      load: async () => {
+        const [accts, routing] = await Promise.all([GetLLMAccounts(), GetLLMRouting()])
+        llmAccounts = accts || []
+        llmRouting = normalizeRouting(routing)
+      },
+      save: () => persistLLM(),
+    },
+    notify: {
+      load: async () => {
+        const nc = await GetNotifyConfig()
+        if (!nc) return
         // system_enabled is no longer consulted by the backend — keep it true
         // so any config written from this dialog doesn't re-introduce the
         // silent gate if a future client reads it.
@@ -153,15 +185,29 @@
         notifCfg.smtp_tls = nc.smtp_tls ?? true
         notifCfg.webhook_url = nc.webhook_url || ''
         notifCfg.webhook_auth_header = nc.webhook_auth_header || ''
-      }
-      if (dd) {
+      },
+      save: () => SetNotifyConfig(notifCfg),
+    },
+    dueDate: {
+      load: async () => {
+        const dd = await GetDueDateSettings()
+        if (!dd) return
         dueDateEnabled = dd.enabled ?? true
         const ts = dd.thresholds || []
         dueDateThresholds = { '24h': ts.includes('24h'), '1h': ts.includes('1h'), '0': ts.includes('0'), 'overdue': ts.includes('overdue') }
         const ch = (dd.channels || 'in-app,system').split(',').map((s: string) => s.trim())
         dueDateChannels = { system: ch.includes('system'), email: ch.includes('email'), webhook: ch.includes('webhook') }
-      }
-      if (cp) {
+      },
+      save: () => {
+        const ddThresholds = Object.entries(dueDateThresholds).filter(([, v]) => v).map(([k]) => k)
+        const ddChannelStr = ['in-app', ...Object.entries(dueDateChannels).filter(([, v]) => v).map(([k]) => k)].join(',')
+        return SaveDueDateSettings(dueDateEnabled, ddThresholds, ddChannelStr)
+      },
+    },
+    capture: {
+      load: async () => {
+        const cp = await GetCapturePrefs()
+        if (!cp) return
         capturePrefs.videoMode = cp.videoMode ?? 'fit'
         capturePrefs.videoBudgetMB = cp.videoBudgetMB ?? 50
         capturePrefs.imageMode = cp.imageMode ?? 'all'
@@ -173,42 +219,52 @@
           blocked: cp.triggers?.blocked ?? true,
           pinMayReject: cp.triggers?.pinMayReject ?? true,
         }
-      }
-    } catch { /* use defaults */ }
-    loaded = true
+      },
+      save: () => SetCapturePrefs(capturePrefs),
+    },
+  })
+
+  const sectionLabels: Record<SectionId, string> = {
+    prefs: t('prefs.section_prefs'),
+    ui: t('prefs.section_ui'),
+    llmConfig: t('prefs.section_llm_config'),
+    llmProviders: t('prefs.section_llm_providers'),
+    notify: t('prefs.section_notify'),
+    dueDate: t('prefs.section_due_date'),
+    capture: t('prefs.section_capture'),
   }
 
+  $effect(() => { void sections.loadAll() })
+
+  let saving = $state(false)
+
   async function save() {
-    try {
-      const ddThresholds = Object.entries(dueDateThresholds).filter(([, v]) => v).map(([k]) => k)
-      const ddChannelStr = ['in-app', ...Object.entries(dueDateChannels).filter(([, v]) => v).map(([k]) => k)].join(',')
-      // Sync the live theme into prefs before persisting so whatever
-      // the user (or the sidebar footer toggle) chose is written to
-      // disk. setTheme itself is not called here — the dropdown's
-      // onchange already applies it live.
-      prefs.theme = theme.mode
-      const { default_category_name, ...uiPrefs } = prefs
-      // sidebar_width is an int server-side; the splitter can leave a
-      // fractional px value, so coerce before persisting.
-      uiPrefs.sidebar_width = Math.round(uiPrefs.sidebar_width)
-      await Promise.all([
-        SetPreferences({ default_category_name }),
-        SetUIPreferences(uiPrefs),
-        SetLLMConfig(llm),
-        SetNotifyConfig(notifCfg),
-        SaveLLMAccounts(llmAccounts),
-        SaveDueDateSettings(dueDateEnabled, ddThresholds, ddChannelStr),
-        SetCapturePrefs(capturePrefs),
-      ])
+    if (saving || sections.anyLoading) return
+    saving = true
+    const { saved, failed } = await sections.saveReady()
+    saving = false
+    if (saved.includes('ui')) {
       setLocale(prefs.locale)
       nav.sidebarWidth = prefs.sidebar_width
       localStorage.setItem('bruv-sidebar-width', String(prefs.sidebar_width))
       prefsStore.typeBadgeDisplay = prefs.type_badge_display
-      onClose()
-    } catch (e) {
-      console.error('Settings save error:', e)
-      showToast(t('error.save_failed'), 'error')
     }
+    // Open chats' model chips re-read the registry.
+    if (saved.includes('llmProviders')) void loadLLMRegistry(true).catch(() => {})
+    if (failed.length > 0) {
+      // Keep the dialog open with the user's edits so they can retry.
+      showToast(t('prefs.save_some_failed', { sections: failed.map(id => sectionLabels[id]).join(', ') }), 'error')
+      return
+    }
+    onClose()
+  }
+
+  /** Saves providers + models + routing. Also called by model Test and
+   *  Find models, which need the draft on the backend first. */
+  async function persistLLM() {
+    // Never write the placeholder arrays over providers we couldn't read.
+    if (!sections.isReady('llmProviders')) throw new Error(t('prefs.section_not_loaded'))
+    await Promise.all([SaveLLMAccounts(llmAccounts), SaveLLMRouting(llmRouting)])
   }
 
   async function testSystemNotif() {
@@ -240,7 +296,9 @@
     { tab: 'general', key: 'inbox_recent_cards_limit', label: 'inbox recently updated card limit' },
     { tab: 'general', key: 'sidebar_collapse_default', label: 'sidebar collapsed collapse tree startup' },
     { tab: 'general', key: 'local_server_port', label: 'local server port fixed stable clipper pairing' },
-    { tab: 'ai', key: 'accounts', label: 'ai accounts provider openai anthropic ollama api key model' },
+    { tab: 'ai', key: 'accounts', label: 'ai providers accounts provider openai anthropic ollama openrouter lm studio compatible local api key models find discover tier tools' },
+    { tab: 'ai', key: 'use_for', label: 'use for model per task default card chat project chat create with ai agents assign' },
+    { tab: 'ai', key: 'routers', label: 'routers routing auto automatic rules complexity heuristic fallback keywords try' },
     { tab: 'ai', key: 'ai_mode', label: 'ai mode chat edit card fields' },
     { tab: 'ai', key: 'min_confidence', label: 'minimum confidence ai suggestion pin threshold' },
     { tab: 'ai', key: 'context', label: 'ai context additional' },
@@ -343,10 +401,10 @@
       {/each}
     </div>
 
-    {#if loaded}
-      <div class="dialog-body">
-        <!-- GENERAL TAB -->
-        {#if activeTab === 'general'}
+    <div class="dialog-body">
+      <!-- GENERAL TAB -->
+      {#if activeTab === 'general'}
+        <SettingsSectionGate {sections} ids={['prefs', 'ui']} labels={sectionLabels}>
           {#if fieldVisible('reopen_last_repo')}
             <label class="field toggle-field">
               <span class="field-label">{t('prefs.reopen_last_repo')}</span>
@@ -471,13 +529,27 @@
               <span class="field-hint">{t('prefs.local_server_port_hint')}</span>
             </label>
           {/if}
-        {/if}
+        </SettingsSectionGate>
+      {/if}
 
-        <!-- AI TAB -->
-        {#if activeTab === 'ai'}
-          <!-- Accounts section -->
-          <div class="field-section-label">{t('llm.accounts_title')}</div>
-          <LLMAccountsManager bind:accounts={llmAccounts} />
+      <!-- AI TAB -->
+      {#if activeTab === 'ai'}
+        <SettingsSectionGate {sections} ids={['llmConfig', 'llmProviders']} labels={sectionLabels}>
+          {#if fieldVisible('accounts')}
+            <div class="field-section-label">{t('llm.accounts_title')}</div>
+            <LLMProvidersManager bind:accounts={llmAccounts} bind:routing={llmRouting} persist={persistLLM} />
+          {/if}
+
+          {#if fieldVisible('use_for')}
+            <div class="field-section-label">{t('llm_routing.use_for_title')}</div>
+            <TaskRoutingTable bind:routing={llmRouting} accounts={llmAccounts} />
+          {/if}
+
+          {#if fieldVisible('routers')}
+            <div class="field-section-label">{t('llm_routing.routers_title')}</div>
+            <p class="field-hint">{t('llm_routing.routers_hint')}</p>
+            <LLMRoutersManager bind:routing={llmRouting} accounts={llmAccounts} />
+          {/if}
 
           <!-- Behavior section -->
           <div class="field-section-label">{t('llm.behavior_title')}</div>
@@ -512,9 +584,11 @@
               <textarea rows="4" bind:value={llm.context} placeholder={t('llm.context_placeholder')}></textarea>
             </label>
           {/if}
-        {/if}
+        </SettingsSectionGate>
+      {/if}
 
-        {#if activeTab === 'notifications'}
+      {#if activeTab === 'notifications'}
+        <SettingsSectionGate {sections} ids={['notify', 'dueDate']} labels={sectionLabels}>
           <!-- System notifications: no in-app master toggle. Per-agent /
                per-alarm channel selection is authoritative. Use Windows
                Settings → Notifications → BRUV to mute everything. -->
@@ -606,33 +680,35 @@
               </div>
             {/if}
           {/if}
-        {/if}
+        </SettingsSectionGate>
+      {/if}
 
-        <!-- SLIDE TEMPLATES TAB — vault-level Auto-matching prefs; the
-             section persists its own changes (no dialog Save involved). -->
-        {#if activeTab === 'templates'}
-          {#if fieldVisible('slide_templates')}
-            <SlideTemplatePrefsSection />
-          {/if}
+      <!-- SLIDE TEMPLATES TAB — vault-level Auto-matching prefs; the
+           section persists its own changes (no dialog Save involved). -->
+      {#if activeTab === 'templates'}
+        {#if fieldVisible('slide_templates')}
+          <SlideTemplatePrefsSection />
         {/if}
+      {/if}
 
-        <!-- CAPTURE TAB — vault-level defaults for what web/mobile clips
-             store and when they prompt. Bound into this dialog's normal
-             Save flow (unlike Templates, nothing here needs to persist
-             mid-edit). -->
-        {#if activeTab === 'capture'}
+      <!-- CAPTURE TAB — vault-level defaults for what web/mobile clips
+           store and when they prompt. Bound into this dialog's normal
+           Save flow (unlike Templates, nothing here needs to persist
+           mid-edit). -->
+      {#if activeTab === 'capture'}
+        <SettingsSectionGate {sections} ids={['capture']} labels={sectionLabels}>
           {#if CAPTURE_KEYS.some(fieldVisible)}
             <CaptureSettingsSection bind:prefs={capturePrefs} />
           {/if}
-        {/if}
+        </SettingsSectionGate>
+      {/if}
 
-      </div>
+    </div>
 
-      <div class="dialog-footer">
-        <button class="btn btn-ghost" onclick={onClose}>{t('common.cancel')}</button>
-        <button class="btn btn-primary" onclick={save}>{t('common.save')}</button>
-      </div>
-    {/if}
+    <div class="dialog-footer">
+      <button class="btn btn-ghost" onclick={onClose}>{t('common.cancel')}</button>
+      <button class="btn btn-primary" onclick={save} disabled={saving || sections.anyLoading}>{t('common.save')}</button>
+    </div>
   </div>
 </div>
 
@@ -828,6 +904,7 @@
   }
 
   .field-hint {
+    margin: 0;
     font-size: 0.75rem;
     color: var(--text-muted);
   }
@@ -896,7 +973,8 @@
     background: var(--accent);
     color: #fff;
   }
-  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-primary:disabled { opacity: 0.55; cursor: default; }
 
   .btn-ghost {
     background: transparent;

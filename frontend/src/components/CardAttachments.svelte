@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { Paperclip, Trash2, FileText, FileImage, FileVideo, File as FileIcon, Download, X, Eye } from 'lucide-svelte'
+  import { Paperclip, Trash2, FileText, FileImage, FileVideo, File as FileIcon, Download, X, Eye, Pencil } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
   import { AddCardAttachment, RemoveCardAttachment, SignAttachmentURL } from '@shared/api'
   import type { Attachment, Card } from '@shared/types'
-  import { marked } from 'marked'
+  import { isEditableTextAttachment } from '@shared/attachmentText'
+  import AttachmentDocumentViewer from './AttachmentDocumentViewer.svelte'
 
   let {
     cardId,
@@ -102,40 +103,28 @@
     }
   }
 
+  // Text attachments (markdown, plain text, fountain, json…) open in the
+  // document editor — the same editor as workspace files, through an
+  // attachment-backed DocumentSource. Images / PDF / HTML keep the
+  // in-place preview; everything else is download-only.
+  let editingAttachment = $state<Attachment | null>(null)
   let previewAttachment = $state<Attachment | null>(null)
   let previewUrl = $state('')
-  let previewTextContent = $state('')
   let previewLoading = $state(false)
   let previewError = $state('')
 
   async function previewAtt(att: Attachment) {
+    if (isEditableTextAttachment(att)) {
+      editingAttachment = att
+      return
+    }
     previewAttachment = att
     previewUrl = ''
-    previewTextContent = ''
     previewError = ''
     previewLoading = true
     try {
-      const url = await SignAttachmentURL(cardId, att.id)
-      previewUrl = url
-
-      const mime = att.mime.toLowerCase()
-      const name = att.name.toLowerCase()
-      const isText = mime.startsWith('text/') || 
-                     name.endsWith('.md') || 
-                     name.endsWith('.markdown') || 
-                     name.endsWith('.txt') || 
-                     name.endsWith('.json') || 
-                     mime === 'application/json' ||
-                     mime === 'application/javascript' ||
-                     mime === 'text/javascript'
-
-      if (isText) {
-        const res = await fetch(url)
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        previewTextContent = await res.text()
-      }
-    } catch (err) {
-      console.error(err)
+      previewUrl = await SignAttachmentURL(cardId, att.id)
+    } catch {
       previewError = t('attachment.preview_failed')
     } finally {
       previewLoading = false
@@ -145,7 +134,6 @@
   function closePreview() {
     previewAttachment = null
     previewUrl = ''
-    previewTextContent = ''
     previewError = ''
   }
 
@@ -181,7 +169,7 @@
             <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
             <span class="attachment-name clickable-preview" onclick={() => previewAtt(att)} title={t('attachment.preview_named', { name: att.name })}>{att.name}</span>
             <span class="attachment-size">{formatSize(att.size)}</span>
-            <button class="action-reveal attachment-action" onclick={() => previewAtt(att)} title={t('attachment.preview')}><Eye size={11} /></button>
+            <button class="action-reveal attachment-action" onclick={() => previewAtt(att)} title={isEditableTextAttachment(att) ? t('attachment.edit') : t('attachment.preview')}>{#if isEditableTextAttachment(att)}<Pencil size={11} />{:else}<Eye size={11} />{/if}</button>
             <button class="action-reveal attachment-action" onclick={() => downloadAttachment(att)} title={t('attachment.download')}><Download size={11} /></button>
             <button class="action-reveal action-reveal--danger attachment-remove" onclick={() => removeAttachment(att)} title={t('common.remove')}><Trash2 size={11} /></button>
           </div>
@@ -203,6 +191,10 @@
     />
   </div>
 </section>
+
+{#if editingAttachment}
+  <AttachmentDocumentViewer {cardId} attachment={editingAttachment} onClose={() => editingAttachment = null} />
+{/if}
 
 {#if previewAttachment}
   <div class="preview-overlay">
@@ -235,12 +227,6 @@
             <iframe src={previewUrl} title={previewAttachment.name} sandbox="allow-scripts allow-same-origin"></iframe>
           {:else if name.endsWith('.pdf') || mime.includes('pdf')}
             <iframe src={previewUrl} title={previewAttachment.name}></iframe>
-          {:else if name.endsWith('.md') || name.endsWith('.markdown') || mime === 'text/markdown'}
-            <div class="preview-markdown-body">
-              {@html marked.parse(previewTextContent)}
-            </div>
-          {:else if mime.startsWith('text/') || name.endsWith('.txt') || name.endsWith('.json') || mime === 'application/json'}
-            <pre class="preview-text-box"><code>{previewTextContent}</code></pre>
           {:else}
             <div class="preview-fallback">
               <p>{t('attachment.no_preview')}</p>
@@ -466,62 +452,6 @@
     box-shadow: 0 4px 16px rgba(0,0,0,0.2);
   }
 
-  .preview-markdown-body {
-    padding: 1.5rem;
-    font-size: 0.9rem;
-    line-height: 1.6;
-    color: var(--text-body);
-    overflow-y: auto;
-    height: 100%;
-    box-sizing: border-box;
-  }
-
-  .preview-markdown-body :global(h1),
-  .preview-markdown-body :global(h2),
-  .preview-markdown-body :global(h3) {
-    margin-top: 1.5rem;
-    margin-bottom: 0.75rem;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-  .preview-markdown-body :global(h1) { font-size: 1.4rem; border-bottom: 1px solid var(--border-muted); padding-bottom: 0.3rem; }
-  .preview-markdown-body :global(h2) { font-size: 1.2rem; }
-  .preview-markdown-body :global(h3) { font-size: 1.05rem; }
-  .preview-markdown-body :global(p) { margin-bottom: 1rem; }
-  .preview-markdown-body :global(pre) {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-muted);
-    border-radius: 6px;
-    padding: 0.75rem;
-    overflow-x: auto;
-    margin-bottom: 1rem;
-  }
-  .preview-markdown-body :global(code) {
-    font-family: var(--font-mono, monospace);
-    font-size: 0.85rem;
-    background: var(--bg-elevated);
-    padding: 0.15rem 0.3rem;
-    border-radius: 3px;
-  }
-  .preview-markdown-body :global(pre code) {
-    padding: 0;
-    background: none;
-  }
-
-  .preview-text-box {
-    margin: 0;
-    padding: 1.25rem;
-    font-family: var(--font-mono, monospace);
-    font-size: 0.85rem;
-    line-height: 1.45;
-    color: var(--text-body);
-    background: var(--bg-surface);
-    overflow: auto;
-    height: 100%;
-    box-sizing: border-box;
-    white-space: pre-wrap;
-    word-break: break-all;
-  }
 
   .preview-content iframe {
     width: 100%;

@@ -8,6 +8,7 @@ package supervisor
 
 import (
 	"context"
+	"fmt"
 
 	workspacesvc "bruv/core/services/workspace"
 	"bruv/internal/model"
@@ -170,26 +171,69 @@ func (r *Runtime) DeleteWorkspaceTemplate(ref string) error {
 	return r.Workspace.DeleteTemplate(ref)
 }
 
-// --- Card Folders (plan/2026-07-05 card folders design.md) -------------------
+// --- Structure (plan/2026-09-17 workspace files block.md) --------------------
 
 // ListProjectTemplates merges workspace-resident templates (first) with the
-// vault/brand registries — the card-folder create dialog's picker.
+// vault/brand registries — the From-template picker in the file tree.
 func (r *Runtime) ListProjectTemplates(brandSlug, streamSlug, projectSlug string) ([]workspacesvc.TemplateEntry, error) {
 	return r.Workspace.ListProjectTemplates(brandSlug, streamSlug, projectSlug)
 }
 
-// GenerateCardFolder generates a template into the project workspace and
-// binds the result to the card. Returns the updated card.
-func (r *Runtime) GenerateCardFolder(ctx context.Context, brandSlug, streamSlug, projectSlug, cardID, ref, targetRel string, values map[string]string) (*model.Card, error) {
-	return r.Workspace.GenerateCardFolder(ctx, brandSlug, streamSlug, projectSlug, cardID, ref, targetRel, values)
+// GenerateWorkspaceTemplate generates a folder template into the project
+// workspace under targetRel (blank → the template's default target) and
+// returns the generated root, workspace-relative. cardTitle (optional)
+// feeds {{$bruvCard}} when generating from a card's Workspace Files block.
+func (r *Runtime) GenerateWorkspaceTemplate(ctx context.Context, brandSlug, streamSlug, projectSlug, ref, targetRel, cardTitle string, values map[string]string) (string, error) {
+	return r.Workspace.GenerateTemplate(ctx, brandSlug, streamSlug, projectSlug, ref, targetRel, cardTitle, values)
 }
 
-// ClearCardFolder unbinds a card's folder (files untouched).
-func (r *Runtime) ClearCardFolder(cardID string) (*model.Card, error) {
-	return r.Workspace.ClearCardFolder(cardID)
+// CreateWorkspaceDir makes a new folder inside the workspace; returns the
+// cleaned workspace-relative path.
+func (r *Runtime) CreateWorkspaceDir(ctx context.Context, brandSlug, streamSlug, projectSlug, rel string) (string, error) {
+	return r.Workspace.CreateDir(ctx, brandSlug, streamSlug, projectSlug, rel)
 }
 
-// LinkCardFolder binds an existing workspace subfolder to the card.
-func (r *Runtime) LinkCardFolder(brandSlug, streamSlug, projectSlug, cardID, rel string) (*model.Card, error) {
-	return r.Workspace.LinkCardFolder(brandSlug, streamSlug, projectSlug, cardID, rel)
+// CreateWorkspaceFile makes a new empty file inside the workspace (never
+// overwrites); returns the cleaned workspace-relative path.
+func (r *Runtime) CreateWorkspaceFile(ctx context.Context, brandSlug, streamSlug, projectSlug, rel string) (string, error) {
+	return r.Workspace.CreateFile(ctx, brandSlug, streamSlug, projectSlug, rel)
+}
+
+// SetWorkspaceCommitOnSave toggles committing BRUV's own writes on a
+// published workspace (see workspace.Service.commitIfEnabled).
+func (r *Runtime) SetWorkspaceCommitOnSave(brandSlug, streamSlug, projectSlug string, on bool) (*model.Workspace, error) {
+	return r.Workspace.SetCommitOnSave(brandSlug, streamSlug, projectSlug, on)
+}
+
+// WorkspaceLocation names the project a workspace belongs to — what a
+// Workspace Files block needs to turn its workspace id into RPC slugs
+// wherever the card renders (Inbox included).
+type WorkspaceLocation struct {
+	BrandSlug   string           `json:"brand_slug"`
+	StreamSlug  string           `json:"stream_slug"`
+	ProjectSlug string           `json:"project_slug"`
+	Workspace   *model.Workspace `json:"workspace"`
+}
+
+// ResolveWorkspace finds a workspace by id across every project.
+func (r *Runtime) ResolveWorkspace(workspaceID string) (*WorkspaceLocation, error) {
+	if r.repo == nil {
+		return nil, fmt.Errorf("repo not loaded")
+	}
+	refs, err := r.repo.ListWorkspaces()
+	if err != nil {
+		return nil, err
+	}
+	for i := range refs {
+		if refs[i].Workspace.ID == workspaceID {
+			ws := refs[i].Workspace
+			return &WorkspaceLocation{
+				BrandSlug:   refs[i].BrandSlug,
+				StreamSlug:  refs[i].StreamSlug,
+				ProjectSlug: refs[i].ProjectSlug,
+				Workspace:   &ws,
+			}, nil
+		}
+	}
+	return nil, fmt.Errorf("workspace %q not found — it may have been detached", workspaceID)
 }

@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { onMount, onDestroy, setContext } from 'svelte'
+  import { onMount, onDestroy, setContext, untrack } from 'svelte'
   import { EditScope, EDIT_SCOPE_KEY } from '@shared/editScope'
   import { repoRPC, NetworkError } from '../lib/auth'
   import { onReconnect } from '../lib/connectivity.svelte'
   import { navigate, projectURL, cardURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
   import { renderInline } from '@shared/markdown'
-  import { Trash2, MapPin, Plus, X, RefreshCw, Search, Paperclip, MessageSquare, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, ArrowUpRight, MonitorUp } from 'lucide-svelte'
+  import { Trash2, MapPin, Plus, X, RefreshCw, Search, Paperclip, MessageSquare, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, ArrowUpRight, MonitorUp, Sparkles } from 'lucide-svelte'
   import { showToast } from '../lib/toast.svelte'
   import EditableText from '../components/EditableText.svelte'
   import EditableDescription from '../components/EditableDescription.svelte'
@@ -20,10 +20,12 @@
   import CardTypePicker from '../components/CardTypePicker.svelte'
   import CommentsSection from '../components/CommentsSection.svelte'
   import AttachmentsSection from '../components/AttachmentsSection.svelte'
+  import { isMentionSheetActive } from '../lib/mentions.svelte'
   import SearchSheet from '../components/SearchSheet.svelte'
   import CardShareMenu from '../components/CardShareMenu.svelte'
   import PromoteCardSheet from '../components/PromoteCardSheet.svelte'
   import ChatButton from '../components/chat/ChatButton.svelte'
+  import { isPopulating, populateFinished } from '../lib/aiCreate.svelte'
   import { getCardTypeColor, getCardTypeTextColor, getCardTypeLabel } from '@shared/cardTypes'
   import { repoMeta, ensureRepoMeta, loadProjectTags, projectKey as makeProjectKey } from '../lib/repoMeta.svelte'
   import { onEvent } from '../lib/events.svelte'
@@ -132,7 +134,8 @@
       shareMenuOpen ||
       confirmingDelete ||
       confirmingRefresh ||
-      promoteOpen
+      promoteOpen ||
+      isMentionSheetActive()
     ) return
     if (!editScope.hasActive()) return
     cancelActiveEdits()
@@ -396,6 +399,22 @@
     window.history.pushState(parentState, '', '/m' + cardURL(id))
   }
 
+  // Quick capture's "Create with AI" turn (lib/aiCreate) may finish
+  // after this page's own load: refetch once when it does, so the last
+  // tool's edit and the pin are on screen even if their card:updated
+  // echo raced the load. Untracked reads keep the effect keyed to the
+  // completion counter alone.
+  let seenPopulateFinished = untrack(() => populateFinished())
+  $effect(() => {
+    const n = populateFinished()
+    if (n === seenPopulateFinished) return
+    seenPopulateFinished = n
+    if (untrack(() => card)) {
+      void loadCard()
+      void refreshPins()
+    }
+  })
+
   onMount(() => {
     void loadCard()
     // Deep links land here without passing a page that loads the type
@@ -409,11 +428,16 @@
       if (b && s && p) void loadProjectTags(b, s, p)
     }
     window.addEventListener('popstate', handlePopstate)
-    // On reconnect: if the card never loaded, fetch it; otherwise keep the
-    // on-screen edit session and flush any saves that failed while offline.
+    // On reconnect: if the card never loaded, fetch it. Otherwise flush the
+    // saves that failed while offline, then pull anything changed
+    // elsewhere during the outage (its card:updated events were lost with
+    // the stream) — unless the user is mid-edit, whose session wins.
     const offReconnect = onReconnect(() => {
-      if (!card) void loadCard()
-      else void flushPendingSaves()
+      if (!card) {
+        void loadCard()
+        return
+      }
+      void flushPendingSaves().then(refreshCardQuietly)
     })
     return () => {
       window.removeEventListener('popstate', handlePopstate)
@@ -656,6 +680,7 @@
       case 'list':
       case 'media':
       case 'survey':
+      case 'workspace_files':
         value = []
         break
       case 'checkbox_group':
@@ -730,23 +755,7 @@
     if (eventCardID !== id) return
 
     if (ev.topic === 'card:updated') {
-      // Skip refetch if a local save is in flight — it would clobber
-      // the user's pending input. The save's own success/failure path
-      // owns the canonical state for that window.
-      if (blockSaveTimer || savingBlocks) return
-      try {
-        const fresh = await repoRPC<Card>('GetCard', [id])
-        if (fresh) {
-          card = fresh
-          lastSavedBlocks = fresh.blocks ?? []
-        }
-      } catch {
-        /* transient — keep showing what we have */
-      }
-      // Pin/unpin mutations emit card:updated without changing card
-      // fields. Refresh the "Pinned in" rail so it reflects the
-      // LLM-suggestion-accept (or any cross-device pin change) too.
-      void refreshPins()
+      await refreshCardQuietly()
     } else if (ev.topic === 'card:deleted') {
       // Only for EXTERNAL deletes (desktop/agent). Our own delete
       // navigates from deleteCard's success path; reacting to the SSE
@@ -765,6 +774,27 @@
   })
 
   onDestroy(unsubscribe)
+
+  // Refetch the card in place (live update, reconnect). Skipped while a
+  // local save is in flight or a field is being edited — it would clobber
+  // the user's pending input; the save's own success/failure path owns
+  // the canonical state for that window.
+  async function refreshCardQuietly() {
+    if (blockSaveTimer || savingBlocks || editScope.hasActive()) return
+    try {
+      const fresh = await repoRPC<Card>('GetCard', [id])
+      if (fresh && !editScope.hasActive()) {
+        card = fresh
+        lastSavedBlocks = fresh.blocks ?? []
+      }
+    } catch {
+      /* transient — keep showing what we have */
+    }
+    // Pin/unpin mutations emit card:updated without changing card
+    // fields. Refresh the "Pinned in" rail so it reflects the
+    // LLM-suggestion-accept (or any cross-device pin change) too.
+    void refreshPins()
+  }
 
   // --- Type picker / refresh ---
 
@@ -913,6 +943,15 @@
     <ErrorState message={errorMsg} />
   {:else if card}
     <section class="meta">
+      {#if isPopulating(id)}
+        <div class="ai-populating" role="status" aria-live="polite">
+          <span class="pending-icon" aria-hidden="true"><Sparkles size={16} /></span>
+          <div class="pending-text">
+            <strong>{t('card.ai_populating')}</strong>
+            <span>{t('card.ai_populating_detail')}</span>
+          </div>
+        </div>
+      {/if}
       {#if card.tags?.includes(CLIP_PENDING_TAG)}
         <div class="pending-clip" role="status">
           <span class="pending-icon" aria-hidden="true"><MonitorUp size={16} /></span>
@@ -1517,6 +1556,19 @@
     outline: none;
   }
 
+  .ai-populating {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.65rem 0.8rem;
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    border-radius: 8px;
+    color: var(--text);
+  }
+  .ai-populating .pending-icon {
+    color: var(--accent);
+  }
   .pending-clip {
     display: flex;
     align-items: flex-start;

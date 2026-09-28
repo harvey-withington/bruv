@@ -1,18 +1,24 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { fly, fade } from 'svelte/transition'
-  import { X, Clipboard } from 'lucide-svelte'
+  import { X, Clipboard, Sparkles } from 'lucide-svelte'
   import { repoRPC } from '../lib/auth'
   import { inlineEdit } from '@shared/inlineEdit'
   import { EditScope } from '@shared/editScope'
   import { t } from '../lib/i18n.svelte'
   import type { Card } from '@shared/types'
+  import { startPopulate } from '../lib/aiCreate.svelte'
 
   // Quick capture: tap the topbar + button → slide-up sheet → type →
-  // Save creates an
-  // Inbox card (no pin) → sheet closes. Designed for the "have an
-  // idea, want to dump it before I forget" flow. Elaboration happens
-  // later from the Inbox.
+  // Save creates an Inbox card (no pin) → sheet closes. Designed for
+  // the "have an idea, want to dump it before I forget" flow.
+  // Elaboration happens later from the Inbox — or right now, via
+  // "Create with AI": the same Inbox card is created, then the note is
+  // handed to the card's chat in forced edit mode (lib/aiCreate) with
+  // an instruction to title it, pick a type, fill it in and pin it. The
+  // user lands on the card and watches it fill in; the chat itself is
+  // never shown. The card exists before the AI is involved, so a
+  // failed or unconfigured LLM still leaves the capture in the Inbox.
 
   let {
     onClose,
@@ -25,7 +31,8 @@
   } = $props()
 
   let title = $state('')
-  let saving = $state(false)
+  let busy = $state<'save' | 'ai' | null>(null)
+  const saving = $derived(busy !== null)
   let errorMsg = $state<string | null>(null)
   let inputEl: HTMLTextAreaElement | undefined = $state()
 
@@ -64,22 +71,26 @@
     }
   }
 
-  async function save() {
+  async function create(withAI: boolean) {
     const trimmed = title.trim()
     if (!trimmed || saving) return
-    saving = true
+    busy = withAI ? 'ai' : 'save'
     errorMsg = null
     try {
       // Empty cardType + no pin = orphan card lands in Inbox.
       const card = await repoRPC<Card>('CreateCard', ['', trimmed])
+      if (withAI) startPopulate(card.id, t('capture.ai_prompt', { text: trimmed }))
       onSaved?.(card.id)
       onClose()
     } catch (err) {
       errorMsg = err instanceof Error ? err.message : t('capture.err_save')
     } finally {
-      saving = false
+      busy = null
     }
   }
+
+  const save = () => create(false)
+  const createWithAI = () => create(true)
 
   // Composer keyboard behaviour comes from the shared inlineEdit action,
   // mobile multiline variant (Enter inserts a newline; the Save button
@@ -149,14 +160,25 @@
         <Clipboard size={14} />
         {t('capture.paste')}
       </button>
-      <button
-        type="button"
-        class="primary"
-        onclick={save}
-        disabled={saving || !title.trim()}
-      >
-        {saving ? t('capture.saving') : t('capture.save')}
-      </button>
+      <div class="commit">
+        <button
+          type="button"
+          class="secondary"
+          onclick={createWithAI}
+          disabled={saving || !title.trim()}
+        >
+          <Sparkles size={14} />
+          {busy === 'ai' ? t('capture.creating') : t('capture.create_with_ai')}
+        </button>
+        <button
+          type="button"
+          class="primary"
+          onclick={save}
+          disabled={saving || !title.trim()}
+        >
+          {busy === 'save' ? t('capture.saving') : t('capture.save')}
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -250,9 +272,17 @@
 
   .actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.5rem;
     justify-content: space-between;
     align-items: center;
+  }
+  /* The two commit buttons stay together; on a narrow phone the pair
+     wraps under Paste as one right-aligned row. */
+  .commit {
+    display: flex;
+    gap: 0.5rem;
+    margin-left: auto;
   }
 
   .primary,

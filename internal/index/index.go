@@ -282,7 +282,16 @@ func (idx *Index) IndexPins(cardID string, pins []model.Pin) error {
 		return err
 	}
 
+	// A pin file naming one category twice must not poison the index for
+	// the whole card (every later pin write for it would fail on the
+	// unique key): the first occurrence wins, matching repo.Revalidate.
+	seen := make(map[string]bool, len(pins))
 	for _, p := range pins {
+		key := p.ProjectID + "\x00" + p.CategoryID
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
 		_, err := tx.Exec(`
 			INSERT INTO pins (card_id, project_id, category_id, position, pinned_at)
 			VALUES (?, ?, ?, ?, ?)`,
@@ -320,9 +329,14 @@ func (idx *Index) Search(query string, limit int) ([]SearchResult, error) {
 	if len(words) == 0 {
 		return nil, nil
 	}
+	// Each word becomes a quoted FTS5 string with a prefix wildcard:
+	// `"non-fiction"*`. Unquoted, FTS5 reads `-` as NOT, `:` as a column
+	// filter and so on — "Non-Fiction" failed with "no such column:
+	// Fiction" (field report 2026-09-20). A double quote inside a term is
+	// doubled, which is FTS5's own escape.
 	for i, w := range words {
 		w = strings.TrimRight(w, "*")
-		words[i] = w + "*"
+		words[i] = `"` + strings.ReplaceAll(w, `"`, `""`) + `"*`
 	}
 	ftsQuery := strings.Join(words, " ")
 
@@ -557,6 +571,21 @@ func buildSearchContent(card *model.Card) string {
 				}
 				if t, _ := m["text"].(string); t != "" {
 					parts = append(parts, t)
+				}
+			}
+		case model.BlockWorkspaceFiles:
+			// A card is findable by the files it's about.
+			items, ok := b.Value.([]any)
+			if !ok {
+				continue
+			}
+			for _, raw := range items {
+				m, ok := raw.(map[string]any)
+				if !ok {
+					continue
+				}
+				if p, _ := m["path"].(string); p != "" {
+					parts = append(parts, p)
 				}
 			}
 		}

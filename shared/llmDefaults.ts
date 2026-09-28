@@ -1,7 +1,7 @@
-// Default model per LLM provider, used for placeholders when an account has
-// no explicit model. Mirrors DefaultModelForProvider in
-// core/services/llm/service.go, which is the authority at request time —
-// keep the two in sync when refreshing models.
+// Default model per LLM provider: the first model offered when a provider
+// gets its first manually-added model. Mirrors DefaultModelForProvider in
+// internal/config/llm_routing.go (migration + legacy config) — keep the
+// two in sync when refreshing models.
 
 export const DEFAULT_MODEL_FOR_PROVIDER: Readonly<Record<string, string>> = {
   openai: 'gpt-5.5',

@@ -2,11 +2,13 @@
   import { onMount, tick } from 'svelte'
   import { Send, X, Trash2, MessageCircle, PencilLine, ListChecks } from 'lucide-svelte'
   import { repoRPC, machineRPC } from '../../lib/auth'
+  import { onReconnect } from '../../lib/connectivity.svelte'
   import { inlineEdit } from '@shared/inlineEdit'
   import { EditScope } from '@shared/editScope'
   import { t } from '../../lib/i18n.svelte'
   import { replace, cardURL } from '../../lib/router.svelte'
   import ChatMessage from './ChatMessage.svelte'
+  import ChatModelChip from './ChatModelChip.svelte'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import type { ChatScope } from './scope'
   import type {
@@ -94,6 +96,7 @@
         history = await repoRPC<ChatFile>('LoadProjectChatHistory', [scope.brand, scope.stream, scope.project])
       }
       messages = history?.messages ?? []
+      saveError = null
 
       const [cfg, isConfigured] = await Promise.all([cfgPromise, isConfiguredPromise])
       configured = !!isConfigured
@@ -215,6 +218,13 @@
         ])
       }
       messages = result?.messages ?? []
+      // The batch succeeds as a call even when a tool refused an edit;
+      // those rows come back `failed` with the reason on the row.
+      const failed =
+        messages
+          .find((m) => m.id === msgID)
+          ?.pending_edits?.filter((e) => acceptIDs.includes(e.id) && e.status === 'failed').length ?? 0
+      if (failed > 0) saveError = t('chat.err_apply_some', { count: failed })
     } catch (err) {
       saveError = err instanceof Error ? err.message : t('chat.err_apply')
     }
@@ -309,6 +319,12 @@
   onMount(() => {
     void load()
     autoGrow()
+    // Replies that landed while the link was down (a send whose response
+    // was lost, an agent turn) arrive with the connection. The composer's
+    // draft is separate state, so a reload never touches it.
+    const offReconnect = onReconnect(() => {
+      if (!sending) void load()
+    })
     // Push a synthetic history entry so hardware Back closes the sheet
     // without leaving the underlying route. The cleanup pops it on any
     // other close path.
@@ -317,6 +333,7 @@
     window.addEventListener('popstate', onPop)
     window.addEventListener('keydown', onWindowKeydownCapture, true)
     return () => {
+      offReconnect()
       window.removeEventListener('popstate', onPop)
       window.removeEventListener('keydown', onWindowKeydownCapture, true)
       if (!navigatedAway && history.state?.chat) history.back()
@@ -371,6 +388,8 @@
       <X size={18} />
     </button>
   </div>
+
+  <ChatModelChip {scope} onerror={(message) => (saveError = message)} />
 
   {#if scope.kind === 'project'}
     <div class="ctx" role="group" aria-label={t('chat.context_label')}>

@@ -95,7 +95,7 @@ func attachmentHandler(cfg *AttachmentConfig) nethttp.Handler {
 		if mime == "" {
 			mime = "application/octet-stream"
 		}
-		w.Header().Set("Content-Type", mime)
+		w.Header().Set("Content-Type", withCharset(mime))
 		w.Header().Set("Content-Length", strconv.FormatInt(stat.Size(), 10))
 		// Inline by default — most attachments are images the UI wants
 		// to render in place. Browsers ignore the filename for inline
@@ -115,6 +115,25 @@ func attachmentHandler(cfg *AttachmentConfig) nethttp.Handler {
 		}
 		_, _ = io.Copy(w, f)
 	})
+}
+
+// withCharset stamps text-shaped types as UTF-8. Attachment bytes are
+// stored as uploaded (BRUV's own writers are UTF-8), and a browser shown
+// text/markdown with no charset falls back to Latin-1 — every em dash
+// becomes "â€”".
+func withCharset(mime string) string {
+	if strings.Contains(mime, ";") {
+		return mime
+	}
+	switch {
+	case strings.HasPrefix(mime, "text/"),
+		mime == "application/json",
+		mime == "application/xml",
+		mime == "application/yaml",
+		mime == "application/javascript":
+		return mime + "; charset=utf-8"
+	}
+	return mime
 }
 
 // SignAttachmentMAC computes the HMAC-SHA256 tag for the given

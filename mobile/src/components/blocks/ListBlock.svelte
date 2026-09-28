@@ -70,7 +70,6 @@
       >
         <GripVertical size={16} />
       </button>
-      <span class="bullet" aria-hidden="true">•</span>
       <EditableItemText
         text={item.text}
         autoEdit={item.text === ''}
@@ -105,9 +104,12 @@
     flex-direction: column;
     gap: 0.2rem;
   }
+  /* Top-aligned: an item can be several lines tall now (see
+     EditableItemText); the handle sits on the first line. No bullet
+     glyph — the row itself is the list marker (ruling 2026-09-20). */
   .row {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 0.4rem;
     padding: 0.2rem 0;
   }
@@ -135,12 +137,6 @@
   .drag-handle:active {
     cursor: grabbing;
   }
-  .bullet {
-    color: var(--text-muted);
-    width: 0.75rem;
-    text-align: center;
-    flex-shrink: 0;
-  }
   .del {
     background: transparent;
     border: none;
@@ -163,8 +159,8 @@
   }
   .add-row {
     margin-top: 0.2rem;
-    /* Sit under the bullet column (skip the drag-handle column). */
-    margin-left: 1.85rem;
+    /* Sit under the text column (skip the drag-handle column + gap). */
+    margin-left: 1.9rem;
   }
   .add {
     display: inline-flex;

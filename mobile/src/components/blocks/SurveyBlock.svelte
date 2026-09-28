@@ -7,6 +7,7 @@
   import { untrack, getContext } from 'svelte'
   import { Star } from 'lucide-svelte'
   import { t } from '../../lib/i18n.svelte'
+  import { mentionable } from '../../lib/mentions.svelte'
   import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import type { Block, SurveyQuestion } from '@shared/types'
   import { asSurveyQuestions, withValue } from './narrow'
@@ -91,6 +92,7 @@
           oninput={(e) => (textDrafts[q.id] = (e.currentTarget as HTMLTextAreaElement).value)}
           onfocus={(e) => { focusedQuestionID = q.id; answerEls.set(q.id, e.currentTarget as HTMLTextAreaElement) }}
           onblur={() => { if (focusedQuestionID === q.id) focusedQuestionID = null }}
+          use:mentionable
           use:draftEdit={{ multiline: true, enterInsertsNewline: true, onCommit: () => commitText(q), onCancel: () => revertText(q), scope: editScope }}
           placeholder={t('block.survey.unanswered')}
         ></textarea>

@@ -10,10 +10,14 @@ import (
 
 	"bruv/core/runtime/tools"
 	"bruv/internal/llm"
+	"bruv/internal/repo"
 )
 
-// fakeNative stands in for core/boardtools and records each call.
+// fakeNative stands in for core/boardtools and records each call. Its
+// update_card applies the real shared update rules (tools.ApplyCardUpdates)
+// to the test repo, so update_self's behaviour is still tested end to end.
 type fakeNative struct {
+	repo   *repo.Repository
 	calls  []string
 	scopes []*tools.ProjectChatScope
 }
@@ -28,9 +32,23 @@ func (f *fakeNative) IsWrite(name string) bool { return name != "get_card" }
 func (f *fakeNative) Check(*tools.ProjectChatScope, string, map[string]any) error {
 	return nil
 }
-func (f *fakeNative) Call(scope *tools.ProjectChatScope, name string, _ map[string]any) (string, bool) {
+func (f *fakeNative) Call(scope *tools.ProjectChatScope, name string, args map[string]any) (string, bool) {
 	f.calls = append(f.calls, name)
 	f.scopes = append(f.scopes, scope)
+	if name == "update_card" {
+		id, _ := args["card_id"].(string)
+		card, err := f.repo.GetCard(id)
+		if err != nil {
+			return "error: " + err.Error(), true
+		}
+		if err := tools.ApplyCardUpdates(card, args); err != nil {
+			return "error: " + err.Error(), true
+		}
+		if err := f.repo.UpdateCardDirect(id, card); err != nil {
+			return "error: " + err.Error(), true
+		}
+		return `{"card_id":"` + id + `"}`, false
+	}
 	return `{"card_id":"c9","title":"Race 5"}`, false
 }
 func (f *fakeNative) Summary(name string, _ map[string]any, _ string) string { return "did " + name }

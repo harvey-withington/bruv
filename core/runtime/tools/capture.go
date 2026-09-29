@@ -160,12 +160,16 @@ func ParseBlocks(raw any) []model.Block {
 		}
 		label, _ := m["label"].(string)
 		key, _ := m["key"].(string)
+		value, hasValue := m["value"]
+		if !hasValue || value == nil {
+			value = DefaultBlockValue(blockType)
+		}
 		b := model.Block{
 			ID:    "blk-" + uuid.New().String()[:8],
 			Type:  blockType,
 			Label: strings.TrimSpace(label),
 			Key:   strings.TrimSpace(key),
-			Value: m["value"],
+			Value: value,
 		}
 		// A date block is date-only unless asked otherwise; "date-time"
 		// keeps the time and UTC offset (e.g. a race's jump time).

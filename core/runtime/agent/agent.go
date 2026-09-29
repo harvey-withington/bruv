@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	chatrt "bruv/core/runtime/chat"
+	"bruv/core/runtime/tools"
 	llmsvc "bruv/core/services/llm"
 	"bruv/core/services/llm/routing"
 	agentlib "bruv/internal/agent"
@@ -641,6 +642,11 @@ func (rt *Runtime) executeAgentToolCall(ctx context.Context, cardID string, card
 		return rt.executeMCPToolCall(ctx, tc, action)
 	}
 
+	// Web tools: one implementation shared with card and project chat.
+	if result, webAction, ok := tools.RunWebTool(tc); ok {
+		return result, webAction
+	}
+
 	// BRUV's native board tools (get_card, create_card, update_card,
 	// search_cards, …) — the same registry MCP and chat use, board-wide.
 	if n := rt.deps.Native(); n != nil && n.Has(tc.Name) {
@@ -653,26 +659,6 @@ func (rt *Runtime) executeAgentToolCall(ctx context.Context, cardID string, card
 	}
 
 	switch tc.Name {
-	case "web_fetch":
-		url, _ := tc.Arguments["url"].(string)
-		result, err := agentlib.WebFetch(url)
-		if err != nil {
-			action.Result = "error: " + err.Error()
-			return action.Result, action
-		}
-		action.Result = "fetched " + url
-		return result, action
-
-	case "web_search":
-		query, _ := tc.Arguments["query"].(string)
-		result, err := agentlib.WebSearch(query)
-		if err != nil {
-			action.Result = "error: " + err.Error()
-			return action.Result, action
-		}
-		action.Result = fmt.Sprintf("searched: %s", query)
-		return result, action
-
 	case "http_request":
 		method, _ := tc.Arguments["method"].(string)
 		url, _ := tc.Arguments["url"].(string)
@@ -709,9 +695,23 @@ func (rt *Runtime) executeAgentToolCall(ctx context.Context, cardID string, card
 		return "Notification sent to user.", action
 
 	case "update_self":
-		if err := rt.updateCard(cardID, tc.Arguments); err != nil {
-			action.Result = "error: " + err.Error()
+		// The native update_card, pinned to this agent's own card: one
+		// update implementation, saved through the card service so the
+		// activity log and live events see the agent's edits.
+		n := rt.deps.Native()
+		if n == nil {
+			action.Result = "error: card tools unavailable"
 			return action.Result, action
+		}
+		args := make(map[string]any, len(tc.Arguments)+1)
+		for k, v := range tc.Arguments {
+			args[k] = v
+		}
+		args["card_id"] = cardID
+		result, isErr := n.Call(nil, "update_card", args)
+		if isErr {
+			action.Result = result
+			return result, action
 		}
 		action.Result = "card updated"
 		return "Card blocks updated successfully.", action

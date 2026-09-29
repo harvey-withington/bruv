@@ -84,6 +84,10 @@ func (d *Dispatcher) isNative(name string) bool {
 // executeNative runs a native tool inside scope and records the action.
 func (d *Dispatcher) executeNative(scope *ProjectChatScope, tc llm.ToolCall) (string, *model.ToolAction) {
 	n := d.deps.Native()
+	if n == nil {
+		result := "error: board tools are unavailable"
+		return result, &model.ToolAction{Tool: tc.Name, Input: tc.Arguments, Result: result}
+	}
 	result, isErr := n.Call(scope, tc.Name, tc.Arguments)
 	summary := result
 	if !isErr {

@@ -57,6 +57,10 @@ type Board interface {
 
 	ListCardTypes() []catalog.CardTypeInfo
 	ResolveOrCreateCardType(input string) (id string, created bool, err error)
+	// SchemaBlocks returns a card type's schema fields as empty blocks
+	// (nil for a type without a schema), so set_card_fields can fill a
+	// typed field the card doesn't have yet.
+	SchemaBlocks(cardType string) []model.Block
 
 	GetAgentConfig(cardID string) (*model.AgentFile, error)
 	TriggerAgent(cardID string) error

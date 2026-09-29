@@ -14,6 +14,7 @@ package boardtools
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	cardtools "bruv/core/runtime/tools"
@@ -259,6 +260,30 @@ func Summary(name string, args map[string]any, result string) string {
 		return "Added tags: " + strings.Join(argStrSlice(args, "tags"), ", ")
 	case "configure_card_agent":
 		return "Configured the agent"
+	case "set_card_fields":
+		var r struct {
+			Updated []string `json:"updated_fields"`
+		}
+		_ = json.Unmarshal([]byte(result), &r)
+		if len(r.Updated) > 0 {
+			return "Updated fields: " + strings.Join(r.Updated, ", ")
+		}
+		fields, _ := args["fields"].(map[string]any)
+		keys := make([]string, 0, len(fields))
+		for k := range fields {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		return "Set fields: " + strings.Join(keys, ", ")
+	case "add_card_blocks":
+		blocks, _ := args["blocks"].([]any)
+		labels := make([]string, 0, len(blocks))
+		for _, b := range blocks {
+			if m, ok := b.(map[string]any); ok {
+				labels = append(labels, firstNonEmpty(argStr(m, "label"), argStr(m, "key")))
+			}
+		}
+		return "Added fields: " + strings.Join(labels, ", ")
 	}
 	return strings.ReplaceAll(name, "_", " ")
 }

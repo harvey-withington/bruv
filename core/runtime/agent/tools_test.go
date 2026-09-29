@@ -53,7 +53,7 @@ func testRuntime(t *testing.T) (*Runtime, *repo.Repository) {
 	if err != nil {
 		t.Fatalf("repo.Init: %v", err)
 	}
-	return New(&toolsTestDeps{repo: r, native: &fakeNative{}}), r
+	return New(&toolsTestDeps{repo: r, native: &fakeNative{repo: r}}), r
 }
 
 // testCard creates a card with the given blocks and returns its ID.

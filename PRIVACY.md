@@ -78,26 +78,33 @@ The transport is plain HTTP and is intended to be reached over Tailscale (or any
 
 ## What the AI agents can access
 
-Agents can only use tools you've explicitly enabled for each card. The full tool set:
+An agent can use **only the tools you grant it** on its card's Agent tab. Nothing is granted by default: an agent with no tools can only reply in text, and its run ends there. The Agent tab lists every tool an agent can be granted and ticks each one it has, so what you see is exactly what it can do.
 
-| Tool | What it does | Scope |
+| Tool | What it does | Reach |
 |---|---|---|
 | `web_search` | Searches DuckDuckGo | Public web |
 | `web_fetch` | Fetches a specific URL | Public web |
 | `http_request` | Makes an HTTP request (GET/POST/PUT/DELETE) | Public web |
 | `notify` | Sends you a desktop / in-app notification | Local |
-| `update_self` | Updates blocks on the card it's attached to | Local, scoped to one card |
-| BRUV board tools — `get_card`, `search_cards`, `list_cards`, `create_card`, `update_card`, `set_card_*`, `add_card_tags`, comments, attachments, pins, agent tools | The same tool set the in-app chat and the MCP connector use: read, create and change cards and their filing | Local, whole board |
+| `update_self` | Updates the card the agent is attached to | That one card |
+| BRUV board tools — `get_card`, `search_cards`, `list_cards`, `create_card`, `update_card`, `set_card_*`, `add_card_tags`, comments, attachments, pins, reading an agent's settings | The same board tools the in-app chat and the MCP connector use: read, create and change cards and their filing | Your whole board (this repo) |
+| MCP server tools | Whatever the server you installed provides | Set by that server |
+
+Board tools reach every card in the repo, not just the agent's own project — grant them only to agents you want working across your board.
 
 **Agents cannot:**
 
-- Read files outside BRUV's config directory
+- Start, stop, or reconfigure agents — including themselves (these tools can never be granted to an agent)
+- Read or write files on your machine, except through an MCP server you have installed and granted
 - Execute shell commands or scripts
 - Access other applications, your browser, or your clipboard
-- Reach cards in projects other than the one they belong to (scope is enforced in code)
 - Modify BRUV's own configuration files
 
-The **Tool Permissions** panel in each agent card lets you enable or disable each tool individually. An agent with no tools enabled can still chat, but can't take action.
+**Built-in limits on every run:** a token budget and a turn limit (both set per agent); an identical tool call is never repeated within a run; and a run stops early, marked failed, once its tool calls keep failing (for example, a site that blocks automated access). A run that hits any limit is reported as failed, never as a success.
+
+### AI chat
+
+Card chat and project chat use the same board tools, but can only read or change cards in the project the chat is open in (for card chat, the project its card is filed in). The one exception is filing: when card chat files an unfiled card, it may create the brand, stream, project or category it files it into. In **Suggest** mode every change is held for your approval before it's applied.
 
 ## Your API keys
 

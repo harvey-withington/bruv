@@ -253,6 +253,9 @@ func hAddCardBlocks(rt Board, a map[string]any) (string, bool) {
 	if err != nil {
 		return errResult("%v", err)
 	}
+	if err := cardtools.CheckNewBlockKeys(current, blocks); err != nil {
+		return errResult("%v", err)
+	}
 	current.Blocks = append(current.Blocks, blocks...)
 	if _, err := rt.UpdateCardBlocks(cardID, current.Blocks); err != nil {
 		return errResult("%v", err)
@@ -260,6 +263,8 @@ func hAddCardBlocks(rt Board, a map[string]any) (string, bool) {
 	return jsonResult(map[string]any{"card_id": cardID, "blocks_added": len(blocks)})
 }
 
+// hSetCardFields fills a card's fields by key (the rules live in
+// cardtools.ApplyFieldValues, shared with card chat's set_fields).
 func hSetCardFields(rt Board, a map[string]any) (string, bool) {
 	cardID := argStr(a, "card_id")
 	if cardID == "" {
@@ -273,33 +278,26 @@ func hSetCardFields(rt Board, a map[string]any) (string, bool) {
 	if err != nil {
 		return errResult("%v", err)
 	}
-	var updatedKeys []string
-	for i := range card.Blocks {
-		key := card.Blocks[i].Key
-		if key == "" {
-			continue
-		}
-		val, ok := fields[key]
-		if !ok {
-			continue
-		}
-		coerced, _ := cardtools.CoerceBlockValueForBlock(&card.Blocks[i], val)
-		card.Blocks[i].Value = coerced
-		updatedKeys = append(updatedKeys, key)
-	}
-	if len(updatedKeys) == 0 {
-		var available []string
-		for _, b := range card.Blocks {
-			if b.Key != "" {
-				available = append(available, b.Key)
-			}
-		}
-		return errResult("no matching field keys. Available keys: %s", strings.Join(available, ", "))
-	}
-	if _, err := rt.UpdateCardBlocks(cardID, card.Blocks); err != nil {
+	up, err := cardtools.ApplyFieldValues(card, rt.SchemaBlocks(card.Type), fields)
+	if err != nil {
 		return errResult("%v", err)
 	}
-	return jsonResult(map[string]any{"card_id": cardID, "updated_fields": updatedKeys})
+	out := map[string]any{"card_id": cardID, "updated_fields": up.Updated}
+	if up.Description != nil {
+		if _, err := rt.UpdateCardDescription(cardID, *up.Description); err != nil {
+			return errResult("set description: %v", err)
+		}
+		out["description_set"] = true
+	}
+	if len(up.Updated) > 0 {
+		if _, err := rt.UpdateCardBlocks(cardID, card.Blocks); err != nil {
+			return errResult("%v", err)
+		}
+	}
+	if len(up.Unknown) > 0 {
+		out["skipped_unknown_keys"] = up.Unknown
+	}
+	return jsonResult(out)
 }
 
 func hAddCardTags(rt Board, a map[string]any) (string, bool) {

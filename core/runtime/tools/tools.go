@@ -27,7 +27,6 @@ package tools
 // prompt tuning don't collide in the same 7k-line file.
 
 import (
-	"bruv/internal/agent"
 	"bruv/internal/llm"
 	"bruv/internal/model"
 	"fmt"
@@ -514,8 +513,8 @@ var cardToolHandlers = map[string]cardToolHandler{
 	"update_blocks":  (*Dispatcher).toolSetFields, // alias — same handler
 	"add_field":      (*Dispatcher).toolAddField,
 	"suggest_pin":    (*Dispatcher).toolSuggestPin,
-	"web_fetch":      (*Dispatcher).toolWebFetch,
-	"web_search":     (*Dispatcher).toolWebSearch,
+	"web_fetch":      (*Dispatcher).toolWeb,
+	"web_search":     (*Dispatcher).toolWeb,
 	"read_card_file": (*Dispatcher).toolReadCardFile,
 }
 
@@ -537,132 +536,58 @@ func (d *Dispatcher) resolveCardType(input string) (id string, created bool, err
 	return d.deps.Catalog().ResolveOrCreateType(input)
 }
 
+// toolSetFields is card chat's set_fields: an adapter over the native
+// set_card_fields (cardtools.ApplyFieldValues) for THIS card. It only adds
+// what's chat-specific — the dynamic per-card schema puts field keys at
+// the top level, so those are gathered into the fields map first.
 func (d *Dispatcher) toolSetFields(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath) (string, *model.ToolAction, *model.PinSuggestion) {
-	// Accept nested "fields"/"blocks" key OR flat top-level arguments
-	// (dynamic tool schema puts block keys at the top level)
-	fieldsMap, _ := tc.Arguments["fields"].(map[string]any)
-	if len(fieldsMap) == 0 {
-		fieldsMap, _ = tc.Arguments["blocks"].(map[string]any)
+	fields, _ := tc.Arguments["fields"].(map[string]any)
+	if len(fields) == 0 {
+		fields, _ = tc.Arguments["blocks"].(map[string]any)
 	}
-	if len(fieldsMap) == 0 {
-		// Try flat arguments: the dynamic schema puts block keys directly in tc.Arguments.
-		// Match against existing blocks AND schema fields for the card's type so that
-		// the LLM can set fields that haven't been created yet.
-		currentCard2, err2 := d.deps.Repo().GetCard(cardID)
-		if err2 == nil {
-			knownKeys := make(map[string]bool)
-			for _, b := range currentCard2.Blocks {
-				if b.Key != "" {
-					knownKeys[b.Key] = true
-				}
-			}
-			if d.deps.Registry() != nil && currentCard2.Type != "" {
-				if s := d.deps.Registry().Get(currentCard2.Type); s != nil {
-					for k := range s.Properties {
-						knownKeys[k] = true
-					}
-				}
-			}
-			flat := make(map[string]any)
-			for k, v := range tc.Arguments {
-				if knownKeys[k] {
-					flat[k] = v
-				}
-			}
-			if len(flat) > 0 {
-				fieldsMap = flat
-			}
-		}
+	if len(fields) == 0 {
+		fields = d.flatFieldArgs(cardID, tc.Arguments)
 	}
-	// Intrinsic-description redirect: "description" hasn't been a block
-	// since the 2026-05-02 refactor, but it's the LLM's most natural key
-	// for it (and project scope's update_card accepts it). Unless the card
-	// genuinely has a block keyed "description" (legacy/typed cards), route
-	// the value to the intrinsic field instead of erroring — set_description
-	// is the dedicated tool, this keeps the guess correct too.
-	descVal, hasDesc := fieldsMap["description"].(string)
-	if !hasDesc {
-		descVal, hasDesc = tc.Arguments["description"].(string)
-	}
-	descSet := false
-	if hasDesc {
-		if cc, err := d.deps.Repo().GetCard(cardID); err == nil {
-			hasDescBlock := false
-			for _, b := range cc.Blocks {
-				if b.Key == "description" {
-					hasDescBlock = true
-					break
-				}
-			}
-			if !hasDescBlock {
-				if _, err := d.deps.Card().UpdateDescription(cardID, descVal); err == nil {
-					descSet = true
-					delete(fieldsMap, "description")
-				}
-			}
-		}
-	}
-	if len(fieldsMap) == 0 {
-		if descSet {
-			result := "Updated the card's intrinsic description (not a block)"
-			return result, &model.ToolAction{Tool: "set_fields", Input: tc.Arguments, Result: result}, nil
-		}
+	if len(fields) == 0 {
 		return "error: fields map is empty", nil, nil
 	}
-	currentCard, err := d.deps.Repo().GetCard(cardID)
-	if err != nil {
-		return "error: " + err.Error(), nil, nil
-	}
-
-	// Auto-create blocks for schema fields that don't exist on the card yet
-	existingKeys := make(map[string]bool)
-	for _, b := range currentCard.Blocks {
-		if b.Key != "" {
-			existingKeys[b.Key] = true
-		}
-	}
-	if d.deps.Registry() != nil && currentCard.Type != "" {
-		schemaBlocks := d.deps.Registry().SchemaToBlocks(currentCard.Type)
-		for _, sb := range schemaBlocks {
-			if _, wantSet := fieldsMap[sb.Key]; wantSet && !existingKeys[sb.Key] {
-				currentCard.Blocks = append(currentCard.Blocks, sb)
-				existingKeys[sb.Key] = true
-			}
-		}
-	}
-
-	updated := false
-	var updatedKeys []string
-	for i, b := range currentCard.Blocks {
-		if val, ok := fieldsMap[b.Key]; ok {
-			val = coerceBlockValue(b.Type, val)
-			currentCard.Blocks[i].Value = val
-			updated = true
-			updatedKeys = append(updatedKeys, b.Key)
-		}
-	}
-	if !updated {
-		if descSet {
-			result := "Updated the card's intrinsic description; the other keys matched no fields"
-			return result, &model.ToolAction{Tool: "set_fields", Input: tc.Arguments, Result: result}, nil
-		}
-		var available []string
-		for _, b := range currentCard.Blocks {
-			if b.Key != "" {
-				available = append(available, b.Key)
-			}
-		}
-		return "error: no matching field keys found. Available keys: " + strings.Join(available, ", "), nil, nil
-	}
-	if descSet {
-		updatedKeys = append([]string{"description (intrinsic)"}, updatedKeys...)
-	}
-	d.deps.Card().UpdateBlocks(cardID, currentCard.Blocks)
-	result := "Updated fields: " + strings.Join(updatedKeys, ", ")
-	action := &model.ToolAction{Tool: "set_fields", Input: tc.Arguments, Result: result}
+	result, action := d.executeNative(d.cardScope(cardID, allCats), llm.ToolCall{
+		ID: tc.ID, Name: "set_card_fields", Arguments: map[string]any{"card_id": cardID, "fields": fields},
+	})
+	action.Tool, action.Input = "set_fields", tc.Arguments
 	return result, action, nil
 }
 
+// flatFieldArgs picks the top-level arguments that name a field of the
+// card — an existing block key or one its type's schema defines.
+func (d *Dispatcher) flatFieldArgs(cardID string, args map[string]any) map[string]any {
+	c, err := d.deps.Repo().GetCard(cardID)
+	if err != nil {
+		return nil
+	}
+	known := map[string]bool{"description": true}
+	for _, b := range c.Blocks {
+		if b.Key != "" {
+			known[b.Key] = true
+		}
+	}
+	if d.deps.Registry() != nil && c.Type != "" {
+		for _, b := range d.deps.Registry().SchemaToBlocks(c.Type) {
+			known[b.Key] = true
+		}
+	}
+	flat := map[string]any{}
+	for k, v := range args {
+		if known[k] {
+			flat[k] = v
+		}
+	}
+	return flat
+}
+
+// toolAddField is card chat's add_field: an adapter over the native
+// add_card_blocks for THIS card, limited to the field types a chat request
+// can sensibly create (llm.AddFieldTypes).
 func (d *Dispatcher) toolAddField(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath) (string, *model.ToolAction, *model.PinSuggestion) {
 	key, _ := tc.Arguments["key"].(string)
 	label, _ := tc.Arguments["label"].(string)
@@ -673,48 +598,20 @@ func (d *Dispatcher) toolAddField(cardID string, card *model.Card, tc llm.ToolCa
 	if !slices.Contains(llm.AddFieldTypes, fieldType) {
 		return "error: invalid field_type " + fieldType + ". Must be one of: " + strings.Join(llm.AddFieldTypes, ", "), nil, nil
 	}
-	currentCard, err := d.deps.Repo().GetCard(cardID)
-	if err != nil {
-		return "error: " + err.Error(), nil, nil
+	block := map[string]any{"type": fieldType, "label": label, "key": key}
+	if v, ok := tc.Arguments["value"]; ok {
+		block["value"] = v
 	}
-	// Check for duplicate key
-	for _, b := range currentCard.Blocks {
-		if b.Key == key {
-			return "Field with key " + key + " already exists — use set_fields to update it.", nil, nil
-		}
+	result, action := d.executeNative(d.cardScope(cardID, allCats), llm.ToolCall{
+		ID: tc.ID, Name: "add_card_blocks", Arguments: map[string]any{"card_id": cardID, "blocks": []any{block}},
+	})
+	action.Tool, action.Input = "add_field", tc.Arguments
+	if strings.HasPrefix(result, "error") {
+		return result, action, nil
 	}
-	// Build default value for the type
-	var defaultVal any
-	switch fieldType {
-	case model.BlockChecklist:
-		defaultVal = []any{}
-	case model.BlockList:
-		defaultVal = coerceList(nil)
-	case model.BlockCheckbox:
-		defaultVal = false
-	case model.BlockNumber:
-		defaultVal = 0.0
-	default:
-		defaultVal = ""
-	}
-	// If the LLM provided an initial value, coerce and use it
-	if rawVal, hasVal := tc.Arguments["value"]; hasVal && rawVal != nil {
-		defaultVal = coerceBlockValue(fieldType, rawVal)
-	}
-	newBlock := model.Block{
-		ID:    fmt.Sprintf("blk-%s", uuid.New().String()[:8]),
-		Type:  fieldType,
-		Label: label,
-		Key:   key,
-		Value: defaultVal,
-	}
-	currentCard.Blocks = append(currentCard.Blocks, newBlock)
-	d.deps.Card().UpdateBlocks(cardID, currentCard.Blocks)
-	resultMsg := fmt.Sprintf("Added %s field '%s' (key: %s). Use set_fields with key '%s' to update its value.", fieldType, label, key, key)
-	action := &model.ToolAction{Tool: "add_field", Input: tc.Arguments, Result: fmt.Sprintf("Added field: %s (%s)", label, fieldType)}
-	return resultMsg, action, nil
+	action.Result = fmt.Sprintf("Added field: %s (%s)", label, fieldType)
+	return fmt.Sprintf("Added %s field '%s' (key: %s). Use set_fields with key '%s' to update its value.", fieldType, label, key, key), action, nil
 }
-
 func (d *Dispatcher) toolSuggestPin(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath) (string, *model.ToolAction, *model.PinSuggestion) {
 	catID, _ := tc.Arguments["category_id"].(string)
 	reason, _ := tc.Arguments["reason"].(string)
@@ -796,22 +693,9 @@ func (d *Dispatcher) toolSuggestPin(cardID string, card *model.Card, tc llm.Tool
 	return "Card pinned to " + breadcrumb, action, ps
 }
 
-func (d *Dispatcher) toolWebFetch(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath) (string, *model.ToolAction, *model.PinSuggestion) {
-	url, _ := tc.Arguments["url"].(string)
-	result, err := agent.WebFetch(url)
-	if err != nil {
-		return "error: " + err.Error(), &model.ToolAction{Tool: "web_fetch", Input: tc.Arguments, Result: "error: " + err.Error()}, nil
-	}
-	return result, &model.ToolAction{Tool: "web_fetch", Input: tc.Arguments, Result: "fetched " + url}, nil
-}
-
-func (d *Dispatcher) toolWebSearch(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath) (string, *model.ToolAction, *model.PinSuggestion) {
-	query, _ := tc.Arguments["query"].(string)
-	result, err := agent.WebSearch(query)
-	if err != nil {
-		return "error: " + err.Error(), &model.ToolAction{Tool: "web_search", Input: tc.Arguments, Result: "error: " + err.Error()}, nil
-	}
-	return result, &model.ToolAction{Tool: "web_search", Input: tc.Arguments, Result: "searched: " + query}, nil
+func (d *Dispatcher) toolWeb(cardID string, card *model.Card, tc llm.ToolCall, allCats []CategoryPath) (string, *model.ToolAction, *model.PinSuggestion) {
+	result, action, _ := RunWebTool(tc)
+	return result, action, nil
 }
 
 // ExecuteProject runs a single project-level tool and returns (result, action).
@@ -855,6 +739,9 @@ func (d *Dispatcher) ExecuteProject(tc llm.ToolCall, scope ProjectChatScope) (st
 	}
 	if d.isNative(tc.Name) {
 		return d.executeNative(&scope, tc)
+	}
+	if result, action, ok := RunWebTool(tc); ok {
+		return result, action
 	}
 	// Workspace tools are read-only and project-scoped — shared handler.
 	if IsWorkspaceTool(tc.Name) {
@@ -1175,22 +1062,6 @@ func (d *Dispatcher) ExecuteProject(tc llm.ToolCall, scope ProjectChatScope) (st
 		result := "Deleted category"
 		action := &model.ToolAction{Tool: "delete_category", Input: tc.Arguments, Result: result}
 		return result, action
-
-	case "web_fetch":
-		url, _ := tc.Arguments["url"].(string)
-		result, err := agent.WebFetch(url)
-		if err != nil {
-			return "error: " + err.Error(), &model.ToolAction{Tool: "web_fetch", Input: tc.Arguments, Result: "error: " + err.Error()}
-		}
-		return result, &model.ToolAction{Tool: "web_fetch", Input: tc.Arguments, Result: "fetched " + url}
-
-	case "web_search":
-		query, _ := tc.Arguments["query"].(string)
-		result, err := agent.WebSearch(query)
-		if err != nil {
-			return "error: " + err.Error(), &model.ToolAction{Tool: "web_search", Input: tc.Arguments, Result: "error: " + err.Error()}
-		}
-		return result, &model.ToolAction{Tool: "web_search", Input: tc.Arguments, Result: "searched: " + query}
 
 	default:
 		return "error: unknown tool " + tc.Name, nil
@@ -1580,6 +1451,9 @@ func (d *Dispatcher) StageCard(cardID string, tc llm.ToolCall, allCats []Categor
 	if d.isNative(tc.Name) {
 		return d.stageNative(d.cardScope(cardID, allCats), tc)
 	}
+	if result, _, ok := RunWebTool(tc); ok {
+		return result, nil // read-only: runs even in Suggest mode
+	}
 	one := func(tool string, input map[string]any, label, detail string) []model.PendingEdit {
 		return []model.PendingEdit{{
 			ID: uuid.New().String(), Tool: tool, Input: input,
@@ -1669,22 +1543,6 @@ func (d *Dispatcher) StageCard(cardID string, tc llm.ToolCall, allCats []Categor
 		}
 		return "Pin suggestion staged for " + breadcrumb, one(tc.Name, tc.Arguments, "Pin to "+breadcrumb, detail)
 
-	case "web_fetch":
-		url, _ := tc.Arguments["url"].(string)
-		result, err := agent.WebFetch(url)
-		if err != nil {
-			return "error: " + err.Error(), nil
-		}
-		return result, nil
-
-	case "web_search":
-		query, _ := tc.Arguments["query"].(string)
-		result, err := agent.WebSearch(query)
-		if err != nil {
-			return "error: " + err.Error(), nil
-		}
-		return result, nil
-
 	default:
 		return "Staged unknown tool " + tc.Name, nil
 	}
@@ -1709,6 +1567,9 @@ func (d *Dispatcher) StageCard(cardID string, tc llm.ToolCall, allCats []Categor
 func (d *Dispatcher) StageProject(tc llm.ToolCall, scope ProjectChatScope) (string, []model.PendingEdit) {
 	if d.isNative(tc.Name) {
 		return d.stageNative(&scope, tc)
+	}
+	if result, _, ok := RunWebTool(tc); ok {
+		return result, nil // read-only: runs even in Suggest mode
 	}
 	// Read-only workspace tools execute directly even in suggest mode —
 	// same treatment as web_fetch/web_search below: nothing to stage.
@@ -2005,22 +1866,6 @@ func (d *Dispatcher) StageProject(tc llm.ToolCall, scope ProjectChatScope) (stri
 		}}
 
 	// Read-only tools execute even in suggest mode — nothing to stage.
-	case "web_fetch":
-		url, _ := tc.Arguments["url"].(string)
-		result, err := agent.WebFetch(url)
-		if err != nil {
-			return "error: " + err.Error(), nil
-		}
-		return result, nil
-
-	case "web_search":
-		query, _ := tc.Arguments["query"].(string)
-		result, err := agent.WebSearch(query)
-		if err != nil {
-			return "error: " + err.Error(), nil
-		}
-		return result, nil
-
 	default:
 		return "Staged unknown tool " + tc.Name, nil
 	}

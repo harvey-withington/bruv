@@ -8,9 +8,18 @@ import (
 	"bruv/core/boardtools"
 	"bruv/core/runtime/tools"
 	"bruv/internal/llm"
+	"bruv/internal/model"
 )
 
 var _ boardtools.Board = (*Runtime)(nil)
+
+// SchemaBlocks returns a card type's schema fields as empty blocks.
+func (r *Runtime) SchemaBlocks(cardType string) []model.Block {
+	if r.registry == nil || cardType == "" {
+		return nil
+	}
+	return r.registry.SchemaToBlocks(cardType)
+}
 
 type nativeTools struct{ r *Runtime }
 

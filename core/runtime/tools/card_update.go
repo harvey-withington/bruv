@@ -68,6 +68,7 @@ func cardHasBlock(card *model.Card, name string) bool {
 	}
 	return false
 }
+
 // applyIntrinsicUpdate handles intrinsic fields that LLMs often put in
 // the updates array instead of using the top-level parameters, so the
 // real card field changes rather than a spurious text block appearing —

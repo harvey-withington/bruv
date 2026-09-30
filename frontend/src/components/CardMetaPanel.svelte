@@ -13,11 +13,13 @@
   // The add-block button rides on this header row, so BlockPicker
   // renders here; what "add" means stays with the parent via onAddBlock.
 
-  let { cardId, card, onAttachmentsUpdated, onAddBlock }: {
+  let { cardId, card, onAttachmentsUpdated, onCommentsChanged, onAddBlock }: {
     cardId: string
     card: Card
     /** CardAttachments returns the updated card after upload/remove. */
     onAttachmentsUpdated: (card: Card) => void
+    /** A comment was added, edited or deleted. */
+    onCommentsChanged?: () => void
     onAddBlock: (type: Block['type'], label: string) => void
   } = $props()
 
@@ -99,6 +101,7 @@
         <CardComments
           {cardId}
           bind:count={commentCount}
+          onChanged={onCommentsChanged}
         />
       {/if}
     </div>

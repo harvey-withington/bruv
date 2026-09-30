@@ -24,115 +24,122 @@ func (r *Repository) labelsPath(brandSlug, streamSlug, projectSlug string) strin
 	return filepath.Join(r.projectPath(brandSlug, streamSlug, projectSlug), projectTagsFile)
 }
 
-// GetProjectLabels loads labels for a project. Returns empty slice if file doesn't exist.
+// GetProjectLabels loads labels for a project. Returns an empty slice if
+// the file doesn't exist; any other read/parse failure is an error, so a
+// caller never mistakes an unreadable file for "no tags".
 func (r *Repository) GetProjectLabels(brandSlug, streamSlug, projectSlug string) ([]model.Label, error) {
-	var f projectLabelsFile
-	err := readJSON(r.labelsPath(brandSlug, streamSlug, projectSlug), &f)
-	if err != nil {
+	path := r.labelsPath(brandSlug, streamSlug, projectSlug)
+	if !fileExists(path) {
 		return []model.Label{}, nil
+	}
+	var f projectLabelsFile
+	if err := readJSON(path, &f); err != nil {
+		return nil, err
+	}
+	if f.Labels == nil {
+		f.Labels = []model.Label{}
 	}
 	return f.Labels, nil
 }
 
-func (r *Repository) saveProjectLabels(brandSlug, streamSlug, projectSlug string, labels []model.Label) error {
-	return writeJSON(r.labelsPath(brandSlug, streamSlug, projectSlug), projectLabelsFile{Labels: labels})
+// mutateProjectLabels runs fn on a fresh read of the project's labels
+// under the file lock and saves what it returns. A failed read aborts
+// before fn runs — writing back only fn's result would erase every
+// existing tag.
+func (r *Repository) mutateProjectLabels(brandSlug, streamSlug, projectSlug string, fn func([]model.Label) ([]model.Label, error)) ([]model.Label, error) {
+	path := r.labelsPath(brandSlug, streamSlug, projectSlug)
+	unlock := lockPath(path)
+	defer unlock()
+
+	labels, err := r.GetProjectLabels(brandSlug, streamSlug, projectSlug)
+	if err != nil {
+		return nil, err
+	}
+	labels, err = fn(labels)
+	if err != nil {
+		return nil, err
+	}
+	if err := writeJSON(path, projectLabelsFile{Labels: labels}); err != nil {
+		return nil, err
+	}
+	return labels, nil
 }
 
 // AddProjectLabel appends a new label to the project and returns the updated list.
 // If no color is provided, the global tags.json color for that name is used for
 // consistency; otherwise a palette color is auto-assigned and written back to tags.json.
 func (r *Repository) AddProjectLabel(brandSlug, streamSlug, projectSlug, name, color string) ([]model.Label, error) {
-	labels, _ := r.GetProjectLabels(brandSlug, streamSlug, projectSlug)
-
-	if color == "" {
-		// Prefer an existing global color so the same tag looks the same everywhere.
-		tc, _ := r.GetTagColors()
-		if c, ok := tc[name]; ok && c != "" {
-			color = c
-		} else {
-			color = assignLabelColor(labels)
-			// Persist back to global tag colors for future consistency.
-			tc[name] = color
-			_ = writeJSON(r.tagsPath(), tc)
+	return r.mutateProjectLabels(brandSlug, streamSlug, projectSlug, func(labels []model.Label) ([]model.Label, error) {
+		if color == "" {
+			// Prefer an existing global color so the same tag looks the
+			// same everywhere; otherwise pick one and persist it back to
+			// the global tag colors for future consistency.
+			if _, err := r.mutateTagColors(func(tc TagColors) (bool, error) {
+				if c, ok := tc[name]; ok && c != "" {
+					color = c
+					return false, nil
+				}
+				color = assignLabelColor(labels)
+				tc[name] = color
+				return true, nil
+			}); err != nil {
+				return nil, err
+			}
 		}
-	}
 
-	labels = append(labels, model.Label{
-		ID:    uuid.New().String(),
-		Name:  name,
-		Color: color,
+		return append(labels, model.Label{
+			ID:    uuid.New().String(),
+			Name:  name,
+			Color: color,
+		}), nil
 	})
-
-	if err := r.saveProjectLabels(brandSlug, streamSlug, projectSlug, labels); err != nil {
-		return nil, err
-	}
-	return labels, nil
 }
 
 // RemoveProjectLabel removes a label by ID and returns the updated list.
 func (r *Repository) RemoveProjectLabel(brandSlug, streamSlug, projectSlug, labelID string) ([]model.Label, error) {
-	labels, _ := r.GetProjectLabels(brandSlug, streamSlug, projectSlug)
-	found := false
-	filtered := make([]model.Label, 0, len(labels))
-	for _, l := range labels {
-		if l.ID == labelID {
-			found = true
-			continue
+	return r.mutateProjectLabels(brandSlug, streamSlug, projectSlug, func(labels []model.Label) ([]model.Label, error) {
+		filtered := make([]model.Label, 0, len(labels))
+		for _, l := range labels {
+			if l.ID != labelID {
+				filtered = append(filtered, l)
+			}
 		}
-		filtered = append(filtered, l)
-	}
-	if !found {
-		return nil, fmt.Errorf("label %q not found", labelID)
-	}
-	if err := r.saveProjectLabels(brandSlug, streamSlug, projectSlug, filtered); err != nil {
-		return nil, err
-	}
-	return filtered, nil
+		if len(filtered) == len(labels) {
+			return nil, fmt.Errorf("label %q not found", labelID)
+		}
+		return filtered, nil
+	})
 }
 
 // SetProjectLabelIcon sets or clears the icon on a project label by ID.
 func (r *Repository) SetProjectLabelIcon(brandSlug, streamSlug, projectSlug, labelID, icon string) ([]model.Label, error) {
-	labels, _ := r.GetProjectLabels(brandSlug, streamSlug, projectSlug)
-	found := false
-	for i, l := range labels {
-		if l.ID == labelID {
-			labels[i].Icon = icon
-			found = true
-			break
+	return r.mutateProjectLabels(brandSlug, streamSlug, projectSlug, func(labels []model.Label) ([]model.Label, error) {
+		for i, l := range labels {
+			if l.ID == labelID {
+				labels[i].Icon = icon
+				return labels, nil
+			}
 		}
-	}
-	if !found {
 		return nil, fmt.Errorf("label %q not found", labelID)
-	}
-	if err := r.saveProjectLabels(brandSlug, streamSlug, projectSlug, labels); err != nil {
-		return nil, err
-	}
-	return labels, nil
+	})
 }
 
 // UpdateProjectLabel updates a label's name and/or color by ID and returns the updated list.
 func (r *Repository) UpdateProjectLabel(brandSlug, streamSlug, projectSlug, labelID, name, color string) ([]model.Label, error) {
-	labels, _ := r.GetProjectLabels(brandSlug, streamSlug, projectSlug)
-	found := false
-	for i, l := range labels {
-		if l.ID == labelID {
-			if name != "" {
-				labels[i].Name = name
+	return r.mutateProjectLabels(brandSlug, streamSlug, projectSlug, func(labels []model.Label) ([]model.Label, error) {
+		for i, l := range labels {
+			if l.ID == labelID {
+				if name != "" {
+					labels[i].Name = name
+				}
+				if color != "" {
+					labels[i].Color = color
+				}
+				return labels, nil
 			}
-			if color != "" {
-				labels[i].Color = color
-			}
-			found = true
-			break
 		}
-	}
-	if !found {
 		return nil, fmt.Errorf("label %q not found", labelID)
-	}
-	if err := r.saveProjectLabels(brandSlug, streamSlug, projectSlug, labels); err != nil {
-		return nil, err
-	}
-	return labels, nil
+	})
 }
 
 // assignLabelColor picks the next unused palette color for a label.

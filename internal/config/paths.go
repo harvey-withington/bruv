@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"sync"
+	"testing"
 )
 
 // ConfigDir returns the BRUV config directory (e.g. %APPDATA%/bruv on
@@ -27,9 +29,23 @@ func SetConfigDir(dir string) {
 	configDirOverride = dir
 }
 
+var (
+	testConfigDirOnce sync.Once
+	testConfigDir     string
+	testConfigDirErr  error
+)
+
 func configDir() (string, error) {
 	if configDirOverride != "" {
 		return configDirOverride, os.MkdirAll(configDirOverride, 0o755)
+	}
+	if testing.Testing() {
+		// Never let a test touch the real user config: every package's
+		// tests that reach internal/config land in a throwaway dir.
+		testConfigDirOnce.Do(func() {
+			testConfigDir, testConfigDirErr = os.MkdirTemp("", "bruv-test-config-")
+		})
+		return testConfigDir, testConfigDirErr
 	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
@@ -122,7 +138,7 @@ func migrateToClientData(fileName string) {
 		if readErr != nil {
 			return
 		}
-		if writeErr := os.WriteFile(dstPath, data, 0o644); writeErr != nil {
+		if writeErr := atomicWriteFile(dstPath, data, 0o644); writeErr != nil {
 			return
 		}
 		_ = os.Remove(srcPath)

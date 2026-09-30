@@ -23,11 +23,19 @@
   let selectedCardId = $state<string | null>(null)
   let selectedCategoryId = $state<string | null>(null)
   let selectedCategoryName = $state<string | null>(null)
-  let autoEditTitle = $state(false)
+  // The card just created by "+ Add card" / "New idea", while it is still
+  // pristine. Escape on it deletes it (an accidental create leaves nothing
+  // behind); ANY mutation from the dialog — title, description, blocks,
+  // tags, comments, attachments, agent config, chat edits, pins, merges —
+  // arrives as onUpdated and clears it, so an edited card is never deleted.
+  // Keyed by id: the dialog instance is reused across cards (mention
+  // navigation), and only THIS card may be cleaned up.
+  let freshCardId = $state<string | null>(null)
+  const autoEditTitle = $derived(freshCardId !== null && freshCardId === selectedCardId)
 
   // Close board's card dialog when navigating via internal links
   onMount(() => {
-    function handleClose() { selectedCardId = null; selectedCategoryId = null; selectedCategoryName = null; autoEditTitle = false }
+    function handleClose() { selectedCardId = null; selectedCategoryId = null; selectedCategoryName = null; freshCardId = null }
     function handleBoardChanged() { refreshBoard() }
     document.addEventListener('bruv:close-card-detail', handleClose)
     document.addEventListener('bruv:board-changed', handleBoardChanged)
@@ -63,7 +71,7 @@
       selectedCardId = card.id
       selectedCategoryId = categoryId
       selectedCategoryName = cat?.name || null
-      autoEditTitle = true
+      freshCardId = card.id
     } catch (e) {
       console.error('Failed to add card:', e)
       showToast(t('error.create_failed'), 'error')
@@ -129,19 +137,27 @@
 
   async function closeCardDetail(opts?: { escaped?: boolean }) {
     const cardId = selectedCardId
-    const wasAutoEdit = autoEditTitle
+    const wasFresh = autoEditTitle
     selectedCardId = null
     selectedCategoryId = null
     selectedCategoryName = null
-    autoEditTitle = false
-    // Only delete unnamed new card if user pressed ESC without editing the name
-    if (opts?.escaped && wasAutoEdit && cardId) {
+    freshCardId = null
+    // Only delete a still-pristine new card the user Escaped out of. The
+    // fresh flag is the real guard (cleared by any mutation); the content
+    // checks are a backstop against a change that never reported back.
+    if (opts?.escaped && wasFresh && cardId) {
+      let pristine = false
       try {
         const card = await GetCard(cardId)
-        if (card.title === t('default.card_name')) {
-          await DeleteCard(cardId)
-        }
-      } catch (e) { console.error('Cleanup card:', e) }
+        pristine = card.title === t('default.card_name')
+          && !card.description?.trim()
+          && (card.file_attachments?.length ?? 0) === 0
+      } catch (e) {
+        console.error('Cleanup card: lookup failed', e) // nothing to clean up
+      }
+      if (pristine) {
+        try { await DeleteCard(cardId) } catch { showToast(t('error.delete_failed'), 'error') }
+      }
     }
     // Refresh the view — inbox needs its own event since refreshBoard() is a no-op there
     if (nav.inboxMode) {
@@ -152,7 +168,7 @@
   }
 
   function handleCardUpdated() {
-    autoEditTitle = false
+    freshCardId = null
     if (nav.inboxMode) {
       document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
     } else {
@@ -173,7 +189,7 @@
       const card = await CreateCard('', t('default.card_name'))
       // Open the card for editing — don't refresh inbox yet to avoid race
       selectedCardId = card.id
-      autoEditTitle = true
+      freshCardId = card.id
     } catch (e) {
       console.error('Failed to create idea:', e)
       showToast(t('error.create_failed'), 'error')

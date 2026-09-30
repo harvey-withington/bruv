@@ -2,10 +2,11 @@
   import { Plus, Type, ListChecks, List, Film, Link, Minus, ChevronDown, Hash, Calendar, Star, ToggleLeft, CircleDot, ImageIcon, ChartColumn, Bell, ClipboardList, Presentation, FolderTree } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import { floatingDropdown, clickOutside } from '../lib/actions'
+  import { keyLayer } from '../lib/keyLayer'
   import type { Block } from '@shared/types'
 
   // "+ Add block" button with its type-picker dropdown. Owns the open
-  // state, click-outside/Escape handling, and the block-type catalogue
+  // state, click-outside/Escape handling (key-layer stack, UI-CONVENTIONS §8.1), and the block-type catalogue
   // (label + icon per type); the parent owns what "add" means (default
   // value, persist) via onAdd.
 
@@ -13,15 +14,6 @@
 
   let open = $state(false)
   let btnEl = $state<HTMLButtonElement | null>(null)
-
-  function handleKeydown(e: KeyboardEvent) {
-    if (!open) return
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      e.stopPropagation()
-      open = false
-    }
-  }
 
   const BLOCK_OPTIONS: ReadonlyArray<{ type: Block['type']; label: string; icon: typeof Type }> = [
     { type: 'text',           label: t('block.text'),           icon: Type },
@@ -46,8 +38,6 @@
   ]
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
 <div class="add-block-toolbar">
   <button class="add-block-btn" bind:this={btnEl} onclick={() => open = !open} title={t('tooltip.add_block')}>
     <Plus size={12} />
@@ -58,6 +48,7 @@
       class="dropdown-menu dropdown-menu--grid"
       use:floatingDropdown={{ trigger: btnEl }}
       use:clickOutside={{ onOutsideClick: () => open = false, exclude: [btnEl] }}
+      use:keyLayer={{ onEscape: () => { open = false } }}
     >
       {#each BLOCK_OPTIONS as opt (opt.type)}
         <button class="dropdown-menu-item" onclick={() => { onAdd(opt.type, opt.label); open = false }} title={opt.label}>

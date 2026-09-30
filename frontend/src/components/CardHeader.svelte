@@ -18,6 +18,7 @@
   import { ArrowLeftRight, ChevronDown, Plus } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import { focusOnMount, floatingDropdown } from '../lib/actions'
+  import { keyLayer } from '../lib/keyLayer'
   import { renderInline } from '@shared/markdown'
   import { getCardTypeColor, getCardTypeTextColor } from '@shared/cardTypes'
   import type { Card, CardTypeInfo } from '@shared/types'
@@ -71,7 +72,7 @@
       {@const filteredTypes = acceptedTypes?.length
         ? cardTypesList.filter(ct => acceptedTypes.includes(ct.id))
         : cardTypesList}
-      <div class="type-picker-dropdown" use:floatingDropdown={{ trigger: typeBadgeBtnEl }}>
+      <div class="type-picker-dropdown" use:floatingDropdown={{ trigger: typeBadgeBtnEl }} use:keyLayer={{ onEscape: () => { showTypePicker = false } }}>
         <button
           class="type-picker-option"
           class:active={!card.type}

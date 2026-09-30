@@ -41,7 +41,7 @@ export async function enrol(serverURL: string, bootstrapToken: string): Promise<
     throw new Error(`${res.status} ${detail}`)
   }
   const body = (await res.json()) as { device_token?: string; device_id?: string }
-  if (!body.device_token || !body.device_id) throw new Error('malformed enrol response')
+  if (!body.device_token || !body.device_id) throw new Error(chrome.i18n.getMessage('err_malformed_enrol'))
   return { serverURL: url, deviceToken: body.device_token, deviceID: body.device_id }
 }
 
@@ -67,7 +67,7 @@ export async function enrolLocal(serverURL: string): Promise<EnrolResult> {
     throw new Error(`${res.status} ${detail}`)
   }
   const body = (await res.json()) as { device_token?: string; device_id?: string }
-  if (!body.device_token || !body.device_id) throw new Error('malformed enrol response')
+  if (!body.device_token || !body.device_id) throw new Error(chrome.i18n.getMessage('err_malformed_enrol'))
   return { serverURL: url, deviceToken: body.device_token, deviceID: body.device_id }
 }
 
@@ -82,7 +82,7 @@ export type RepoSummary = { id: string; name: string }
 
 export async function listRepos(s: ClipperSettings): Promise<RepoSummary[]> {
   const res = await apiFetch(s, '/repos')
-  if (!res.ok) throw new Error(`list repos: ${res.status}`)
+  if (!res.ok) throw new Error(chrome.i18n.getMessage('err_list_repos').replace('{status}', String(res.status)))
   return ((await res.json()) as RepoSummary[]) ?? []
 }
 
@@ -96,23 +96,47 @@ type RPCResponse<T> = {
 let rpcID = 0
 
 export async function repoRPC<T = unknown>(s: ClipperSettings, method: string, params: unknown[]): Promise<T> {
-  if (!s.repoID) throw new Error('no repo selected')
+  if (!s.repoID) throw new Error(chrome.i18n.getMessage('err_no_repo'))
   const res = await apiFetch(s, `/repos/${encodeURIComponent(s.repoID)}/rpc`, {
     method: 'POST',
     body: JSON.stringify({ jsonrpc: '2.0', method, params, id: ++rpcID }),
   })
-  if (!res.ok) throw new Error(`${method}: HTTP ${res.status}`)
+  if (!res.ok) throw new HttpError(method, res.status)
   const payload = (await res.json()) as RPCResponse<T>
   if (payload.error) {
-    if (payload.error.code === -32601) throw new Error(`${method}: server too old for this clipper — update BRUV`)
+    if (payload.error.code === -32601) {
+      throw new Error(chrome.i18n.getMessage('err_server_too_old').replace('{method}', method))
+    }
     throw new Error(payload.error.message)
   }
   return payload.result as T
 }
 
+// A non-2xx HTTP answer from the RPC endpoint. Carries the status so a
+// gateway/overload answer (a proxy in front of a stopped server) counts as
+// "unreachable" rather than as a business error.
+export class HttpError extends Error {
+  constructor(
+    readonly method: string,
+    readonly status: number,
+  ) {
+    super(chrome.i18n.getMessage('err_http').replace('{method}', method).replace('{status}', String(status)))
+    this.name = 'HttpError'
+  }
+}
+
+const TRANSIENT_HTTP = new Set([408, 429, 502, 503, 504])
+
 // NetworkError-ish check: fetch() rejects with TypeError when the server was
 // never reached — that's the "queue it and retry" signal, as opposed to a
-// business error which retrying won't fix.
+// business error which retrying alone won't fix.
 export function isNetworkError(err: unknown): boolean {
-  return err instanceof TypeError
+  return err instanceof TypeError || (err instanceof HttpError && TRANSIENT_HTTP.has(err.status))
+}
+
+// errorText is what the user sees for a failure (queue list, toasts):
+// localized for the unreachable case, the server's own message otherwise.
+export function errorText(err: unknown): string {
+  if (isNetworkError(err)) return chrome.i18n.getMessage('err_unreachable')
+  return err instanceof Error ? err.message : String(err)
 }

@@ -16,7 +16,11 @@
   import { onMount, onDestroy } from 'svelte'
   import { onEvent } from '../lib/events'
 
-  let { cardId }: { cardId: string } = $props()
+  let { cardId, onChanged }: {
+    cardId: string
+    /** The agent config was saved or removed (the card dialog marks the card edited). */
+    onChanged?: () => void
+  } = $props()
 
   let loading = $state(true)
   let loadError = $state(false)
@@ -184,12 +188,43 @@
     }
   }
 
+  // Follow-up refresh after Run now / Cancel. A full reload would overwrite
+  // unsaved form edits (and clear `dirty`), so a dirty form only takes the
+  // run bookkeeping. One timer, cleared on card switch and destroy — a late
+  // tick must never load into another card's form.
+  let runRefreshTimer: ReturnType<typeof setTimeout> | undefined
+
+  function scheduleRunRefresh(ms: number) {
+    clearTimeout(runRefreshTimer)
+    const forCard = cardId
+    runRefreshTimer = setTimeout(() => {
+      if (forCard !== cardId) return
+      if (dirty) void refreshRunState()
+      else void loadConfig(true)
+    }, ms)
+  }
+
+  async function refreshRunState() {
+    const forCard = cardId
+    try {
+      const af = await DescribeAgent(forCard)
+      if (forCard !== cardId) return
+      status = af.config.status || 'disabled'
+      nextRunAt = af.config.next_run_at
+      lastRunAt = af.config.last_run_at ?? null
+      runStartedAt = af.config.run_started_at ?? null
+      retryCount = af.config.retry_count || 0
+    } catch {
+      // Best-effort status refresh; the live agent:* events also update it.
+    }
+  }
+
   async function triggerNow() {
     triggering = true
     try {
       await TriggerAgent(cardId)
       showToast(t('agent.triggered'), 'success')
-      setTimeout(() => loadConfig(), 1500)
+      scheduleRunRefresh(1500)
     } catch (e) {
       showToast(t('agent.trigger_failed'), 'error')
     } finally {
@@ -201,7 +236,7 @@
     try {
       await CancelAgent(cardId)
       showToast(t('agent.cancelled'), 'info')
-      setTimeout(() => loadConfig(), 1000)
+      scheduleRunRefresh(1000)
     } catch (e) {
       showToast(t('agent.cancel_failed'), 'error')
     }
@@ -253,6 +288,7 @@
       } catch { /* ignore */ }
       showToast(t('agent.saved'), 'success')
       dirty = false
+      onChanged?.()
     } catch (e) {
       showToast(t('agent.save_failed'), 'error')
       console.error('Failed to save agent config:', e)
@@ -287,6 +323,7 @@
     try {
       await DeleteAgent(cardId)
       showToast(t('agent.removed'), 'success')
+      onChanged?.()
       // Refresh board indicators + reset this tab to the plain-card state.
       try {
         board.agentCardStates = (await ListAgentCardStates()) || {}
@@ -377,11 +414,13 @@
   onDestroy(() => {
     for (const fn of cleanupFns) { if (typeof fn === 'function') fn() }
     clearTimeout(schedulePreviewTimer)
+    clearTimeout(runRefreshTimer)
   })
 
   $effect(() => {
     void cardId // track cardId so we reload when it changes
     loadConfig()
+    return () => clearTimeout(runRefreshTimer)
   })
 
   $effect(() => {

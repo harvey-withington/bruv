@@ -21,6 +21,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
+	"regexp"
 	"strings"
 	"time"
 
@@ -32,10 +34,6 @@ type Deps interface {
 	Repo() *repo.Repository
 	Registry() *schema.Registry
 	Index() *index.Index
-	// UpdateCardBlocks is consulted by mergeTemplateBlocks because card
-	// mutation + indexing lives on App (until the card service is
-	// extracted). Once CardService lands this becomes an internal call.
-	UpdateCardBlocks(id string, blocks []model.Block) (*model.Card, error)
 	// Publish announces a domain event. Emitted from label CRUD and
 	// card-type mutations so other devices see catalog changes live.
 	Publish(topic string, payload any)
@@ -94,8 +92,11 @@ var BuiltinTypes = []CardTypeInfo{
 const DefaultCardType = "brainstorm"
 
 // CardTypeExists reports whether id names an existing card type exactly.
+// It fails closed: when the user type store can't be read only the
+// built-ins exist, so a user type is refused rather than guessed at.
 func (s *Service) CardTypeExists(id string) bool {
-	for _, t := range s.ListCardTypes() {
+	types, _ := s.LoadCardTypes() // built-ins survive a load error
+	for _, t := range types {
 		if t.ID == id {
 			return true
 		}
@@ -113,20 +114,57 @@ var seedTypes = []config.UserCardType{
 
 // ListCardTypes returns all card types (built-in first, then user).
 // Safe to call before a repo is open — returns only built-ins in that
-// case so the UI has something to render during early boot.
+// case so the UI has something to render during early boot. A store
+// that can't be read is logged and yields the built-ins only; callers
+// that can report the failure use LoadCardTypes.
 func (s *Service) ListCardTypes() []CardTypeInfo {
-	var store config.UserTypeStore
-	r := s.deps.Repo()
-	if r != nil {
-		store, _ = r.LoadUserTypeStore()
-		dirty := s.ensureSeeded(&store)
-		dirty = s.ensureStarterTemplates(&store) || dirty
-		dirty = s.ensureMissingBuiltinTemplates(&store) || dirty
-		if dirty {
-			_ = r.SaveUserTypeStore(store)
-		}
+	types, err := s.LoadCardTypes()
+	if err != nil {
+		slog.Error("card types: user type store unreadable; listing built-ins only", "err", err)
 	}
+	return types
+}
 
+// LoadCardTypes is ListCardTypes with the store's load error. On a load
+// error it returns the built-ins alone and writes NOTHING: seeding after
+// a failed read would overwrite card_types.json with the seed types and
+// wipe every user type and template.
+func (s *Service) LoadCardTypes() ([]CardTypeInfo, error) {
+	var store config.UserTypeStore
+	var loadErr error
+	if r := s.deps.Repo(); r != nil {
+		store, loadErr = s.loadSeededStore(r)
+	}
+	return s.typeInfos(store), loadErr
+}
+
+// loadSeededStore reads the card types store, seeding the defaults it
+// lacks under the store's lock. A failed seed write still returns the
+// store as read; a failed read returns an empty store and the error.
+func (s *Service) loadSeededStore(r *repo.Repository) (config.UserTypeStore, error) {
+	store, err := r.UpdateUserTypeStore(func(store *config.UserTypeStore) error {
+		dirty := s.ensureSeeded(store)
+		dirty = s.ensureStarterTemplates(store) || dirty
+		dirty = s.ensureMissingBuiltinTemplates(store) || dirty
+		if !dirty {
+			return repo.ErrNoChange
+		}
+		return nil
+	})
+	if err == nil {
+		return store, nil
+	}
+	// The load failed (nothing was written), or the seed write did.
+	if store, loadErr := r.LoadUserTypeStore(); loadErr == nil {
+		slog.Warn("card types: saving seeded defaults failed", "err", err)
+		return store, nil
+	}
+	return config.UserTypeStore{}, fmt.Errorf("load card types: %w", err)
+}
+
+// typeInfos lists the built-in types (with the store's overrides) then
+// the store's user types.
+func (s *Service) typeInfos(store config.UserTypeStore) []CardTypeInfo {
 	result := make([]CardTypeInfo, 0, len(BuiltinTypes)+len(store.Types))
 	reg := s.deps.Registry()
 	for _, b := range BuiltinTypes {
@@ -159,6 +197,16 @@ func (s *Service) ListCardTypes() []CardTypeInfo {
 	return result
 }
 
+// updateStore is the locked read-modify-write of the card types store
+// (repo.UpdateUserTypeStore): an unreadable store is never overwritten.
+func (s *Service) updateStore(fn func(store *config.UserTypeStore) error) (config.UserTypeStore, error) {
+	r := s.deps.Repo()
+	if r == nil {
+		return config.UserTypeStore{}, fmt.Errorf("no repository open")
+	}
+	return r.UpdateUserTypeStore(fn)
+}
+
 // ValidateCardFields delegates to the schema registry.
 func (s *Service) ValidateCardFields(cardType string, fields map[string]any) []string {
 	reg := s.deps.Registry()
@@ -174,14 +222,34 @@ func (s *Service) CreateUserCardType(label, color, description, aiHint, template
 	if label == "" {
 		return config.UserCardType{}, fmt.Errorf("label is required")
 	}
-	r := s.deps.Repo()
-	if r == nil {
-		return config.UserCardType{}, fmt.Errorf("no repository open")
-	}
-	store, err := r.LoadUserTypeStore()
+	return s.createUserCardType(config.UserCardType{
+		Label: label, Color: color, Description: description, AIHint: aiHint, TemplateID: templateID,
+	}, false)
+}
+
+// createUserCardType adds t to the store under an id slugged from its
+// label (suffixed while taken). With refuseExisting, a label that already
+// names a type — checked under the store's lock — is an error instead.
+func (s *Service) createUserCardType(t config.UserCardType, refuseExisting bool) (config.UserCardType, error) {
+	_, err := s.updateStore(func(store *config.UserTypeStore) error {
+		if refuseExisting {
+			if id, ok := matchType(s.typeInfos(*store), t.Label); ok {
+				return fmt.Errorf("card type %q already exists (id %s); use it instead of creating another", t.Label, id)
+			}
+		}
+		t.ID = freeTypeID(*store, t.Label)
+		store.Types = append(store.Types, t)
+		return nil
+	})
 	if err != nil {
 		return config.UserCardType{}, err
 	}
+	s.deps.Publish("cardtype:updated", t)
+	return t, nil
+}
+
+// freeTypeID slugs label into a type id not yet taken in store.
+func freeTypeID(store config.UserTypeStore, label string) string {
 	id := repo.Slugify(label)
 	if id == "" {
 		id = uuid.New().String()
@@ -190,16 +258,7 @@ func (s *Service) CreateUserCardType(label, color, description, aiHint, template
 	for i := 2; isTypeIDTaken(store, id); i++ {
 		id = fmt.Sprintf("%s-%d", base, i)
 	}
-	t := config.UserCardType{
-		ID: id, Label: label, Color: color,
-		Description: description, AIHint: aiHint, TemplateID: templateID,
-	}
-	store.Types = append(store.Types, t)
-	if err := r.SaveUserTypeStore(store); err != nil {
-		return t, err
-	}
-	s.deps.Publish("cardtype:updated", t)
-	return t, nil
+	return id
 }
 
 // aiTypePalette colours AI-created card types deterministically — a type
@@ -210,41 +269,125 @@ var aiTypePalette = []string{
 	"#22c55e", "#eab308", "#a855f7", "#14b8a6",
 }
 
-// ResolveOrCreateType canonicalises an LLM-supplied card type (ruling
-// 2026-08-14: "if it assigns a type that doesn't exist, create it first;
-// if it assigns one that does exist, it should match"). Case-insensitive
-// match on the ID or LABEL of any existing type (built-in or user) wins
-// and returns the canonical id; anything else creates a user card type
-// with the input as its label and a palette colour picked by name hash.
-// Empty input resolves to the empty id (an untyped card).
-func (s *Service) ResolveOrCreateType(input string) (id string, created bool, err error) {
+// hexColor is the colour shape card types store (#rgb or #rrggbb).
+var hexColor = regexp.MustCompile(`^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$`)
+
+// UnknownTypeError is ResolveType's refusal of a type name that matches
+// nothing. Its message lists the available types so a model can retry
+// with a real one.
+type UnknownTypeError struct {
+	Name      string
+	Available []CardTypeInfo
+}
+
+func (e *UnknownTypeError) Error() string {
+	names := make([]string, 0, len(e.Available))
+	for _, t := range e.Available {
+		if t.Label != "" && !strings.EqualFold(t.Label, t.ID) {
+			names = append(names, fmt.Sprintf("%s (%s)", t.ID, t.Label))
+		} else {
+			names = append(names, t.ID)
+		}
+	}
+	return fmt.Sprintf("unknown card type %q; available types: %s", e.Name, strings.Join(names, ", "))
+}
+
+// ResolveType canonicalises a card type named by an LLM surface (chat,
+// agents, MCP) WITHOUT creating anything (ruling 2026-09-30: every LLM
+// surface refuses an unknown type; creating one is a deliberate act, done
+// with the explicit create_card_type tool). A case-insensitive match on
+// the id or label of any existing type returns its canonical id; anything
+// else is an *UnknownTypeError. Empty input resolves to the empty id (an
+// untyped card).
+func (s *Service) ResolveType(input string) (string, error) {
 	name := strings.TrimSpace(input)
 	if name == "" {
-		return "", false, nil
+		return "", nil
 	}
-	if id, ok := s.LookupTypeID(name); ok {
-		return id, false, nil
+	types, loadErr := s.LoadCardTypes()
+	if id, ok := matchType(types, name); ok {
+		return id, nil
 	}
-	h := fnv.New32a()
-	h.Write([]byte(strings.ToLower(name)))
-	color := aiTypePalette[int(h.Sum32())%len(aiTypePalette)]
-	t, err := s.CreateUserCardType(name, color, "", "", "")
+	if loadErr != nil {
+		// A user type may exist in the store we couldn't read.
+		return "", fmt.Errorf("card type %q: %w", name, loadErr)
+	}
+	return "", &UnknownTypeError{Name: name, Available: types}
+}
+
+// CreateNamedType is the explicit "create a card type" act behind the
+// create_card_type tool. Unlike CreateUserCardType (the settings UI,
+// which suffixes a taken id) it refuses a label that already names a
+// type — by id or label, case-insensitively — so a model can't mint
+// near-duplicates. A blank colour gets a palette colour picked by name.
+func (s *Service) CreateNamedType(label, color, description, aiHint string) (config.UserCardType, error) {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return config.UserCardType{}, fmt.Errorf("label is required")
+	}
+	color = strings.TrimSpace(color)
+	if color != "" && !hexColor.MatchString(color) {
+		return config.UserCardType{}, fmt.Errorf("color %q is not a hex colour like #6366f1", color)
+	}
+	if color == "" {
+		h := fnv.New32a()
+		h.Write([]byte(strings.ToLower(label)))
+		color = aiTypePalette[int(h.Sum32())%len(aiTypePalette)]
+	}
+	return s.createUserCardType(config.UserCardType{
+		Label: label, Color: color, Description: strings.TrimSpace(description), AIHint: strings.TrimSpace(aiHint),
+	}, true)
+}
+
+// FindOrCreateType returns the id of the type t.Label names (by id or
+// label, case-insensitively, trimmed). When none does, t is created — with
+// a template holding templateBlocks, when given — in the same locked store
+// write as the lookup, so concurrent callers never mint duplicates.
+func (s *Service) FindOrCreateType(t config.UserCardType, templateBlocks []model.Block) (string, error) {
+	t.Label = strings.TrimSpace(t.Label)
+	if t.Label == "" {
+		return "", fmt.Errorf("label is required")
+	}
+	created := false
+	_, err := s.updateStore(func(store *config.UserTypeStore) error {
+		if id, ok := matchType(s.typeInfos(*store), t.Label); ok {
+			t.ID = id
+			return repo.ErrNoChange
+		}
+		if len(templateBlocks) > 0 {
+			tmpl := config.CardTemplate{ID: uuid.New().String(), Name: t.Label, Blocks: templateBlocks}
+			store.Templates = append(store.Templates, tmpl)
+			t.TemplateID = tmpl.ID
+		}
+		t.ID = freeTypeID(*store, t.Label)
+		store.Types = append(store.Types, t)
+		created = true
+		return nil
+	})
 	if err != nil {
-		return "", false, fmt.Errorf("create card type %q: %w", name, err)
+		return "", err
 	}
-	return t.ID, true, nil
+	if created {
+		s.deps.Publish("cardtype:updated", t)
+	}
+	return t.ID, nil
 }
 
 // LookupTypeID matches input against the catalog by id or label, case
 // insensitively, without creating anything. ok is false for an unknown
 // type — the name the model gave is then the only handle there is.
 func (s *Service) LookupTypeID(input string) (id string, ok bool) {
-	lower := strings.ToLower(strings.TrimSpace(input))
-	if lower == "" {
+	return matchType(s.ListCardTypes(), input)
+}
+
+// matchType finds input among types by id or label, case-insensitively.
+func matchType(types []CardTypeInfo, input string) (string, bool) {
+	name := strings.TrimSpace(input)
+	if name == "" {
 		return "", false
 	}
-	for _, t := range s.ListCardTypes() {
-		if strings.ToLower(t.ID) == lower || strings.ToLower(t.Label) == lower {
+	for _, t := range types {
+		if strings.EqualFold(t.ID, name) || strings.EqualFold(t.Label, name) {
 			return t.ID, true
 		}
 	}
@@ -252,73 +395,54 @@ func (s *Service) LookupTypeID(input string) (id string, ok bool) {
 }
 
 func (s *Service) UpdateUserCardType(id, label, color, description, aiHint, templateID string) (config.UserCardType, error) {
-	r := s.deps.Repo()
-	if r == nil {
-		return config.UserCardType{}, fmt.Errorf("no repository open")
-	}
-	store, err := r.LoadUserTypeStore()
-	if err != nil {
-		return config.UserCardType{}, err
-	}
-	for i, t := range store.Types {
-		if t.ID == id {
-			store.Types[i].Label = label
-			store.Types[i].Color = color
-			store.Types[i].Description = description
-			store.Types[i].AIHint = aiHint
-			store.Types[i].TemplateID = templateID
-			if err := r.SaveUserTypeStore(store); err != nil {
-				return store.Types[i], err
-			}
-			s.deps.Publish("cardtype:updated", store.Types[i])
-			return store.Types[i], nil
-		}
-	}
-	return config.UserCardType{}, fmt.Errorf("card type %q not found", id)
+	return s.updateUserCardType(id, func(t *config.UserCardType) {
+		t.Label = label
+		t.Color = color
+		t.Description = description
+		t.AIHint = aiHint
+		t.TemplateID = templateID
+	})
 }
 
 func (s *Service) UpdateUserCardTypeIcon(id, icon string) (config.UserCardType, error) {
-	r := s.deps.Repo()
-	if r == nil {
-		return config.UserCardType{}, fmt.Errorf("no repository open")
-	}
-	store, err := r.LoadUserTypeStore()
+	return s.updateUserCardType(id, func(t *config.UserCardType) { t.Icon = icon })
+}
+
+// updateUserCardType edits one user type in place and publishes it.
+func (s *Service) updateUserCardType(id string, edit func(t *config.UserCardType)) (config.UserCardType, error) {
+	var updated config.UserCardType
+	_, err := s.updateStore(func(store *config.UserTypeStore) error {
+		for i := range store.Types {
+			if store.Types[i].ID == id {
+				edit(&store.Types[i])
+				updated = store.Types[i]
+				return nil
+			}
+		}
+		return fmt.Errorf("card type %q not found", id)
+	})
 	if err != nil {
 		return config.UserCardType{}, err
 	}
-	for i, t := range store.Types {
-		if t.ID == id {
-			store.Types[i].Icon = icon
-			if err := r.SaveUserTypeStore(store); err != nil {
-				return store.Types[i], err
-			}
-			s.deps.Publish("cardtype:updated", store.Types[i])
-			return store.Types[i], nil
-		}
-	}
-	return config.UserCardType{}, fmt.Errorf("card type %q not found", id)
+	s.deps.Publish("cardtype:updated", updated)
+	return updated, nil
 }
 
 func (s *Service) DeleteUserCardType(id string) error {
-	r := s.deps.Repo()
-	if r == nil {
-		return fmt.Errorf("no repository open")
-	}
-	store, err := r.LoadUserTypeStore()
+	_, err := s.updateStore(func(store *config.UserTypeStore) error {
+		for i, t := range store.Types {
+			if t.ID == id {
+				store.Types = append(store.Types[:i], store.Types[i+1:]...)
+				return nil
+			}
+		}
+		return fmt.Errorf("card type %q not found", id)
+	})
 	if err != nil {
 		return err
 	}
-	for i, t := range store.Types {
-		if t.ID == id {
-			store.Types = append(store.Types[:i], store.Types[i+1:]...)
-			if err := r.SaveUserTypeStore(store); err != nil {
-				return err
-			}
-			s.deps.Publish("cardtype:deleted", map[string]any{"id": id})
-			return nil
-		}
-	}
-	return fmt.Errorf("card type %q not found", id)
+	s.deps.Publish("cardtype:deleted", map[string]any{"id": id})
+	return nil
 }
 
 // UpdateBuiltinCardType replaces the user's override for a built-in type.
@@ -335,19 +459,14 @@ func (s *Service) UpdateBuiltinCardType(id, color, icon, templateID string) erro
 	if !isBuiltin {
 		return fmt.Errorf("card type %q is not a built-in type", id)
 	}
-	r := s.deps.Repo()
-	if r == nil {
-		return fmt.Errorf("no repository open")
-	}
-	store, err := r.LoadUserTypeStore()
+	_, err := s.updateStore(func(store *config.UserTypeStore) error {
+		if store.BuiltinOverrides == nil {
+			store.BuiltinOverrides = make(map[string]config.BuiltinOverride)
+		}
+		store.BuiltinOverrides[id] = config.BuiltinOverride{Color: color, Icon: icon, TemplateID: templateID}
+		return nil
+	})
 	if err != nil {
-		return err
-	}
-	if store.BuiltinOverrides == nil {
-		store.BuiltinOverrides = make(map[string]config.BuiltinOverride)
-	}
-	store.BuiltinOverrides[id] = config.BuiltinOverride{Color: color, Icon: icon, TemplateID: templateID}
-	if err := r.SaveUserTypeStore(store); err != nil {
 		return err
 	}
 	s.deps.Publish("cardtype:updated", map[string]any{"id": id})
@@ -375,75 +494,67 @@ func (s *Service) CreateCardTemplate(name string, blocks []model.Block) (config.
 	if name == "" {
 		return config.CardTemplate{}, fmt.Errorf("name is required")
 	}
-	r := s.deps.Repo()
-	if r == nil {
-		return config.CardTemplate{}, fmt.Errorf("no repository open")
-	}
-	store, err := r.LoadUserTypeStore()
-	if err != nil {
-		return config.CardTemplate{}, err
-	}
 	tmpl := config.CardTemplate{ID: uuid.New().String(), Name: name, Blocks: blocks}
-	store.Templates = append(store.Templates, tmpl)
-	return tmpl, r.SaveUserTypeStore(store)
+	_, err := s.updateStore(func(store *config.UserTypeStore) error {
+		store.Templates = append(store.Templates, tmpl)
+		return nil
+	})
+	return tmpl, err
 }
 
 func (s *Service) UpdateCardTemplate(id, name string, blocks []model.Block) (config.CardTemplate, error) {
-	r := s.deps.Repo()
-	if r == nil {
-		return config.CardTemplate{}, fmt.Errorf("no repository open")
-	}
-	store, err := r.LoadUserTypeStore()
-	if err != nil {
-		return config.CardTemplate{}, err
-	}
-	for i, tmpl := range store.Templates {
-		if tmpl.ID == id {
-			store.Templates[i].Name = name
-			store.Templates[i].Blocks = blocks
-			return store.Templates[i], r.SaveUserTypeStore(store)
+	var updated config.CardTemplate
+	_, err := s.updateStore(func(store *config.UserTypeStore) error {
+		for i := range store.Templates {
+			if store.Templates[i].ID == id {
+				store.Templates[i].Name = name
+				store.Templates[i].Blocks = blocks
+				updated = store.Templates[i]
+				return nil
+			}
 		}
-	}
-	return config.CardTemplate{}, fmt.Errorf("template %q not found", id)
+		return fmt.Errorf("template %q not found", id)
+	})
+	return updated, err
 }
 
 func (s *Service) DeleteCardTemplate(id string) error {
-	r := s.deps.Repo()
-	if r == nil {
-		return fmt.Errorf("no repository open")
-	}
-	store, err := r.LoadUserTypeStore()
-	if err != nil {
-		return err
-	}
-	for i, tmpl := range store.Templates {
-		if tmpl.ID == id {
-			store.Templates = append(store.Templates[:i], store.Templates[i+1:]...)
-			return r.SaveUserTypeStore(store)
+	_, err := s.updateStore(func(store *config.UserTypeStore) error {
+		for i, tmpl := range store.Templates {
+			if tmpl.ID == id {
+				store.Templates = append(store.Templates[:i], store.Templates[i+1:]...)
+				return nil
+			}
 		}
-	}
-	return fmt.Errorf("template %q not found", id)
+		return fmt.Errorf("template %q not found", id)
+	})
+	return err
 }
 
 // --- Type block merging ---
 
 // ApplyTypeBlocks non-destructively merges a type's template blocks
-// into a card. Called by the card creation flow when a type is set.
-func (s *Service) ApplyTypeBlocks(cardID, cardType string) {
+// into a card. Called by the card service when a type is set on create
+// or type change.
+func (s *Service) ApplyTypeBlocks(cardID, cardType string) error {
 	templateBlocks := s.ResolveTemplateBlocks(cardType)
 	if len(templateBlocks) == 0 {
-		return
+		return nil
 	}
-	s.mergeTemplateBlocks(cardID, templateBlocks)
+	return s.mergeTemplateBlocks(cardID, templateBlocks)
 }
 
 // ResolveTemplateBlocks returns the template/schema blocks for a card
 // type. Priority: user template > builtin-override template > schema.
 func (s *Service) ResolveTemplateBlocks(cardType string) []model.Block {
 	var store config.UserTypeStore
-	r := s.deps.Repo()
-	if r != nil {
-		store, _ = r.LoadUserTypeStore()
+	if r := s.deps.Repo(); r != nil {
+		var err error
+		if store, err = r.LoadUserTypeStore(); err != nil {
+			// Read-only here: fall back to the schema, never write.
+			slog.Warn("card types: store unreadable; using schema blocks only", "type", cardType, "err", err)
+			store = config.UserTypeStore{}
+		}
 	}
 
 	// user-defined type template
@@ -480,16 +591,41 @@ func (s *Service) ResolveTemplateBlocks(cardType string) []model.Block {
 
 // mergeTemplateBlocks preserves existing block values; appends only
 // missing keys. Intrinsic fields (description) are skipped.
-func (s *Service) mergeTemplateBlocks(cardID string, templateBlocks []model.Block) {
+//
+// The merge runs on a fresh read under the card's file lock, so an edit
+// saved meanwhile is merged into rather than overwritten.
+func (s *Service) mergeTemplateBlocks(cardID string, templateBlocks []model.Block) error {
 	r := s.deps.Repo()
 	if r == nil {
-		return
+		return fmt.Errorf("no repository open")
 	}
-	existingCard, _ := r.GetCard(cardID)
-	if existingCard == nil {
-		return
+	changed := false
+	card, err := r.MutateCard(cardID, func(card *model.Card) error {
+		merged := mergeBlocks(card.Blocks, templateBlocks)
+		if reflect.DeepEqual(merged, card.Blocks) {
+			return repo.ErrNoChange
+		}
+		card.Blocks = merged
+		changed = true
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("save template blocks: %w", err)
 	}
+	if changed {
+		if idx := s.deps.Index(); idx != nil {
+			if err := idx.IndexCard(card, time.Now(), idx.GetCardProjectContext(card.ID)); err != nil {
+				slog.Warn("index update failed", "op", "IndexCard", "err", err)
+			}
+		}
+		s.deps.Publish("card:updated", map[string]any{"cardID": card.ID, "card": card})
+	}
+	return nil
+}
 
+// mergeBlocks is the template merge itself: existing with the template's
+// missing fields appended, as a new slice (existing is left untouched).
+func mergeBlocks(existing, templateBlocks []model.Block) []model.Block {
 	intrinsicKeys := map[string]bool{"description": true}
 
 	// A block's key is only meaningful RELATIVE to the template being
@@ -512,7 +648,7 @@ func (s *Service) mergeTemplateBlocks(cardID string, templateBlocks []model.Bloc
 
 	existingByKey := make(map[string]int)
 	claimableByLabel := make(map[string]int)
-	for i, b := range existingCard.Blocks {
+	for i, b := range existing {
 		if b.Key != "" && templateKeys[b.Key] {
 			existingByKey[b.Key] = i
 			continue
@@ -524,8 +660,8 @@ func (s *Service) mergeTemplateBlocks(cardID string, templateBlocks []model.Bloc
 		}
 	}
 
-	merged := make([]model.Block, len(existingCard.Blocks))
-	copy(merged, existingCard.Blocks)
+	merged := make([]model.Block, len(existing))
+	copy(merged, existing)
 
 	for _, tb := range templateBlocks {
 		if tb.Key != "" && intrinsicKeys[tb.Key] {
@@ -549,8 +685,7 @@ func (s *Service) mergeTemplateBlocks(cardID string, templateBlocks []model.Bloc
 		}
 		merged = append(merged, tb)
 	}
-
-	_, _ = s.deps.UpdateCardBlocks(cardID, merged)
+	return merged
 }
 
 // freeformLabelKey builds the case-insensitive (label, type) match key
@@ -581,7 +716,9 @@ func (s *Service) RefreshTypeBlocks(cardID string) (*model.Card, error) {
 	if len(templateBlocks) == 0 {
 		return card, nil
 	}
-	s.mergeTemplateBlocks(cardID, templateBlocks)
+	if err := s.mergeTemplateBlocks(cardID, templateBlocks); err != nil {
+		return nil, err
+	}
 	return r.GetCard(cardID)
 }
 
@@ -661,13 +798,19 @@ func (s *Service) ImportCardTypesFromRepo(otherRepoPath, mode string) (CardTypes
 
 func (s *Service) applyCardTypesImport(exp CardTypesExport, mode string) (CardTypesImportResult, error) {
 	var result CardTypesImportResult
-	r := s.deps.Repo()
-
-	current, err := r.LoadUserTypeStore()
+	_, err := s.updateStore(func(current *config.UserTypeStore) error {
+		result = CardTypesImportResult{}
+		return mergeImport(current, exp, mode, &result)
+	})
 	if err != nil {
-		return result, fmt.Errorf("load current card types: %w", err)
+		return CardTypesImportResult{}, fmt.Errorf("import card types: %w", err)
 	}
+	return result, nil
+}
 
+// mergeImport applies an export to the current store in the given mode,
+// counting what it did in result.
+func mergeImport(current *config.UserTypeStore, exp CardTypesExport, mode string, result *CardTypesImportResult) error {
 	switch mode {
 	case "replace":
 		result.TypesAdded = len(exp.Types)
@@ -729,13 +872,9 @@ func (s *Service) applyCardTypesImport(exp CardTypesExport, mode string) (CardTy
 			}
 		}
 	default:
-		return result, fmt.Errorf("unknown import mode %q (expected replace, merge, or merge_overwrite)", mode)
+		return fmt.Errorf("unknown import mode %q (expected replace, merge, or merge_overwrite)", mode)
 	}
-
-	if err := r.SaveUserTypeStore(current); err != nil {
-		return result, fmt.Errorf("save merged card types: %w", err)
-	}
-	return result, nil
+	return nil
 }
 
 // --- Seeding (called by ListCardTypes) ---

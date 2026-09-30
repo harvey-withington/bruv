@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, fireEvent, screen, waitFor } from '@testing-library/svelte'
 import CardDetail from './CardDetail.svelte'
+import ConfirmDialog from './ConfirmDialog.svelte'
+import { confirmState, showConfirm } from '../lib/confirm.svelte'
 import { cardTypes } from '../lib/store.svelte'
 import { createMockAdapter } from '../lib/adapters/mock'
 import { setBackend } from '@shared/adapters'
-import type { Card } from '@shared/types'
+import type { BackendEvent, Block, Card, EventCallback } from '@shared/types'
 
 // Smoke test for the card dialog's core loop: open → card loads →
 // edit the title → Enter → the adapter receives the mutation. Catches
@@ -148,5 +150,121 @@ describe('CardDetail — Escape layering (EditScope)', () => {
     // A second, window-level Escape — nothing left registered — closes it.
     await fireEvent.keyDown(window, { key: 'Escape' })
     expect(onClose).toHaveBeenCalledWith({ escaped: true })
+  })
+})
+
+// Pre-release data-loss sweep (2026-09-29): overlay Escape layering, the
+// Ctrl+Enter close after a failed save, the silent-reload title re-open,
+// and the block-save lost update.
+describe('CardDetail — data-loss guards', () => {
+  const testCard = (overrides: Partial<Card> = {}): Card => ({
+    id: 'card-1',
+    title: 'Original Title',
+    description: '',
+    type: '',
+    tags: [],
+    due_date: null,
+    created_at: '2026-06-01T00:00:00Z',
+    blocks: [],
+    file_attachments: [],
+    ...overrides,
+  })
+
+  let adapter: ReturnType<typeof createMockAdapter>
+  let subscribers: EventCallback[]
+  const emit = (ev: BackendEvent) => { for (const cb of [...subscribers]) cb(ev) }
+
+  beforeEach(() => {
+    adapter = createMockAdapter()
+    subscribers = []
+    adapter.subscribe = vi.fn((cb: EventCallback) => { subscribers.push(cb) })
+    adapter.unsubscribe = vi.fn((cb: EventCallback) => { subscribers = subscribers.filter(s => s !== cb) })
+    adapter.GetCard = vi.fn(async () => testCard())
+    adapter.UpdateCardTitle = vi.fn(async (_id: string, title: string) => testCard({ title }))
+    setBackend(adapter)
+    cardTypes.list = []
+    confirmState.visible = false
+    confirmState.resolve = null
+  })
+
+  it('Escape answering a confirm raised over the card does not close the card', async () => {
+    const onClose = vi.fn()
+    render(CardDetail, { props: { cardId: 'card-1', onClose } })
+    render(ConfirmDialog)
+    await screen.findByText('Original Title')
+
+    const answer = showConfirm('sure?')
+    await Promise.resolve()
+    await fireEvent.keyDown(document.body, { key: 'Escape' })
+
+    await expect(answer).resolves.toBe(false)
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('Ctrl+Enter on the title keeps the card open with the draft when the save fails', async () => {
+    adapter.UpdateCardTitle = vi.fn(async () => { throw new Error('offline') })
+    const onClose = vi.fn()
+    const { container } = render(CardDetail, { props: { cardId: 'card-1', onClose } })
+    await screen.findByText('Original Title')
+
+    await fireEvent.click(container.querySelector('.modal-title') as HTMLElement)
+    const input = await waitFor(() => {
+      const el = container.querySelector('input.title-input') as HTMLInputElement
+      expect(el).toBeTruthy()
+      return el
+    })
+    await fireEvent.input(input, { target: { value: 'Unsaved rename' } })
+    await fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })
+
+    await waitFor(() => expect(adapter.UpdateCardTitle).toHaveBeenCalled())
+    await new Promise(r => setTimeout(r, 0))
+    expect(onClose).not.toHaveBeenCalled()
+    expect((container.querySelector('input.title-input') as HTMLInputElement).value).toBe('Unsaved rename')
+  })
+
+  it('a silent reload after a cancelled auto title edit does not re-open the editor', async () => {
+    const { container } = render(CardDetail, { props: { cardId: 'card-1', onClose: () => {}, autoEditTitle: true } })
+    const input = await waitFor(() => {
+      const el = container.querySelector('input.title-input') as HTMLInputElement
+      expect(el).toBeTruthy()
+      return el
+    })
+    await fireEvent.keyDown(input, { key: 'Escape' })
+    await waitFor(() => expect(container.querySelector('input.title-input')).toBeNull())
+
+    emit({ type: 'card:updated', cardID: 'card-1' } as BackendEvent)
+    await waitFor(() => expect(adapter.GetCard).toHaveBeenCalledTimes(2))
+    await new Promise(r => setTimeout(r, 0))
+    expect(container.querySelector('input.title-input')).toBeNull()
+  })
+
+  it('serializes block saves and defers a silent reload until they drain', async () => {
+    adapter.GetCard = vi.fn(async () => testCard({
+      blocks: [{ id: 'blk-1', type: 'checkbox', key: '', label: 'Done', value: false }],
+    }))
+    const pending: { blocks: Block[]; resolve: () => void }[] = []
+    adapter.UpdateCardBlocks = vi.fn((_id: string, blocks: Block[]) =>
+      new Promise<Card>((resolve) => { pending.push({ blocks, resolve: () => resolve(testCard({ blocks })) }) }))
+    const { container } = render(CardDetail, { props: { cardId: 'card-1', onClose: () => {} } })
+    await screen.findByText('Original Title')
+    const toggle = await waitFor(() => {
+      const el = container.querySelector('input.toggle-input') as HTMLInputElement
+      expect(el).toBeTruthy()
+      return el
+    })
+
+    await fireEvent.change(toggle) // → true, save #1 in flight
+    emit({ type: 'card:updated', cardID: 'card-1' } as BackendEvent) // e.g. the watcher echo
+    await fireEvent.change(toggle) // → false, queued behind #1
+    expect(adapter.UpdateCardBlocks).toHaveBeenCalledTimes(1)
+    expect(adapter.GetCard).toHaveBeenCalledTimes(1) // reload deferred
+
+    pending[0].resolve()
+    await waitFor(() => expect(adapter.UpdateCardBlocks).toHaveBeenCalledTimes(2))
+    expect(pending.map(p => p.blocks[0].value)).toEqual([true, false])
+    expect(adapter.GetCard).toHaveBeenCalledTimes(1)
+
+    pending[1].resolve()
+    await waitFor(() => expect(adapter.GetCard).toHaveBeenCalledTimes(2))
   })
 })

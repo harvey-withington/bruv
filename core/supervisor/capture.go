@@ -157,14 +157,21 @@ func (r *Runtime) CaptureFromURL(rawURL string, opts CaptureOpts) (*CaptureResul
 
 	// Apply the user's choices (or the vault's defaults) BEFORE anything
 	// is downloaded — that's the whole point of asking first.
-	prefs, prefsErr := r.GetCapturePrefs()
-	if prefsErr != nil {
-		prefs = repo.DefaultCapturePrefs()
-	}
-	applyCaptureChoices(clip, opts, prefs)
+	applyCaptureChoices(clip, opts, r.capturePrefsOrDefault())
 
 	media, avatar := downloadClipMedia(ctx, clip)
 	return r.ingestClip(ctx, "", clip, media, avatar, opts, false)
+}
+
+// capturePrefsOrDefault is the vault's capture preferences, or the
+// defaults when they can't be read (a capture never fails over prefs).
+func (r *Runtime) capturePrefsOrDefault() CapturePrefs {
+	prefs, err := r.GetCapturePrefs()
+	if err != nil {
+		slog.Warn("capture: prefs unreadable, using defaults", "err", err)
+		return repo.DefaultCapturePrefs()
+	}
+	return prefs
 }
 
 // applyCaptureChoices rewrites a resolved clip's media to match what the
@@ -192,19 +199,8 @@ func applyCaptureChoices(clip *capture.Clip, opts CaptureOpts, prefs CapturePref
 				m.LinkOnly = true
 				m.Note = "Video linked to the platform rather than stored (your capture setting) — it will stop working if the platform removes it."
 			default:
-				// An explicit rung wins; otherwise whatever the resolver
-				// pre-selected stands.
-				if opts.VideoVariantID != "" {
-					for _, v := range m.Variants {
-						if v.ID == opts.VideoVariantID {
-							m.URL, m.EstBytes = v.URL, v.EstBytes
-							// An explicit choice overrides a size-based
-							// link-only default: if the user picked
-							// 3.5 GB, they meant it.
-							m.LinkOnly, m.Note = false, ""
-							break
-						}
-					}
+				if len(m.Variants) > 0 {
+					m = pickVideoRung(m, opts.VideoVariantID, prefs)
 				}
 			}
 		case capture.MediaImage:
@@ -223,6 +219,33 @@ func applyCaptureChoices(clip *capture.Clip, opts CaptureOpts, prefs CapturePref
 		out = append(out, m)
 	}
 	clip.Media = out
+}
+
+// pickVideoRung applies a rung of a video's quality ladder: the user's
+// explicit pick, else the vault's video mode and budget — the same rung
+// the capture dialog pre-selects (defaultVariantID), so a capture with no
+// dialog honours the vault's settings rather than the resolver's own
+// built-in budget. A chosen rung is stored even when large (if the user
+// picked 3.5 GB, they meant it); when nothing fits the budget the
+// smallest rung is kept as a link, with a note saying why.
+func pickVideoRung(m capture.Media, explicitID string, prefs CapturePrefs) capture.Media {
+	for _, id := range []string{explicitID, defaultVariantID(m, prefs)} {
+		if id == "" {
+			continue
+		}
+		for _, v := range m.Variants {
+			if v.ID == id {
+				m.URL, m.EstBytes = v.URL, v.EstBytes
+				m.LinkOnly, m.Note = false, ""
+				return m
+			}
+		}
+	}
+	smallest := m.Variants[0] // the ladder is cheapest first
+	m.URL, m.EstBytes, m.LinkOnly = smallest.URL, smallest.EstBytes, true
+	m.Note = fmt.Sprintf("Video is ~%d MB even at its lowest quality, over your %d MB capture budget, so it's linked to the platform rather than stored in the card — it will stop working if the platform removes it.",
+		smallest.EstBytes>>20, prefs.VideoBudgetMB)
+	return m
 }
 
 // RetryCapture re-resolves an existing (typically pending) clip card
@@ -248,6 +271,9 @@ func (r *Runtime) RetryCapture(cardID string) (*CaptureResult, error) {
 	if clip == nil {
 		return nil, fmt.Errorf("no capture support for %s", rawURL)
 	}
+	// A retry has no dialog: the vault's capture prefs decide, as they do
+	// for a first capture with no explicit choices.
+	applyCaptureChoices(clip, CaptureOpts{}, r.capturePrefsOrDefault())
 	media, avatar := downloadClipMedia(ctx, clip)
 	return r.ingestClip(ctx, cardID, clip, media, avatar, CaptureOpts{}, false)
 }
@@ -260,6 +286,21 @@ func (r *Runtime) CompleteCapture(cardID string, clip capture.Clip, media []Comp
 	}
 	if clip.Platform == "" {
 		return nil, fmt.Errorf("clip.platform is required")
+	}
+	// Only a still-pending clip can be completed, and only once at a
+	// time: the extension on two browsers (or a double-click) would
+	// otherwise ingest the same media twice, or overwrite a card that
+	// was completed already.
+	if _, busy := r.completingClips.LoadOrStore(cardID, struct{}{}); busy {
+		return nil, fmt.Errorf("this clip is already being completed")
+	}
+	defer r.completingClips.Delete(cardID)
+	c, err := r.repo.GetCard(cardID)
+	if err != nil {
+		return nil, err
+	}
+	if !slices.Contains(c.Tags, ClipPendingTag) {
+		return nil, fmt.Errorf("this clip was already completed")
 	}
 	ims := make([]ingestMedia, 0, len(media))
 	for _, m := range media {
@@ -347,11 +388,15 @@ func (r *Runtime) ingestClip(ctx context.Context, existingID string, clip *captu
 	firstVideoRef := ""
 	mediaNotes := []string{}
 	for i := range media {
-		// Link-only media (oversized video) skips attachment storage: the
-		// block points straight at the platform URL.
+		// Link-only media (oversized video, image mode "link") skips
+		// attachment storage: the block points straight at the platform URL.
 		if media[i].RemoteURL != "" {
-			if media[i].Kind == capture.MediaVideo && firstVideoRef == "" {
-				firstVideoRef = media[i].RemoteURL
+			if media[i].Kind == capture.MediaVideo {
+				if firstVideoRef == "" {
+					firstVideoRef = media[i].RemoteURL
+				}
+			} else {
+				imageRefs = append(imageRefs, media[i].RemoteURL)
 			}
 			if media[i].Note != "" {
 				mediaNotes = append(mediaNotes, media[i].Note)
@@ -437,71 +482,53 @@ func (r *Runtime) ingestClip(ctx context.Context, existingID string, clip *captu
 		add("url", "url", "Source", map[string]any{"url": clip.CanonicalURL})
 	}
 
+	// Capture's own changes — blocks, the pending title, tags — are applied
+	// in one write to the card as it is NOW: the attachment writes above
+	// can take a while, and an edit saved meanwhile must survive.
 	bindings := map[string]any{}
-	var blocks []model.Block
-	if completing {
-		// Fill in place by schema key; untouched keys and any user-added
-		// blocks stay exactly as they are.
-		blocks = card.Blocks
-		byKey := map[string]int{}
-		for i, b := range blocks {
-			if b.Key != "" {
-				byKey[b.Key] = i
+	card, _, err = r.Card.Edit(cardID, func(card *model.Card) error {
+		clear(bindings)
+		if completing {
+			// Fill in place by schema key; untouched keys and any
+			// user-added blocks stay exactly as they are.
+			byKey := map[string]int{}
+			for i, b := range card.Blocks {
+				if b.Key != "" {
+					byKey[b.Key] = i
+				}
 			}
-		}
-		for _, s := range specs {
-			if i, ok := byKey[s.key]; ok {
-				blocks[i].Type = s.btype
-				blocks[i].Label = s.label
-				blocks[i].Value = s.value
-				bindings[s.key] = blocks[i].ID
-			} else {
+			for _, s := range specs {
+				if i, ok := byKey[s.key]; ok {
+					card.Blocks[i].Type = s.btype
+					card.Blocks[i].Label = s.label
+					card.Blocks[i].Value = s.value
+					bindings[s.key] = card.Blocks[i].ID
+				} else {
+					id := newShortID("blk")
+					card.Blocks = append(card.Blocks, model.Block{ID: id, Type: s.btype, Label: s.label, Key: s.key, Value: s.value})
+					bindings[s.key] = id
+				}
+			}
+			// Completion un-freezes the machine-generated pending title
+			// ("<platform>: <url>") but never touches a human rename.
+			if clip.Text != "" && looksMachineTitle(card.Title, clip.Platform) {
+				card.Title = captureCardTitle(clip)
+			}
+		} else {
+			// Fresh card: our blocks replace any template-applied ones
+			// wholesale — ours carry the data (clipper rule).
+			card.Blocks = make([]model.Block, 0, len(specs))
+			for _, s := range specs {
 				id := newShortID("blk")
-				blocks = append(blocks, model.Block{ID: id, Type: s.btype, Label: s.label, Key: s.key, Value: s.value})
+				card.Blocks = append(card.Blocks, model.Block{ID: id, Type: s.btype, Label: s.label, Key: s.key, Value: s.value})
 				bindings[s.key] = id
 			}
 		}
-	} else {
-		// Fresh card: our blocks replace any template-applied ones
-		// wholesale — ours carry the data (clipper rule).
-		for _, s := range specs {
-			id := newShortID("blk")
-			blocks = append(blocks, model.Block{ID: id, Type: s.btype, Label: s.label, Key: s.key, Value: s.value})
-			bindings[s.key] = id
-		}
-	}
-	if card, err = r.Card.UpdateBlocks(cardID, blocks); err != nil {
-		return nil, fmt.Errorf("capture: update blocks: %w", err)
-	}
-
-	// Completion un-freezes the machine-generated pending title ("<platform>:
-	// <url>") but never touches a human rename.
-	if completing && clip.Text != "" && looksMachineTitle(card.Title, clip.Platform) {
-		if updated, err := r.Card.UpdateTitle(cardID, captureCardTitle(clip)); err == nil {
-			card = updated
-		} else {
-			slog.Warn("capture: title update failed", "card", cardID, "err", err)
-		}
-	}
-
-	// Tags: platform always; clip-pending added on the pending rung,
-	// cleared by any successful completion/retry. Best-effort.
-	tags := make([]string, 0, len(card.Tags)+2)
-	for _, t := range card.Tags {
-		if t != ClipPendingTag {
-			tags = append(tags, t)
-		}
-	}
-	if clip.Platform != "" && !slices.Contains(tags, clip.Platform) {
-		tags = append(tags, clip.Platform)
-	}
-	if pending {
-		tags = append(tags, ClipPendingTag)
-	}
-	if updated, err := r.Card.UpdateTags(cardID, tags); err == nil {
-		card = updated
-	} else {
-		slog.Warn("capture: tags failed", "card", cardID, "err", err)
+		card.Tags = captureTags(card.Tags, clip.Platform, pending)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("capture: update card: %w", err)
 	}
 
 	// Pinning is best-effort and capture-time only: a failed pin leaves
@@ -616,24 +643,40 @@ func socialPostTemplateBlocks() []model.Block {
 }
 
 // ensureSocialPostType returns the type ID, creating template + type on
-// first use. Failure degrades to an untyped card — never blocks a clip.
+// first use. The lookup is the catalog's (id or label, case-insensitive,
+// trimmed) and shares one locked write with the create, so the phone, the
+// clipper and a retry never mint duplicate types. Failure degrades to an
+// untyped card — never blocks a clip.
 func (r *Runtime) ensureSocialPostType() string {
-	for _, t := range r.ListCardTypes() {
-		if t.Label == socialPostTypeLabel {
-			return t.ID
+	id, err := r.Catalog.FindOrCreateType(config.UserCardType{
+		Label:       socialPostTypeLabel,
+		Color:       "#1d9bf0",
+		Description: "A captured social post (web clipper)",
+	}, socialPostTemplateBlocks())
+	if err != nil {
+		slog.Warn("capture: provision Social Post type failed (clipping untyped)", "err", err)
+		return ""
+	}
+	return id
+}
+
+// captureTags is tags with the platform tag added and the clip-pending
+// tag set to pending (clip-pending marks the pending rung; any successful
+// completion/retry clears it).
+func captureTags(tags []string, platform string, pending bool) []string {
+	out := make([]string, 0, len(tags)+2)
+	for _, t := range tags {
+		if t != ClipPendingTag {
+			out = append(out, t)
 		}
 	}
-	tpl, err := r.CreateCardTemplate(socialPostTypeLabel, socialPostTemplateBlocks())
-	if err != nil {
-		slog.Warn("capture: create Social Post template failed (clipping untyped)", "err", err)
-		return ""
+	if platform != "" && !slices.Contains(out, platform) {
+		out = append(out, platform)
 	}
-	created, err := r.CreateUserCardType(socialPostTypeLabel, "#1d9bf0", "A captured social post (web clipper)", "", tpl.ID)
-	if err != nil {
-		slog.Warn("capture: create Social Post type failed (clipping untyped)", "err", err)
-		return ""
+	if pending {
+		out = append(out, ClipPendingTag)
 	}
-	return created.ID
+	return out
 }
 
 // --- helpers ----------------------------------------------------------------

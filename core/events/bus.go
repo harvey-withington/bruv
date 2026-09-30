@@ -21,7 +21,6 @@ package events
 
 import (
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -46,15 +45,23 @@ type Bus interface {
 	// Subscribe returns a read channel delivering every event
 	// published after the subscription, plus an unsubscribe func.
 	// The unsubscribe closes the channel; calling it twice is safe.
+	// Publish never sends on a closed channel, whatever the timing.
 	Subscribe() (<-chan Event, func())
 }
 
 // MemBus is an in-process fanout bus.
+//
+// Delivery happens while holding mu. Sends are non-blocking selects so
+// holding the lock never stalls on a slow consumer, and it is what makes
+// unsubscribe safe: a subscriber channel is only ever closed under mu,
+// after it has been removed from subs, so Publish can never send on a
+// closed channel (which would panic and take the process down).
 type MemBus struct {
 	mu     sync.Mutex
 	subs   []chan Event
 	nextID uint64
 	bufSz  int
+	closed bool
 }
 
 // NewMemBus returns a ready-to-use in-memory bus. bufferSize is the
@@ -71,26 +78,28 @@ func NewMemBus(bufferSize int) *MemBus {
 // Publish delivers payload to every subscriber under the given topic.
 // A nil receiver is a no-op — lets unit tests that construct *App
 // directly without wiring the bus skip event delivery without crashing.
+// Publishing after Close is a no-op.
 func (b *MemBus) Publish(topic string, payload any) {
 	if b == nil {
 		return
 	}
-	id := atomic.AddUint64(&b.nextID, 1)
+	at := time.Now()
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return
+	}
+	// IDs are assigned under the lock so delivery order matches ID
+	// order for every subscriber, even with concurrent publishers.
+	b.nextID++
 	ev := Event{
-		ID:      id,
+		ID:      b.nextID,
 		Topic:   topic,
 		Payload: payload,
-		At:      time.Now(),
+		At:      at,
 	}
-
-	// Snapshot subs under lock, then deliver outside so a slow
-	// consumer's nonblocking-send can't tie up the publish path.
-	b.mu.Lock()
-	subs := make([]chan Event, len(b.subs))
-	copy(subs, b.subs)
-	b.mu.Unlock()
-
-	for _, ch := range subs {
+	for _, ch := range b.subs {
 		select {
 		case ch <- ev:
 		default:
@@ -102,8 +111,8 @@ func (b *MemBus) Publish(topic string, payload any) {
 
 // Subscribe returns a channel and an unsubscribe function. The
 // channel is buffered; pull from it in a goroutine to avoid drops.
-// Nil receiver returns a closed channel so callers can range-loop
-// safely (useful for tests).
+// A nil receiver (or a closed bus) returns a closed channel so callers
+// can range-loop safely (useful for tests).
 func (b *MemBus) Subscribe() (<-chan Event, func()) {
 	if b == nil {
 		ch := make(chan Event)
@@ -113,6 +122,11 @@ func (b *MemBus) Subscribe() (<-chan Event, func()) {
 	ch := make(chan Event, b.bufSz)
 
 	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		close(ch)
+		return ch, func() {}
+	}
 	b.subs = append(b.subs, ch)
 	b.mu.Unlock()
 
@@ -128,9 +142,32 @@ func (b *MemBus) Subscribe() (<-chan Event, func()) {
 					return
 				}
 			}
+			// Not found: Close already closed it.
 		})
 	}
 	return ch, unsub
+}
+
+// Close ends every subscription (their channels close, so range loops
+// and selects terminate), turns later Publish calls into no-ops and
+// hands later Subscribe calls an already-closed channel. Idempotent.
+// A runtime closes its bus on shutdown so SSE clients bound to it
+// disconnect and reconnect to the replacement instead of heartbeating
+// against a dead runtime forever.
+func (b *MemBus) Close() {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return
+	}
+	b.closed = true
+	for _, ch := range b.subs {
+		close(ch)
+	}
+	b.subs = nil
 }
 
 // Compile-time check that MemBus satisfies Bus.

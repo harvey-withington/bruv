@@ -7,6 +7,7 @@ import {
 } from './cardJson'
 import type { Card, CardComment } from './types'
 import { planCardMerge, type MergeLabels, type MergeSummary } from './cardMerge'
+import { collectAttachmentRefs, remapAttachmentRefs, type AttachmentRefRemap } from './attachmentRefs'
 
 // --- Transport-agnostic card transfer ---------------------------------
 //
@@ -20,6 +21,10 @@ import { planCardMerge, type MergeLabels, type MergeSummary } from './cardMerge'
 // - Comment timestamps reset to "now" — AddCardComment doesn't accept
 //   createdAt. Author + text are preserved.
 // - Members are dropped — per-repo identity IDs would dangle.
+// - Attachments get NEW ids on the new card, so every
+//   `attachment:<card>/<id>` ref in the blocks (image/media values,
+//   gallery strings, slide decks) is re-homed onto the copies before the
+//   blocks are written — see shared/attachmentRefs.ts remapAttachmentRefs.
 
 export interface CardTransferApi {
   getCard(cardId: string): Promise<Card>
@@ -60,6 +65,15 @@ export async function buildCardExportPayload(api: CardTransferApi, card: Card): 
   return buildCardExport(card, attachments, comments, new Date().toISOString())
 }
 
+// An embedded attachment's SOURCE id — an additive, v1-tolerated field (the
+// parser keeps unknown attachment fields) that lets an import re-home the
+// blocks' `attachment:<card>/<id>` refs onto the copies. Exports written
+// before it existed have no id; their refs can't be mapped and are left as
+// they were.
+function sourceAttachmentId(att: EmbeddedAttachment): string {
+  return typeof att.id === 'string' ? att.id : ''
+}
+
 async function fetchAttachmentsAsBase64(api: CardTransferApi, card: Card): Promise<EmbeddedAttachment[]> {
   const out: EmbeddedAttachment[] = []
   for (const att of card.file_attachments ?? []) {
@@ -68,6 +82,7 @@ async function fetchAttachmentsAsBase64(api: CardTransferApi, card: Card): Promi
     if (!res.ok) throw new Error(`fetch attachment ${att.name}: ${res.status}`)
     const buf = await res.arrayBuffer()
     out.push({
+      id: att.id,
       name: att.name,
       mime: att.mime,
       size: att.size,
@@ -88,6 +103,69 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
     binary += String.fromCharCode.apply(null, slice as unknown as number[])
   }
   return btoa(binary)
+}
+
+// --- Attachment copy + ref re-homing ---------------------------------
+
+type AttachmentIdList = Array<{ id: string }>
+
+function attachmentsOf(result: unknown): AttachmentIdList | null {
+  if (!result || typeof result !== 'object') return null
+  const list = (result as { file_attachments?: unknown }).file_attachments
+  if (!Array.isArray(list)) return null
+  return list.filter((a): a is { id: string } => !!a && typeof (a as { id?: unknown }).id === 'string')
+}
+
+/**
+ * Finds the id the server minted for an attachment just added: the first
+ * id on the card we haven't seen yet (names may be de-duplicated
+ * server-side, so name matching isn't reliable). Uses the AddCardAttachment
+ * result when it carries the card, else re-fetches it. '' when it can't be
+ * determined — refs to that attachment are then left unmapped.
+ */
+async function newAttachmentId(
+  api: CardTransferApi,
+  cardId: string,
+  addResult: unknown,
+  known: Set<string>,
+): Promise<string> {
+  let list = attachmentsOf(addResult)
+  if (!list) {
+    try { list = (await api.getCard(cardId)).file_attachments ?? [] }
+    catch { return '' }
+  }
+  for (const a of list) {
+    if (!known.has(a.id)) {
+      known.add(a.id)
+      return a.id
+    }
+  }
+  return ''
+}
+
+/** Source attachment ids the blocks actually reference — only those need
+ *  their new id resolved. */
+function referencedAttachmentIds(blocks: Card['blocks']): Set<string> {
+  return new Set(collectAttachmentRefs(blocks).map((r) => r.attachmentID))
+}
+
+/**
+ * The remap for re-homing `blocks` onto `cardId`: `attachments` maps source
+ * attachment ids to the copies', and every source card whose refs point at
+ * a copied attachment maps to `cardId` (so a slide linked to the source
+ * card follows the copy too).
+ */
+function buildRemap(blocks: Card['blocks'], attachments: Map<string, string>, cardId: string): AttachmentRefRemap {
+  const cards = new Map<string, string>()
+  for (const ref of collectAttachmentRefs(blocks)) {
+    if (attachments.has(ref.attachmentID)) cards.set(ref.cardID, cardId)
+  }
+  return { attachments, cards, targetCardID: cardId }
+}
+
+function rehomeBlocks(blocks: Card['blocks'], attachments: Map<string, string>, cardId: string): Card['blocks'] {
+  if (attachments.size === 0) return blocks
+  return remapAttachmentRefs(blocks, buildRemap(blocks, attachments, cardId))
 }
 
 // --- Import: parse + pre-flight + replay against the live API ----------
@@ -212,6 +290,25 @@ export async function importCardFromJson(
     throw new ImportError('pin_failed')
   }
 
+  // Attachments BEFORE blocks: the server mints new attachment ids, and
+  // the blocks' refs must point at those copies — not at the source card,
+  // which may live in another vault or be deleted later.
+  const sourceBlocks = env.card.blocks ?? []
+  const referenced = referencedAttachmentIds(sourceBlocks)
+  const seenAttachments = new Set((created.file_attachments ?? []).map((a) => a.id))
+  const attachmentMap = new Map<string, string>()
+  const failedAttachments: string[] = []
+  for (const att of env.attachments) {
+    let result: unknown
+    try { result = await api.addCardAttachment(created.id, att.name, att.data) }
+    catch { failedAttachments.push(att.name); continue }
+    const oldId = sourceAttachmentId(att)
+    if (!oldId || !referenced.has(oldId)) continue
+    const newId = await newAttachmentId(api, created.id, result, seenAttachments)
+    if (newId) attachmentMap.set(oldId, newId)
+  }
+  const blocks = rehomeBlocks(sourceBlocks, attachmentMap, created.id)
+
   if (env.card.description) {
     await api.updateCardDescription(created.id, env.card.description)
   }
@@ -221,13 +318,13 @@ export async function importCardFromJson(
       // Merge: imported blocks first, then the type — UpdateCardType's
       // ApplyTypeBlocks merges the template into them (imported values
       // preserved, missing template fields appended).
-      await api.updateCardBlocks(created.id, env.card.blocks ?? [])
+      await api.updateCardBlocks(created.id, blocks)
       await api.updateCardType(created.id, resolution.type)
     } else {
       // Keep exactly: type first (applies its template), then the
       // imported blocks unconditionally last, overwriting the template.
       await api.updateCardType(created.id, resolution.type)
-      await api.updateCardBlocks(created.id, env.card.blocks ?? [])
+      await api.updateCardBlocks(created.id, blocks)
     }
   } else {
     // Common path (or "no type" chosen): blocks are always replaced —
@@ -236,7 +333,7 @@ export async function importCardFromJson(
     if (!resolution && env.card.type && env.card.type !== created.type) {
       await api.updateCardType(created.id, env.card.type)
     }
-    await api.updateCardBlocks(created.id, env.card.blocks ?? [])
+    await api.updateCardBlocks(created.id, blocks)
   }
 
   if (env.card.tags?.length) {
@@ -244,12 +341,6 @@ export async function importCardFromJson(
   }
   if (env.card.due_date) {
     await api.updateCardDueDate(created.id, env.card.due_date)
-  }
-
-  const failedAttachments: string[] = []
-  for (const att of env.attachments) {
-    try { await api.addCardAttachment(created.id, att.name, att.data) }
-    catch { failedAttachments.push(att.name) }
   }
 
   const failedComments: string[] = []
@@ -279,10 +370,11 @@ export type MergeCardOptions = MergeLabels
 /**
  * Merges a parsed export INTO an existing card, non-destructively — see
  * shared/cardMerge.ts for the rules. The target is re-fetched immediately
- * before planning so a stale open card can't be merged against. Blocks,
- * tags, description and due date are each written once, and only when the
- * plan changed them; attachments and comments are appended individually
- * with per-item failure tracking, mirroring importCardFromJson.
+ * before planning so a stale open card can't be merged against.
+ * Attachments are appended first (per-item failure tracking, mirroring
+ * importCardFromJson) so the merged blocks' refs point at the target's
+ * copies; blocks, tags, description and due date are then each written
+ * once, and only when the plan changed them; comments last.
  */
 export async function mergeCardFromJson(
   api: CardTransferApi,
@@ -295,25 +387,43 @@ export async function mergeCardFromJson(
   const env = parsed.value
 
   const target = await api.getCard(targetCardId)
-  const plan = planCardMerge(target, env.card, opts)
+
+  // Attachments first, so the merged blocks' refs can be re-homed onto the
+  // target's copies (an existing name+size match counts as the copy).
+  const sourceBlocks = env.card.blocks ?? []
+  const referenced = referencedAttachmentIds(sourceBlocks)
+  const existingAtt = new Map((target.file_attachments ?? []).map((a) => [`${a.name.toLowerCase()}|${a.size}`, a.id]))
+  const seenAttachments = new Set((target.file_attachments ?? []).map((a) => a.id))
+  const attachmentMap = new Map<string, string>()
+  let attachmentsAdded = 0
+  const failedAttachments: string[] = []
+  for (const att of env.attachments) {
+    const oldId = sourceAttachmentId(att)
+    const existingId = existingAtt.get(`${att.name.toLowerCase()}|${att.size}`)
+    if (existingId) {
+      if (oldId) attachmentMap.set(oldId, existingId)
+      continue
+    }
+    let result: unknown
+    try {
+      result = await api.addCardAttachment(target.id, att.name, att.data)
+      attachmentsAdded++
+    } catch {
+      failedAttachments.push(att.name)
+      continue
+    }
+    if (!oldId || !referenced.has(oldId)) continue
+    const newId = await newAttachmentId(api, target.id, result, seenAttachments)
+    if (newId) attachmentMap.set(oldId, newId)
+  }
+
+  const source = { ...env.card, blocks: rehomeBlocks(sourceBlocks, attachmentMap, target.id) }
+  const plan = planCardMerge(target, source, opts)
 
   if (plan.blocks) await api.updateCardBlocks(target.id, plan.blocks)
   if (plan.tags) await api.updateCardTags(target.id, plan.tags)
   if (plan.description !== null) await api.updateCardDescription(target.id, plan.description)
   if (plan.dueDate !== null) await api.updateCardDueDate(target.id, plan.dueDate)
-
-  const existingAtt = new Set((target.file_attachments ?? []).map((a) => `${a.name.toLowerCase()}|${a.size}`))
-  let attachmentsAdded = 0
-  const failedAttachments: string[] = []
-  for (const att of env.attachments) {
-    if (existingAtt.has(`${att.name.toLowerCase()}|${att.size}`)) continue
-    try {
-      await api.addCardAttachment(target.id, att.name, att.data)
-      attachmentsAdded++
-    } catch {
-      failedAttachments.push(att.name)
-    }
-  }
 
   let existingComments = new Set<string>()
   try {

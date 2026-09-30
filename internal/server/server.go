@@ -15,7 +15,6 @@
 package server
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -25,7 +24,6 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
-	"time"
 
 	"bruv/core/supervisor"
 	"bruv/internal/config"
@@ -57,10 +55,19 @@ type Options struct {
 	// Pass mobile.Assets() at the call site, mirroring Assets above.
 	// Optional — leave nil if the build doesn't ship the mobile UI.
 	MobileAssets fs.FS
+	// Stop, when non-nil, triggers the same clean shutdown as
+	// SIGINT/SIGTERM once it is closed. The Windows service uses it:
+	// an SCM stop is not delivered to the process as a signal, so
+	// without it the deferred cleanup (supervisor + log close) never ran.
+	Stop <-chan struct{}
 }
 
 // Run starts the multi-repo headless server, blocks until
-// SIGINT/SIGTERM, then shuts down cleanly. Reads the repo registry
+// SIGINT/SIGTERM (or opts.Stop closes), then shuts down cleanly:
+// the HTTP listener stops first so no request reaches a closing
+// runtime, then the supervisor closes every runtime (recording
+// in-flight agent runs as cancelled), then the log file is flushed.
+// Reads the repo registry
 // from <configDir>/repos.json and stands up one Runtime per entry,
 // routed by the HTTP transport's /repos/<id>/... paths.
 func Run(opts Options) error {
@@ -230,13 +237,18 @@ func Run(opts Options) error {
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	sig := <-sigCh
-	slog.Info("signal received, shutting down", "signal", sig)
+	defer signal.Stop(sigCh)
+	select {
+	case sig := <-sigCh:
+		slog.Info("signal received, shutting down", "signal", sig)
+	case <-opts.Stop: // nil channel blocks forever when unset
+		slog.Info("stop requested, shutting down")
+	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_ = srv.Stop()
-	_ = ctx
+	// Deferred sup.Close + logging.Close run after this returns.
+	if err := srv.Stop(); err != nil {
+		slog.Warn("http transport stop", "err", err)
+	}
 	return nil
 }
 

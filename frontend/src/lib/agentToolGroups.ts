@@ -46,7 +46,7 @@ const GROUPS: { key: string; titleKey: string; ids: string[] }[] = [
   },
   {
     key: 'write', titleKey: 'agent.tool_group_write',
-    ids: ['create_card', 'update_card', 'set_card_title', 'set_card_description', 'set_card_type', 'set_card_due_date', 'set_card_fields', 'add_card_blocks', 'add_card_tags', 'add_card_comment', 'add_card_attachment'],
+    ids: ['create_card', 'update_card', 'set_card_title', 'set_card_description', 'set_card_type', 'set_card_due_date', 'set_card_fields', 'add_card_blocks', 'add_card_tags', 'remove_card_tags', 'create_card_type', 'add_card_comment', 'add_card_attachment'],
   },
   { key: 'filing', titleKey: 'agent.tool_group_filing', ids: ['pin_card', 'unpin_card', 'create_category'] },
   { key: 'board', titleKey: 'agent.tool_group_board', ids: ['list_brands', 'list_streams', 'list_projects', 'create_brand', 'create_stream', 'create_project'] },

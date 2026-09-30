@@ -449,10 +449,13 @@ func TestCoerceBlockValueForBlock_DateTimeFormat(t *testing.T) {
 // A new date block asked for as "date-time" keeps the time and offset
 // (e.g. a race's jump time); without a format it stays date-only.
 func TestParseBlocksDateTimeFormat(t *testing.T) {
-	blocks := ParseBlocks([]any{
+	blocks, err := ParseBlocks([]any{
 		map[string]any{"type": "date", "label": "Race start", "value": "2026-10-04T14:35:00+10:00", "format": "date-time"},
 		map[string]any{"type": "date", "label": "Race day", "value": "2026-10-04T14:35:00+10:00"},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(blocks) != 2 {
 		t.Fatalf("got %d blocks", len(blocks))
 	}

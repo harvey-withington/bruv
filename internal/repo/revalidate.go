@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"bruv/internal/model"
 	"fmt"
 	"os"
 	"strings"
@@ -10,8 +11,18 @@ import (
 type RevalidateStats struct {
 	StalePinsRemoved     int
 	DuplicatePinsRemoved int
-	OrphanedPinDirs      int
-	OrphanedChatFiles    int
+	// OrphanedPinDirs counts pin dirs whose card file is missing. They are
+	// reported, never deleted: with Syncthing the pin can arrive before
+	// the card, and deleting it would lose the pin for good.
+	OrphanedPinDirs int
+	// OrphanedAgentFiles counts .agent.json files whose card file is
+	// missing — reported and kept for the same reason: the agent file can
+	// sync in before its card.
+	OrphanedAgentFiles int
+	// StalePinCheckSkipped is set when some level of the hierarchy could
+	// not be listed, so stale-pin removal was skipped rather than risk
+	// deleting pins to categories that exist but weren't read.
+	StalePinCheckSkipped bool
 }
 
 func (s RevalidateStats) String() string {
@@ -23,10 +34,13 @@ func (s RevalidateStats) String() string {
 		parts = append(parts, fmt.Sprintf("%d duplicate pins removed", s.DuplicatePinsRemoved))
 	}
 	if s.OrphanedPinDirs > 0 {
-		parts = append(parts, fmt.Sprintf("%d orphaned pin dirs removed", s.OrphanedPinDirs))
+		parts = append(parts, fmt.Sprintf("%d pin dirs without a card file (kept)", s.OrphanedPinDirs))
 	}
-	if s.OrphanedChatFiles > 0 {
-		parts = append(parts, fmt.Sprintf("%d orphaned chat files removed", s.OrphanedChatFiles))
+	if s.OrphanedAgentFiles > 0 {
+		parts = append(parts, fmt.Sprintf("%d agent files without a card file (kept)", s.OrphanedAgentFiles))
+	}
+	if s.StalePinCheckSkipped {
+		parts = append(parts, "stale-pin check skipped (hierarchy not fully readable)")
 	}
 	if len(parts) == 0 {
 		return "nothing to repair"
@@ -36,13 +50,17 @@ func (s RevalidateStats) String() string {
 
 // Revalidate scans the repository for inconsistencies and auto-repairs them.
 // Should be called on repository open, before the index is refreshed.
+//
+// Every repair is non-destructive under partial failure or partial sync:
+// a pin is only dropped when it provably duplicates another or points at
+// a category the complete hierarchy scan didn't find.
 func (r *Repository) Revalidate() (*RevalidateStats, error) {
 	stats := &RevalidateStats{}
 
 	r.repairStalePins(stats)
 	r.repairDuplicatePins(stats)
-	r.repairOrphanedPinDirs(stats)
-	r.repairOrphanedChatFiles(stats)
+	r.reportOrphanedPinDirs(stats)
+	r.reportOrphanedAgentFiles(stats)
 
 	return stats, nil
 }
@@ -57,32 +75,36 @@ func (r *Repository) repairDuplicatePins(stats *RevalidateStats) {
 		return
 	}
 	for _, cardID := range cardIDs {
-		pinFile, err := r.loadPinFile(cardID)
-		if err != nil || len(pinFile.Pins) < 2 {
-			continue
-		}
-		seen := map[string]bool{}
-		filtered := pinFile.Pins[:0]
-		for _, p := range pinFile.Pins {
-			if seen[p.CategoryID] {
-				stats.DuplicatePinsRemoved++
-				continue
+		_ = r.mutatePinFile(cardID, func(pinFile *model.PinFile) error {
+			seen := map[string]bool{}
+			filtered := make([]model.Pin, 0, len(pinFile.Pins))
+			for _, p := range pinFile.Pins {
+				if seen[p.CategoryID] {
+					continue
+				}
+				seen[p.CategoryID] = true
+				filtered = append(filtered, p)
 			}
-			seen[p.CategoryID] = true
-			filtered = append(filtered, p)
-		}
-		if len(filtered) == len(pinFile.Pins) {
-			continue
-		}
-		pinFile.Pins = filtered
-		_ = r.savePinFile(pinFile)
+			if len(filtered) == len(pinFile.Pins) {
+				return ErrNoChange
+			}
+			stats.DuplicatePinsRemoved += len(pinFile.Pins) - len(filtered)
+			pinFile.Pins = filtered
+			return nil
+		})
 	}
 }
 
-// repairStalePins removes pin entries that reference categories no longer on disk.
+// repairStalePins removes pin entries that reference categories no longer
+// on disk. Skipped entirely unless every level of the hierarchy listed
+// cleanly — an unreadable stream/project would otherwise make all of its
+// categories look deleted.
 func (r *Repository) repairStalePins(stats *RevalidateStats) {
-	// Build set of all valid category IDs
-	validCategoryIDs := r.collectAllCategoryIDs()
+	validCategoryIDs, complete := r.collectAllCategoryIDs()
+	if !complete {
+		stats.StalePinCheckSkipped = true
+		return
+	}
 	if len(validCategoryIDs) == 0 {
 		return
 	}
@@ -93,37 +115,28 @@ func (r *Repository) repairStalePins(stats *RevalidateStats) {
 	}
 
 	for _, cardID := range cardIDs {
-		pinFile, err := r.loadPinFile(cardID)
-		if err != nil || len(pinFile.Pins) == 0 {
-			continue
-		}
-
-		filtered := pinFile.Pins[:0]
-		for _, p := range pinFile.Pins {
-			if validCategoryIDs[p.CategoryID] {
-				filtered = append(filtered, p)
-			} else {
-				stats.StalePinsRemoved++
+		_ = r.mutatePinFile(cardID, func(pinFile *model.PinFile) error {
+			filtered := make([]model.Pin, 0, len(pinFile.Pins))
+			for _, p := range pinFile.Pins {
+				if validCategoryIDs[p.CategoryID] {
+					filtered = append(filtered, p)
+				}
 			}
-		}
-
-		if len(filtered) == len(pinFile.Pins) {
-			continue // nothing changed
-		}
-
-		pinFile.Pins = filtered
-		if len(filtered) == 0 {
-			// No pins left — remove the pin file and dir
-			pinsDir := r.pinsDirPath(cardID)
-			_ = os.RemoveAll(pinsDir)
-		} else {
-			_ = r.savePinFile(pinFile)
-		}
+			if len(filtered) == len(pinFile.Pins) {
+				return ErrNoChange
+			}
+			stats.StalePinsRemoved += len(pinFile.Pins) - len(filtered)
+			pinFile.Pins = filtered // empty → mutatePinFile removes the dir
+			return nil
+		})
 	}
 }
 
-// repairOrphanedPinDirs removes pin directories for cards that no longer exist.
-func (r *Repository) repairOrphanedPinDirs(stats *RevalidateStats) {
+// reportOrphanedPinDirs counts pin directories whose card file is missing.
+// They are deliberately kept: under Syncthing the pin file can land
+// before the card file, and a card deleted through BRUV already has its
+// pins removed by DeleteCard.
+func (r *Repository) reportOrphanedPinDirs(stats *RevalidateStats) {
 	cardIDs, err := listSubdirs(r.pinsBasePath())
 	if err != nil {
 		return
@@ -131,54 +144,66 @@ func (r *Repository) repairOrphanedPinDirs(stats *RevalidateStats) {
 
 	for _, cardID := range cardIDs {
 		if !fileExists(r.cardFilePath(cardID)) {
-			_ = os.RemoveAll(r.pinsDirPath(cardID))
 			stats.OrphanedPinDirs++
 		}
 	}
 }
 
-// repairOrphanedChatFiles sweeps orphaned .agent.json files for cards
-// that no longer exist. Chat .messages.json files used to be stored in
-// the repo but now live in the OS config folder, so the sweep only
-// touches agent files. The stats field is kept for compatibility with
-// existing tests and frontend counters.
-func (r *Repository) repairOrphanedChatFiles(stats *RevalidateStats) {
+// reportOrphanedAgentFiles counts .agent.json files whose card file is
+// missing. Like orphaned pin dirs they are reported, never deleted: with
+// Syncthing the agent file can arrive before its card, and deleting it
+// would lose the agent for good. (The scheduler skips an agent whose card
+// is missing, so a kept orphan never runs.)
+func (r *Repository) reportOrphanedAgentFiles(stats *RevalidateStats) {
 	entries, err := os.ReadDir(r.cardsPath())
 	if err != nil {
 		return
 	}
-
 	for _, e := range entries {
-		name := e.Name()
-		if strings.HasSuffix(name, ".agent.json") {
-			cardID := strings.TrimSuffix(name, ".agent.json")
-			if !fileExists(r.cardFilePath(cardID)) {
-				_ = os.Remove(r.agentFilePath(cardID))
-			}
+		cardID, ok := strings.CutSuffix(e.Name(), ".agent.json")
+		if ok && !fileExists(r.cardFilePath(cardID)) {
+			stats.OrphanedAgentFiles++
 		}
 	}
 }
 
-// collectAllCategoryIDs walks the full brand/stream/project/category hierarchy
-// and returns a set of all category IDs that exist on disk.
-func (r *Repository) collectAllCategoryIDs() map[string]bool {
-	ids := make(map[string]bool)
+// collectAllCategoryIDs walks the full brand/stream/project/category
+// directory tree and returns a set of all category IDs that exist on disk.
+// It walks directories rather than the List* APIs because those skip
+// unreadable entries silently. complete is false when any directory
+// failed to list or any category file failed to read/parse, in which case
+// the set is partial and must not be used to judge a pin stale.
+func (r *Repository) collectAllCategoryIDs() (ids map[string]bool, complete bool) {
+	ids = make(map[string]bool)
 
-	brands, err := r.ListBrands()
+	brands, err := listSubdirs(r.brandsPath())
 	if err != nil {
-		return ids
+		return ids, false
 	}
 	for _, b := range brands {
-		streams, _ := r.ListStreams(b.Slug)
+		streams, err := listSubdirs(r.streamsPath(b))
+		if err != nil {
+			return ids, false
+		}
 		for _, s := range streams {
-			projects, _ := r.ListProjects(b.Slug, s.Slug)
+			projects, err := listSubdirs(r.projectsPath(b, s))
+			if err != nil {
+				return ids, false
+			}
 			for _, p := range projects {
-				cats, _ := r.ListCategories(b.Slug, s.Slug, p.Slug)
-				for _, c := range cats {
-					ids[c.ID] = true
+				slugs, err := listJSONFiles(r.categoriesPath(b, s, p))
+				if err != nil {
+					return ids, false
+				}
+				for _, slug := range slugs {
+					cat, err := r.GetCategory(b, s, p, slug)
+					if err != nil {
+						return ids, false
+					}
+					ids[cat.ID] = true
 				}
 			}
 		}
 	}
-	return ids
+	return ids, true
 }

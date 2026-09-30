@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"bruv/internal/mcp"
 	"bruv/internal/model"
 	"bruv/internal/notify"
+	"bruv/internal/repo"
 )
 
 // logIdxErr mirrors the App-shell helper: warn + emit an index:stale
@@ -83,6 +85,11 @@ func (rt *Runtime) queryDueAgentsFromDisk() ([]agentlib.DueAgent, error) {
 		if err != nil || !af.Config.Enabled {
 			continue
 		}
+		// An agent whose card is missing (deleted, or not synced yet)
+		// never runs; its file is left for the card to arrive.
+		if !rt.deps.Repo().CardExists(cardID) {
+			continue
+		}
 		if af.Config.Status == model.AgentStatusRunning {
 			// Check if genuinely running (has active cancel func)
 			if _, active := rt.agentCancels.Load(cardID); active {
@@ -94,9 +101,12 @@ func (rt *Runtime) queryDueAgentsFromDisk() ([]agentlib.DueAgent, error) {
 				slog.Warn("agent scheduler resetting stuck agent",
 					"card_id", cardID,
 					"running_since", af.Config.RunStartedAt.Format(time.RFC3339))
-				af.Config.Status = model.AgentStatusIdle
-				af.Config.RunStartedAt = nil
-				_ = rt.deps.Repo().SaveAgentConfig(cardID, af.Config)
+				rt.patchAgentConfig(cardID, "reset stuck agent", func(cfg *model.AgentConfig) {
+					if cfg.Status == model.AgentStatusRunning {
+						cfg.Status = model.AgentStatusIdle
+						cfg.RunStartedAt = nil
+					}
+				})
 			}
 			continue
 		}
@@ -117,10 +127,13 @@ func (rt *Runtime) queryDueAgentsFromDisk() ([]agentlib.DueAgent, error) {
 		}
 		// EndDate: auto-disable if now is past end date
 		if af.Config.EndDate != nil && now.After(*af.Config.EndDate) {
-			af.Config.Enabled = false
-			af.Config.Status = model.AgentStatusDisabled
-			af.Config.NextRunAt = nil
-			_ = rt.deps.Repo().SaveAgentConfig(cardID, af.Config)
+			rt.patchAgentConfig(cardID, "disable past end date", func(cfg *model.AgentConfig) {
+				if cfg.EndDate != nil && now.After(*cfg.EndDate) {
+					cfg.Enabled = false
+					cfg.Status = model.AgentStatusDisabled
+					cfg.NextRunAt = nil
+				}
+			})
 			continue
 		}
 		// Active window: skip if current time is outside the active window
@@ -147,10 +160,21 @@ func (rt *Runtime) queryDueAgentsFromDisk() ([]agentlib.DueAgent, error) {
 	return due, nil
 }
 
+// patchAgentConfig applies a runtime-owned change to an agent's current
+// config. Best-effort: a gone agent is skipped, a failed write logged.
+func (rt *Runtime) patchAgentConfig(cardID, op string, patch func(cfg *model.AgentConfig)) {
+	_, err := rt.deps.Repo().UpdateAgentConfig(cardID, func(cfg *model.AgentConfig) error {
+		patch(cfg)
+		return nil
+	})
+	if err != nil && !agentGone(err) {
+		slog.Error("agent config write failed", "op", op, "card_id", cardID, "err", err)
+	}
+}
+
 func (rt *Runtime) stopScheduler() {
 	if rt.scheduler != nil {
 		rt.scheduler.Stop()
-		rt.scheduler = nil
 	}
 }
 
@@ -207,22 +231,20 @@ func (rt *Runtime) markAlarmBlockFired(cardID, blockID string) {
 	if rt.deps.Repo() == nil {
 		return
 	}
-	card, err := rt.deps.Repo().GetCard(cardID)
-	if err != nil {
-		slog.Warn("alarm: load card failed", "card_id", cardID, "err", err)
-		return
-	}
-	for i := range card.Blocks {
-		if card.Blocks[i].ID == blockID {
-			if card.Blocks[i].Meta == nil {
-				card.Blocks[i].Meta = make(map[string]any)
+	_, err := rt.deps.Repo().MutateCard(cardID, func(card *model.Card) error {
+		for i := range card.Blocks {
+			if card.Blocks[i].ID == blockID {
+				if card.Blocks[i].Meta == nil {
+					card.Blocks[i].Meta = make(map[string]any)
+				}
+				card.Blocks[i].Meta["alarm_fired"] = true
+				return nil
 			}
-			card.Blocks[i].Meta["alarm_fired"] = true
-			break
 		}
-	}
-	if _, err := rt.deps.Repo().UpdateCardBlocks(cardID, card.Blocks); err != nil {
-		slog.Warn("alarm: save card failed", "card_id", cardID, "err", err)
+		return repo.ErrNoChange // the block was removed meanwhile
+	})
+	if err != nil {
+		slog.Warn("alarm: mark block fired failed", "card_id", cardID, "err", err)
 		return
 	}
 	rt.emitCardUpdated(cardID)
@@ -231,7 +253,6 @@ func (rt *Runtime) markAlarmBlockFired(cardID, blockID string) {
 func (rt *Runtime) stopDueDateScanner() {
 	if rt.dueDateScanner != nil {
 		rt.dueDateScanner.Stop()
-		rt.dueDateScanner = nil
 	}
 }
 
@@ -254,26 +275,24 @@ func (rt *Runtime) executeAgent(ctx context.Context, cardID string) error {
 		return fmt.Errorf("no repository open")
 	}
 
-	// 1. Load agent config
-	af, err := rt.deps.Repo().GetAgentConfig(cardID)
-	if err != nil {
-		return fmt.Errorf("load agent config: %w", err)
-	}
-	if !af.Config.Enabled {
+	// 1-2. Mark the agent running on its current config, which is also
+	// the config this run uses. A disabled or gone agent (or card) is
+	// skipped. If the save fails, skip this tick entirely: running anyway
+	// would leave the on-disk status stale, and a crash mid-run would
+	// re-queue the agent on restart (the in-process `running` map only
+	// guards within this process's lifetime).
+	agentCfg, err := rt.markRunning(cardID, time.Now().UTC())
+	switch {
+	case errors.Is(err, errAgentNotEnabled):
 		return nil
-	}
-
-	// 2. Set status to running. If the save fails, skip this tick
-	// entirely: running anyway would leave the on-disk status stale, and
-	// a crash mid-run would re-queue the agent on restart (the in-process
-	// `running` map only guards within this process's lifetime).
-	now := time.Now().UTC()
-	af.Config.Status = model.AgentStatusRunning
-	af.Config.RunStartedAt = &now
-	if err := rt.deps.Repo().SaveAgentConfig(cardID, af.Config); err != nil {
+	case agentGone(err):
+		slog.Warn("agent run skipped: agent or its card is missing", "cardID", cardID, "err", err)
+		return nil
+	case err != nil:
 		slog.Error("agent run skipped: persist running status failed", "cardID", cardID, "err", err)
 		return fmt.Errorf("save agent config (mark running): %w", err)
 	}
+	af := &model.AgentFile{CardID: cardID, Config: *agentCfg}
 	if rt.deps.Index() != nil {
 		rt.logIdxErr("UpdateAgentIndex", rt.deps.Index().UpdateAgentIndex(cardID, true, string(model.AgentStatusRunning), ""))
 	}
@@ -297,126 +316,13 @@ func (rt *Runtime) executeAgent(ctx context.Context, cardID string) error {
 	// Use the cancellable context from here on
 	ctx = agentCtx
 
-	// Track the run
-	run := model.AgentRun{
-		ID:        uuid.New().String()[:8],
-		CardID:    cardID,
-		StartedAt: time.Now().UTC(),
-		Status:    "success",
-	}
+	run := newRun(cardID)
 
 	// Defer: finalize run, update status, calculate next run
 	defer func() {
 		finishedAt := time.Now().UTC()
 		run.FinishedAt = &finishedAt
-
-		// Calculate next run
-		finalStatus := model.AgentStatusIdle
-		if run.Status == "failure" {
-			finalStatus = model.AgentStatusFailed
-		}
-
-		// Retry logic for failed runs — the retry-delay math (linear
-		// backoff for generic failures, Retry-After-hint-aware +
-		// exponential for rate limits) is extracted into
-		// internal/agent/retry.go so the policy is covered by unit
-		// tests rather than trusting inline logic.
-		if run.Status == "failure" && af.Config.MaxRetries > 0 {
-			af.Config.RetryCount++
-			if af.Config.RetryCount <= af.Config.MaxRetries {
-				retryDelay := agentlib.RetryDelay(run.Error, af.Config.RetryBackoffMins, af.Config.RetryCount)
-				retryAt := finishedAt.Add(retryDelay)
-				af.Config.NextRunAt = &retryAt
-				finalStatus = model.AgentStatusIdle // allow re-scheduling
-			}
-		} else if run.Status != "failure" {
-			af.Config.RetryCount = 0 // reset on success
-		}
-
-		af.Config.Status = finalStatus
-		af.Config.RunStartedAt = nil // clear stuck-detection timestamp
-		af.Config.LastRunAt = &finishedAt
-
-		if af.Config.Schedule != "" {
-			opts := agentlib.ScheduleOpts{
-				StartDate:         af.Config.StartDate,
-				EndDate:           af.Config.EndDate,
-				ActiveWindowStart: af.Config.ActiveWindowStart,
-				ActiveWindowEnd:   af.Config.ActiveWindowEnd,
-				OneShot:           af.Config.OneShot,
-				LastRunAt:         af.Config.LastRunAt,
-				Timezone:          af.Config.Timezone,
-			}
-			if next, err := agentlib.NextRunTimeWithOpts(af.Config.Schedule, now, opts); err == nil {
-				af.Config.NextRunAt = &next
-			} else {
-				// One-shot completed or past end date — disable
-				af.Config.NextRunAt = nil
-				if af.Config.OneShot {
-					af.Config.Enabled = false
-				}
-			}
-		}
-
-		// Track estimated cost + budget enforcement. BudgetExceeded
-		// encapsulates the "0 means unlimited" sentinel, kept as a
-		// named helper so the sentinel contract is test-covered.
-		if run.TokensUsed > 0 {
-			runCost := config.EstimateCost(run.ModelUsed, run.TokensUsed)
-			af.Config.CostSpentUSD += runCost
-
-			if agentlib.BudgetExceeded(af.Config.CostSpentUSD, af.Config.CostBudgetUSD) {
-				af.Config.Enabled = false
-				af.Config.Status = model.AgentStatusDisabled
-				cardTitle := ""
-				if c, err := rt.deps.Repo().GetCard(cardID); err == nil {
-					cardTitle = c.Title
-				}
-				notifier := rt.makeNotifier()
-				notifier.Send(notify.Request{
-					Title:     fmt.Sprintf("Budget exceeded: %s", cardTitle),
-					Body:      fmt.Sprintf("Agent disabled — cost $%.4f exceeded budget $%.2f", af.Config.CostSpentUSD, af.Config.CostBudgetUSD),
-					Source:    "budget",
-					CardID:    cardID,
-					CardTitle: cardTitle,
-					Channels:  notify.ParseChannels("in-app,system"),
-				})
-			}
-		}
-
-		_ = rt.deps.Repo().SaveAgentConfig(cardID, af.Config)
-		_ = rt.deps.Repo().AppendAgentRun(cardID, run)
-		rt.finishStamp(cardID, run, finishedAt, afterStart)
-
-		// Emit completion event
-		eventName := "agent:completed"
-		eventData := map[string]any{"cardID": cardID, "status": run.Status, "summary": run.Summary}
-		if run.Status == "failure" {
-			eventName = "agent:failed"
-			eventData["error"] = run.Error
-		}
-		rt.deps.Publish(eventName, eventData)
-
-		// Dispatch notifications based on agent config. The
-		// status-vs-triggers decision is extracted to
-		// agentlib.ShouldNotifyForStatus so it's unit-tested against
-		// every combination (success/failure/cancelled + each
-		// trigger shape) rather than re-derived inline.
-		if agentlib.ShouldNotifyForStatus(run.Status, af.Config.NotifyOn) && af.Config.NotifyChannel != "" {
-			cardTitle := ""
-			if c, err := rt.deps.Repo().GetCard(cardID); err == nil {
-				cardTitle = c.Title
-			}
-			notifier := rt.makeNotifier()
-			notifier.Send(notify.Request{
-				Title:     fmt.Sprintf("Agent %s: %s", run.Status, cardTitle),
-				Body:      run.Summary,
-				Source:    "agent",
-				CardID:    cardID,
-				CardTitle: cardTitle,
-				Channels:  notify.ParseChannels(af.Config.NotifyChannel),
-			})
-		}
+		rt.finishRun(cardID, run, finishedAt, afterStart, af.Config)
 	}()
 
 	// 4. Load card
@@ -542,50 +448,85 @@ func (rt *Runtime) executeAgent(ctx context.Context, cardID string) error {
 	// Always record tool actions, even on failure (partial runs)
 	run.ToolCalls = allToolActions
 
-	if err != nil {
-		if ctx.Err() != nil {
-			run.Status = "cancelled"
-			run.Error = "cancelled by user"
-		} else {
-			run.Status = "failure"
-			run.Error = err.Error()
-		}
-		return err
+	// 10. Status, error and summary.
+	return concludeRun(&run, ctx.Err(), err, resultCf, exhausted, maxTurns)
+}
+
+// newRun is a run record as it starts: FAILED, marked a success only by
+// concludeRun once the run really finishes. A panic the scheduler
+// recovers still runs executeAgent's deferred finalize, which must not
+// record the run as a success.
+func newRun(cardID string) model.AgentRun {
+	return model.AgentRun{
+		ID:        uuid.New().String()[:8],
+		CardID:    cardID,
+		StartedAt: time.Now().UTC(),
+		Status:    "failure",
+		Error:     "the run stopped unexpectedly (internal error)",
+	}
+}
+
+// concludeRun settles a run from how RunLoop ended: ctxErr is the run
+// context's error (a cancel), loopErr and cf are RunLoop's results.
+func concludeRun(run *model.AgentRun, ctxErr, loopErr error, cf *model.ChatFile, exhausted bool, maxTurns int) error {
+	// A cancel comes back from RunLoop as a provider "Error:" message with
+	// a nil error, so it is checked first: a cancelled run is not a
+	// failure — no retry, no failure notification, no "Failed" stamp.
+	if ctxErr != nil {
+		run.Status = "cancelled"
+		run.Error = "cancelled by user"
+		return ctxErr
+	}
+	if loopErr != nil {
+		run.Error = loopErr.Error()
+		return loopErr
 	}
 
-	// 10. Extract summary from last message
-	if resultCf != nil && len(resultCf.Messages) > 0 {
-		lastMsg := resultCf.Messages[len(resultCf.Messages)-1]
-
-		// If the last message is a system error (e.g. network failure),
-		// mark the run as failed — runChatLoop returns nil error for these.
-		if lastMsg.Role == model.RoleSystem && strings.HasPrefix(lastMsg.Content, "Error: ") {
-			run.Status = "failure"
-			run.Error = strings.TrimPrefix(lastMsg.Content, "Error: ")
-			return nil
-		}
-
-		// Otherwise find the last assistant message as the summary
-		for i := len(resultCf.Messages) - 1; i >= 0; i-- {
-			if resultCf.Messages[i].Role == model.RoleAssistant && resultCf.Messages[i].Content != "" {
-				run.Summary = resultCf.Messages[i].Content
-				break
-			}
-		}
+	// Take the outcome from the message THIS run appended. The agent's
+	// chat file keeps every earlier run too, so walking further back could
+	// report a previous run's summary as this one's.
+	lastMsg, ok := runReply(cf, run.StartedAt)
+	if !ok {
+		run.Error = "the run finished without saving a reply"
+		return nil
+	}
+	// A provider error (e.g. network failure) ends the loop with a system
+	// "Error:" message and a nil error.
+	if lastMsg.Role == model.RoleSystem && strings.HasPrefix(lastMsg.Content, "Error: ") {
+		run.Error = strings.TrimPrefix(lastMsg.Content, "Error: ")
+		return nil
+	}
+	if lastMsg.Role == model.RoleAssistant {
+		run.Summary = lastMsg.Content
 	}
 
 	if exhausted {
-		run.Status = "failure"
 		run.Error = fmt.Sprintf("ran out of turns (%d) before finishing; raise the agent's max turns or narrow its goal", maxTurns)
+		return nil
 	}
+	run.Status, run.Error = "success", ""
 	return nil
 }
 
+// runReply returns the message RunLoop appended for this run — the last
+// one in the chat, provided it was written after the run started.
+func runReply(cf *model.ChatFile, startedAt time.Time) (model.ChatMessage, bool) {
+	if cf == nil || len(cf.Messages) == 0 {
+		return model.ChatMessage{}, false
+	}
+	last := cf.Messages[len(cf.Messages)-1]
+	if last.Timestamp.Before(startedAt) {
+		return model.ChatMessage{}, false
+	}
+	return last, true
+}
+
 func (rt *Runtime) mcpToolDefs(allowedTools []string) []llm.ToolDef {
-	if rt.deps.MCPRegistry() == nil {
+	reg := rt.deps.MCPRegistry() // one snapshot: it can be swapped or nil'd meanwhile
+	if reg == nil {
 		return nil
 	}
-	tools := rt.deps.MCPRegistry().Tools()
+	tools := reg.Tools()
 	if len(tools) == 0 {
 		return nil
 	}
@@ -638,8 +579,10 @@ func (rt *Runtime) executeAgentToolCall(ctx context.Context, cardID string, card
 	// so namespaced IDs can never accidentally match a built-in
 	// name, even if a future BRUV release adds a built-in tool
 	// with a name that happens to include the separator.
-	if rt.deps.MCPRegistry() != nil && rt.deps.MCPRegistry().OwnsTool(tc.Name) {
-		return rt.executeMCPToolCall(ctx, tc, action)
+	// One registry snapshot for the whole call: MCPRegistry() can be
+	// swapped or nil'd between calls (a settings reload).
+	if reg := rt.deps.MCPRegistry(); reg != nil && reg.OwnsTool(tc.Name) {
+		return rt.executeMCPToolCall(ctx, reg, tc, action)
 	}
 
 	// Web tools: one implementation shared with card and project chat.
@@ -722,7 +665,7 @@ func (rt *Runtime) executeAgentToolCall(ctx context.Context, cardID string, card
 	}
 }
 
-func (rt *Runtime) executeMCPToolCall(ctx context.Context, tc llm.ToolCall, action *model.ToolAction) (string, *model.ToolAction) {
+func (rt *Runtime) executeMCPToolCall(ctx context.Context, reg *mcp.Registry, tc llm.ToolCall, action *model.ToolAction) (string, *model.ToolAction) {
 	serverName, toolName := mcp.SplitNamespacedTool(tc.Name)
 	// Derive from the agent's run context so cancelling the agent also
 	// cancels any in-flight MCP call, instead of letting it run to the
@@ -730,7 +673,7 @@ func (rt *Runtime) executeMCPToolCall(ctx context.Context, tc llm.ToolCall, acti
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	result, err := rt.deps.MCPRegistry().CallTool(ctx, tc.Name, tc.Arguments)
+	result, err := reg.CallTool(ctx, tc.Name, tc.Arguments)
 	if err != nil {
 		slog.Warn("mcp tool protocol error",
 			"server", serverName, "tool", toolName, "err", err)
@@ -779,6 +722,72 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%d hour(s)", int(d.Hours()))
 	}
 	return fmt.Sprintf("%d minutes", int(d.Minutes()))
+}
+
+// finishRun records a finished run: the agent's runtime-owned config
+// fields, the run history, the card's tracking blocks, the completion
+// event and notifications. runCfg is the config the run started with,
+// used only if the current one can't be written. An agent or card removed
+// during the run gets no record — writing one would re-create it.
+func (rt *Runtime) finishRun(cardID string, run model.AgentRun, finishedAt time.Time, afterStart fieldSnapshot, runCfg model.AgentConfig) {
+	defer rt.publishRunEnd(cardID, run)
+
+	cfg, budgetExceeded, err := rt.finishRunConfig(cardID, run, finishedAt)
+	if agentGone(err) {
+		slog.Warn("agent run not recorded: agent or its card was removed during the run", "cardID", cardID, "err", err)
+		return
+	}
+	if err != nil {
+		slog.Error("agent run: save config failed", "cardID", cardID, "err", err)
+		cfg = &runCfg
+	}
+	if err := rt.deps.Repo().AppendAgentRun(cardID, run); err != nil {
+		slog.Error("agent run: save run history failed", "cardID", cardID, "err", err)
+	}
+	rt.finishStamp(cardID, run, finishedAt, afterStart)
+
+	notifyAgentEvent := agentlib.ShouldNotifyForStatus(run.Status, cfg.NotifyOn) && cfg.NotifyChannel != ""
+	if !budgetExceeded && !notifyAgentEvent {
+		return
+	}
+	cardTitle := ""
+	if c, err := rt.deps.Repo().GetCard(cardID); err == nil {
+		cardTitle = c.Title
+	}
+	notifier := rt.makeNotifier()
+	if budgetExceeded {
+		notifier.Send(notify.Request{
+			Title:     fmt.Sprintf("Budget exceeded: %s", cardTitle),
+			Body:      fmt.Sprintf("Agent disabled — cost $%.4f exceeded budget $%.2f", cfg.CostSpentUSD, cfg.CostBudgetUSD),
+			Source:    "budget",
+			CardID:    cardID,
+			CardTitle: cardTitle,
+			Channels:  notify.ParseChannels("in-app,system"),
+		})
+	}
+	// The status-vs-triggers decision is agentlib.ShouldNotifyForStatus,
+	// unit-tested against every status/trigger combination.
+	if notifyAgentEvent {
+		notifier.Send(notify.Request{
+			Title:     fmt.Sprintf("Agent %s: %s", run.Status, cardTitle),
+			Body:      run.Summary,
+			Source:    "agent",
+			CardID:    cardID,
+			CardTitle: cardTitle,
+			Channels:  notify.ParseChannels(cfg.NotifyChannel),
+		})
+	}
+}
+
+// publishRunEnd emits agent:completed / agent:failed for a finished run.
+func (rt *Runtime) publishRunEnd(cardID string, run model.AgentRun) {
+	eventName := "agent:completed"
+	eventData := map[string]any{"cardID": cardID, "status": run.Status, "summary": run.Summary}
+	if run.Status == "failure" {
+		eventName = "agent:failed"
+		eventData["error"] = run.Error
+	}
+	rt.deps.Publish(eventName, eventData)
 }
 
 func truncateMCPOutput(content string) (string, bool) {

@@ -19,10 +19,15 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"bruv/core/events"
@@ -44,6 +49,7 @@ import (
 	"bruv/core/services/settings"
 	workspacesvc "bruv/core/services/workspace"
 	"bruv/internal/config"
+	"bruv/internal/fsutil"
 	"bruv/internal/index"
 	"bruv/internal/llm"
 	"bruv/internal/logging"
@@ -66,12 +72,37 @@ type Runtime struct {
 	ctx       context.Context
 	cancelCtx context.CancelFunc
 
-	repo        *repo.Repository
-	idx         *index.Index
-	registry    *schema.Registry
-	mcpRegistry *mcp.Registry
-	bus         *events.MemBus
-	watcher     *reposync.Watcher
+	repo     *repo.Repository
+	idx      *index.Index
+	registry *schema.Registry
+
+	// releaseRepoLock drops this process's claim on the repo folder
+	// (.bruv/instance.lock) — the last thing close() does.
+	releaseRepoLock func()
+
+	// completingClips holds the card IDs a CompleteCapture is ingesting
+	// right now, so a second browser completing the same pending clip
+	// is refused instead of ingesting its media twice.
+	completingClips sync.Map
+	bus             *events.MemBus
+	watcher         *reposync.Watcher
+
+	// mcpRegistry is swapped atomically on reload: readers always see
+	// either the old or the new registry, never nil while one exists.
+	// mcpMu serialises reloads with each other and with Close, so a
+	// reload can't install a registry after Close shut the last one
+	// down (and concurrent reloads can't leak a set of subprocesses).
+	mcpRegistry atomic.Pointer[mcp.Registry]
+	mcpMu       sync.Mutex
+	mcpClosed   bool
+
+	closeOnce sync.Once
+
+	// bg tracks fire-and-forget background writes (see goBackground)
+	// so Close can wait for them; bgClosing refuses new ones.
+	bgMu      sync.Mutex
+	bgClosing bool
+	bg        sync.WaitGroup
 
 	// secret is the host's HMAC key for signed-attachment-URL minting.
 	// Passed in from the supervisor at build time (one secret per
@@ -140,6 +171,20 @@ func buildRuntime(repoPath, configDir string, secret []byte) (*Runtime, error) {
 		cancel()
 		return nil, fmt.Errorf("open repo: %w", err)
 	}
+	// One BRUV process per repo folder: a second one (the desktop opening
+	// the folder the local BRUV Server already serves, say) would run a
+	// second agent scheduler and alarm scanner and race the first on
+	// every file — the in-process write locks can't see another process.
+	release, err := fsutil.TryLock(filepath.Join(repoObj.Root, ".bruv", "instance.lock"), instanceHolder())
+	if err != nil {
+		cancel()
+		var held *fsutil.LockHeldError
+		if errors.As(err, &held) {
+			return nil, fmt.Errorf("this repository is already open in another BRUV process on this computer (%s) — connect to that BRUV Server instead of opening the folder directly", held.Holder)
+		}
+		return nil, fmt.Errorf("lock repo: %w", err)
+	}
+	r.releaseRepoLock = release
 	r.repo = repoObj
 
 	if err := repo.EnsureSyncHygiene(repoObj.Root); err != nil {
@@ -148,6 +193,16 @@ func buildRuntime(repoPath, configDir string, secret []byte) (*Runtime, error) {
 	runsDir := filepath.Join(configDir, "runs", repoObj.Manifest.ID)
 	if err := repoObj.SetRunsDir(runsDir); err != nil {
 		slog.Warn("set runs dir failed", "err", err)
+	}
+
+	// Repair load-time damage (duplicate pins from the pre-2026-09-17
+	// move bug, stale pins) before the index is built from disk. It is
+	// non-destructive under partial failure: an unreadable level skips
+	// the stale-pin pass, and orphans are only reported.
+	if stats, err := repoObj.Revalidate(); err != nil {
+		slog.Warn("revalidation failed", "err", err)
+	} else {
+		slog.Info("revalidate ok", "stats", stats.String())
 	}
 
 	idxPath := filepath.Join(repoObj.Root, ".bruv", "index.db")
@@ -225,7 +280,7 @@ func (r *Runtime) Bus() *events.MemBus { return r.bus }
 func (r *Runtime) Repo() *repo.Repository           { return r.repo }
 func (r *Runtime) Index() *index.Index              { return r.idx }
 func (r *Runtime) SchemaRegistry() *schema.Registry { return r.registry }
-func (r *Runtime) MCPRegistry() *mcp.Registry       { return r.mcpRegistry }
+func (r *Runtime) MCPRegistry() *mcp.Registry       { return r.mcpRegistry.Load() }
 func (r *Runtime) Watcher() *reposync.Watcher       { return r.watcher }
 func (r *Runtime) LLMActors() *sync.Map             { return &r.llmActors }
 func (r *Runtime) Tools() *tools.Dispatcher         { return r.tools }
@@ -335,31 +390,80 @@ func (r *Runtime) GetCurrentRepo() *CurrentRepoInfo {
 
 // Close stops the runtime's background workers and releases resources.
 // Idempotent. Safe to call from a defer.
+//
+// Order matters: the runtime context is cancelled FIRST so in-flight
+// LLM runs (5-minute timeouts) and MCP start-ups abort instead of
+// holding up disable / unload / quit; the scheduler then waits for
+// those runs to record their cancelled state while the repo and index
+// are still open. The bus closes last, after the final events, which
+// ends every SSE stream bound to this runtime so clients reconnect to
+// its replacement.
 func (r *Runtime) Close() {
+	r.closeOnce.Do(r.close)
+}
+
+func (r *Runtime) close() {
+	r.cancelCtx()
 	if r.agentRT != nil {
-		r.agentRT.StopScheduler()
-		r.agentRT.StopDueDateScanner()
+		// Stop via the handles rather than StopScheduler /
+		// StopDueDateScanner, which clear the pointers that
+		// TriggerAgent reads concurrently. A stopped scheduler
+		// refuses new triggers.
+		if s := r.agentRT.Scheduler(); s != nil {
+			s.Stop()
+		}
+		if d := r.agentRT.DueDateScanner(); d != nil {
+			d.Stop()
+		}
 	}
 	if r.watcher != nil {
 		r.watcher.Stop()
 	}
-	if r.mcpRegistry != nil {
-		r.mcpRegistry.Shutdown()
+	// After the runs have finished (their final activity entries are
+	// already queued), refuse new background writes and drain the rest.
+	r.bgMu.Lock()
+	r.bgClosing = true
+	r.bgMu.Unlock()
+	r.bg.Wait()
+	r.mcpMu.Lock()
+	r.mcpClosed = true
+	reg := r.mcpRegistry.Swap(nil)
+	r.mcpMu.Unlock()
+	if reg != nil {
+		reg.Shutdown()
 	}
 	if r.idx != nil {
 		_ = r.idx.Close()
 	}
-	r.cancelCtx()
+	r.bus.Close()
+	if r.releaseRepoLock != nil {
+		r.releaseRepoLock()
+	}
+}
+
+// instanceHolder describes this process for the repo lock file, so a
+// second process can say who has the folder open.
+func instanceHolder() string {
+	role := "BRUV desktop"
+	if os.Getenv("BRUV_MODE") == "server" || strings.Contains(filepath.Base(os.Args[0]), "server") || slices.Contains(os.Args[1:], "--server") {
+		role = "BRUV Server"
+	}
+	return fmt.Sprintf("%s, pid %d, since %s", role, os.Getpid(), time.Now().Format("2006-01-02 15:04"))
 }
 
 // reloadMCPRegistry rebuilds the MCP subprocess registry. Called from
-// the mcp service when configuration mutates.
+// the mcp service when configuration mutates. The new registry is
+// fully started before it replaces the old one, so tool dispatch
+// never sees a nil registry mid-reload; the old one is shut down
+// after the swap. If the config can't be read the current registry
+// stays in place.
 func (r *Runtime) reloadMCPRegistry() {
-	if r.mcpRegistry != nil {
-		r.mcpRegistry.Shutdown()
-		r.mcpRegistry = nil
-	}
 	if r.repo == nil {
+		return
+	}
+	r.mcpMu.Lock()
+	defer r.mcpMu.Unlock()
+	if r.mcpClosed {
 		return
 	}
 	store, err := r.repo.LoadMCPServerStore()
@@ -368,13 +472,17 @@ func (r *Runtime) reloadMCPRegistry() {
 		return
 	}
 	reg := mcp.NewRegistry(r.repo.Manifest.ID, config.MCPSecretResolver{})
-	startCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// Derived from the runtime context so Close aborts a slow start-up
+	// instead of waiting out the full timeout.
+	startCtx, cancel := context.WithTimeout(r.ctx, 60*time.Second)
 	defer cancel()
 	errs := reg.LoadAndStart(startCtx, store.Servers)
 	for name, err := range errs {
 		slog.Warn("mcp server startup failed", "server", name, "err", err)
 	}
-	r.mcpRegistry = reg
+	if old := r.mcpRegistry.Swap(reg); old != nil {
+		old.Shutdown()
+	}
 }
 
 // logActivity / logActivityWithContext capture a card mutation in the
@@ -396,7 +504,7 @@ func (r *Runtime) logActivityWithContext(cardID, action, field, cardTitle string
 	if r.repo == nil {
 		return
 	}
-	go func() {
+	r.goBackground(func() {
 		defer logging.Recover("supervisor.logActivityWithContext")
 		var actorID, actor, actorType string
 		if v, ok := r.llmActors.Load(cardID); ok {
@@ -437,6 +545,23 @@ func (r *Runtime) logActivityWithContext(cardID, action, field, cardTitle string
 		}
 
 		r.repo.AppendActivity(entry)
+	})
+}
+
+// goBackground runs fn on a goroutine that Close waits for, so
+// fire-and-forget repo writes (activity log) never land after the
+// runtime has closed. Dropped once Close has begun.
+func (r *Runtime) goBackground(fn func()) {
+	r.bgMu.Lock()
+	if r.bgClosing {
+		r.bgMu.Unlock()
+		return
+	}
+	r.bg.Add(1)
+	r.bgMu.Unlock()
+	go func() {
+		defer r.bg.Done()
+		fn()
 	}()
 }
 
@@ -454,7 +579,7 @@ func (d searchDeps) Index() *index.Index    { return d.r.idx }
 type mcpDeps struct{ r *Runtime }
 
 func (d mcpDeps) Repo() *repo.Repository  { return d.r.repo }
-func (d mcpDeps) Registry() *mcp.Registry { return d.r.mcpRegistry }
+func (d mcpDeps) Registry() *mcp.Registry { return d.r.MCPRegistry() }
 func (d mcpDeps) ReloadRegistry()         { d.r.reloadMCPRegistry() }
 
 type llmDeps struct{ r *Runtime }
@@ -463,12 +588,9 @@ func (d llmDeps) Ctx() context.Context { return d.r.ctx }
 
 type catalogDeps struct{ r *Runtime }
 
-func (d catalogDeps) Repo() *repo.Repository     { return d.r.repo }
-func (d catalogDeps) Registry() *schema.Registry { return d.r.registry }
-func (d catalogDeps) Index() *index.Index        { return d.r.idx }
-func (d catalogDeps) UpdateCardBlocks(id string, blocks []model.Block) (*model.Card, error) {
-	return d.r.Card.UpdateBlocks(id, blocks)
-}
+func (d catalogDeps) Repo() *repo.Repository            { return d.r.repo }
+func (d catalogDeps) Registry() *schema.Registry        { return d.r.registry }
+func (d catalogDeps) Index() *index.Index               { return d.r.idx }
 func (d catalogDeps) Publish(topic string, payload any) { d.r.bus.Publish(topic, payload) }
 
 type projectDeps struct{ r *Runtime }
@@ -481,8 +603,8 @@ type cardDeps struct{ r *Runtime }
 
 func (d cardDeps) Repo() *repo.Repository { return d.r.repo }
 func (d cardDeps) Index() *index.Index    { return d.r.idx }
-func (d cardDeps) ApplyTypeBlocks(cardID, cardType string) {
-	d.r.Catalog.ApplyTypeBlocks(cardID, cardType)
+func (d cardDeps) ApplyTypeBlocks(cardID, cardType string) error {
+	return d.r.Catalog.ApplyTypeBlocks(cardID, cardType)
 }
 func (d cardDeps) CardTypeExists(cardType string) bool { return d.r.Catalog.CardTypeExists(cardType) }
 func (d cardDeps) LogActivity(cardID, action, field string) {
@@ -503,7 +625,7 @@ func (d agentDeps) Repo() *repo.Repository            { return d.r.repo }
 func (d agentDeps) Index() *index.Index               { return d.r.idx }
 func (d agentDeps) Publish(topic string, payload any) { d.r.bus.Publish(topic, payload) }
 func (d agentDeps) LLM() *llmsvc.Service              { return d.r.LLM }
-func (d agentDeps) MCPRegistry() *mcp.Registry        { return d.r.mcpRegistry }
+func (d agentDeps) MCPRegistry() *mcp.Registry        { return d.r.MCPRegistry() }
 func (d agentDeps) NativeToolDefs() []llm.ToolDef     { return nativeTools{d.r}.Defs(false) }
 
 type repoDeps struct{ r *Runtime }
@@ -551,7 +673,7 @@ func (d chatRTDeps) Card() *card.Service        { return d.r.Card }
 func (d chatRTDeps) Catalog() *catalog.Service  { return d.r.Catalog }
 func (d chatRTDeps) Tools() *tools.Dispatcher   { return d.r.tools }
 func (d chatRTDeps) Prompts() *prompts.Builder  { return d.r.prompts }
-func (d chatRTDeps) MCPRegistry() *mcp.Registry { return d.r.mcpRegistry }
+func (d chatRTDeps) MCPRegistry() *mcp.Registry { return d.r.MCPRegistry() }
 func (d chatRTDeps) LLMActors() *sync.Map       { return &d.r.llmActors }
 
 type agentRTDeps struct{ r *Runtime }
@@ -567,7 +689,7 @@ func (d agentRTDeps) Project() *projectsvc.Service      { return d.r.Project }
 func (d agentRTDeps) Catalog() *catalog.Service         { return d.r.Catalog }
 func (d agentRTDeps) Prompts() *prompts.Builder         { return d.r.prompts }
 func (d agentRTDeps) ChatRT() *chatrt.Runtime           { return d.r.chatRT }
-func (d agentRTDeps) MCPRegistry() *mcp.Registry        { return d.r.mcpRegistry }
+func (d agentRTDeps) MCPRegistry() *mcp.Registry        { return d.r.MCPRegistry() }
 func (d agentRTDeps) LLMActors() *sync.Map              { return &d.r.llmActors }
 func (d agentRTDeps) Native() tools.NativeTools         { return nativeTools{d.r} }
 

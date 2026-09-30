@@ -54,13 +54,33 @@ type Dispatcher struct {
 	denied  map[string]bool
 }
 
+// RPCSurface is implemented by dispatch targets that declare their RPC
+// methods explicitly. NewDispatcher then registers only those names,
+// so exported helpers (lifecycle, accessors, wiring hooks) are never
+// reachable over the network. Both production targets —
+// supervisor.Runtime and supervisor.MachineService — implement it,
+// with a test pinning the list.
+type RPCSurface interface {
+	RPCMethods() []string
+}
+
 // NewDispatcher builds a dispatcher rooted at target. Method resolution
 // is case-sensitive and happens at construction time for determinism
-// and fast lookup; adding new methods requires restart.
+// and fast lookup; adding new methods requires restart. When target
+// implements RPCSurface only its listed methods are registered;
+// deniedMethods are refused either way.
 func NewDispatcher(target any, deniedMethods []string) *Dispatcher {
 	d := &Dispatcher{target: target, denied: make(map[string]bool, len(deniedMethods))}
 	for _, n := range deniedMethods {
 		d.denied[n] = true
+	}
+	var allowed map[string]bool
+	if s, ok := target.(RPCSurface); ok {
+		names := s.RPCMethods()
+		allowed = make(map[string]bool, len(names))
+		for _, n := range names {
+			allowed[n] = true
+		}
 	}
 
 	v := reflect.ValueOf(target)
@@ -70,6 +90,9 @@ func NewDispatcher(target any, deniedMethods []string) *Dispatcher {
 		// Only exported methods (Go reflection's NumMethod already
 		// filters these, but double-checking is cheap and explicit).
 		if !m.IsExported() {
+			continue
+		}
+		if allowed != nil && !allowed[m.Name] {
 			continue
 		}
 		d.methods.Store(m.Name, v.Method(i))
@@ -214,7 +237,8 @@ func writeRPCResult(w nethttp.ResponseWriter, id json.RawMessage, result any) {
 // DefaultDeniedMethods is the baseline method-denial list. Dangerous
 // methods (native file pickers, force-quit, lifecycle hooks) are
 // blocked from the RPC surface even though they're exported for Wails.
-// Phase 6 may tighten this to an explicit allowlist.
+// Targets implementing RPCSurface are additionally limited to their
+// explicit allowlist; this list is the backstop on top of it.
 func DefaultDeniedMethods() []string {
 	return []string{
 		// Native shell/OS calls that only make sense with a Wails runtime.

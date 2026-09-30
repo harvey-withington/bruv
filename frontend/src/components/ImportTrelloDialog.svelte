@@ -33,6 +33,11 @@
   let archiveMode = $state<TrelloArchiveMode>('archive')
   let apiKey = $state('')
   let apiToken = $state('')
+  // What the stored preferences held when the dialog opened — null until
+  // they loaded. The post-import save writes only a credential the user
+  // actually changed: a failed load left the fields blank, and saving those
+  // blanks wiped the stored key/token.
+  let loadedCreds: { key: string; token: string } | null = null
   let importing = $state(false)
   let errorMsg = $state('')
   let dragActive = $state(false)
@@ -45,10 +50,9 @@
   async function loadPrefs() {
     try {
       const prefs = await GetPreferences()
-      if (prefs) {
-        apiKey = prefs.trello_api_key || ''
-        apiToken = prefs.trello_api_token || ''
-      }
+      apiKey = prefs?.trello_api_key || ''
+      apiToken = prefs?.trello_api_token || ''
+      loadedCreds = { key: apiKey, token: apiToken }
     } catch (e) {
       console.error('Failed to load preferences', e)
       showToast(t('import.trello.prefs_load_failed'), 'error')
@@ -130,15 +134,7 @@
     try {
       const result = await ImportTrelloBoardFromJSON(brandSlug, streamSlug, fileContent, archiveMode, apiKey || undefined, apiToken || undefined)
       
-      // Save credentials back to backend preferences
-      try {
-        const prefs = await GetPreferences() || {}
-        prefs.trello_api_key = apiKey
-        prefs.trello_api_token = apiToken
-        await SetPreferences(prefs)
-      } catch (pe) {
-        console.error('Failed to save preferences', pe)
-      }
+      await rememberCredentials()
 
       showToast(
         t('import.trello.success', {
@@ -157,6 +153,24 @@
         : `${t('import.trello.failed')}: ${msg}`
     } finally {
       importing = false
+    }
+  }
+
+  // Remember credentials the user changed in this dialog. Against loaded
+  // values when the load worked; otherwise only non-blank entries — a blank
+  // field we never managed to fill must not overwrite the stored value.
+  async function rememberCredentials() {
+    const keyChanged = loadedCreds ? apiKey !== loadedCreds.key : apiKey !== ''
+    const tokenChanged = loadedCreds ? apiToken !== loadedCreds.token : apiToken !== ''
+    if (!keyChanged && !tokenChanged) return
+    try {
+      const prefs = await GetPreferences() || {}
+      if (keyChanged) prefs.trello_api_key = apiKey
+      if (tokenChanged) prefs.trello_api_token = apiToken
+      await SetPreferences(prefs)
+      loadedCreds = { key: prefs.trello_api_key || '', token: prefs.trello_api_token || '' }
+    } catch {
+      showToast(t('import.trello.prefs_save_failed'), 'error')
     }
   }
 

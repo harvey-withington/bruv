@@ -21,12 +21,13 @@ import (
 // SetCommitOnSave toggles the behaviour. Only meaningful on a published
 // workspace; stored regardless so the choice survives un-/re-publishing.
 func (s *Service) SetCommitOnSave(brandSlug, streamSlug, projectSlug string, on bool) (*model.Workspace, error) {
-	ws, _, err := s.localRoot(brandSlug, streamSlug, projectSlug)
-	if err != nil {
+	if _, _, err := s.localRoot(brandSlug, streamSlug, projectSlug); err != nil {
 		return nil, err
 	}
-	ws.CommitOnSave = on
-	if err := s.saveWorkspace(brandSlug, streamSlug, projectSlug, ws); err != nil {
+	ws, err := s.mutateWorkspace(brandSlug, streamSlug, projectSlug, func(ws *model.Workspace) {
+		ws.CommitOnSave = on
+	})
+	if err != nil {
 		return nil, err
 	}
 	s.emit("workspace:updated", brandSlug, streamSlug, projectSlug)

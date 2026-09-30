@@ -140,25 +140,23 @@ func CardTools(categories []map[string]string) []ToolDef {
 	return tools
 }
 
-// cardTypeDesc describes a card_type parameter. Deliberately NOT an
-// enum: an unknown name is CREATED as a new user card type by the
-// dispatcher (ruling 2026-08-14), and a hard enum would forbid exactly
-// that. Existing ids are listed so the model matches before inventing.
+// cardTypeDesc describes a card_type parameter. Not an enum, so a type
+// made with create_card_type earlier in the same turn is still accepted;
+// an unknown name is refused (ruling 2026-09-30), never created.
 func cardTypeDesc(cardTypes []string) string {
 	if len(cardTypes) == 0 {
-		return "The card type: an existing type id, or a new short descriptive name to create one."
+		return "The card type: an existing type id (see list_card_types). Unknown types are refused."
 	}
 	return "The card type. Existing type ids: " + strings.Join(cardTypes, ", ") +
-		". Pass one of these (labels are matched too), or a new short descriptive name to create a new type."
+		". Pass one of these (labels are matched too); unknown types are refused."
 }
 
 // ProjectTools returns the tool definitions for project-level AI chat.
 // The LLM can create cards, bulk-tag, move cards between categories, etc.
 func ProjectTools(cardTypes []string, categories []map[string]string) []ToolDef {
 	// accepted_types keeps a hard enum — restricting a category only makes
-	// sense against EXISTING types. card_type params deliberately don't:
-	// an unknown type name is CREATED by the dispatcher (ruling 2026-08-14),
-	// and an enum would forbid exactly that.
+	// sense against EXISTING types. card_type params don't, so a type made
+	// by create_card_type in the same turn still validates at apply time.
 	typeIDs := make([]any, len(cardTypes))
 	for i, t := range cardTypes {
 		typeIDs[i] = t
@@ -218,7 +216,7 @@ func ProjectTools(cardTypes []string, categories []map[string]string) []ToolDef 
 		},
 		{
 			Name:        "update_cards",
-			Description: "Update many cards in a single call. Each entry is a partial update for one card. All fields per entry are optional except `card_id`. Prefer this over many `update_card` calls when editing several cards at once.",
+			Description: "Update many cards in a single call. Each entry is a partial update for one card. All fields per entry are optional except `card_id`. Prefer this over many `update_card` calls when editing several cards at once. The result lists what changed and what failed per card.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -431,7 +429,7 @@ func cardUpdateParameters(cardTypes []string, forArrayItem bool) map[string]any 
 		},
 		"blocks": map[string]any{
 			"type":        "array",
-			"description": "Replace the card's blocks entirely. Each block is `{type, label, value, key?}`. Use only when restructuring the card; for simple text edits use `description`. (optional)",
+			"description": "Set or add fields. Each block is `{type, label, value, key?}`: one matching an existing field by key (or label) sets that field's value, shaped to the field and keeping its settings; any other is added as a new field. Nothing is ever deleted. For the description use `description`. (optional)",
 			"items": map[string]any{
 				"type": "object",
 				"properties": map[string]any{

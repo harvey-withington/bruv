@@ -14,7 +14,7 @@ func TestRevalidateCleanRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Revalidate: %v", err)
 	}
-	if stats.StalePinsRemoved != 0 || stats.OrphanedPinDirs != 0 || stats.OrphanedChatFiles != 0 {
+	if stats.StalePinsRemoved != 0 || stats.OrphanedPinDirs != 0 || stats.OrphanedAgentFiles != 0 {
 		t.Errorf("clean repo should have zero stats, got %+v", stats)
 	}
 }
@@ -25,7 +25,7 @@ func TestRevalidateStatsString(t *testing.T) {
 		t.Errorf("empty stats = %q, want %q", got, "nothing to repair")
 	}
 
-	s = RevalidateStats{StalePinsRemoved: 2, OrphanedChatFiles: 1}
+	s = RevalidateStats{StalePinsRemoved: 2, OrphanedAgentFiles: 1}
 	got := s.String()
 	if got == "nothing to repair" {
 		t.Error("non-empty stats should not say 'nothing to repair'")
@@ -93,9 +93,41 @@ func TestRevalidateRemovesOrphanedPinDirs(t *testing.T) {
 		t.Errorf("OrphanedPinDirs = %d, want 1", stats.OrphanedPinDirs)
 	}
 
-	// Directory should be cleaned up
-	if fileExists(orphanedPinDir) {
-		t.Error("orphaned pin directory should be removed")
+	// Reported, never deleted: under Syncthing the pin can land before
+	// the card file.
+	if !fileExists(orphanedPinDir) {
+		t.Error("pin directory without a card file must be kept")
+	}
+}
+
+// A category file that fails to parse (torn write, partial sync) must
+// not make its pins look stale — the whole stale-pin pass is skipped.
+func TestRevalidateKeepsPinsWhenHierarchyUnreadable(t *testing.T) {
+	r := setupTestRepo(t)
+	r.CreateBrand("Brand")
+	r.CreateStream("brand", "Stream")
+	r.CreateProject("brand", "stream", "Project")
+	backlog, _ := r.CreateCategory("brand", "stream", "project", "Backlog", 0)
+	r.CreateCategory("brand", "stream", "project", "Done", 1)
+
+	card, _ := r.CreateCard("task", "Test Card")
+	if err := r.PinCard(card.ID, backlog.ID); err != nil {
+		t.Fatalf("PinCard: %v", err)
+	}
+
+	if err := os.WriteFile(r.categoryFilePath("brand", "stream", "project", "backlog"), []byte("{torn"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err := r.Revalidate()
+	if err != nil {
+		t.Fatalf("Revalidate: %v", err)
+	}
+	if stats.StalePinsRemoved != 0 || !stats.StalePinCheckSkipped {
+		t.Errorf("stats = %+v, want no removals and the check skipped", stats)
+	}
+	if pins, _ := r.GetCardPins(card.ID); len(pins) != 1 {
+		t.Errorf("expected pin kept, got %d pins", len(pins))
 	}
 }
 
@@ -153,5 +185,25 @@ func TestRevalidateMultipleIssues(t *testing.T) {
 	}
 	if stats.OrphanedPinDirs != 2 {
 		t.Errorf("OrphanedPinDirs = %d, want 2", stats.OrphanedPinDirs)
+	}
+}
+
+// An agent file whose card hasn't synced in yet is reported, never
+// deleted (pre-release sweep 2026-09-29, §6.5).
+func TestRevalidateKeepsAgentFileWithoutCard(t *testing.T) {
+	r := setupTestRepo(t)
+	const cardID = "11111111-2222-3333-4444-555555555555"
+	if err := r.SaveAgentConfig(cardID, model.AgentConfig{Goal: "g"}); err != nil {
+		t.Fatal(err)
+	}
+	stats, err := r.Revalidate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.OrphanedAgentFiles != 1 {
+		t.Errorf("OrphanedAgentFiles = %d, want 1", stats.OrphanedAgentFiles)
+	}
+	if !fileExists(r.agentFilePath(cardID)) {
+		t.Error("agent file without a card file must be kept")
 	}
 }

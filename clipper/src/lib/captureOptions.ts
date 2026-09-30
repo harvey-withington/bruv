@@ -21,6 +21,7 @@ import { repoRPC } from './api'
 import { formatBytes } from './format'
 import { cardTitle } from './clip'
 import {
+  MAX_STORABLE_MEDIA_BYTES,
   PIN_WITH_DECK,
   VIDEO_OPTION_LINK,
   VIDEO_OPTION_SKIP,
@@ -116,11 +117,20 @@ export function videoOptions(clip: ClipResult, preview: CapturePreview | null): 
   if (!video) return []
   const server = previewVideo(preview)
   const ladder = video.variants?.length ? video.variants : (server?.variants ?? [])
-  if (ladder.length > 0) {
-    return ladder.map((v) => ({ id: v.id, label: v.label, url: v.url, estBytes: v.estBytes }))
-  }
+  const option = (id: string, label: string, url: string, estBytes?: number): CaptureDialogVideoOption => ({
+    id,
+    label,
+    url,
+    estBytes,
+    // Known to exceed what the browser can store — listed (the user should
+    // see the rung exists) but not selectable. An UNKNOWN size stays
+    // selectable; if it turns out too big, the download falls back to the
+    // link and the toast says so.
+    tooLarge: (estBytes ?? 0) > MAX_STORABLE_MEDIA_BYTES || undefined,
+  })
+  if (ladder.length > 0) return ladder.map((v) => option(v.id, v.label, v.url, v.estBytes))
   // No ladder anywhere: one rendition, take it or leave it.
-  return [{ id: 'original', label: msg('dialog_video_original'), url: video.url, estBytes: server?.estBytes }]
+  return [option('original', msg('dialog_video_original'), video.url, server?.estBytes)]
 }
 
 // defaultVideoOptionId applies the vault's video mode to the ladder. An
@@ -132,12 +142,15 @@ export function defaultVideoOptionId(options: CaptureDialogVideoOption[], prefs:
   if (mode === 'link') return VIDEO_OPTION_LINK
   if (mode === 'skip') return VIDEO_OPTION_SKIP
   if (options.length === 0) return VIDEO_OPTION_SKIP
-  if (mode === 'best') return options[options.length - 1].id
-  if (mode === 'smallest') return options[0].id
+  // Rungs the browser can't store are never a default.
+  const storable = options.filter((o) => !o.tooLarge)
+  if (storable.length === 0) return VIDEO_OPTION_LINK
+  if (mode === 'best') return storable[storable.length - 1].id
+  if (mode === 'smallest') return storable[0].id
   const budget = (prefs.videoBudgetMB ?? 50) * MB
-  for (let i = options.length - 1; i >= 0; i--) {
-    const est = options[i].estBytes ?? 0
-    if (est === 0 || est <= budget) return options[i].id
+  for (let i = storable.length - 1; i >= 0; i--) {
+    const est = storable[i].estBytes ?? 0
+    if (est === 0 || est <= budget) return storable[i].id
   }
   return VIDEO_OPTION_LINK // nothing fits the budget → link, don't store
 }

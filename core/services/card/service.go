@@ -15,8 +15,11 @@ import (
 	"bruv/internal/index"
 	"bruv/internal/model"
 	"bruv/internal/repo"
+	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
+	"slices"
 	"strings"
 	"time"
 )
@@ -28,7 +31,7 @@ type Deps interface {
 
 	// ApplyTypeBlocks merges a type's template blocks into a card.
 	// Implemented on the host via catalog.Service.ApplyTypeBlocks.
-	ApplyTypeBlocks(cardID, cardType string)
+	ApplyTypeBlocks(cardID, cardType string) error
 	// CardTypeExists reports whether a type id is defined (built-in or
 	// user). Implemented on the host via catalog.Service.CardTypeExists.
 	CardTypeExists(cardType string) bool
@@ -147,7 +150,17 @@ func (s *Service) Create(cardType, title string) (*model.Card, error) {
 	}
 	s.deps.LogActivity(card.ID, model.ActivityCreated, "")
 	if cardType != "" {
-		s.deps.ApplyTypeBlocks(card.ID, cardType)
+		if err := s.deps.ApplyTypeBlocks(card.ID, cardType); err != nil {
+			// A typed card without its type's fields is a half-made card:
+			// undo the create so the caller's retry starts clean.
+			if delErr := r.DeleteCard(card.ID); delErr != nil {
+				return nil, fmt.Errorf("add %s fields: %w (and removing the half-created card failed: %v)", cardType, err, delErr)
+			}
+			if idx := s.deps.Index(); idx != nil {
+				s.logIdxErr("RemoveCard", idx.RemoveCard(card.ID))
+			}
+			return nil, fmt.Errorf("add %s fields: %w", cardType, err)
+		}
 		if updated, err := r.GetCard(card.ID); err == nil {
 			card = updated
 		}
@@ -176,6 +189,11 @@ func (s *Service) Duplicate(cardID, categoryID string) (*model.Card, error) {
 	r := s.deps.Repo()
 	if r == nil {
 		return nil, fmt.Errorf("no repository open")
+	}
+	// The copy has the source's type: the destination must accept it,
+	// the same gate Pin applies.
+	if err := s.validateCardTypeForCategory(cardID, categoryID); err != nil {
+		return nil, err
 	}
 	newCard, err := r.DuplicateCard(cardID)
 	if err != nil {
@@ -208,23 +226,29 @@ func (s *Service) CopyCategory(brandSlug, streamSlug, projectSlug, categorySlug 
 	if srcCat == nil {
 		return nil, fmt.Errorf("category %q not found", categorySlug)
 	}
+	// The card list comes from the pin files, not the search index, which
+	// may be stale or mid-refresh.
+	pins, err := r.ListCardsInCategory(srcCat.ID)
+	if err != nil {
+		return nil, fmt.Errorf("list cards in category: %w", err)
+	}
 	newCat, err := r.CreateCategory(brandSlug, streamSlug, projectSlug, srcCat.Name+" Copy", len(srcCats))
 	if err != nil {
 		return nil, err
 	}
-	if idx := s.deps.Index(); idx != nil {
-		cardIDs, err := idx.ListCardIDsInCategory(srcCat.ID)
+	var failed []error
+	for i, pin := range pins {
+		newCard, err := r.DuplicateCard(pin.CardID)
 		if err == nil {
-			for i, cardID := range cardIDs {
-				newCard, err := r.DuplicateCard(cardID)
-				if err != nil {
-					continue
-				}
-				_ = r.PinCard(newCard.ID, newCat.ID)
-				_ = r.MoveCardInCategory(newCard.ID, newCat.ID, i)
-			}
+			err = r.PinCardAt(newCard.ID, newCat.ID, i)
 		}
-		s.idxRefresh()
+		if err != nil {
+			failed = append(failed, fmt.Errorf("card %s: %w", pin.CardID, err))
+		}
+	}
+	s.idxRefresh()
+	if len(failed) > 0 {
+		return newCat, fmt.Errorf("copied, but %d of %d card(s) could not be copied: %w", len(failed), len(pins), errors.Join(failed...))
 	}
 	return newCat, nil
 }
@@ -291,15 +315,21 @@ func (s *Service) UpdateType(id, cardType string) (*model.Card, error) {
 		s.logIdxErr("IndexCard", idx.IndexCard(card, time.Now(), idx.GetCardProjectContext(card.ID)))
 	}
 	s.deps.LogActivity(id, model.ActivityUpdatedType, cardType)
+	var mergeErr error
 	if cardType != "" {
-		s.deps.ApplyTypeBlocks(id, cardType)
+		mergeErr = s.deps.ApplyTypeBlocks(id, cardType)
 	}
 	updated, readErr := r.GetCard(id)
 	if readErr != nil {
-		s.emitCardUpdated(card)
-		return card, nil
+		updated = card
 	}
 	s.emitCardUpdated(updated)
+	if mergeErr != nil {
+		// The type change stands (it's on disk and announced); the
+		// caller learns its fields didn't land — Refresh type fields
+		// retries the merge.
+		return nil, fmt.Errorf("type set, but adding its fields failed: %w", mergeErr)
+	}
 	return updated, nil
 }
 
@@ -331,6 +361,100 @@ func (s *Service) UpdateDescription(id, description string) (*model.Card, error)
 		s.emitCardUpdated(card)
 	}
 	return card, err
+}
+
+// Edit is the read-modify-write for a card's content: fn edits a fresh
+// copy of the card under its file lock and everything it changed is saved
+// in one write, so an edit saved meanwhile is never overwritten (the
+// repo.MutateCard rules: repo.ErrNoChange from fn saves nothing, any other
+// error aborts). fn may change the title, description, due date, tags and
+// blocks — not the type, which has its own path (UpdateType). The change
+// is indexed, logged once per changed part and published like the
+// Update* methods. Returns the saved card and the changed parts (title,
+// description, due_date, tags, blocks).
+func (s *Service) Edit(id string, fn func(card *model.Card) error) (*model.Card, []string, error) {
+	r := s.deps.Repo()
+	if r == nil {
+		return nil, nil, fmt.Errorf("no repository open")
+	}
+	var changed []string
+	card, err := r.MutateCard(id, func(card *model.Card) error {
+		before, err := r.GetCard(id) // an independent copy to diff against
+		if err != nil {
+			return err
+		}
+		if err := fn(card); err != nil {
+			return err
+		}
+		if card.Type != before.Type {
+			return fmt.Errorf("card type can't be changed by an edit; use UpdateType")
+		}
+		card.Title = repo.SanitizeText(card.Title)
+		card.Description = repo.SanitizeText(card.Description)
+		if card.Tags != nil {
+			// A copy: fn may have handed over its caller's slice.
+			tags := make([]string, len(card.Tags))
+			for i, t := range card.Tags {
+				tags[i] = repo.SanitizeText(t)
+			}
+			card.Tags = tags
+		}
+		if changed = editedParts(before, card); len(changed) == 0 {
+			return repo.ErrNoChange
+		}
+		return nil
+	})
+	if err != nil || len(changed) == 0 {
+		return card, nil, err
+	}
+	if idx := s.deps.Index(); idx != nil {
+		s.logIdxErr("IndexCard", idx.IndexCard(card, time.Now(), idx.GetCardProjectContext(card.ID)))
+	}
+	for _, part := range changed {
+		switch part {
+		case "title":
+			s.deps.LogActivity(id, model.ActivityUpdatedTitle, "title")
+		case "description":
+			s.deps.LogActivity(id, model.ActivityUpdatedField, "description")
+		case "due_date":
+			s.deps.LogActivity(id, model.ActivityUpdatedDate, "due date")
+		case "tags":
+			s.syncTagsToAllPinnedProjects(id)
+			s.deps.LogActivity(id, model.ActivityUpdatedTags, "tags")
+		case "blocks":
+			s.deps.LogActivity(id, model.ActivityUpdatedField, "content")
+		}
+	}
+	s.emitCardUpdated(card)
+	return card, changed, nil
+}
+
+// editedParts names the parts of a card Edit saves that differ.
+func editedParts(before, after *model.Card) []string {
+	var parts []string
+	if after.Title != before.Title {
+		parts = append(parts, "title")
+	}
+	if after.Description != before.Description {
+		parts = append(parts, "description")
+	}
+	if !sameTime(before.DueDate, after.DueDate) {
+		parts = append(parts, "due_date")
+	}
+	if !slices.Equal(before.Tags, after.Tags) {
+		parts = append(parts, "tags")
+	}
+	if !reflect.DeepEqual(before.Blocks, after.Blocks) {
+		parts = append(parts, "blocks")
+	}
+	return parts
+}
+
+func sameTime(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Equal(*b)
 }
 
 func (s *Service) UpdateBlocks(id string, blocks []model.Block) (*model.Card, error) {
@@ -403,21 +527,50 @@ func (s *Service) UpdateTags(id string, tags []string) (*model.Card, error) {
 	return card, err
 }
 
+// localDueDateLayouts are the zone-less date-time shapes a due date may
+// arrive in (a datetime-local input, an LLM's "2026-10-04T14:35"). They
+// are wall-clock times, so they're read in the server's local zone.
+var localDueDateLayouts = []string{
+	"2006-01-02T15:04:05",
+	"2006-01-02T15:04",
+	"2006-01-02 15:04:05",
+	"2006-01-02 15:04",
+}
+
+// ParseDueDate reads a due date: RFC 3339, YYYY-MM-DD (midnight UTC, as
+// stored since the start), or a zone-less date-time in local time.
+// Anything else ("next friday") is an error — never a zero date.
+func ParseDueDate(s string) (time.Time, error) {
+	s = strings.TrimSpace(s)
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, nil
+	}
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		return t, nil
+	}
+	for _, layout := range localDueDateLayouts {
+		if t, err := time.ParseInLocation(layout, s, time.Local); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("due date %q is not a date: use YYYY-MM-DD or an ISO 8601 date-time", s)
+}
+
 func (s *Service) UpdateDueDate(id, dueDate string) (*model.Card, error) {
 	r := s.deps.Repo()
 	if r == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
-	card, err := r.UpdateCard(id, func(c *model.Card) {
-		if dueDate == "" {
-			c.DueDate = nil
-		} else {
-			t, err := time.Parse(time.RFC3339, dueDate)
-			if err != nil {
-				t, _ = time.Parse("2006-01-02", dueDate)
-			}
-			c.DueDate = &t
+	var due *time.Time
+	if strings.TrimSpace(dueDate) != "" {
+		t, err := ParseDueDate(dueDate)
+		if err != nil {
+			return nil, err
 		}
+		due = &t
+	}
+	card, err := r.UpdateCard(id, func(c *model.Card) {
+		c.DueDate = due
 	})
 	if err == nil {
 		if idx := s.deps.Index(); idx != nil {
@@ -469,12 +622,22 @@ func (s *Service) validateCardTypeForCategory(cardID, categoryID string) error {
 	if err != nil {
 		return err
 	}
+	return s.CheckCategoryAcceptsType(categoryID, card.Type)
+}
+
+// CheckCategoryAcceptsType reports whether a card of cardType may be
+// pinned to the category — the same gate Pin applies, usable before a
+// card exists so a create can be refused without leaving an orphan.
+func (s *Service) CheckCategoryAcceptsType(categoryID, cardType string) error {
+	if s.deps.Repo() == nil {
+		return fmt.Errorf("no repository open")
+	}
 	cat, _, _, _, err := s.getCategoryByID(categoryID)
 	if err != nil {
 		return err
 	}
-	if !repo.CategoryAcceptsType(cat, card.Type) {
-		return fmt.Errorf("category %q does not accept card type %q", cat.Name, card.Type)
+	if !repo.CategoryAcceptsType(cat, cardType) {
+		return fmt.Errorf("category %q does not accept card type %q (accepts: %s)", cat.Name, cardType, strings.Join(cat.AcceptedTypes, ", "))
 	}
 	return nil
 }

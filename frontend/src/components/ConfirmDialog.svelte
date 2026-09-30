@@ -2,21 +2,40 @@
   import { confirmState, resolveConfirm } from '../lib/confirm.svelte'
   import { t } from '../lib/i18n.svelte'
   import { focusTrap } from '../lib/actions'
+  import { keyLayer } from '../lib/keyLayer'
   import { fade } from 'svelte/transition'
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (!confirmState.visible) return
-    if (e.key === 'Enter') { e.preventDefault(); resolveConfirm(true) }
-    if (e.key === 'Escape') { e.preventDefault(); resolveConfirm(false) }
+  let dialogEl = $state<HTMLDivElement | null>(null)
+
+  // Keys go through the key-layer stack (capture phase, consumed), so a
+  // confirm raised from inside a card never lets Escape / Ctrl+Enter reach
+  // the card's own window handler (UI-CONVENTIONS §5, §8.1). The layer
+  // outlives the dialog by the fade-out, hence the visibility checks.
+  function handleEscape(): boolean {
+    if (!confirmState.visible) return false
+    resolveConfirm(false)
+    return true
+  }
+
+  // Enter activates the FOCUSED button (Tab to Cancel + Enter must cancel);
+  // with focus anywhere else it confirms. Ctrl/Cmd+Enter follows the same
+  // rule instead of blindly confirming.
+  function handleEnter(): boolean {
+    if (!confirmState.visible) return false
+    const focused = document.activeElement
+    if (focused instanceof HTMLButtonElement && dialogEl?.contains(focused)) {
+      focused.click()
+    } else {
+      resolveConfirm(true)
+    }
+    return true
   }
 </script>
-
-<svelte:window onkeydown={handleKeydown} />
 
 {#if confirmState.visible}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div class="confirm-backdrop" role="presentation" onclick={() => resolveConfirm(false)} out:fade={{ duration: 150 }}>
-    <div class="confirm-dialog" role="alertdialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} use:focusTrap>
+    <div class="confirm-dialog" role="alertdialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} use:focusTrap use:keyLayer={{ onEscape: handleEscape, onEnter: handleEnter }} bind:this={dialogEl}>
       <p class="confirm-message">{confirmState.message}</p>
       <div class="confirm-actions">
         <button class="btn-cancel" onclick={() => resolveConfirm(false)}>{t('common.cancel')}</button>

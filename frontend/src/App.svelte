@@ -8,6 +8,7 @@
   import { onEvent } from './lib/events'
   import { loadLocale, t } from './lib/i18n.svelte'
   import { showToast } from './lib/toast.svelte'
+  import { globalShortcutsBlocked } from './lib/keyLayer'
   import Sidebar from './components/Sidebar.svelte'
   import TopBar from './components/TopBar.svelte'
   import Board from './components/Board.svelte'
@@ -289,7 +290,9 @@
 
   onMount(() => {
     function handleGlobalKeydown(e: KeyboardEvent) {
-      if (isInputFocused()) return
+      // Never behind a card dialog or an overlay layer — `p`/`w` would
+      // open panels (and `/` steal focus) underneath the open card.
+      if (isInputFocused() || globalShortcutsBlocked()) return
       if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
         e.preventDefault()
         showKeyboardShortcuts = !showKeyboardShortcuts

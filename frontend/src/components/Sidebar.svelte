@@ -1092,8 +1092,7 @@
                           bind:value={renaming.description}
                           placeholder={t('sidebar.descriptionPlaceholder')}
                           rows="2"
-                          onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitRename() } if (e.key === 'Escape') cancelRename() }}
-                          onblur={(e) => { const related = (e as FocusEvent).relatedTarget as HTMLElement | null; if (!related || !related.closest('.rename-group')) commitRename() }}
+                          use:inlineEdit={{ multiline: true, onCommit: () => commitRename(), onCancel: () => cancelRename(), container: '.rename-group' }}
                         ></textarea>
                       </div>
                     {:else}
@@ -1138,8 +1137,7 @@
                                 bind:value={renaming.description}
                                 placeholder={t('sidebar.descriptionPlaceholder')}
                                 rows="2"
-                                onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitRename() } if (e.key === 'Escape') cancelRename() }}
-                                onblur={(e) => { const related = (e as FocusEvent).relatedTarget as HTMLElement | null; if (!related || !related.closest('.rename-group')) commitRename() }}
+                                use:inlineEdit={{ multiline: true, onCommit: () => commitRename(), onCancel: () => cancelRename(), container: '.rename-group' }}
                               ></textarea>
                             </div>
                           {:else}

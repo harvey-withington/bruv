@@ -373,6 +373,45 @@ describe('SharePage — half-done and bounced captures', () => {
     expect(showToast).not.toHaveBeenCalledWith('Clipped.', 'success')
   })
 
+  it('leaves the pending panel by REPLACING the share entry — Back never returns to the form', async () => {
+    stubRPC({
+      PreviewCapture: () =>
+        Promise.resolve(preview({ platform: 'truthsocial', url: 'https://truthsocial.com/@a/1' })),
+      CaptureFromURL: () =>
+        Promise.resolve(
+          result({ cardId: 'card-9', pending: true, slideAppended: false, platform: 'truthsocial' }),
+        ),
+    })
+    gotoShare('?url=https%3A%2F%2Ftruthsocial.com%2F%40a%2F1')
+    render(SharePage)
+    await fireEvent.click(await screen.findByRole('button', { name: 'Clip it' }, { timeout: 2000 }))
+    const depth = window.history.length
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'View card' }))
+
+    await waitFor(() => expect(window.location.pathname).toBe('/m/c/card-9'))
+    expect(window.history.length).toBe(depth)
+  })
+
+  it('warns when the plain card saved but its shared text did not', async () => {
+    stubRPC({
+      PreviewCapture: () => Promise.resolve(preview({ platform: '', supported: false })),
+      UpdateCardDescription: () => Promise.reject(new Error('disk full')),
+    })
+    gotoShare('?url=https%3A%2F%2Fwww.instagram.com%2Freel%2Fabc%2F&text=look')
+    render(SharePage)
+    await screen.findByText('Link', undefined, { timeout: 2000 })
+
+    await fireEvent.click(saveButton())
+
+    await waitFor(() => expect(window.location.pathname).toBe('/m/c/card-plain'))
+    expect(showToast).toHaveBeenCalledWith(
+      "Card saved, but the shared text couldn't be added to it — add it from the card.",
+      'warning',
+      9000,
+    )
+  })
+
   it('warns with the server reason when the pin bounced and the card went to the Inbox', async () => {
     stubRPC({
       PreviewCapture: () => Promise.resolve(preview()),

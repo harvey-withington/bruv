@@ -79,6 +79,7 @@ export function createShareFlow(
   async function savePlain() {
     const { title, text, url, prefs } = read()
     const result = await savePlainShare({ title, text, url, prefs })
+    if (result.descriptionFailed) showToast(t('share.description_failed'), 'warning', 9000)
     if (result.deckFailed) showToast(t('share.deck_append_failed'), 'warning')
     // Same entry-consuming replace as saveClip.
     replace(cardURL(result.cardID))

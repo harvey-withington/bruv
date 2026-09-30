@@ -8,7 +8,6 @@ import (
 	"runtime"
 
 	"github.com/energye/systray"
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 //go:embed build/windows/icon.ico
@@ -38,12 +37,6 @@ func pluralS(n int) string {
 		return ""
 	}
 	return "s"
-}
-
-// showWindow brings the main window to the foreground.
-func (a *App) showWindow() {
-	wailsRuntime.WindowShow(a.ctx)
-	wailsRuntime.WindowUnminimise(a.ctx)
 }
 
 // setupTray initialises the system tray icon with a context menu.

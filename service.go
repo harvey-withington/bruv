@@ -22,6 +22,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
 
 	"bruv/frontend"
 	"bruv/internal/config"
@@ -250,16 +252,27 @@ func newService(installArgs []string) (service.Service, error) {
 	return service.New(prog, cfg)
 }
 
+// serviceStopTimeout bounds how long Stop waits for the backend to
+// shut down cleanly (HTTP stop, runtimes closed, agent runs recorded
+// as cancelled, logs flushed) before reporting stopped to the SCM.
+// Kept inside the SCM's default ~20 s stop budget.
+const serviceStopTimeout = 18 * time.Second
+
 // serverProgram implements kardianos/service.Interface. Start kicks
 // off the headless backend in a goroutine and returns immediately so
-// the SCM control thread isn't blocked. Stop sends an interrupt that
-// internal/server.Run already listens for.
+// the SCM control thread isn't blocked. Stop closes stop, which
+// server.Run treats like SIGINT, and waits for Run to return.
 type serverProgram struct {
-	stopOnce bool
+	stop     chan struct{} // closed by Stop; passed to server.Run
+	done     chan struct{} // closed when server.Run returns
+	stopOnce sync.Once
 }
 
 func (p *serverProgram) Start(s service.Service) error {
+	p.stop = make(chan struct{})
+	p.done = make(chan struct{})
 	go func() {
+		defer close(p.done)
 		// Re-parse the args the SCM gave us. They mirror what the
 		// install step baked in (`--server --addr X --config Y`).
 		args := stripServerFlag(os.Args[1:])
@@ -284,6 +297,7 @@ func (p *serverProgram) Start(s service.Service) error {
 			BuildDate:    BuildDate,
 			Assets:       frontend.Assets(),
 			MobileAssets: mobile.Assets(),
+			Stop:         p.stop,
 		})
 		if err != nil {
 			slog.Error("service: backend exited with error", "err", err)
@@ -292,15 +306,22 @@ func (p *serverProgram) Start(s service.Service) error {
 	return nil
 }
 
-// Stop signals shutdown. internal/server.Run is currently signal-driven
-// (SIGINT/SIGTERM); the kardianos library on Windows translates the
-// SCM stop command into our process being told to exit, which already
-// triggers our signal handlers. Nothing extra needed here.
+// Stop asks server.Run to shut down and waits (bounded) for it to
+// finish. An SCM stop is NOT delivered to the process as a signal on
+// Windows, and the process exits as soon as Stop returns — so without
+// this handshake server.Run's deferred cleanup (supervisor close, log
+// flush) never ran: in-flight agent runs stayed "running" on disk and
+// one-shots re-fired after the stuck-run reset.
 func (p *serverProgram) Stop(s service.Service) error {
-	if p.stopOnce {
-		return nil
+	if p.stop == nil {
+		return nil // never started
 	}
-	p.stopOnce = true
+	p.stopOnce.Do(func() { close(p.stop) })
+	select {
+	case <-p.done:
+	case <-time.After(serviceStopTimeout):
+		slog.Warn("service: backend did not stop in time, exiting anyway", "timeout", serviceStopTimeout)
+	}
 	return nil
 }
 

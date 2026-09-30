@@ -29,13 +29,14 @@ Projects, Categories and Cards, and populating cards — straight from a chat.
 | Tool | Purpose |
 |---|---|
 | `list_brands` / `list_streams` / `list_projects` / `list_categories` | Browse the hierarchy. |
-| `list_card_types` | Available card types (use as `card_type`). |
+| `list_card_types` | Available card types (use as `card_type`; an unknown type is refused, never created). |
+| `create_card_type` | Add a new card type — only when the user asks for one or nothing existing fits. Refuses a label that already exists. |
 | `get_card` | Read one card by id. |
 | `search_cards` | Full-text search (check for duplicates before creating). |
 | `create_brand` / `create_stream` / `create_project` / `create_category` | Create hierarchy nodes (parents auto-created). |
 | `create_card` | Create + populate a card. Pass all of `brand`/`stream`/`project`/`category` to file it (auto-created), or none to leave it in the inbox. Accepts `tags`, `description`, `blocks`. |
-| `add_card_blocks` / `set_card_fields` / `add_card_tags` | Populate an existing card. |
-| `set_card_title` / `set_card_description` / `set_card_type` / `set_card_due_date` | Change a card's intrinsic properties. Description is Markdown; due date is `YYYY-MM-DD` or `""` to clear. |
+| `add_card_blocks` / `set_card_fields` / `add_card_tags` / `remove_card_tags` | Populate an existing card, or drop tags (`all: true` clears them). |
+| `set_card_title` / `set_card_description` / `set_card_type` / `set_card_due_date` | Change a card's intrinsic properties. Description is Markdown; due date is `YYYY-MM-DD` (or an ISO 8601 date-time) or `""` to clear. |
 | `add_card_attachment` | Attach a file (≤ 3 MB). Pass `text` for UTF-8 files or `content_base64` for binary — exactly one. |
 | `get_card_attachment` | Download an attachment by `attachment_id` or `name`. Text files return as a text block (specs land straight in context); binary as an embedded base64 resource; over 4 MB you get metadata plus a 5-minute signed URL instead. |
 | `add_card_comment` / `list_card_comments` | Post or read comments — the natural place for an agent to record an outcome without touching the card's content. |

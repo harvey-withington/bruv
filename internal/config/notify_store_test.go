@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"bytes"
+	"os"
+	"testing"
+)
 
 // redirectConfig is defined in card_types_test.go — reused here so each
 // test gets an isolated temp config directory.
@@ -56,5 +60,28 @@ func TestDeleteNotificationIdempotent(t *testing.T) {
 	}
 	if len(list) != 0 {
 		t.Errorf("expected 0 notifications remaining, got %d", len(list))
+	}
+}
+
+// A corrupt history is reported, never overwritten by the next append
+// (pre-release sweep 2026-09-29, §6.5).
+func TestAppendNotificationKeepsCorruptHistory(t *testing.T) {
+	redirectConfig(t)
+	path, err := notificationsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrupt := []byte(`[{"id":"old","title":"kept"`)
+	if err := os.WriteFile(path, corrupt, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadNotifications(); err == nil {
+		t.Error("LoadNotifications of a corrupt file must fail")
+	}
+	if err := AppendNotification(Notification{ID: "new"}); err == nil {
+		t.Error("AppendNotification over a corrupt history must fail")
+	}
+	if got, _ := os.ReadFile(path); !bytes.Equal(got, corrupt) {
+		t.Errorf("history overwritten: %s", got)
 	}
 }

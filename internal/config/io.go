@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"bruv/internal/fsutil"
 )
 
 // validPathSegment rejects values that cannot be used as a single
@@ -19,42 +21,9 @@ func validPathSegment(s string) error {
 	return nil
 }
 
-// atomicWriteFile writes data to path via a temp file + rename so a
-// crash mid-write never leaves a truncated/corrupt file behind. Same
-// pattern as internal/repo's writeJSON, duplicated here because that
-// helper is unexported and repo already depends on config.
+// atomicWriteFile writes data to path via a unique temp file + rename so a
+// crash mid-write never leaves a truncated/corrupt file behind. One shared
+// implementation (with the Windows rename retry) with internal/repo.
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", dir, err)
-	}
-
-	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
-	if err != nil {
-		return fmt.Errorf("create temp %s: %w", tmp, err)
-	}
-
-	_, writeErr := f.Write(data)
-	syncErr := f.Sync()
-	closeErr := f.Close()
-
-	if writeErr != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("write temp %s: %w", tmp, writeErr)
-	}
-	if syncErr != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("sync temp %s: %w", tmp, syncErr)
-	}
-	if closeErr != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("close temp %s: %w", tmp, closeErr)
-	}
-
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("rename %s → %s: %w", tmp, path, err)
-	}
-	return nil
+	return fsutil.WriteFileAtomic(path, data, perm)
 }

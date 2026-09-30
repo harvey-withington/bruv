@@ -11,9 +11,9 @@ package card
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"unicode/utf8"
 
+	"bruv/internal/fsutil"
 	"bruv/internal/model"
 )
 
@@ -64,7 +64,7 @@ func (s *Service) SaveAttachmentText(cardID, attachmentID, content, expectedHash
 		return nil, err
 	}
 	path := r.AttachmentPath(cardID, attachmentID)
-	if err := writeAtomic(path, []byte(content)); err != nil {
+	if err := fsutil.WriteFileAtomic(path, []byte(content), 0o644); err != nil {
 		return nil, err
 	}
 	info, err := os.Stat(path)
@@ -110,28 +110,4 @@ func (s *Service) readAttachmentText(cardID, attachmentID string) ([]byte, os.Fi
 		return nil, nil, fmt.Errorf("%s is not a text file", att.Name)
 	}
 	return raw, info, nil
-}
-
-// writeAtomic replaces path via tmp+rename so a crash mid-write never
-// leaves a half-written attachment behind.
-func writeAtomic(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".bruv-att-*")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(name)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(name)
-		return err
-	}
-	if err := os.Rename(name, path); err != nil {
-		os.Remove(name)
-		return err
-	}
-	return nil
 }

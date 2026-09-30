@@ -43,6 +43,10 @@
       li.pending-row button.danger { border-color: #ef4444; background: transparent; color: #ef8a8a; padding: 4px 7px; }
       li.pending-row button.danger:hover { background: rgba(239, 68, 68, 0.15); }
       li.pending-row button.danger.armed { background: #ef4444; color: #fff; }
+      /* Queued clips carry a second line: the last error and the next try. */
+      li.queue-row { flex-wrap: wrap; }
+      li.queue-row .detail { flex-basis: 100%; font-size: 0.72rem; opacity: 0.7; overflow-wrap: anywhere; }
+      li.queue-row .detail.err { color: #ef8a8a; opacity: 1; }
       .actions { display: flex; gap: 6px; margin-top: 6px; }
       .offline { margin-top: 10px; padding: 8px 10px; border-radius: 6px; background: #3a2a12; border: 1px solid #d97706; color: #fed7aa; font-size: 0.8rem; }
       .offline .actions { margin-top: 6px; }
@@ -95,6 +99,7 @@
 
       <div class="queue">
         <span id="queue-line" class="muted"></span>
+        <ul id="queue-list"></ul>
         <div class="actions" id="queue-actions" hidden>
           <button id="retry-btn" data-i18n="popup_retry"></button>
           <button id="discard-btn" class="secondary" data-i18n="popup_discard"></button>

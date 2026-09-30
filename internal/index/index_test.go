@@ -30,7 +30,8 @@ func setupTestRepoWithIndex(t *testing.T) (*repo.Repository, *Index) {
 		t.Fatalf("Init repo: %v", err)
 	}
 
-	dbPath := filepath.Join(dir, ".bruv", "index.db")
+	// The production layout: <repo>/.bruv/index.db.
+	dbPath := filepath.Join(r.Root, ".bruv", "index.db")
 	idx, err := Open(dbPath)
 	if err != nil {
 		t.Fatalf("Open index: %v", err)

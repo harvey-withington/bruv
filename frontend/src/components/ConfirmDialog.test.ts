@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/svelte'
 import ConfirmDialog from './ConfirmDialog.svelte'
 import { confirmState, showConfirm } from '../lib/confirm.svelte'
@@ -79,6 +79,46 @@ describe('ConfirmDialog', () => {
     await Promise.resolve()
     await fireEvent.keyDown(window, { key: 'Enter' })
     await expect(enterPromise).resolves.toBe(true)
+  })
+
+  it('Enter activates the FOCUSED button — Tab to Cancel + Enter cancels', async () => {
+    render(ConfirmDialog)
+    const promise = showConfirm('delete?')
+    await Promise.resolve()
+    const cancelBtn = screen.getByRole('button', { name: /cancel/i })
+    cancelBtn.focus()
+    await fireEvent.keyDown(cancelBtn, { key: 'Enter' })
+    await expect(promise).resolves.toBe(false)
+  })
+
+  it('Ctrl+Enter follows the same rule (focused Cancel cancels)', async () => {
+    render(ConfirmDialog)
+    const promise = showConfirm('delete?')
+    await Promise.resolve()
+    const cancelBtn = screen.getByRole('button', { name: /cancel/i })
+    cancelBtn.focus()
+    await fireEvent.keyDown(cancelBtn, { key: 'Enter', ctrlKey: true })
+    await expect(promise).resolves.toBe(false)
+  })
+
+  // A confirm raised from inside a card: the card dialog's bubble-phase
+  // window handler must never see the Escape/Enter that answers it (it
+  // would close — or, on a fresh card, delete — the card underneath).
+  it('consumes Escape / Enter / Ctrl+Enter before window bubble listeners', async () => {
+    render(ConfirmDialog)
+    const underneath = vi.fn()
+    window.addEventListener('keydown', underneath)
+    try {
+      for (const init of [{ key: 'Escape' }, { key: 'Enter' }, { key: 'Enter', ctrlKey: true }]) {
+        const promise = showConfirm('layered?')
+        await Promise.resolve()
+        await fireEvent.keyDown(document.body, init)
+        await promise
+      }
+      expect(underneath).not.toHaveBeenCalled()
+    } finally {
+      window.removeEventListener('keydown', underneath)
+    }
   })
 
   // Regression guard: a caller that forgets to await showConfirm and

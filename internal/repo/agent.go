@@ -3,6 +3,7 @@ package repo
 import (
 	"bruv/internal/model"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -152,7 +153,28 @@ func (r *Repository) saveAgentRuns(cardID string, runs []model.AgentRun) error {
 //
 // Historical run data is sanitized on read so the returned payload
 // never carries the full tool-call bodies that older versions stored.
+//
+// Takes the card's agent lock because the migration / compaction above
+// rewrites files.
 func (r *Repository) GetAgentConfig(cardID string) (*model.AgentFile, error) {
+	unlock := r.lockAgent(cardID)
+	defer unlock()
+	return r.loadAgentFileLocked(cardID)
+}
+
+// ErrAgentNotFound is returned by UpdateAgentConfig when the card has no
+// agent file yet — it refuses to create one.
+var ErrAgentNotFound = errors.New("agent config not found")
+
+// lockAgent takes the one lock covering a card's .agent.json AND its
+// split runs file, so config and run writers serialize.
+func (r *Repository) lockAgent(cardID string) func() {
+	return lockPath(r.agentFilePath(cardID))
+}
+
+// loadAgentFileLocked is GetAgentConfig's body; the caller holds
+// lockAgent(cardID).
+func (r *Repository) loadAgentFileLocked(cardID string) (*model.AgentFile, error) {
 	path := r.agentFilePath(cardID)
 	if !fileExists(path) {
 		return &model.AgentFile{
@@ -223,15 +245,61 @@ func (r *Repository) GetAgentConfig(cardID string) (*model.AgentFile, error) {
 // SaveAgentConfig persists the agent configuration for a card. When
 // the runs-dir split is active, config is written alone; run history
 // stays in its separate file untouched.
+//
+// This is a blind replace of the whole config; for a read-modify-write
+// use UpdateAgentConfig so concurrent edits aren't lost.
 func (r *Repository) SaveAgentConfig(cardID string, config model.AgentConfig) error {
-	af, err := r.GetAgentConfig(cardID)
+	unlock := r.lockAgent(cardID)
+	defer unlock()
+	af, err := r.loadAgentFileLocked(cardID)
 	if err != nil {
 		return err
 	}
-	af.CardID = cardID
 	af.Config = config
+	return r.writeAgentConfigLocked(cardID, af)
+}
+
+// UpdateAgentConfig loads the card's agent config under its lock, applies
+// fn and saves the result — the read-modify-write counterpart of
+// SaveAgentConfig. Returns ErrAgentNotFound (without creating a file)
+// when the card has no agent file. fn returning ErrNoChange skips the
+// write and returns the current config with a nil error (MutateCard's
+// contract); any other error from fn aborts without writing and is
+// returned as-is. fn must not call other agent-locking methods for the
+// same card.
+func (r *Repository) UpdateAgentConfig(cardID string, fn func(cfg *model.AgentConfig) error) (*model.AgentConfig, error) {
+	if err := validID(cardID); err != nil {
+		return nil, err
+	}
+	unlock := r.lockAgent(cardID)
+	defer unlock()
+	if !fileExists(r.agentFilePath(cardID)) {
+		return nil, fmt.Errorf("card %q: %w", cardID, ErrAgentNotFound)
+	}
+	af, err := r.loadAgentFileLocked(cardID)
+	if err != nil {
+		return nil, err
+	}
+	if err := fn(&af.Config); err != nil {
+		if errors.Is(err, ErrNoChange) {
+			cfg := af.Config
+			return &cfg, nil
+		}
+		return nil, err
+	}
+	if err := r.writeAgentConfigLocked(cardID, af); err != nil {
+		return nil, err
+	}
+	cfg := af.Config
+	return &cfg, nil
+}
+
+// writeAgentConfigLocked persists af's config. With the runs-dir split
+// active only the config goes in the in-repo file; run history stays in
+// its separate file untouched. Caller holds lockAgent(cardID).
+func (r *Repository) writeAgentConfigLocked(cardID string, af *model.AgentFile) error {
+	af.CardID = cardID
 	if r.RunsDir != "" {
-		// Write config-only to the in-repo file.
 		configOnly := model.AgentFile{CardID: cardID, Config: af.Config}
 		return writeJSON(r.agentFilePath(cardID), configOnly)
 	}
@@ -242,16 +310,21 @@ func (r *Repository) SaveAgentConfig(cardID string, config model.AgentConfig) er
 // most recent 50. Tool call payloads are truncated before persistence
 // so disk usage stays bounded even with verbose agents.
 func (r *Repository) AppendAgentRun(cardID string, run model.AgentRun) error {
+	unlock := r.lockAgent(cardID)
+	defer unlock()
+
 	// Read existing runs (from split file if configured, else from
-	// merged in-repo file via GetAgentConfig).
+	// merged in-repo file).
 	var runs []model.AgentRun
+	var merged *model.AgentFile
 	if r.RunsDir != "" {
 		runs = r.loadAgentRuns(cardID)
 	} else {
-		af, err := r.GetAgentConfig(cardID)
+		af, err := r.loadAgentFileLocked(cardID)
 		if err != nil {
 			return err
 		}
+		merged = af
 		runs = af.Runs
 	}
 
@@ -273,12 +346,8 @@ func (r *Repository) AppendAgentRun(cardID string, run model.AgentRun) error {
 		return r.saveAgentRuns(cardID, runs)
 	}
 	// Legacy merged-file path.
-	af, err := r.GetAgentConfig(cardID)
-	if err != nil {
-		return err
-	}
-	af.Runs = runs
-	return writeJSON(r.agentFilePath(cardID), af)
+	merged.Runs = runs
+	return writeJSON(r.agentFilePath(cardID), merged)
 }
 
 // GetAgentRuns returns the run history for a card's agent.
@@ -296,10 +365,12 @@ func (r *Repository) GetAgentRuns(cardID string) ([]model.AgentRun, error) {
 // ClearAgentRuns removes all run history for a card's agent,
 // preserving config.
 func (r *Repository) ClearAgentRuns(cardID string) error {
+	unlock := r.lockAgent(cardID)
+	defer unlock()
 	if r.RunsDir != "" {
 		return r.saveAgentRuns(cardID, []model.AgentRun{})
 	}
-	af, err := r.GetAgentConfig(cardID)
+	af, err := r.loadAgentFileLocked(cardID)
 	if err != nil {
 		return err
 	}
@@ -310,6 +381,8 @@ func (r *Repository) ClearAgentRuns(cardID string) error {
 // DeleteAgentFile removes a card's agent config file AND its runs
 // file. No error if either doesn't exist.
 func (r *Repository) DeleteAgentFile(cardID string) error {
+	unlock := r.lockAgent(cardID)
+	defer unlock()
 	if err := os.Remove(r.agentFilePath(cardID)); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("delete agent file for card %q: %w", cardID, err)
 	}

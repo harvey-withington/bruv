@@ -128,7 +128,76 @@ describe('DocumentSession', () => {
     expect(disk.read()).toBe('bc')
   })
 
+  it('does not retry a failed save in a loop — only the next edit retries', async () => {
+    const disk = fakeDisk('a')
+    const save = disk.source.save as ReturnType<typeof vi.fn>
+    const realSave = save.getMockImplementation()!
+    save.mockImplementation(async () => { throw new Error('offline') })
+    const s = new DocumentSession(disk.source, hooks(), 50)
+    await s.load()
+    s.edit('b')
+    await vi.advanceTimersByTimeAsync(60)
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(s.saveError).toBe('offline')
+    await vi.advanceTimersByTimeAsync(500)
+    expect(save).toHaveBeenCalledTimes(1)
+    save.mockImplementation(realSave)
+    s.edit('bc')
+    await vi.advanceTimersByTimeAsync(60)
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(disk.read()).toBe('bc')
+  })
+
+  it('flush during an in-flight autosave waits for it, then saves text typed since', async () => {
+    const disk = fakeDisk('a')
+    let release: () => void = () => {}
+    const save = disk.source.save as ReturnType<typeof vi.fn>
+    const realSave = save.getMockImplementation()!
+    save.mockImplementationOnce(async (next: string, hash: string) => {
+      await new Promise<void>(r => { release = r })
+      return realSave(next, hash)
+    })
+    const s = new DocumentSession(disk.source, hooks(), 50)
+    await s.load()
+    s.edit('ab')
+    await vi.advanceTimersByTimeAsync(60)
+    expect(s.saving).toBe(true)
+    s.edit('abc')
+    const flushed = s.flush()
+    release()
+    expect(await flushed).toBe(true)
+    expect(disk.read()).toBe('abc')
+    expect(s.dirty).toBe(false)
+  })
+
+  it('close() on unmount saves a pending draft, then disposes', async () => {
+    const disk = fakeDisk('a')
+    const s = new DocumentSession(disk.source, hooks(), 5000)
+    await s.load()
+    s.edit('unsaved')
+    expect(await s.close()).toBe(true)
+    expect(disk.read()).toBe('unsaved')
+    // An explicitly disposed (discarded) session has nothing left to save.
+    const s2 = new DocumentSession(disk.source, hooks(), 5000)
+    await s2.load()
+    s2.edit('dropped')
+    s2.dispose()
+    expect(await s2.close()).toBe(true)
+    expect(disk.read()).toBe('unsaved')
+  })
+
   describe('external change on focus', () => {
+    it('shows a failed focus-time reload inline instead of rejecting', async () => {
+      const disk = fakeDisk('a')
+      const s = new DocumentSession(disk.source, hooks(), 50)
+      await s.load()
+      disk.externalWrite('theirs')
+      ;(disk.source.open as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('locked'))
+      await expect(s.checkExternal()).resolves.toBeUndefined()
+      expect(s.syncError).toBe('locked')
+      expect(s.text).toBe('a')
+    })
+
     it('reloads silently when the draft is clean', async () => {
       const disk = fakeDisk('a')
       const h = hooks()

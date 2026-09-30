@@ -8,14 +8,15 @@ package boardtools
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
-	"reflect"
 	"slices"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	cardtools "bruv/core/runtime/tools"
+	cardsvc "bruv/core/services/card"
+	"bruv/core/services/catalog"
 	"bruv/internal/mcp"
 	"bruv/internal/model"
 )
@@ -65,95 +66,75 @@ func hSetCardType(rt Board, a map[string]any) (string, bool) {
 	if cardID == "" || input == "" {
 		return errResult("card_id and card_type are required")
 	}
-	// Check the card first so a typo'd id can't leave a stray new type.
-	if _, err := rt.GetCard(cardID); err != nil {
-		return errResult("%v", err)
-	}
-	cardType, typeCreated, err := rt.ResolveOrCreateCardType(input)
+	cardType, err := rt.CatalogService().ResolveType(input)
 	if err != nil {
-		return errResult("%v", err)
+		return typeErrResult(err)
 	}
 	card, err := rt.UpdateCardType(cardID, cardType)
 	if err != nil {
 		return errResult("%v", err)
 	}
-	out := map[string]any{"card_id": card.ID, "type": card.Type}
-	if typeCreated {
-		out["type_created"] = true
+	return jsonResult(map[string]any{"card_id": card.ID, "type": card.Type})
+}
+
+// typeErrResult reports a card type the catalog refused. An unknown name
+// gets the way out spelled out — pick a listed type, or create one only
+// when the user asked for a new type (ruling 2026-09-30).
+func typeErrResult(err error) (string, bool) {
+	var unknown *catalog.UnknownTypeError
+	if errors.As(err, &unknown) {
+		return errResult("%v. Use one of these; call create_card_type first only if the user asked for a new type", err)
 	}
-	return jsonResult(out)
+	return errResult("%v", err)
+}
+
+// hCreateCardType is the explicit "add a card type" act. Types are the
+// user's vocabulary, so the description steers models to use it only
+// when asked or when nothing existing fits.
+func hCreateCardType(rt Board, a map[string]any) (string, bool) {
+	label := argStr(a, "label")
+	if label == "" {
+		return errResult("label is required")
+	}
+	t, err := rt.CatalogService().CreateNamedType(label, argStr(a, "color"), argStr(a, "description"), argStr(a, "ai_hint"))
+	if err != nil {
+		return errResult("%v", err)
+	}
+	return jsonResult(map[string]any{"id": t.ID, "label": t.Label, "color": t.Color})
 }
 
 // hUpdateCard is the general "update a card" tool: intrinsic fields plus
 // block values by key or label (a new key adds a text block). The update
 // rules are tools.ApplyCardUpdates — the agent's update_self uses the same
-// ones; each changed part is saved through the card service so events and
+// ones; the change is saved through the card service's Edit so events and
 // the activity log see every edit.
 func hUpdateCard(rt Board, a map[string]any) (string, bool) {
 	cardID := argStr(a, "card_id")
 	if cardID == "" {
 		return errResult("card_id is required")
 	}
-	before, err := rt.GetCard(cardID)
+	// A call naming none of the fields this tool sets would "succeed" with
+	// nothing changed — say so, so neither the model nor a Suggest-mode
+	// apply mistakes it for a done edit.
+	if !slices.ContainsFunc(updateCardFields, func(k string) bool { _, ok := a[k]; return ok }) {
+		return errResult("update_card sets only %s; use set_card_type, set_card_description, add_card_tags, remove_card_tags or add_card_blocks for other changes", strings.Join(updateCardFields, ", "))
+	}
+	// One write on a fresh read, so nothing saved meanwhile is lost.
+	_, changed, err := rt.CardService().Edit(cardID, func(card *model.Card) error {
+		return cardtools.ApplyCardUpdates(card, a)
+	})
 	if err != nil {
 		return errResult("%v", err)
 	}
-	after, err := rt.GetCard(cardID) // an independent copy to mutate
-	if err != nil {
-		return errResult("%v", err)
-	}
-	if err := cardtools.ApplyCardUpdates(after, a); err != nil {
-		return errResult("%v", err)
-	}
-	changed := []string{}
-	// Each part is saved in turn; on a failure the parts already listed
-	// in `changed` have been saved and the rest haven't.
-	fail := func(field string, err error) (string, bool) {
-		return errResult("set %s: %v (already saved: %v)", field, err, changed)
-	}
-	if after.Title != before.Title {
-		if _, err := rt.UpdateCardTitle(cardID, after.Title); err != nil {
-			return fail("title", err)
-		}
-		changed = append(changed, "title")
-	}
-	if after.Description != before.Description {
-		if _, err := rt.UpdateCardDescription(cardID, after.Description); err != nil {
-			return fail("description", err)
-		}
-		changed = append(changed, "description")
-	}
-	if !sameDate(before.DueDate, after.DueDate) {
-		due := ""
-		if after.DueDate != nil {
-			due = after.DueDate.Format("2006-01-02")
-		}
-		if _, err := rt.UpdateCardDueDate(cardID, due); err != nil {
-			return fail("due_date", err)
-		}
-		changed = append(changed, "due_date")
-	}
-	if !slices.Equal(before.Tags, after.Tags) {
-		if _, err := rt.UpdateCardTags(cardID, after.Tags); err != nil {
-			return fail("tags", err)
-		}
-		changed = append(changed, "tags")
-	}
-	if !reflect.DeepEqual(before.Blocks, after.Blocks) {
-		if _, err := rt.UpdateCardBlocks(cardID, after.Blocks); err != nil {
-			return fail("blocks", err)
-		}
-		changed = append(changed, "blocks")
+	if changed == nil {
+		changed = []string{}
 	}
 	return jsonResult(map[string]any{"card_id": cardID, "updated": changed})
 }
 
-func sameDate(a, b *time.Time) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-	return a.Equal(*b)
-}
+// updateCardFields are the arguments update_card acts on
+// (cardtools.ApplyCardUpdates).
+var updateCardFields = []string{"title", "due_date", "tags", "updates"}
 
 func hSetCardDueDate(rt Board, a map[string]any) (string, bool) {
 	cardID := argStr(a, "card_id")
@@ -166,8 +147,8 @@ func hSetCardDueDate(rt Board, a map[string]any) (string, bool) {
 	}
 	dueDate = strings.TrimSpace(dueDate)
 	if dueDate != "" {
-		if _, err := time.Parse("2006-01-02", dueDate); err != nil {
-			return errResult("due_date %q is not YYYY-MM-DD", dueDate)
+		if _, err := cardsvc.ParseDueDate(dueDate); err != nil {
+			return errResult("%v", err)
 		}
 	}
 	card, err := rt.UpdateCardDueDate(cardID, dueDate)

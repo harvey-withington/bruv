@@ -149,3 +149,36 @@ func TestListWorkspaces(t *testing.T) {
 		t.Errorf("ref mismatch: %+v", ref)
 	}
 }
+
+// Concurrent MutateWorkspace calls each land (pre-release sweep
+// 2026-09-29, §6.5): the launch command and commit-on-save toggles no
+// longer undo each other.
+func TestMutateWorkspaceConcurrent(t *testing.T) {
+	r, b, s, p := newWorkspaceTestRepo(t)
+	if err := r.SaveWorkspace(b, s, p, &model.Workspace{ID: "ws-1"}); err != nil {
+		t.Fatal(err)
+	}
+	runConcurrently(20, func(i int) {
+		_, err := r.MutateWorkspace(b, s, p, func(ws *model.Workspace) error {
+			if i%2 == 0 {
+				ws.LaunchCommand += "x"
+			} else {
+				ws.GitServeError += "y"
+			}
+			return nil
+		})
+		if err != nil {
+			t.Error(err)
+		}
+	})
+	ws, err := r.GetWorkspace(b, s, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ws.LaunchCommand) != 10 || len(ws.GitServeError) != 10 {
+		t.Errorf("launch %q error %q: a concurrent edit was lost", ws.LaunchCommand, ws.GitServeError)
+	}
+	if _, err := r.MutateWorkspace(b, s, "nope", func(*model.Workspace) error { return nil }); err == nil {
+		t.Error("MutateWorkspace must not create a missing workspace")
+	}
+}

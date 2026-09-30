@@ -347,6 +347,17 @@ func TestCompleteCaptureBlockIDStability(t *testing.T) {
 	if len(deckSlides(t, rt, deck.ID)) != 1 {
 		t.Error("completion must not append a second slide")
 	}
+
+	// Completing it again (a second browser, a double-click) is refused:
+	// the clip is no longer pending, and its media isn't ingested twice.
+	if _, err := rt.CompleteCapture(res.CardID, capture.Clip{Platform: "twitter", CanonicalURL: tweetURL},
+		[]CompleteMedia{{Name: "twitter-1.jpg", Base64: "aGVsbG8=", Kind: "image"}}); err == nil {
+		t.Error("a second completion of the same clip must be refused")
+	}
+	again, _ := rt.GetCard(res.CardID)
+	if len(again.FileAttachments) != len(after.FileAttachments) {
+		t.Errorf("second completion added attachments: %d → %d", len(after.FileAttachments), len(again.FileAttachments))
+	}
 }
 
 func TestCompleteCaptureKeepsHumanTitle(t *testing.T) {

@@ -58,7 +58,7 @@ describe('BlockItem — ID-keyed callbacks', () => {
         textBlockOverflows: new Set<string>(),
         blockTextareaEls: {},
         textBlockEls: {},
-        tracked: async <T,>(p: Promise<T>) => p,
+        commitBlock: async () => true,
         isBlockEmpty: () => false,
         ...callbacks,
         ...overrides,

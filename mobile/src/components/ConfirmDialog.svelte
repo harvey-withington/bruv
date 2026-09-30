@@ -27,17 +27,20 @@
   } = $props()
 
   let confirming = $state(false)
+  let dialogEl: HTMLDivElement | undefined = $state()
+  let cancelBtn: HTMLButtonElement | undefined = $state()
   let confirmBtn: HTMLButtonElement | undefined = $state()
 
   onMount(() => {
-    // Auto-focus the cancel button by default; the destructive primary
-    // is intentionally NOT auto-focused so an accidental Enter doesn't
-    // delete anything. Users explicitly tab/click to confirm.
-    queueMicrotask(() => confirmBtn?.focus())
-    // Escape closes the dialog and ONLY the dialog. Capture phase +
-    // stopPropagation so containers listening on window (CardPage,
-    // ChatSheet — keyboard entry contract) never see the same Escape
-    // and close/navigate underneath the dialog.
+    // A destructive dialog auto-focuses Cancel so an accidental Enter
+    // doesn't delete anything — users explicitly tab/tap to confirm. A
+    // non-destructive one focuses its primary action.
+    queueMicrotask(() => (destructive ? cancelBtn : confirmBtn)?.focus())
+    // Escape and Enter belong to the dialog and ONLY the dialog. Capture
+    // phase + stopPropagation so containers listening on window
+    // (CardPage, ChatSheet — keyboard entry contract) never see the same
+    // key and close/navigate underneath the dialog (Ctrl+Enter used to
+    // reach CardPage and close the card).
     window.addEventListener('keydown', onKeyCapture, true)
     return () => window.removeEventListener('keydown', onKeyCapture, true)
   })
@@ -60,6 +63,15 @@
       e.preventDefault()
       e.stopPropagation()
       onCancel()
+    } else if (e.key === 'Enter') {
+      // Enter (plain or Ctrl/Cmd) activates the FOCUSED button — Tab to
+      // Cancel + Enter cancels; with focus elsewhere it confirms
+      // (desktop ConfirmDialog parity).
+      e.preventDefault()
+      e.stopPropagation()
+      const focused = document.activeElement
+      if (focused instanceof HTMLButtonElement && dialogEl?.contains(focused)) focused.click()
+      else void handleConfirm()
     }
   }
 
@@ -75,12 +87,12 @@
   onclick={onBackdrop}
   transition:fade={{ duration: 120 }}
 >
-  <div class="dialog" transition:fly={{ y: 20, duration: 180 }} role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-body">
+  <div bind:this={dialogEl} class="dialog" transition:fly={{ y: 20, duration: 180 }} role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-body">
     <h2 id="confirm-title">{title}</h2>
     <p id="confirm-body">{body}</p>
 
     <div class="actions">
-      <button type="button" class="ghost" onclick={onCancel} disabled={confirming}>
+      <button bind:this={cancelBtn} type="button" class="ghost" onclick={onCancel} disabled={confirming}>
         {cancelLabel ?? t('common.cancel')}
       </button>
       <button

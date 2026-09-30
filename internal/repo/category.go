@@ -107,6 +107,8 @@ func (r *Repository) ListCategories(brandSlug, streamSlug, projectSlug string) (
 
 // UpdateCategory updates a Category's mutable fields.
 func (r *Repository) UpdateCategory(brandSlug, streamSlug, projectSlug, categorySlug string, update func(*model.Category)) (*model.Category, error) {
+	unlock := lockPath(r.categoryFilePath(brandSlug, streamSlug, projectSlug, categorySlug))
+	defer unlock()
 	category, err := r.GetCategory(brandSlug, streamSlug, projectSlug, categorySlug)
 	if err != nil {
 		return nil, err
@@ -136,6 +138,8 @@ func (r *Repository) ReorderCategories(brandSlug, streamSlug, projectSlug string
 
 // RenameCategory renames a Category and moves its file if the slug changes.
 func (r *Repository) RenameCategory(brandSlug, streamSlug, projectSlug, categorySlug, newName string) (*model.Category, error) {
+	unlock := lockPath(r.categoryFilePath(brandSlug, streamSlug, projectSlug, categorySlug))
+	defer unlock()
 	category, err := r.GetCategory(brandSlug, streamSlug, projectSlug, categorySlug)
 	if err != nil {
 		return nil, err
@@ -154,42 +158,33 @@ func (r *Repository) RenameCategory(brandSlug, streamSlug, projectSlug, category
 			return s != categorySlug && fileExists(r.categoryFilePath(brandSlug, streamSlug, projectSlug, s))
 		})
 		category.Slug = newSlug
-		// Remove old file
-		os.Remove(r.categoryFilePath(brandSlug, streamSlug, projectSlug, categorySlug))
 	}
 
-	if err := writeJSON(r.categoryFilePath(brandSlug, streamSlug, projectSlug, category.Slug), category); err != nil {
+	// Write the new file BEFORE removing the old one: a failed write must
+	// leave the category on disk under its old slug, not delete it.
+	newPath := r.categoryFilePath(brandSlug, streamSlug, projectSlug, category.Slug)
+	if err := writeJSON(newPath, category); err != nil {
 		return nil, fmt.Errorf("write category: %w", err)
+	}
+	if category.Slug != categorySlug {
+		if err := os.Remove(r.categoryFilePath(brandSlug, streamSlug, projectSlug, categorySlug)); err != nil && !os.IsNotExist(err) {
+			// Two files with one ID would show the category (and its
+			// pins) twice — roll the new file back.
+			_ = os.Remove(newPath)
+			return nil, fmt.Errorf("remove old category file: %w", err)
+		}
 	}
 	return category, nil
 }
 
 // UpdateCategoryDescription sets or clears the description on a Category.
 func (r *Repository) UpdateCategoryDescription(brandSlug, streamSlug, projectSlug, categorySlug, description string) (*model.Category, error) {
-	cat, err := r.GetCategory(brandSlug, streamSlug, projectSlug, categorySlug)
-	if err != nil {
-		return nil, err
-	}
-	cat.Description = description
-	cat.UpdatedAt = time.Now().UTC()
-	if err := writeJSON(r.categoryFilePath(brandSlug, streamSlug, projectSlug, categorySlug), cat); err != nil {
-		return nil, fmt.Errorf("write category: %w", err)
-	}
-	return cat, nil
+	return r.UpdateCategory(brandSlug, streamSlug, projectSlug, categorySlug, func(c *model.Category) { c.Description = description })
 }
 
 // UpdateCategoryIcon sets or clears the icon on a Category.
 func (r *Repository) UpdateCategoryIcon(brandSlug, streamSlug, projectSlug, categorySlug, icon string) (*model.Category, error) {
-	cat, err := r.GetCategory(brandSlug, streamSlug, projectSlug, categorySlug)
-	if err != nil {
-		return nil, err
-	}
-	cat.Icon = icon
-	cat.UpdatedAt = time.Now().UTC()
-	if err := writeJSON(r.categoryFilePath(brandSlug, streamSlug, projectSlug, categorySlug), cat); err != nil {
-		return nil, fmt.Errorf("write category: %w", err)
-	}
-	return cat, nil
+	return r.UpdateCategory(brandSlug, streamSlug, projectSlug, categorySlug, func(c *model.Category) { c.Icon = icon })
 }
 
 // DeleteCategory removes a Category.

@@ -19,8 +19,10 @@ import (
 )
 
 // AppendDeckSlide appends one slide to the given slide_deck block and saves
-// the card through the normal block-update path (activity log + card:updated
+// the card through the card service's Edit (activity log + card:updated
 // both fire once — adding a slide IS a card edit, unlike navigating one).
+// The append runs on a fresh read under the card's file lock, so two
+// concurrent appends (or an edit racing one) never drop each other.
 // Returns the updated card.
 func (r *Runtime) AppendDeckSlide(cardID, blockID string, slide map[string]any) (*model.Card, error) {
 	if cardID == "" || blockID == "" {
@@ -29,36 +31,35 @@ func (r *Runtime) AppendDeckSlide(cardID, blockID string, slide map[string]any) 
 	if len(slide) == 0 {
 		return nil, fmt.Errorf("slide is required")
 	}
-	card, err := r.Card.Get(cardID)
-	if err != nil {
-		return nil, err
-	}
-	block := findBlock(card.Blocks, blockID)
-	if block == nil {
-		return nil, fmt.Errorf("block %s not found on card %s", blockID, cardID)
-	}
-	if block.Type != model.BlockSlideDeck {
-		return nil, fmt.Errorf("block %s is not a slide deck", blockID)
-	}
+	card, _, err := r.Card.Edit(cardID, func(card *model.Card) error {
+		block := findBlock(card.Blocks, blockID)
+		if block == nil {
+			return fmt.Errorf("block %s not found on card %s", blockID, cardID)
+		}
+		if block.Type != model.BlockSlideDeck {
+			return fmt.Errorf("block %s is not a slide deck", blockID)
+		}
 
-	// Rebuild the deck value with the new slide appended, then run the WHOLE
-	// value through the standard slide-deck coercion so the appended slide
-	// gets the same normalisation as every other authoring path.
-	var slides []any
-	var theme any
-	if current, ok := block.Value.(map[string]any); ok {
-		slides, _ = current["slides"].([]any)
-		theme = current["theme"]
-	}
-	next := map[string]any{"slides": append(append([]any{}, slides...), slide)}
-	if theme != nil {
-		next["theme"] = theme
-	}
-	coerced, err := tools.CoerceBlockValueForBlock(block, next)
-	if err != nil {
-		return nil, fmt.Errorf("coerce slide: %w", err)
-	}
-	block.Value = coerced
-
-	return r.Card.UpdateBlocks(cardID, card.Blocks)
+		// Rebuild the deck value with the new slide appended, then run the
+		// WHOLE value through the standard slide-deck coercion so the
+		// appended slide gets the same normalisation as every other
+		// authoring path.
+		var slides []any
+		var theme any
+		if current, ok := block.Value.(map[string]any); ok {
+			slides, _ = current["slides"].([]any)
+			theme = current["theme"]
+		}
+		next := map[string]any{"slides": append(append([]any{}, slides...), slide)}
+		if theme != nil {
+			next["theme"] = theme
+		}
+		coerced, err := tools.CoerceBlockValueForBlock(block, next)
+		if err != nil {
+			return fmt.Errorf("coerce slide: %w", err)
+		}
+		block.Value = coerced
+		return nil
+	})
+	return card, err
 }

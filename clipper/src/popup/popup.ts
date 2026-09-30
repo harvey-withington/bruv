@@ -1,16 +1,16 @@
 // Popup: shows pairing status, manages the STICKY DECK TARGET (the thing
-// that makes clip #2 onward one click), surfaces the offline queue, and
-// lists PENDING CLIPS waiting for this browser to complete them (see
-// popup/pendingSection.ts).
+// that makes clip #2 onward one click), surfaces the offline queue (see
+// popup/queueSection.ts), and lists PENDING CLIPS waiting for this browser
+// to complete them (see popup/pendingSection.ts).
 // Deck picking: search cards, pick one, first slide_deck block wins (multi-
 // deck cards are rare; the options page story can grow later). "New deck"
 // creates a card with an empty deck block in one step.
 
 import { loadSettings, repoRPC, saveSettings } from '../lib/api'
-import { drainQueue, clearQueue, listQueue } from '../lib/queue'
 import { refreshPendingBadge } from '../lib/pending'
 import { typeahead } from '../lib/typeahead'
 import { renderPendingSection } from './pendingSection'
+import { QueueSection } from './queueSection'
 import type { ClipperSettings, DeckTarget } from '../lib/types'
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T
@@ -105,7 +105,7 @@ $('new-deck-create').addEventListener('click', () => {
       const blockID = `blk-${crypto.randomUUID().slice(0, 8)}`
       await repoRPC(settings, 'UpdateCardBlocks', [
         card.id,
-        [{ id: blockID, type: 'slide_deck', label: 'Slides', key: '', value: { slides: [] } }],
+        [{ id: blockID, type: 'slide_deck', label: msg('popup_deck_block_label'), key: '', value: { slides: [] } }],
       ])
       await setDeckTarget({ cardID: card.id, blockID, name })
       $<HTMLDivElement>('new-deck-row').hidden = true
@@ -117,62 +117,7 @@ $('new-deck-create').addEventListener('click', () => {
   })()
 })
 
-async function refreshQueue(): Promise<void> {
-  const jobs = await listQueue()
-  const line = $<HTMLSpanElement>('queue-line')
-  const actions = $<HTMLDivElement>('queue-actions')
-  if (jobs.length === 0) {
-    line.textContent = msg('popup_queue_empty')
-    actions.hidden = true
-    return
-  }
-  const failed = jobs.filter((j) => j.lastError).length
-  line.textContent =
-    msg('popup_queue_count').replace('{n}', String(jobs.length)) +
-    (failed > 0 ? ` — ${msg('popup_queue_failed').replace('{n}', String(failed))}` : '')
-  actions.hidden = false
-}
-
-$('retry-btn').addEventListener('click', () => {
-  void (async () => {
-    if (!settings) return
-    const btn = $<HTMLButtonElement>('retry-btn')
-    btn.disabled = true
-    try {
-      const res = await drainQueue(settings)
-      showStatus(msg('popup_retry_done').replace('{n}', String(res.done)), true)
-      void refreshPendingBadge()
-    } finally {
-      btn.disabled = false
-      await refreshQueue()
-    }
-  })()
-})
-
-// Two-step destructive confirm (no native confirm() — project convention):
-// first click arms the button for 3 seconds, second click discards.
-let discardArmed = false
-let discardTimer: number | undefined
-$('discard-btn').addEventListener('click', () => {
-  const btn = $<HTMLButtonElement>('discard-btn')
-  if (!discardArmed) {
-    discardArmed = true
-    btn.textContent = msg('popup_discard_confirm')
-    clearTimeout(discardTimer)
-    discardTimer = setTimeout(() => {
-      discardArmed = false
-      btn.textContent = msg('popup_discard')
-    }, 3000) as unknown as number
-    return
-  }
-  void (async () => {
-    clearTimeout(discardTimer)
-    discardArmed = false
-    btn.textContent = msg('popup_discard')
-    await clearQueue()
-    await refreshQueue()
-  })()
-})
+const queue = new QueueSection(showStatus)
 
 // Options is reachable from the header at all times (Chrome's own route
 // to it is buried); the unpaired state just says what's wrong.
@@ -214,10 +159,10 @@ function setServerAvailable(available: boolean, serverURL: string): void {
   // reach the search box, so the section would be keyboard-usable while
   // looking dead.
   deck.inert = !available
-  // The queue COUNT stays readable offline (knowing clips are waiting is
+  // The queue stays readable offline (knowing clips are waiting is
   // exactly what you want to see) — only the server-dependent Retry is
-  // disabled. Discard is local storage, so it keeps working.
-  $<HTMLButtonElement>('retry-btn').disabled = !available
+  // disabled.
+  queue.setServerAvailable(available)
   if (!available) {
     $<HTMLDivElement>('offline-text').textContent = msg('popup_offline').replace('{url}', serverURL)
   }
@@ -236,7 +181,7 @@ async function init(): Promise<void> {
   $<HTMLInputElement>('deck-search').placeholder = msg('popup_no_deck')
   deckPicker.setValue(settings!.deckTarget?.name ?? '')
   // Queue is local storage — always meaningful, online or not.
-  await refreshQueue()
+  await queue.refresh()
 
   const online = await serverReachable(settings!)
   setServerAvailable(online, settings!.serverURL)

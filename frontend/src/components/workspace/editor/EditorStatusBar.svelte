@@ -6,13 +6,15 @@
   // Ambient status line (UI-CONVENTIONS §9: save state stays inline, never
   // a toast per autosave). Left: what the document is; right: where the
   // draft stands relative to disk.
-  let { formatLabel, words, cursor, dirty, saving, saveError, paused, onSaveNow }: {
+  let { formatLabel, words, cursor, dirty, saving, saveError, syncError, paused, onSaveNow }: {
     formatLabel: string
     words: number
     cursor: CursorPosition
     dirty: boolean
     saving: boolean
     saveError: string
+    /** A focus-time reload from disk failed; the draft is untouched. */
+    syncError: string
     /** Autosave is off until the user resolves an external change. */
     paused: boolean
     onSaveNow: () => void
@@ -27,6 +29,8 @@
   {#if saveError}
     <span class="cell error" title={saveError}><AlertTriangle size={12} /> {t('document.save_failed', { error: saveError })}</span>
     <button class="btn subtle small" onclick={onSaveNow}><Save size={12} /> {t('document.save_now')}</button>
+  {:else if syncError}
+    <span class="cell error" title={syncError}><AlertTriangle size={12} /> {t('document.reload_failed', { error: syncError })}</span>
   {:else if paused && dirty}
     <span class="cell warning"><AlertTriangle size={12} /> {t('document.autosave_paused')}</span>
     <button class="btn subtle small" onclick={onSaveNow}><Save size={12} /> {t('document.save_now')}</button>

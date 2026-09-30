@@ -34,7 +34,8 @@ func (r *Repository) LoadComments(cardID string) (*model.CommentFile, error) {
 	return &cf, nil
 }
 
-// saveComments persists the entire comment file to disk.
+// saveComments persists the entire comment file to disk. Callers hold
+// the comments file lock across their load → save.
 func (r *Repository) saveComments(cf *model.CommentFile) error {
 	return writeJSON(r.commentsFilePath(cf.CardID), cf)
 }
@@ -46,6 +47,8 @@ func (r *Repository) AddCardComment(cardID, author, text string, createdAt time.
 	if _, err := r.GetCard(cardID); err != nil {
 		return nil, err
 	}
+	unlock := lockPath(r.commentsFilePath(cardID))
+	defer unlock()
 	cf, err := r.LoadComments(cardID)
 	if err != nil {
 		return nil, err
@@ -72,6 +75,8 @@ func (r *Repository) AddCardComment(cardID, author, text string, createdAt time.
 
 // UpdateCardComment edits an existing comment's text. The author is not editable.
 func (r *Repository) UpdateCardComment(cardID, commentID, text string) (*model.Comment, error) {
+	unlock := lockPath(r.commentsFilePath(cardID))
+	defer unlock()
 	cf, err := r.LoadComments(cardID)
 	if err != nil {
 		return nil, err
@@ -92,6 +97,8 @@ func (r *Repository) UpdateCardComment(cardID, commentID, text string) (*model.C
 
 // DeleteCardComment removes a single comment by ID.
 func (r *Repository) DeleteCardComment(cardID, commentID string) error {
+	unlock := lockPath(r.commentsFilePath(cardID))
+	defer unlock()
 	cf, err := r.LoadComments(cardID)
 	if err != nil {
 		return err

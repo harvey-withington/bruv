@@ -1,10 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { repoRPC } from '../lib/auth'
+  import { onReconnect } from '../lib/connectivity.svelte'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
   import type { AskMode, CapturePrefs, ImageMode, VideoMode } from '@shared/types'
   import RadioRows, { type RadioRow } from './RadioRows.svelte'
+  import ErrorState from './ErrorState.svelte'
 
   // Settings → Capture: the defaults the Capture Options sheet opens on,
   // and the thresholds that decide when it opens at all.
@@ -25,6 +27,10 @@
   let prefs = $state<CapturePrefs>(FALLBACK)
   let loading = $state(true)
   let saving = $state(false)
+  // Load failure is kept apart from save errors: while it's set the form
+  // stays hidden (UI-CONVENTIONS §19) — the FALLBACK placeholders must
+  // never be saved over the vault's real prefs, which desktop shares.
+  let loadError = $state<string | null>(null)
   let errorMsg = $state<string | null>(null)
 
   const videoRows: RadioRow[] = [
@@ -48,15 +54,26 @@
     { key: 'never', label: t('capture.ask_never'), sub: t('capture.ask_never_sub') },
   ]
 
-  onMount(async () => {
+  async function load() {
+    loading = true
+    loadError = null
     try {
       const loaded = await repoRPC<CapturePrefs | null>('GetCapturePrefs')
       if (loaded) prefs = { ...FALLBACK, ...loaded, triggers: { ...loaded.triggers } }
     } catch (err) {
-      errorMsg = err instanceof Error ? err.message : t('capture.err_load')
+      loadError = err instanceof Error ? err.message : t('capture.err_load')
     } finally {
       loading = false
     }
+  }
+
+  onMount(() => {
+    void load()
+    // §18: a load that failed while offline retries on reconnect. Once
+    // loaded, the user's in-progress edits win — no refresh over them.
+    return onReconnect(() => {
+      if (loadError) void load()
+    })
   })
 
   /** Thresholds are integers; a blank or negative field means "never ask". */
@@ -66,7 +83,7 @@
   }
 
   async function save() {
-    if (saving) return
+    if (saving || loading || loadError) return
     saving = true
     errorMsg = null
     try {
@@ -87,6 +104,8 @@
 
 {#if loading}
   <p class="hint">{t('common.loading')}</p>
+{:else if loadError}
+  <ErrorState message={`${loadError} ${t('capture.err_load_not_saved')}`} onRetry={load} />
 {:else}
   <p class="hint">{t('capture.per_vault')}</p>
 

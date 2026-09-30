@@ -8,14 +8,15 @@
    *   - the @-mention picker for text-block and checklist inputs (the
    *     description's mention picker stays in CardDetail)
    *
-   * Extracted from CardDetail. The parent provides `track` (save-
-   * indicator wrapper) and receives updated cards via onCardUpdated;
-   * `addBlock` / `restoreCollapsedFromMeta` / `resetDrafts` are
+   * Extracted from CardDetail. The parent provides `saveBlocks` — the
+   * card's ONE serialized whole-blocks save queue (lib/cardBlockSaves);
+   * every block write goes through it, applied to the local card first
+   * (optimistic) and rolled back if it fails. `addBlock` /
+   * `restoreCollapsedFromMeta` / `resetDrafts` are
    * exported for the parent's add-block button and load path. In-flight
    * edits register with the dialog's EditScope (context), which owns
    * the modal-level Escape / Ctrl+Enter behaviour.
    */
-  import { UpdateCardBlocks } from '@shared/api'
   import { promoteBlockValue } from '@shared/promote'
   import { asUrlValue, urlBlockValue } from '@shared/blockValues'
   import { ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree } from 'lucide-svelte'
@@ -29,16 +30,68 @@
   import { showToast } from '../lib/toast.svelte'
   import type { Card, Block, BlockMeta } from '@shared/types'
 
-  let { card, cardId, currentCategoryId, track, onCardUpdated, onUpdated, onClose }: {
+  let { card, cardId, currentCategoryId, saveBlocks, onUpdated, onClose }: {
     card: Card
     cardId: string
     currentCategoryId?: string | null
-    track: <T>(promise: Promise<T>) => Promise<T>
-    onCardUpdated: (card: Card) => void
+    /** Persist the card's whole blocks array (serialized per card). */
+    saveBlocks: (blocks: Block[]) => Promise<void>
     onUpdated?: () => void
     /** Ctrl+Enter inside a text block saves and closes the dialog. */
     onClose: () => void
   } = $props()
+
+  /**
+   * Apply a structural change (add / delete / reorder / promote / rename)
+   * to the local card, then persist it. Local-first so a concurrent
+   * in-place edit (checklist toggle…) saves ON TOP of it instead of
+   * writing the pre-change array back. Rolls back if the save fails and
+   * nothing newer replaced the array meanwhile. Resolves true on success.
+   */
+  async function persistBlocks(next: Block[], errorKey = 'error.save_failed'): Promise<boolean> {
+    const prev = card.blocks
+    card.blocks = next
+    const applied = card.blocks
+    try {
+      await saveBlocks(card.blocks)
+    } catch (e) {
+      if (card.blocks === applied) card.blocks = prev
+      showToast(t(errorKey), 'error')
+      return false
+    }
+    onUpdated?.()
+    return true
+  }
+
+  /**
+   * The one guarded save for a value edit of a block (every block type,
+   * incl. checklist/list/media — BlockItem gets it as a prop). Mutates the
+   * block in place (the $state proxy on card.blocks re-renders), persists
+   * the whole array through the serialized queue, and on failure rolls the
+   * block back — unless a newer local write replaced the value meanwhile —
+   * and toasts. Resolves true on success.
+   */
+  async function commitBlock(target: Block, val: Block['value'], newMeta?: BlockMeta): Promise<boolean> {
+    const prevValue = target.value
+    const prevMeta = target.meta
+    target.value = val
+    if (newMeta) target.meta = { ...target.meta, ...newMeta }
+    // Read back: the proxy wraps objects, so compare against what's stored.
+    const applied = target.value
+    const appliedMeta = target.meta
+    try {
+      await saveBlocks(card.blocks)
+    } catch (e) {
+      if (target.value === applied && target.meta === appliedMeta) {
+        target.value = prevValue
+        target.meta = prevMeta
+      }
+      showToast(t('error.save_failed'), 'error')
+      return false
+    }
+    onUpdated?.()
+    return true
+  }
 
   // Options editor dialog for select/radio/checkbox_group blocks
   async function openOptionsEditor(block: Block) {
@@ -49,17 +102,7 @@
       block.meta?.options || [],
       block.meta || {},
     )
-    if (result) {
-      const prevMeta = block.meta
-      block.meta = { ...block.meta, ...result.meta, options: result.options }
-      try {
-        await track(UpdateCardBlocks(cardId, card.blocks))
-        onUpdated?.()
-      } catch (e) {
-        block.meta = prevMeta
-        showToast(t('error.save_failed'), 'error')
-      }
-    }
+    if (result) await commitBlock(block, block.value, { ...result.meta, options: result.options })
   }
 
   function getEmptyValue(type: string): Block['value'] {
@@ -93,18 +136,7 @@
     // and there's no undo path.
     const name = block.label || block.key || block.type
     if (!await showConfirm(t('card.clear_block_confirm', { name }))) return
-    const prevValue = block.value
-    const prevMeta = block.meta
-    block.value = getEmptyValue(block.type)
-    if (block.type === 'alarm') block.meta = { ...block.meta, alarm_time: undefined, alarm_fired: false }
-    try {
-      await track(UpdateCardBlocks(cardId, card.blocks))
-      onUpdated?.()
-    } catch (e) {
-      block.value = prevValue
-      block.meta = prevMeta
-      showToast(t('error.save_failed'), 'error')
-    }
+    await commitBlock(block, getEmptyValue(block.type), block.type === 'alarm' ? { alarm_time: undefined, alarm_fired: false } : undefined)
   }
 
   // Block label editing
@@ -247,15 +279,7 @@
     // computeReorder returns the same reference on a no-op; skip the save.
     if (blocks === card.blocks) return
 
-    let updated: Card
-    try {
-      updated = await track(UpdateCardBlocks(cardId, blocks))
-      blockDrafts = {}
-      for (const b of updated.blocks) {
-        if (b.type === 'text') blockDrafts[b.id] = String(b.value ?? '')
-      }
-    } catch (e) { showToast(t('error.save_failed'), 'error'); return }
-    onCardUpdated(updated)
+    if (await persistBlocks(blocks)) resetDrafts()
   }
 
 
@@ -427,16 +451,10 @@
     // field on type-refresh. Leave it empty (model convention; matches
     // mobile + the MCP server).
     const newBlock: Block = { id, type: blockType, label, key: '', value, meta }
-    const blocks = [...card.blocks, newBlock]
-    let updated: Card
-    try {
-      updated = await track(UpdateCardBlocks(cardId, blocks))
-      if (blockType === 'text') {
-        blockDrafts[id] = ''
-        editingBlockId = id
-      }
-    } catch (e) { showToast(t('error.save_failed'), 'error'); return }
-    onCardUpdated(updated)
+    if (await persistBlocks([...card.blocks, newBlock]) && blockType === 'text') {
+      blockDrafts[id] = ''
+      editingBlockId = id
+    }
   }
 
 
@@ -444,16 +462,7 @@
     const block = card.blocks.find((b: Block) => b.id === blockId)
     if (!block) return
     if (!await showConfirm(t('card.confirm_delete_block', { name: block.label || block.type }))) return
-    const blocks = card.blocks.filter((b: Block) => b.id !== blockId)
-    let updated: Card
-    try {
-      updated = await track(UpdateCardBlocks(cardId, blocks))
-      blockDrafts = {}
-      for (const b of updated.blocks) {
-        if (b.type === 'text') blockDrafts[b.id] = String(b.value ?? '')
-      }
-    } catch (e) { showToast(t('error.delete_failed'), 'error'); return }
-    onCardUpdated(updated)
+    if (await persistBlocks(card.blocks.filter((b: Block) => b.id !== blockId), 'error.delete_failed')) resetDrafts()
   }
 
   // Promote a multi-item block in place (list → checklist → slide_deck),
@@ -461,14 +470,9 @@
   async function promoteBlock(block: Block, target: Block['type']) {
     const newValue = promoteBlockValue(block, target)
     if (newValue === null) return
-    const blocks = card.blocks.map((b: Block) =>
+    await persistBlocks(card.blocks.map((b: Block) =>
       b.id === block.id ? { ...b, type: target, value: newValue } : b,
-    )
-    let updated: Card
-    try {
-      updated = await track(UpdateCardBlocks(cardId, blocks))
-    } catch (e) { showToast(t('error.save_failed'), 'error'); return }
-    onCardUpdated(updated)
+    ))
   }
 
   async function renameBlockLabel(blockId: string) {
@@ -482,12 +486,7 @@
     // the key is its identity in the card type; re-deriving it from the new
     // label would sever that link (the field would be re-added as a
     // duplicate on the next type-refresh). User blocks keep their empty key.
-    const blocks = card.blocks.map((b: Block) => b.id === blockId ? { ...b, label } : b)
-    let updated: Card
-    try {
-      updated = await track(UpdateCardBlocks(cardId, blocks))
-    } catch (e) { showToast(t('error.save_failed'), 'error'); return }
-    onCardUpdated(updated)
+    await persistBlocks(card.blocks.map((b: Block) => b.id === blockId ? { ...b, label } : b))
   }
 
   async function saveUrlBlock(blockId: string) {
@@ -500,38 +499,43 @@
       editingBlockId = null
       return
     }
+    if (!block || block.type !== 'url') return
     // Store the canonical {url, caption?} shape (see shared/blockValues.ts)
     // — writing a bare string here is what made desktop edits render
     // empty on mobile and in markdown export.
-    const updatedBlocks = card.blocks.map((b: Block) =>
-      b.id === blockId && b.type === 'url' ? { ...b, value: urlBlockValue(draft, b.value) } : b
-    )
-    let updated: Card
-    try {
-      updated = await track(UpdateCardBlocks(cardId, updatedBlocks))
-      blockDrafts[blockId] = draft
-      editingBlockId = null
-    } catch (e) { showToast(t('error.save_failed'), 'error'); return }
-    onCardUpdated(updated)
+    blockDrafts[blockId] = draft
+    if (await commitBlock(block, urlBlockValue(draft, block.value)) && editingBlockId === blockId) editingBlockId = null
   }
 
-  async function saveTextBlock(blockId: string) {
-    if (editingBlockId !== blockId) return
+  /**
+   * Commit a text block's draft. Resolves true once it is saved (or there
+   * was nothing to save); on failure the editor stays open with the draft
+   * and the toast is shown, so Ctrl+Enter must not close the card.
+   */
+  // In-flight text commits by block id: the blur that follows Enter (or a
+  // Ctrl+Enter chord) joins the running save instead of seeing the
+  // optimistic value, closing the editor and hiding a later failure.
+  const textSaves = new Map<string, Promise<boolean>>()
+
+  function saveTextBlock(blockId: string): Promise<boolean> {
+    const running = textSaves.get(blockId)
+    if (running) return running
+    const p = commitTextBlock(blockId).finally(() => textSaves.delete(blockId))
+    textSaves.set(blockId, p)
+    return p
+  }
+
+  async function commitTextBlock(blockId: string): Promise<boolean> {
+    if (editingBlockId !== blockId) return true
     const draft = blockDrafts[blockId]
     const block = card.blocks.find((b: Block) => b.id === blockId)
-    if (draft === undefined || draft === String(block?.value ?? '')) {
+    if (!block || block.type !== 'text' || draft === undefined || draft === String(block.value ?? '')) {
       editingBlockId = null
-      return
+      return true
     }
-    const updatedBlocks = card.blocks.map((b: Block) =>
-      b.id === blockId && b.type === 'text' ? { ...b, value: draft } : b
-    )
-    let updated: Card
-    try {
-      updated = await track(UpdateCardBlocks(cardId, updatedBlocks))
-      editingBlockId = null
-    } catch (e) { showToast(t('error.save_failed'), 'error'); return }
-    onCardUpdated(updated)
+    const ok = await commitBlock(block, draft)
+    if (ok && editingBlockId === blockId) editingBlockId = null
+    return ok
   }
 
   async function handleTextBlockKeydown(e: KeyboardEvent, blockId: string) {
@@ -544,8 +548,7 @@
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault()
         e.stopPropagation()  // prevent the modal's backdrop keydown from also calling saveTextBlock
-        await saveTextBlock(blockId)
-        onClose()
+        if (await saveTextBlock(blockId)) onClose()
         return
       }
       // Contract: Enter commits, Shift+Enter inserts the newline.
@@ -646,7 +649,7 @@
         {textBlockOverflows}
         bind:blockTextareaEls
         bind:textBlockEls
-        tracked={track}
+        {commitBlock}
         {onUpdated}
         onDragStart={handleBlockDragStart}
         onDragEnd={handleBlockDragEnd}

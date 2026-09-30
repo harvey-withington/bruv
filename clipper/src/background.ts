@@ -16,18 +16,25 @@ import type {
   ClipPageRequestMessage,
   ClipPageResponse,
   ClipRequestMessage,
+  ClipProgress,
   ClipResult,
   ClipperSettings,
   CompleteRequestMessage,
   CompleteResponse,
   DialogAliveMessage,
+  MediaFallback,
   OpenOptionsMessage,
+  QueueDiscardMessage,
+  QueueDrainMessage,
+  QueueResponse,
   ToastMessage,
 } from './lib/types'
-import { loadSettings, isNetworkError, repoRPC } from './lib/api'
+import { MAX_STORABLE_MEDIA_BYTES } from './lib/types'
+import { errorText, loadSettings, isNetworkError, repoRPC } from './lib/api'
 import { pluginById } from './lib/plugins/registry'
-import { buildJob, executeJob } from './lib/clip'
-import { enqueue, drainQueue, listQueue } from './lib/queue'
+import { buildJob, executeJob, type ClipOutcome } from './lib/clip'
+import { enqueue, discardJobs, drainQueue, listQueue } from './lib/queue'
+import { formatBytes } from './lib/format'
 import { refreshPendingBadge } from './lib/pending'
 import {
   buildDialogRequest,
@@ -85,12 +92,16 @@ function toast(tabId: number | undefined, text: string, ok: boolean): void {
   void chrome.tabs.sendMessage(tabId, msg)
 }
 
+type InboundMessage =
+  | ClipExtractedMessage
+  | CompleteRequestMessage
+  | DialogAliveMessage
+  | OpenOptionsMessage
+  | QueueDrainMessage
+  | QueueDiscardMessage
+
 chrome.runtime.onMessage.addListener(
-  (
-    message: ClipExtractedMessage | CompleteRequestMessage | DialogAliveMessage | OpenOptionsMessage,
-    sender,
-    sendResponse: (response: CompleteResponse) => void,
-  ) => {
+  (message: InboundMessage, sender, sendResponse: (response: CompleteResponse | QueueResponse) => void) => {
     if (message?.type === 'BRUV_EXTRACTED') {
       void handleExtracted(message, sender.tab?.id)
       return
@@ -106,6 +117,17 @@ chrome.runtime.onMessage.addListener(
     }
     if (message?.type === 'BRUV_COMPLETE') {
       void queueCompletion(message.cardID, message.url).then(sendResponse)
+      return true
+    }
+    if (message?.type === 'BRUV_QUEUE_DRAIN') {
+      void retryQueue().then(sendResponse)
+      return true
+    }
+    if (message?.type === 'BRUV_QUEUE_DISCARD') {
+      void discardJobs(message.jobIDs).then(
+        () => sendResponse({ ok: true }),
+        (err: unknown) => sendResponse({ ok: false, error: errorText(err) }),
+      )
       return true
     }
   },
@@ -190,30 +212,77 @@ async function handleExtracted(message: ClipExtractedMessage, tabId: number | un
     return
   }
 
-  const job = await buildJob(clip, includeInDeck, choices)
+  const { job, fallbacks } = await buildJob(clip, includeInDeck, choices)
+  const progress: ClipProgress = {}
   try {
-    const outcome = await executeJob(settings, job)
-    if (outcome.pinFailed) {
-      // The clip landed but the chosen pin destination bounced (stale
-      // category from another pairing, accepted-types gate) — attention
-      // styling on purpose: silently landing in the Inbox is the bug.
-      toast(tabId, chrome.i18n.getMessage('toast_clipped_no_pin'), false)
-    } else {
-      toast(
-        tabId,
-        chrome.i18n.getMessage(outcome.slideAppended ? 'toast_clipped_deck' : 'toast_clipped'),
-        true,
-      )
-    }
+    const outcome = await executeJob(settings, job, progress)
+    toast(tabId, outcomeText(outcome, fallbacks), !outcome.pinFailed && fallbacks.length === 0)
     void refreshPendingBadge()
   } catch (err) {
-    if (isNetworkError(err)) {
-      await enqueue(job)
+    // Every failure is QUEUED, never dropped: the retry resumes from
+    // `progress`, so a card that already exists is finished, not
+    // duplicated — and anything that keeps failing sits in the popup with
+    // its error until the user retries or discards it.
+    console.error('clip failed:', err)
+    const cardSaved = !!progress.cardID
+    const error = errorText(err)
+    try {
+      await enqueue(job, progress, isNetworkError(err) ? undefined : error)
+    } catch (queueErr) {
+      console.error('queueing the failed clip failed:', queueErr)
+      toast(tabId, chrome.i18n.getMessage('toast_failed').replace('{error}', errorText(queueErr)), false)
+      return
+    }
+    if (cardSaved) {
+      toast(tabId, chrome.i18n.getMessage('toast_partial_queued').replace('{error}', error), false)
+    } else if (isNetworkError(err)) {
       toast(tabId, chrome.i18n.getMessage('toast_queued'), true)
     } else {
-      console.error('clip failed:', err)
-      toast(tabId, chrome.i18n.getMessage('toast_failed'), false)
+      toast(tabId, chrome.i18n.getMessage('toast_failed_queued').replace('{error}', error), false)
     }
+  }
+}
+
+function fallbackText(f: MediaFallback): string {
+  if (f.reason === 'too_large') {
+    return chrome.i18n
+      .getMessage(f.kind === 'video' ? 'toast_video_too_large' : 'toast_image_too_large')
+      .replace('{max}', formatBytes(MAX_STORABLE_MEDIA_BYTES))
+  }
+  return chrome.i18n.getMessage(f.kind === 'video' ? 'toast_video_download_failed' : 'toast_image_download_failed')
+}
+
+// outcomeText composes the success toast. A bounced pin or media kept as a
+// link gets attention styling on purpose: the clip landed, but not the way
+// the user asked — silently landing in the Inbox (or as a link) is the bug.
+function outcomeText(outcome: ClipOutcome, fallbacks: MediaFallback[]): string {
+  const parts: string[] = []
+  if (outcome.pinFailed) parts.push(chrome.i18n.getMessage('toast_clipped_no_pin'))
+  else parts.push(chrome.i18n.getMessage(outcome.slideAppended ? 'toast_clipped_deck' : 'toast_clipped'))
+  // One line per distinct problem, not per file.
+  const seen = new Set<string>()
+  for (const f of fallbacks) {
+    const key = `${f.kind}:${f.reason}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    parts.push(fallbackText(f))
+  }
+  return parts.join(' ')
+}
+
+// --- offline queue ---------------------------------------------------------
+// This worker is the queue's single drainer: the alarm drains due jobs, and
+// the popup's Retry asks it (BRUV_QUEUE_DRAIN) to drain everything now.
+
+async function retryQueue(): Promise<QueueResponse> {
+  const settings = await loadSettings()
+  if (!settings) return { ok: false, error: chrome.i18n.getMessage('toast_not_paired') }
+  try {
+    const result = await drainQueue(settings, true)
+    void refreshPendingBadge()
+    return { ok: true, result }
+  } catch (err) {
+    return { ok: false, error: errorText(err) }
   }
 }
 
@@ -227,7 +296,13 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     const settings = await loadSettings()
     if (!settings) return
     if ((await listQueue()).length === 0) return
-    await drainQueue(settings)
+    try {
+      await drainQueue(settings)
+    } catch (err) {
+      // Per-job failures are recorded on the jobs; this is storage itself
+      // failing — the next tick retries, and the popup still lists them.
+      console.error('queue drain failed:', err)
+    }
     void refreshPendingBadge()
   })()
 })
@@ -327,7 +402,7 @@ async function completePendingClip(cardID: string, url: string): Promise<Complet
 
     // includeInDeck is false: the pending card's slide already exists and is
     // bound to its blocks — CompleteCapture fills the blocks, never appends.
-    const job = await buildJob(clip, false)
+    const { job } = await buildJob(clip, false)
     await repoRPC(settings, 'CompleteCapture', [cardID, job.clip, job.media])
     void refreshPendingBadge()
     return { ok: true }

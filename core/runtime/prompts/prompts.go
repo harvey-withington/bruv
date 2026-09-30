@@ -6,9 +6,15 @@ import (
 	"bruv/internal/model"
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 )
+
+// CreateTypeGuidance is the one wording every prompt uses for making a
+// new card type (ruling 2026-09-30): types are never created implicitly,
+// and create_card_type is a deliberate act, used sparingly.
+const CreateTypeGuidance = "Creating a new type is normally the user's deliberate choice: call `create_card_type` only when the user explicitly asks for a new type, or when no existing type fits at all — otherwise pick the closest existing one."
 
 // cardTypeRoster renders the authoritative card-type list for a system
 // prompt: the CATALOG (built-ins + user-created types), with the schema
@@ -24,7 +30,7 @@ func (b *Builder) cardTypeRoster() string {
 		return ""
 	}
 	var sb strings.Builder
-	sb.WriteString("Available card types — use the id when setting a type (labels are matched too). If none fit, pass a new short descriptive name and it will be created as a new type:\n")
+	sb.WriteString("Available card types — use the id when setting a type (labels are matched too). Only these exist; an unknown type is refused. " + CreateTypeGuidance + "\n")
 	for _, ti := range infos {
 		line := fmt.Sprintf("- %s — %q", ti.ID, ti.Label)
 		desc := strings.TrimSpace(strings.TrimSpace(ti.Description) + " " + strings.TrimSpace(ti.AIHint))
@@ -238,7 +244,8 @@ func (b *Builder) Project(brandSlug, streamSlug, projectSlug string, brand *mode
 	sb.WriteString("Cards — BRUV's standard board tools, scoped to this project (the same tools every BRUV surface uses):\n")
 	sb.WriteString("- `get_card`, `list_cards`, `search_cards` — read cards. Always `get_card` a card before rewriting any of its content.\n")
 	sb.WriteString("- `create_card` — create and fill a card; give `category` (a column of this project, created if missing). brand/stream/project default to this project.\n")
-	sb.WriteString("- `update_card` — change one card's title, due date, tags and block values in one call; `set_card_title`, `set_card_description`, `set_card_type`, `set_card_due_date`, `add_card_tags`, `set_card_fields`, `add_card_blocks` for single changes.\n")
+	sb.WriteString("- `update_card` — change one card's title, due date, tags and block values in one call; `set_card_title`, `set_card_description`, `set_card_type`, `set_card_due_date`, `add_card_tags`, `remove_card_tags`, `set_card_fields`, `add_card_blocks` for single changes.\n")
+	sb.WriteString("- `create_card_type` — add a new card type. " + CreateTypeGuidance + "\n")
 	sb.WriteString("- `update_cards` / `add_tags_to_cards` — batch edits across many cards. For tags there: `tags_to_add` appends, `tags_to_remove` drops, `tags` replaces the whole list only when the user asks.\n")
 	sb.WriteString("- `move_card` — move a card between categories; `pin_card` / `unpin_card` for extra locations.\n")
 	sb.WriteString("- `add_card_comment`, `list_card_comments`, `add_card_attachment`, `get_card_attachment`.\n")
@@ -641,6 +648,13 @@ what you did discover and finish the run.
 - Every deliverable the Goal names is either completed (tool called)
   or explicitly noted as unreachable. Silent omission is a failure.
 `, time.Now().Format("2006-01-02 (Monday)"), agentCfg.Goal))
+
+	// Card types must already exist; an agent granted create_card_type is
+	// told to use it sparingly, as the chat prompts are.
+	if slices.Contains(agentCfg.AllowedTools, "create_card_type") {
+		sb.WriteString("\n## Card Types\n\nCards can only use card types that already exist (list_card_types); an unknown type is refused. " +
+			strings.ReplaceAll(CreateTypeGuidance, "the user explicitly asks", "your Goal explicitly asks") + "\n")
+	}
 
 	// Tracking-field guidance for whatever card carries the agent — no
 	// card type is assumed; only fields that actually exist are listed.

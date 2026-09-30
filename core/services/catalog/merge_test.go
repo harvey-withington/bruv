@@ -11,17 +11,14 @@ import (
 	"bruv/internal/schema"
 )
 
-// mergeDeps is a minimal Deps over a real temp repo — UpdateCardBlocks
-// writes straight through so the merge result can be read back.
+// mergeDeps is a minimal Deps over a real temp repo, so the merge
+// result can be read back.
 type mergeDeps struct{ r *repo.Repository }
 
-func (d *mergeDeps) Repo() *repo.Repository      { return d.r }
-func (d *mergeDeps) Registry() *schema.Registry  { return nil }
-func (d *mergeDeps) Index() *index.Index         { return nil }
-func (d *mergeDeps) Publish(string, any)         {}
-func (d *mergeDeps) UpdateCardBlocks(id string, blocks []model.Block) (*model.Card, error) {
-	return d.r.UpdateCardBlocks(id, blocks)
-}
+func (d *mergeDeps) Repo() *repo.Repository     { return d.r }
+func (d *mergeDeps) Registry() *schema.Registry { return nil }
+func (d *mergeDeps) Index() *index.Index        { return nil }
+func (d *mergeDeps) Publish(string, any)        {}
 
 func newMergeService(t *testing.T) (*Service, *repo.Repository) {
 	t.Helper()

@@ -6,24 +6,14 @@ import (
 	"testing"
 )
 
-// redirectConfig points configDir() at a temp directory for test isolation.
-//
-// os.UserConfigDir() resolves differently on each OS:
-//   - Windows uses %APPDATA%
-//   - Linux uses $XDG_CONFIG_HOME, falling back to $HOME/.config
-//   - macOS uses $HOME/Library/Application Support (XDG is ignored)
-//
-// To cover all three we set APPDATA, unset XDG_CONFIG_HOME (so Linux
-// falls through to HOME instead of using a pre-existing CI value), and
-// set HOME. On macOS the HOME override is the only thing that works; on
-// Windows the APPDATA override dominates; on Linux the XDG clear + HOME
-// set combination lands in a predictable temp directory.
+// redirectConfig points configDir() at a fresh temp directory for test
+// isolation. Under `go test` configDir() already avoids the real user
+// config (one shared per-process temp dir), so the override is what keeps
+// tests from seeing each other's files.
 func redirectConfig(t *testing.T) {
 	t.Helper()
-	tmp := t.TempDir()
-	t.Setenv("APPDATA", tmp)
-	t.Setenv("XDG_CONFIG_HOME", "")
-	t.Setenv("HOME", tmp)
+	SetConfigDir(t.TempDir())
+	t.Cleanup(func() { SetConfigDir("") })
 }
 
 func TestLoadUserTypeStoreEmpty(t *testing.T) {

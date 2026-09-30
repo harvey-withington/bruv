@@ -79,8 +79,10 @@ export type ClipperSettings = {
   categoryName: string
 }
 
-// A queued clip job: fully self-contained (media already downloaded to
-// base64 at capture time, so CDN links can't rot while the job waits).
+// A clip job: fully self-contained (media already downloaded to base64 at
+// capture time, so CDN links can't rot while the job waits). Immutable once
+// built — everything that changes per attempt lives in QueueEntry, so a
+// retry never rewrites (possibly hundreds of MB of) media.
 export type ClipJob = {
   id: string
   createdAt: string
@@ -96,9 +98,55 @@ export type ClipJob = {
   title?: string
   avatarBase64?: string
   avatarName?: string
-  attempts: number
-  lastError?: string
 }
+
+// Largest single media file the extension will download and store. Media
+// travels as base64 inside a JSON-RPC body (and a queued job), and V8 caps
+// one string at ~512M chars — a ~390 MB file's base64 already breaks it, and
+// the old silent RangeError → "saved as a link" downgrade was the bug. The
+// server has no chunked upload, so bigger rungs are offered as links only.
+export const MAX_STORABLE_MEDIA_BYTES = 256 * 1024 * 1024
+
+// A capture that couldn't store a media item the user asked to store, and
+// kept the platform link instead — always reported to the user.
+export type MediaFallback = { kind: ClipMediaKind; reason: 'too_large' | 'download_failed' }
+
+// How far executeJob got, persisted with a queued job so a retry RESUMES
+// instead of starting over: the card is created once, each file uploaded
+// once. Every step after CreateCard is keyed here.
+export type ClipProgress = {
+  cardID?: string
+  // Upload name (media / avatar file name, unique per job) → attachment id;
+  // '' = uploaded, but its id couldn't be determined.
+  attachments?: Record<string, string>
+  // Set once UpdateCardBlocks landed: schema key → block id (the slide's
+  // bindings).
+  bindings?: Record<string, string>
+  tagged?: boolean
+  pin?: { failed: boolean }
+  slideAppended?: boolean
+}
+
+// The per-attempt state of one queued job (stored apart from its payload).
+// Jobs never expire: they leave the queue only by succeeding or by the user
+// discarding them in the popup.
+export type QueueEntry = {
+  id: string
+  createdAt: string
+  // Display title for the popup list.
+  label: string
+  attempts: number
+  // Epoch ms; the alarm drain skips entries not yet due (backoff). A
+  // user-triggered Retry ignores it.
+  nextAttemptAt: number
+  lastError?: string
+  progress: ClipProgress
+  // Lease on the entry while a drain executes it — expires on its own, so a
+  // worker killed mid-job never wedges it.
+  leaseUntil?: number
+}
+
+export type QueueDrainResult = { done: number; remaining: number }
 
 // --- capture options ------------------------------------------------------
 //
@@ -186,7 +234,9 @@ export const VIDEO_OPTION_SKIP = '__skip__'
 
 // One row of the dialog's video radio list. `estBytes` is formatted by the
 // dialog (presentation lives with the renderer).
-export type CaptureDialogVideoOption = { id: string; label: string; url: string; estBytes?: number }
+// `tooLarge`: the estimate exceeds MAX_STORABLE_MEDIA_BYTES — shown, but not
+// selectable (the browser can't store it; link it instead).
+export type CaptureDialogVideoOption = { id: string; label: string; url: string; estBytes?: number; tooLarge?: boolean }
 
 // Everything the in-page dialog renders. Built background-side so the
 // content script needs no settings, no RPC and no prefs logic.
@@ -243,3 +293,10 @@ export type ClipPageResponse = { clip: ClipResult | null }
 // opening its source URL in a real, logged-in browser tab.
 export type CompleteRequestMessage = { type: 'BRUV_COMPLETE'; cardID: string; url: string }
 export type CompleteResponse = { ok: boolean; error?: string }
+
+// Offline queue (popup → background): the service worker is the queue's
+// ONLY writer and drainer, so the popup asks it rather than touching the
+// jobs itself. Discard with no ids = discard everything.
+export type QueueDrainMessage = { type: 'BRUV_QUEUE_DRAIN' }
+export type QueueDiscardMessage = { type: 'BRUV_QUEUE_DISCARD'; jobIDs?: string[] }
+export type QueueResponse = { ok: boolean; result?: QueueDrainResult; error?: string }

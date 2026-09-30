@@ -19,6 +19,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"bruv/internal/fsutil"
 )
 
 // TemplatePrefs mirrors shared/types.ts TemplatePrefs — JSON key casing must
@@ -66,5 +68,5 @@ func (r *Repository) SaveTemplatePrefs(p TemplatePrefs) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(r.templatePrefsPath(), data, 0o644)
+	return fsutil.WriteFileAtomic(r.templatePrefsPath(), data, 0o644)
 }

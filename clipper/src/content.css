@@ -99,6 +99,9 @@
   cursor: pointer;
 }
 .bruv-cd-root .bruv-cd-option:hover { border-color: #8b5cf6; }
+/* A rung too large to store from the browser: listed, not selectable. */
+.bruv-cd-root .bruv-cd-option.bruv-cd-disabled { opacity: 0.5; cursor: not-allowed; }
+.bruv-cd-root .bruv-cd-option.bruv-cd-disabled:hover { border-color: #2c2c3c; }
 /* The reset above blanks backgrounds; radios/checkboxes must keep drawing
    themselves. */
 .bruv-cd-root .bruv-cd-radio {

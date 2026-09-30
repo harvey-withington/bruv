@@ -2,6 +2,7 @@ package index
 
 import (
 	"bruv/internal/model"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -20,30 +21,44 @@ type RebuildStats struct {
 }
 
 // FullRebuild drops all index data and rebuilds from the file store.
+//
+// Files are read first and the index is swapped in one transaction, so
+// concurrent readers see the old index or the new one — never empty
+// tables mid-rebuild — and the write lock is held only for the SQL.
 func (idx *Index) FullRebuild(repoRoot string) (*RebuildStats, error) {
 	start := time.Now()
 	stats := &RebuildStats{}
 
-	// Clear all tables
-	for _, table := range []string{"cards", "tags", "pins", "cards_fts"} {
-		if _, err := idx.db.Exec("DELETE FROM " + table); err != nil {
-			return nil, fmt.Errorf("clear table %s: %w", table, err)
-		}
-	}
-
 	// Build cardID → project context mapping from the filesystem
 	cardContextMap := buildCardContextMap(repoRoot)
 
-	// Index all cards (with project context)
-	cardsDir := filepath.Join(repoRoot, "cards")
-	if err := idx.indexCardsFromDir(cardsDir, cardContextMap, stats); err != nil {
+	cards, err := readCardFiles(filepath.Join(repoRoot, "cards"))
+	if err != nil {
 		return nil, fmt.Errorf("index cards: %w", err)
 	}
-
-	// Index all pins
-	pinsDir := filepath.Join(repoRoot, "pins")
-	if err := idx.indexPinsFromDir(pinsDir, stats); err != nil {
+	pins, err := readPinFiles(filepath.Join(repoRoot, "pins"))
+	if err != nil {
 		return nil, fmt.Errorf("index pins: %w", err)
+	}
+
+	err = idx.inTx(func(tx *sql.Tx) error {
+		for _, table := range []string{"cards", "tags", "pins", "cards_fts"} {
+			if _, err := tx.Exec("DELETE FROM " + table); err != nil {
+				return fmt.Errorf("clear table %s: %w", table, err)
+			}
+		}
+		for _, dc := range cards {
+			// One bad card must not sink the rebuild; SQLite rolls back
+			// just the failed statement, not the transaction.
+			if err := indexCardTx(tx, dc.card, dc.mtime, cardContextMap[dc.card.ID]); err != nil {
+				continue
+			}
+			stats.CardsIndexed++
+		}
+		return replacePinsTx(tx, pins, stats)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	stats.Duration = time.Since(start)
@@ -59,66 +74,55 @@ func (idx *Index) IncrementalRefresh(repoRoot string) (*RebuildStats, error) {
 	// Build cardID → project context mapping from the filesystem
 	cardContextMap := buildCardContextMap(repoRoot)
 
-	cardsDir := filepath.Join(repoRoot, "cards")
+	indexed, err := idx.indexedCards()
+	if err != nil {
+		return nil, fmt.Errorf("list indexed cards: %w", err)
+	}
 
-	// Build a set of card IDs currently on disk
-	diskCardIDs := make(map[string]bool)
+	cardsDir := filepath.Join(repoRoot, "cards")
 	entries, err := os.ReadDir(cardsDir)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("read cards dir: %w", err)
 	}
 
+	// Card IDs currently on disk — counted even when a file can't be read
+	// right now, so a transient failure doesn't drop the card from the index.
+	diskCardIDs := make(map[string]bool)
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+		cardID, ok := model.CardIDFromFileName(entry.Name())
+		if entry.IsDir() || !ok {
 			continue
 		}
-		if strings.HasSuffix(entry.Name(), ".tmp") {
-			continue
-		}
-
-		cardID := strings.TrimSuffix(entry.Name(), ".json")
 		diskCardIDs[cardID] = true
 
-		filePath := filepath.Join(cardsDir, entry.Name())
-		info, err := entry.Info()
-		if err != nil {
-			continue
-		}
-		fileMtime := info.ModTime().UTC()
-
-		// Check if the index already has this card with the same mtime
-		indexedMtime, err := idx.GetCardMtime(cardID)
+		path := filepath.Join(cardsDir, entry.Name())
+		fileMtime, err := statMtime(path)
 		if err != nil {
 			continue
 		}
 
-		// Re-index if mtime changed OR if project context needs updating
+		// Re-index only if the card is new, its file changed, or its
+		// project context changed.
 		ctx := cardContextMap[cardID]
-		storedCtx := idx.GetCardProjectContext(cardID)
-		if !indexedMtime.IsZero() && indexedMtime.Equal(fileMtime) && ctx == storedCtx {
+		if prev, ok := indexed[cardID]; ok && prev.mtime.Equal(fileMtime) && prev.projectContext == ctx {
 			stats.CardsSkipped++
 			continue
 		}
 
-		// Card is new or modified or context changed — re-index
-		card, err := readCardFile(filePath)
+		card, err := readCardFile(path, cardID)
 		if err != nil {
 			continue
 		}
-
-		if err := idx.IndexCard(card, fileMtime, ctx); err != nil {
+		if err := idx.inTx(func(tx *sql.Tx) error {
+			return indexCardTx(tx, card, fileMtime, ctx)
+		}); err != nil {
 			continue
 		}
 		stats.CardsIndexed++
 	}
 
 	// Remove index entries for cards no longer on disk
-	indexedIDs, err := idx.ListIndexedCardIDs()
-	if err != nil {
-		return nil, fmt.Errorf("list indexed cards: %w", err)
-	}
-
-	for _, id := range indexedIDs {
+	for id := range indexed {
 		if !diskCardIDs[id] {
 			if err := idx.RemoveCard(id); err != nil {
 				continue
@@ -128,8 +132,13 @@ func (idx *Index) IncrementalRefresh(repoRoot string) (*RebuildStats, error) {
 	}
 
 	// Re-index all pins (fast operation, not worth incremental tracking)
-	pinsDir := filepath.Join(repoRoot, "pins")
-	if err := idx.rebuildPins(pinsDir, stats); err != nil {
+	pins, err := readPinFiles(filepath.Join(repoRoot, "pins"))
+	if err != nil {
+		return nil, fmt.Errorf("rebuild pins: %w", err)
+	}
+	if err := idx.inTx(func(tx *sql.Tx) error {
+		return replacePinsTx(tx, pins, stats)
+	}); err != nil {
 		return nil, fmt.Errorf("rebuild pins: %w", err)
 	}
 
@@ -139,87 +148,92 @@ func (idx *Index) IncrementalRefresh(repoRoot string) (*RebuildStats, error) {
 
 // --- Internal helpers ---
 
-func (idx *Index) indexCardsFromDir(cardsDir string, cardContextMap map[string]string, stats *RebuildStats) error {
+// diskCard is a card read from its file, with the file's mtime.
+type diskCard struct {
+	card  *model.Card
+	mtime time.Time
+}
+
+// readCardFiles reads every card file (sidecars and temps excluded) in
+// cardsDir. Unreadable or unparseable files are skipped.
+func readCardFiles(cardsDir string) ([]diskCard, error) {
 	entries, err := os.ReadDir(cardsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return nil, nil
 		}
-		return err
+		return nil, err
 	}
 
+	var cards []diskCard
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+		cardID, ok := model.CardIDFromFileName(entry.Name())
+		if entry.IsDir() || !ok {
 			continue
 		}
-		if strings.HasSuffix(entry.Name(), ".tmp") {
-			continue
-		}
-
-		filePath := filepath.Join(cardsDir, entry.Name())
-		info, err := entry.Info()
+		path := filepath.Join(cardsDir, entry.Name())
+		mtime, err := statMtime(path)
 		if err != nil {
 			continue
 		}
-
-		card, err := readCardFile(filePath)
+		card, err := readCardFile(path, cardID)
 		if err != nil {
 			continue
 		}
-
-		cardID := strings.TrimSuffix(entry.Name(), ".json")
-		ctx := cardContextMap[cardID]
-		if err := idx.IndexCard(card, info.ModTime().UTC(), ctx); err != nil {
-			continue
-		}
-		stats.CardsIndexed++
+		cards = append(cards, diskCard{card: card, mtime: mtime})
 	}
-
-	return nil
+	return cards, nil
 }
 
-func (idx *Index) indexPinsFromDir(pinsDir string, stats *RebuildStats) error {
-	return idx.rebuildPins(pinsDir, stats)
+// cardPins is one card's pin file.
+type cardPins struct {
+	cardID string
+	pins   []model.Pin
 }
 
-func (idx *Index) rebuildPins(pinsDir string, stats *RebuildStats) error {
-	// Clear existing pins
-	if _, err := idx.db.Exec("DELETE FROM pins"); err != nil {
-		return err
-	}
-
+// readPinFiles reads every pins/<cardID>/pins.json. Unreadable or
+// unparseable pin files are skipped.
+func readPinFiles(pinsDir string) ([]cardPins, error) {
 	entries, err := os.ReadDir(pinsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return nil, nil
 		}
-		return err
+		return nil, err
 	}
 
+	var all []cardPins
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-
 		cardID := entry.Name()
-		pinFilePath := filepath.Join(pinsDir, cardID, "pins.json")
-
-		data, err := os.ReadFile(pinFilePath)
+		data, err := os.ReadFile(filepath.Join(pinsDir, cardID, "pins.json"))
 		if err != nil {
 			continue
 		}
-
 		var pinFile model.PinFile
 		if err := json.Unmarshal(data, &pinFile); err != nil {
 			continue
 		}
+		all = append(all, cardPins{cardID: cardID, pins: pinFile.Pins})
+	}
+	return all, nil
+}
 
-		if err := idx.IndexPins(cardID, pinFile.Pins); err != nil {
+// replacePinsTx swaps the whole pins table for the given pin files inside
+// tx, so readers (ListCardIDsInCategory, used by category move/copy) see
+// the old pins or the new ones — never an empty table mid-refresh.
+func replacePinsTx(tx *sql.Tx, all []cardPins, stats *RebuildStats) error {
+	if _, err := tx.Exec("DELETE FROM pins"); err != nil {
+		return err
+	}
+	for _, cp := range all {
+		if err := insertPinsTx(tx, cp.pins); err != nil {
 			continue
 		}
-		stats.PinsIndexed += len(pinFile.Pins)
+		stats.PinsIndexed += len(cp.pins)
 	}
-
 	return nil
 }
 
@@ -264,7 +278,7 @@ func buildCardContextMap(repoRoot string) map[string]string {
 				if project == "" {
 					continue
 				}
-				ctx := brand + " \u203a " + stream + " \u203a " + project
+				ctx := brand + " › " + stream + " › " + project
 
 				// Read categories to map their IDs
 				catsDir := filepath.Join(projectsDir, pd.Name(), "categories")
@@ -346,7 +360,10 @@ func readJSONID(path string) string {
 	return obj.ID
 }
 
-func readCardFile(path string) (*model.Card, error) {
+// readCardFile parses a card file. The card is indexed under cardID, the
+// ID its file name gives — the one the repo addresses it by and the one
+// IncrementalRefresh tracks — even if the JSON's own id disagrees.
+func readCardFile(path, cardID string) (*model.Card, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -355,5 +372,6 @@ func readCardFile(path string) (*model.Card, error) {
 	if err := json.Unmarshal(data, &card); err != nil {
 		return nil, err
 	}
+	card.ID = cardID
 	return &card, nil
 }

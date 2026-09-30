@@ -11,8 +11,24 @@ import (
 	"github.com/google/uuid"
 )
 
-// copyDirRecursive copies a directory tree from src to dst.
-func copyDirRecursive(src, dst string) error {
+// copyHierarchyDir copies a brand/stream/project directory tree, leaving
+// out every project's workspace/ folder: workspace.json carries the
+// workspace's identity (ID, claim, git-serve state), and a clone of it
+// would make two projects resolve to one workspace.
+func copyHierarchyDir(src, dst string) error {
+	return copyDirRecursive(src, dst, isProjectWorkspaceDir)
+}
+
+// isProjectWorkspaceDir reports whether path is a project's workspace
+// folder — named workspace/ AND sitting next to a project.json, so a
+// stream or project that happens to be slugged "workspace" still copies.
+func isProjectWorkspaceDir(path string) bool {
+	return filepath.Base(path) == workspaceDir && fileExists(filepath.Join(filepath.Dir(path), "project.json"))
+}
+
+// copyDirRecursive copies a directory tree from src to dst. Directories
+// for which skipDir returns true are left out (nil = copy everything).
+func copyDirRecursive(src, dst string, skipDir func(path string) bool) error {
 	srcInfo, err := os.Stat(src)
 	if err != nil {
 		return err
@@ -31,7 +47,10 @@ func copyDirRecursive(src, dst string) error {
 		dstPath := filepath.Join(dst, entry.Name())
 
 		if entry.IsDir() {
-			if err := copyDirRecursive(srcPath, dstPath); err != nil {
+			if skipDir != nil && skipDir(srcPath) {
+				continue
+			}
+			if err := copyDirRecursive(srcPath, dstPath, skipDir); err != nil {
 				return err
 			}
 		} else {
@@ -103,7 +122,7 @@ func (r *Repository) CopyProject(fromBrand, fromStream, projectSlug, toBrand, to
 	dstDir := r.projectPath(toBrand, toStream, copySlug)
 
 	// Deep-copy the directory tree
-	if err := copyDirRecursive(srcDir, dstDir); err != nil {
+	if err := copyHierarchyDir(srcDir, dstDir); err != nil {
 		os.RemoveAll(dstDir)
 		return nil, fmt.Errorf("copy project directory: %w", err)
 	}
@@ -132,30 +151,70 @@ func (r *Repository) CopyProject(fromBrand, fromStream, projectSlug, toBrand, to
 	now := time.Now().UTC()
 
 	newProject := &model.Project{
-		ID:        uuid.New().String(),
-		StreamID:  dstStream.ID,
-		BrandID:   dstBrand.ID,
-		Name:      copyName,
-		Slug:      copySlug,
-		Position:  insertPos,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:          uuid.New().String(),
+		StreamID:    dstStream.ID,
+		BrandID:     dstBrand.ID,
+		Name:        copyName,
+		Slug:        copySlug,
+		Description: srcProject.Description,
+		Icon:        srcProject.Icon,
+		Position:    insertPos,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 	if err := writeJSON(r.projectFilePath(toBrand, toStream, copySlug), newProject); err != nil {
 		os.RemoveAll(dstDir)
 		return nil, fmt.Errorf("write copied project: %w", err)
 	}
 
-	// Regenerate category IDs
-	cats, _ := r.ListCategories(toBrand, toStream, copySlug)
-	for _, cat := range cats {
-		r.UpdateCategory(toBrand, toStream, copySlug, cat.Slug, func(c *model.Category) {
-			c.ID = uuid.New().String()
-			c.ProjectID = newProject.ID
-		})
+	if err := r.regenerateCategoryIDs(toBrand, toStream, copySlug, newProject.ID); err != nil {
+		os.RemoveAll(dstDir)
+		return nil, err
 	}
 
 	return newProject, nil
+}
+
+// The regenerate* helpers give every entity under a freshly copied tree a
+// new ID. Any failure is returned and the caller removes the whole copy:
+// a category left with its source's ID shows the source's pins on both
+// boards.
+
+func (r *Repository) regenerateCategoryIDs(brandSlug, streamSlug, projectSlug, projectID string) error {
+	cats, err := r.ListCategories(brandSlug, streamSlug, projectSlug)
+	if err != nil {
+		return fmt.Errorf("list copied categories: %w", err)
+	}
+	for _, cat := range cats {
+		if _, err := r.UpdateCategory(brandSlug, streamSlug, projectSlug, cat.Slug, func(c *model.Category) {
+			c.ID = uuid.New().String()
+			c.ProjectID = projectID
+		}); err != nil {
+			return fmt.Errorf("regenerate category %q ID: %w", cat.Slug, err)
+		}
+	}
+	return nil
+}
+
+func (r *Repository) regenerateProjectIDs(brandSlug, streamSlug, streamID, brandID string) error {
+	projects, err := r.ListProjects(brandSlug, streamSlug)
+	if err != nil {
+		return fmt.Errorf("list copied projects: %w", err)
+	}
+	for _, p := range projects {
+		newProjID := uuid.New().String()
+		if _, err := r.UpdateProject(brandSlug, streamSlug, p.Slug, func(proj *model.Project) {
+			proj.ID = newProjID
+			proj.StreamID = streamID
+			proj.BrandID = brandID
+		}); err != nil {
+			return fmt.Errorf("regenerate project %q ID: %w", p.Slug, err)
+		}
+		if err := r.regenerateCategoryIDs(brandSlug, streamSlug, p.Slug, newProjID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // CopyStream deep-copies a stream (with all projects and categories) into the target brand.
@@ -193,7 +252,7 @@ func (r *Repository) CopyStream(fromBrand, streamSlug, toBrand string) (*model.S
 	srcDir := r.streamPath(fromBrand, streamSlug)
 	dstDir := r.streamPath(toBrand, copySlug)
 
-	if err := copyDirRecursive(srcDir, dstDir); err != nil {
+	if err := copyHierarchyDir(srcDir, dstDir); err != nil {
 		os.RemoveAll(dstDir)
 		return nil, fmt.Errorf("copy stream directory: %w", err)
 	}
@@ -202,13 +261,15 @@ func (r *Repository) CopyStream(fromBrand, streamSlug, toBrand string) (*model.S
 	position := len(existingStreams)
 
 	newStream := &model.Stream{
-		ID:        uuid.New().String(),
-		BrandID:   dstBrand.ID,
-		Name:      copyName,
-		Slug:      copySlug,
-		Position:  position,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:          uuid.New().String(),
+		BrandID:     dstBrand.ID,
+		Name:        copyName,
+		Slug:        copySlug,
+		Description: srcStream.Description,
+		Icon:        srcStream.Icon,
+		Position:    position,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 	if err := writeJSON(r.streamFilePath(toBrand, copySlug), newStream); err != nil {
 		os.RemoveAll(dstDir)
@@ -216,21 +277,9 @@ func (r *Repository) CopyStream(fromBrand, streamSlug, toBrand string) (*model.S
 	}
 
 	// Regenerate IDs in all child projects and categories
-	projects, _ := r.ListProjects(toBrand, copySlug)
-	for _, p := range projects {
-		newProjID := uuid.New().String()
-		r.UpdateProject(toBrand, copySlug, p.Slug, func(proj *model.Project) {
-			proj.ID = newProjID
-			proj.StreamID = newStream.ID
-			proj.BrandID = dstBrand.ID
-		})
-		cats, _ := r.ListCategories(toBrand, copySlug, p.Slug)
-		for _, cat := range cats {
-			r.UpdateCategory(toBrand, copySlug, p.Slug, cat.Slug, func(c *model.Category) {
-				c.ID = uuid.New().String()
-				c.ProjectID = newProjID
-			})
-		}
+	if err := r.regenerateProjectIDs(toBrand, copySlug, newStream.ID, dstBrand.ID); err != nil {
+		os.RemoveAll(dstDir)
+		return nil, err
 	}
 
 	return newStream, nil
@@ -266,7 +315,7 @@ func (r *Repository) CopyBrand(brandSlug string) (*model.Brand, error) {
 	srcDir := r.brandPath(brandSlug)
 	dstDir := r.brandPath(copySlug)
 
-	if err := copyDirRecursive(srcDir, dstDir); err != nil {
+	if err := copyHierarchyDir(srcDir, dstDir); err != nil {
 		os.RemoveAll(dstDir)
 		return nil, fmt.Errorf("copy brand directory: %w", err)
 	}
@@ -275,12 +324,17 @@ func (r *Repository) CopyBrand(brandSlug string) (*model.Brand, error) {
 	position := len(existingBrands)
 
 	newBrand := &model.Brand{
-		ID:        uuid.New().String(),
-		Name:      copyName,
-		Slug:      copySlug,
-		Position:  position,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:           uuid.New().String(),
+		Name:         copyName,
+		Slug:         copySlug,
+		Description:  srcBrand.Description,
+		Icon:         srcBrand.Icon,
+		Logo:         srcBrand.Logo,
+		Website:      srcBrand.Website,
+		SystemPrompt: srcBrand.SystemPrompt,
+		Position:     position,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 	if err := writeJSON(r.brandFilePath(copySlug), newBrand); err != nil {
 		os.RemoveAll(dstDir)
@@ -288,30 +342,30 @@ func (r *Repository) CopyBrand(brandSlug string) (*model.Brand, error) {
 	}
 
 	// Regenerate IDs in all child streams, projects, and categories
-	streams, _ := r.ListStreams(copySlug)
-	for _, s := range streams {
-		newStreamID := uuid.New().String()
-		r.UpdateStream(copySlug, s.Slug, func(st *model.Stream) {
-			st.ID = newStreamID
-			st.BrandID = newBrand.ID
-		})
-		projects, _ := r.ListProjects(copySlug, s.Slug)
-		for _, p := range projects {
-			newProjID := uuid.New().String()
-			r.UpdateProject(copySlug, s.Slug, p.Slug, func(proj *model.Project) {
-				proj.ID = newProjID
-				proj.StreamID = newStreamID
-				proj.BrandID = newBrand.ID
-			})
-			cats, _ := r.ListCategories(copySlug, s.Slug, p.Slug)
-			for _, cat := range cats {
-				r.UpdateCategory(copySlug, s.Slug, p.Slug, cat.Slug, func(c *model.Category) {
-					c.ID = uuid.New().String()
-					c.ProjectID = newProjID
-				})
-			}
-		}
+	if err := r.regenerateStreamIDs(copySlug, newBrand.ID); err != nil {
+		os.RemoveAll(dstDir)
+		return nil, err
 	}
 
 	return newBrand, nil
+}
+
+func (r *Repository) regenerateStreamIDs(brandSlug, brandID string) error {
+	streams, err := r.ListStreams(brandSlug)
+	if err != nil {
+		return fmt.Errorf("list copied streams: %w", err)
+	}
+	for _, s := range streams {
+		newStreamID := uuid.New().String()
+		if _, err := r.UpdateStream(brandSlug, s.Slug, func(st *model.Stream) {
+			st.ID = newStreamID
+			st.BrandID = brandID
+		}); err != nil {
+			return fmt.Errorf("regenerate stream %q ID: %w", s.Slug, err)
+		}
+		if err := r.regenerateProjectIDs(brandSlug, s.Slug, newStreamID, brandID); err != nil {
+			return err
+		}
+	}
+	return nil
 }

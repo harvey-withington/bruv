@@ -2,6 +2,7 @@ package repo
 
 import (
 	"bruv/internal/model"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -15,35 +16,21 @@ import (
 // on-disk format compatibility (older vaults still have it set), but
 // the lookup APIs below key purely on CategoryID. New writes set
 // ProjectID = CategoryID for consistency.
+//
+// The new pin goes to the end of the category: one past the highest
+// position any card holds there (0 for an empty category).
 func (r *Repository) PinCard(cardID, categoryID string) error {
-	// Verify card exists
-	if _, err := r.GetCard(cardID); err != nil {
-		return err
-	}
-
-	pinFile, err := r.loadPinFile(cardID)
+	existing, err := r.ListCardsInCategory(categoryID)
 	if err != nil {
 		return err
 	}
-
-	// Check for duplicate pin (category-keyed; same card can't be pinned
-	// twice to the same category).
-	for _, p := range pinFile.Pins {
-		if p.CategoryID == categoryID {
-			return fmt.Errorf("card %q is already pinned to category %q", cardID, categoryID)
+	position := 0
+	for _, p := range existing {
+		if p.Position >= position {
+			position = p.Position + 1
 		}
 	}
-
-	pin := model.Pin{
-		CardID:     cardID,
-		ProjectID:  categoryID, // see doc comment — kept = CategoryID
-		CategoryID: categoryID,
-		Position:   len(pinFile.Pins),
-		PinnedAt:   time.Now().UTC(),
-	}
-	pinFile.Pins = append(pinFile.Pins, pin)
-
-	return r.savePinFile(pinFile)
+	return r.PinCardAt(cardID, categoryID, position)
 }
 
 // PinCardAt pins a Card to a specific Category with an explicit position.
@@ -52,27 +39,24 @@ func (r *Repository) PinCardAt(cardID, categoryID string, position int) error {
 		return err
 	}
 
-	pinFile, err := r.loadPinFile(cardID)
-	if err != nil {
-		return err
-	}
-
-	for _, p := range pinFile.Pins {
-		if p.CategoryID == categoryID {
-			return fmt.Errorf("card %q is already pinned to category %q", cardID, categoryID)
+	return r.mutatePinFile(cardID, func(pinFile *model.PinFile) error {
+		// Check for duplicate pin (category-keyed; same card can't be
+		// pinned twice to the same category).
+		for _, p := range pinFile.Pins {
+			if p.CategoryID == categoryID {
+				return fmt.Errorf("card %q is already pinned to category %q", cardID, categoryID)
+			}
 		}
-	}
 
-	pin := model.Pin{
-		CardID:     cardID,
-		ProjectID:  categoryID,
-		CategoryID: categoryID,
-		Position:   position,
-		PinnedAt:   time.Now().UTC(),
-	}
-	pinFile.Pins = append(pinFile.Pins, pin)
-
-	return r.savePinFile(pinFile)
+		pinFile.Pins = append(pinFile.Pins, model.Pin{
+			CardID:     cardID,
+			ProjectID:  categoryID, // see PinCard doc comment — kept = CategoryID
+			CategoryID: categoryID,
+			Position:   position,
+			PinnedAt:   time.Now().UTC(),
+		})
+		return nil
+	})
 }
 
 // UnpinCard removes a Card's pin from a specific Category. Matches on
@@ -80,37 +64,23 @@ func (r *Repository) PinCardAt(cardID, categoryID string, position int) error {
 // regardless of what its (now-vestigial) ProjectID field happens to be.
 // This means stale pins from older buggy writes get cleaned up too.
 func (r *Repository) UnpinCard(cardID, categoryID string) error {
-	pinFile, err := r.loadPinFile(cardID)
-	if err != nil {
-		return err
-	}
-
-	found := false
-	filtered := make([]model.Pin, 0, len(pinFile.Pins))
-	for _, p := range pinFile.Pins {
-		if p.CategoryID == categoryID {
-			found = true
-			continue
+	return r.mutatePinFile(cardID, func(pinFile *model.PinFile) error {
+		found := false
+		filtered := make([]model.Pin, 0, len(pinFile.Pins))
+		for _, p := range pinFile.Pins {
+			if p.CategoryID == categoryID {
+				found = true
+				continue
+			}
+			filtered = append(filtered, p)
 		}
-		filtered = append(filtered, p)
-	}
 
-	if !found {
-		return fmt.Errorf("card %q is not pinned to category %q", cardID, categoryID)
-	}
-
-	pinFile.Pins = filtered
-
-	// If no pins remain, remove the pin file and directory
-	if len(pinFile.Pins) == 0 {
-		pinsDir := r.pinsDirPath(cardID)
-		if fileExists(pinsDir) {
-			return os.RemoveAll(pinsDir)
+		if !found {
+			return fmt.Errorf("card %q is not pinned to category %q", cardID, categoryID)
 		}
+		pinFile.Pins = filtered
 		return nil
-	}
-
-	return r.savePinFile(pinFile)
+	})
 }
 
 // GetCardPins returns all pins for a Card.
@@ -162,31 +132,24 @@ func (r *Repository) ListCardsInCategory(categoryID string) ([]model.Pin, error)
 
 // MoveCardInCategory updates a card's position within a category.
 func (r *Repository) MoveCardInCategory(cardID, categoryID string, newPosition int) error {
-	pinFile, err := r.loadPinFile(cardID)
-	if err != nil {
-		return err
-	}
-
-	found := false
-	for i := range pinFile.Pins {
-		if pinFile.Pins[i].CategoryID == categoryID {
-			pinFile.Pins[i].Position = newPosition
-			found = true
-			break
+	return r.mutatePinFile(cardID, func(pinFile *model.PinFile) error {
+		for i := range pinFile.Pins {
+			if pinFile.Pins[i].CategoryID == categoryID {
+				pinFile.Pins[i].Position = newPosition
+				return nil
+			}
 		}
-	}
-
-	if !found {
 		return fmt.Errorf("card %q is not pinned to category %q", cardID, categoryID)
-	}
-
-	return r.savePinFile(pinFile)
+	})
 }
 
 // MoveCardToCategory moves a card from one category to another. Both
 // IDs are categories; ProjectID stored on the pin is set = CategoryID
 // per the doc comment on PinCard.
 func (r *Repository) MoveCardToCategory(cardID, fromCategoryID, toCategoryID string, newPosition int) error {
+	unlock := lockPath(r.pinsFilePath(cardID))
+	defer unlock()
+
 	pinFile, err := r.loadPinFile(cardID)
 	if err != nil {
 		return err
@@ -257,6 +220,36 @@ func (r *Repository) loadPinFile(cardID string) (*model.PinFile, error) {
 	return &pf, nil
 }
 
+// mutatePinFile runs fn on a fresh read of the card's pin file under its
+// lock and saves the result; a pin file left with no pins is removed
+// along with its directory. ErrNoChange from fn skips the write (nil
+// error); any other error aborts without writing.
+func (r *Repository) mutatePinFile(cardID string, fn func(pf *model.PinFile) error) error {
+	unlock := lockPath(r.pinsFilePath(cardID))
+	defer unlock()
+
+	pinFile, err := r.loadPinFile(cardID)
+	if err != nil {
+		return err
+	}
+	if err := fn(pinFile); err != nil {
+		if errors.Is(err, ErrNoChange) {
+			return nil
+		}
+		return err
+	}
+	if len(pinFile.Pins) == 0 {
+		pinsDir := r.pinsDirPath(cardID)
+		if fileExists(pinsDir) {
+			return os.RemoveAll(pinsDir)
+		}
+		return nil
+	}
+	return r.savePinFile(pinFile)
+}
+
+// savePinFile writes a pin file. Callers hold lockPath(pinsFilePath)
+// across their load → save (see mutatePinFile).
 func (r *Repository) savePinFile(pf *model.PinFile) error {
 	dir := r.pinsDirPath(pf.CardID)
 	if err := os.MkdirAll(dir, 0755); err != nil {

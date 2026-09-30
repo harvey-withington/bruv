@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	cardtools "bruv/core/runtime/tools"
+	"bruv/internal/model"
+	"bruv/internal/repo"
 )
 
 // jsonResult marshals v to pretty JSON for the tool's text content.
@@ -215,27 +217,23 @@ func hCreateCategory(rt Board, a map[string]any) (string, bool) {
 }
 
 func hCreateCard(rt Board, a map[string]any) (string, bool) {
-	// The type resolves against the catalog (id or label match, unknown
-	// names created); an omitted type gets the built-in default.
+	// The type resolves against the catalog (id or label match; an
+	// unknown name is refused); an omitted type gets the built-in default.
 	spec, err := cardtools.ParseCardSpec(a)
 	if err != nil {
 		return errResult("%v", err)
 	}
 	created, err := cardtools.CreateCard(rt.CardService(), rt.ProjectService(), rt.CatalogService(), spec)
 	if err != nil {
-		return errResult("%v", err)
+		return typeErrResult(err)
 	}
 	pinnedTo := created.PinnedTo
 	if pinnedTo == "" {
 		pinnedTo = "inbox (unfiled)"
 	}
-	out := map[string]any{
+	return jsonResult(map[string]any{
 		"card_id": created.Card.ID, "title": created.Card.Title, "type": created.Card.Type, "pinned_to": pinnedTo,
-	}
-	if created.TypeCreated {
-		out["type_created"] = true
-	}
-	return jsonResult(out)
+	})
 }
 
 // --- Populate existing cards ---
@@ -245,19 +243,21 @@ func hAddCardBlocks(rt Board, a map[string]any) (string, bool) {
 	if cardID == "" {
 		return errResult("card_id is required")
 	}
-	blocks := cardtools.ParseBlocks(a["blocks"])
-	if len(blocks) == 0 {
-		return errResult("blocks is required and must be a non-empty array")
-	}
-	current, err := rt.GetCard(cardID)
+	blocks, err := cardtools.ParseBlocks(a["blocks"])
 	if err != nil {
 		return errResult("%v", err)
 	}
-	if err := cardtools.CheckNewBlockKeys(current, blocks); err != nil {
-		return errResult("%v", err)
+	if len(blocks) == 0 {
+		return errResult("blocks is required and must be a non-empty array")
 	}
-	current.Blocks = append(current.Blocks, blocks...)
-	if _, err := rt.UpdateCardBlocks(cardID, current.Blocks); err != nil {
+	_, _, err = rt.CardService().Edit(cardID, func(card *model.Card) error {
+		if err := cardtools.CheckNewBlockKeys(card, blocks); err != nil {
+			return err
+		}
+		card.Blocks = append(card.Blocks, blocks...)
+		return nil
+	})
+	if err != nil {
 		return errResult("%v", err)
 	}
 	return jsonResult(map[string]any{"card_id": cardID, "blocks_added": len(blocks)})
@@ -274,25 +274,23 @@ func hSetCardFields(rt Board, a map[string]any) (string, bool) {
 	if len(fields) == 0 {
 		return errResult("fields is required and must be a non-empty object")
 	}
-	card, err := rt.GetCard(cardID)
-	if err != nil {
-		return errResult("%v", err)
-	}
-	up, err := cardtools.ApplyFieldValues(card, rt.SchemaBlocks(card.Type), fields)
+	var up cardtools.FieldUpdate
+	_, _, err := rt.CardService().Edit(cardID, func(card *model.Card) error {
+		var err error
+		if up, err = cardtools.ApplyFieldValues(card, rt.SchemaBlocks(card.Type), fields); err != nil {
+			return err
+		}
+		if up.Description != nil {
+			card.Description = *up.Description
+		}
+		return nil
+	})
 	if err != nil {
 		return errResult("%v", err)
 	}
 	out := map[string]any{"card_id": cardID, "updated_fields": up.Updated}
 	if up.Description != nil {
-		if _, err := rt.UpdateCardDescription(cardID, *up.Description); err != nil {
-			return errResult("set description: %v", err)
-		}
 		out["description_set"] = true
-	}
-	if len(up.Updated) > 0 {
-		if _, err := rt.UpdateCardBlocks(cardID, card.Blocks); err != nil {
-			return errResult("%v", err)
-		}
 	}
 	if len(up.Unknown) > 0 {
 		out["skipped_unknown_keys"] = up.Unknown
@@ -309,27 +307,64 @@ func hAddCardTags(rt Board, a map[string]any) (string, bool) {
 	if len(newTags) == 0 {
 		return errResult("tags is required and must be a non-empty array")
 	}
-	card, err := rt.GetCard(cardID)
+	var added []string
+	card, _, err := rt.CardService().Edit(cardID, func(card *model.Card) error {
+		added = nil
+		seen := make(map[string]bool, len(card.Tags))
+		for _, t := range card.Tags {
+			seen[strings.ToLower(t)] = true
+		}
+		for _, t := range newTags {
+			if !seen[strings.ToLower(t)] {
+				card.Tags = append(card.Tags, t)
+				seen[strings.ToLower(t)] = true
+				added = append(added, t)
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return errResult("%v", err)
 	}
-	seen := make(map[string]bool, len(card.Tags))
-	for _, t := range card.Tags {
-		seen[strings.ToLower(t)] = true
+	return jsonResult(map[string]any{"card_id": cardID, "tags_added": added, "tags": card.Tags})
+}
+
+// hRemoveCardTags drops tags from a card (case-insensitive), or all of
+// them with all=true. Naming tags the card doesn't carry is not an error;
+// the result lists what was actually removed.
+func hRemoveCardTags(rt Board, a map[string]any) (string, bool) {
+	cardID := argStr(a, "card_id")
+	if cardID == "" {
+		return errResult("card_id is required")
 	}
-	merged := card.Tags
-	var added []string
-	for _, t := range newTags {
-		if !seen[strings.ToLower(t)] {
-			merged = append(merged, t)
-			seen[strings.ToLower(t)] = true
-			added = append(added, t)
+	all, _ := a["all"].(bool)
+	drop := argStrSlice(a, "tags")
+	if !all && len(drop) == 0 {
+		return errResult("pass the tags to remove, or all=true to clear every tag")
+	}
+	remove := make(map[string]bool, len(drop))
+	for _, t := range drop {
+		remove[strings.ToLower(t)] = true
+	}
+	kept := []string{}
+	removed := []string{}
+	_, _, err := rt.CardService().Edit(cardID, func(card *model.Card) error {
+		kept, removed = []string{}, []string{}
+		for _, t := range card.Tags {
+			if all || remove[strings.ToLower(t)] {
+				removed = append(removed, t)
+				continue
+			}
+			kept = append(kept, t)
 		}
-	}
-	if len(added) > 0 {
-		if _, err := rt.UpdateCardTags(cardID, merged); err != nil {
-			return errResult("%v", err)
+		if len(removed) == 0 {
+			return repo.ErrNoChange
 		}
+		card.Tags = kept
+		return nil
+	})
+	if err != nil {
+		return errResult("%v", err)
 	}
-	return jsonResult(map[string]any{"card_id": cardID, "tags_added": added, "tags": merged})
+	return jsonResult(map[string]any{"card_id": cardID, "tags_removed": removed, "tags": kept})
 }

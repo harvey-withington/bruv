@@ -16,6 +16,7 @@
 
 import { formatBytes } from './format'
 import {
+  MAX_STORABLE_MEDIA_BYTES,
   VIDEO_OPTION_LINK,
   VIDEO_OPTION_SKIP,
   type CaptureChoices,
@@ -53,13 +54,21 @@ function section(labelKey: string): HTMLDivElement {
 
 // One radio row. The <label> wraps its input, so the whole row is the hit
 // target without any id/for bookkeeping.
-function radio(name: string, value: string, label: string, checked: boolean, hint?: string): HTMLLabelElement {
-  const row = el('label', 'bruv-cd-option')
+function radio(
+  name: string,
+  value: string,
+  label: string,
+  checked: boolean,
+  hint?: string,
+  disabled = false,
+): HTMLLabelElement {
+  const row = el('label', `bruv-cd-option${disabled ? ' bruv-cd-disabled' : ''}`)
   const input = el('input', 'bruv-cd-radio')
   input.type = 'radio'
   input.name = name
   input.value = value
-  input.checked = checked
+  input.checked = checked && !disabled
+  input.disabled = disabled
   row.appendChild(input)
   const body = el('div', 'bruv-cd-optionbody')
   body.appendChild(el('span', 'bruv-cd-optionlabel', label))
@@ -84,8 +93,13 @@ function buildVideo(req: CaptureDialogRequest): HTMLDivElement | null {
   if (req.videoOptions.length === 0) return null
   const wrap = section('dialog_video')
   for (const option of req.videoOptions) {
-    const hint = option.estBytes ? undefined : msg('dialog_size_unknown')
-    wrap.appendChild(radio('bruv-cd-video', option.id, videoRowLabel(option), option.id === req.defaults.videoOptionId, hint))
+    const hint = option.tooLarge
+      ? msg('dialog_video_too_large').replace('{max}', formatBytes(MAX_STORABLE_MEDIA_BYTES))
+      : option.estBytes
+        ? undefined
+        : msg('dialog_size_unknown')
+    const checked = option.id === req.defaults.videoOptionId
+    wrap.appendChild(radio('bruv-cd-video', option.id, videoRowLabel(option), checked, hint, option.tooLarge))
   }
   wrap.appendChild(
     radio(

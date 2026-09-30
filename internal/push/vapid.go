@@ -25,16 +25,15 @@
 package push
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
+
+	"bruv/internal/fsutil"
 )
 
 // vapidFile is the on-disk filename within configDir.
@@ -139,28 +138,12 @@ func (v *VAPID) Subject() string {
 	return v.subject
 }
 
-// writeJSONAtomically writes v to path via a tmp+rename so a crash
-// mid-write doesn't leave a half-written file. Same pattern the rest
-// of the BRUV config loaders use.
+// writeJSONAtomically writes v to path atomically (fsutil.WriteFileAtomic)
+// so a crash mid-write doesn't leave a half-written file.
 func writeJSONAtomically(path string, v any) error {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
 	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	// Use crypto/rand for the tmp suffix so concurrent writers don't
-	// collide. 8 bytes is plenty for the no-collision-in-practice case.
-	suffixBytes := make([]byte, 8)
-	if _, err := rand.Read(suffixBytes); err != nil {
-		return err
-	}
-	suffix := strings.TrimRight(base64.URLEncoding.EncodeToString(suffixBytes), "=")
-	tmp := path + ".tmp." + suffix
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return fsutil.WriteFileAtomic(path, data, 0o600)
 }

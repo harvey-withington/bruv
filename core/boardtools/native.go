@@ -55,9 +55,11 @@ var meta = map[string]toolMeta{
 	"create_project":       {write: true, scope: scopeBoardOnly},
 	"create_category":      {write: true, scope: scopeLocation},
 	"create_card":          {write: true, scope: scopeLocation},
+	"create_card_type":     {write: true, scope: scopeNone},
 	"add_card_blocks":      {write: true, scope: scopeCard},
 	"set_card_fields":      {write: true, scope: scopeCard},
 	"add_card_tags":        {write: true, scope: scopeCard},
+	"remove_card_tags":     {write: true, scope: scopeCard},
 	"set_card_title":       {write: true, scope: scopeCard},
 	"set_card_description": {write: true, scope: scopeCard},
 	"set_card_type":        {write: true, scope: scopeCard},
@@ -258,6 +260,13 @@ func Summary(name string, args map[string]any, result string) string {
 		return "Cleared the due date"
 	case "add_card_tags":
 		return "Added tags: " + strings.Join(argStrSlice(args, "tags"), ", ")
+	case "remove_card_tags":
+		if all, _ := args["all"].(bool); all {
+			return "Removed all tags"
+		}
+		return "Removed tags: " + strings.Join(argStrSlice(args, "tags"), ", ")
+	case "create_card_type":
+		return "Created card type: " + argStr(args, "label")
 	case "configure_card_agent":
 		return "Configured the agent"
 	case "set_card_fields":

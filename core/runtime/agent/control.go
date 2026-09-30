@@ -22,37 +22,71 @@ import (
 	"bruv/internal/config"
 	"bruv/internal/logging"
 	"bruv/internal/model"
+	"bruv/internal/repo"
 )
 
 // CancelAgent cancels a running agent, or resets a stuck status left
-// over from a previous crash.
+// over from a previous crash. A run the scheduler has claimed but not
+// yet started (queued behind the concurrency limit) is dropped before
+// it starts.
 func (rt *Runtime) CancelAgent(cardID string) error {
+	if s := rt.scheduler; s != nil {
+		if found, queued := s.Cancel(cardID); found {
+			if queued {
+				// The run never started, so it won't report its own end.
+				rt.deps.Publish("agent:completed", map[string]any{"cardID": cardID, "status": "cancelled"})
+			}
+			return nil
+		}
+	}
 	if cancelFn, ok := rt.agentCancels.Load(cardID); ok {
 		cancelFn.(context.CancelFunc)()
 		return nil
 	}
-	if rt.deps.Repo() != nil {
-		af, err := rt.deps.Repo().GetAgentConfig(cardID)
-		if err == nil && af.Config.Status == model.AgentStatusRunning {
-			af.Config.Status = model.AgentStatusIdle
-			_ = rt.deps.Repo().SaveAgentConfig(cardID, af.Config)
-			if rt.deps.Index() != nil {
-				nextRun := ""
-				if af.Config.NextRunAt != nil {
-					nextRun = af.Config.NextRunAt.Format(time.RFC3339)
-				}
-				rt.logIdxErr("UpdateAgentIndex", rt.deps.Index().UpdateAgentIndex(cardID, af.Config.Enabled, string(model.AgentStatusIdle), nextRun))
-			}
-			rt.deps.Publish("agent:completed", map[string]any{"cardID": cardID, "status": "cancelled"})
+	if rt.deps.Repo() == nil {
+		return nil
+	}
+	// No live run: reset a stale "running" left by a crash. Patched under
+	// the agent lock on a fresh read so a concurrent config edit survives.
+	reset := false
+	cfg, err := rt.deps.Repo().UpdateAgentConfig(cardID, func(c *model.AgentConfig) error {
+		if c.Status != model.AgentStatusRunning {
+			return repo.ErrNoChange
+		}
+		c.Status = model.AgentStatusIdle
+		c.RunStartedAt = nil
+		reset = true
+		return nil
+	})
+	if err != nil {
+		if agentGone(err) {
 			return nil
 		}
+		return fmt.Errorf("reset agent status: %w", err)
 	}
+	if !reset {
+		return nil
+	}
+	if rt.deps.Index() != nil {
+		nextRun := ""
+		if cfg.NextRunAt != nil {
+			nextRun = cfg.NextRunAt.Format(time.RFC3339)
+		}
+		rt.logIdxErr("UpdateAgentIndex", rt.deps.Index().UpdateAgentIndex(cardID, cfg.Enabled, string(model.AgentStatusIdle), nextRun))
+	}
+	rt.deps.Publish("agent:completed", map[string]any{"cardID": cardID, "status": "cancelled"})
 	return nil
 }
 
 // TriggerAgent runs an agent immediately, bypassing the schedule.
 // Falls back to a direct goroutine when the scheduler isn't running
-// (e.g. a host that hasn't started it yet).
+// (e.g. a host that hasn't started it yet). Refused once the scheduler
+// is stopping (agentlib.ErrSchedulerStopped), so a trigger can't start
+// a run on a runtime that is shutting down.
+//
+// rt.scheduler is written once by startScheduler before the runtime is
+// published to callers; hosts stop it via Scheduler().Stop() rather
+// than stopScheduler so the pointer is never cleared under a reader.
 func (rt *Runtime) TriggerAgent(cardID string) error {
 	if rt.scheduler != nil {
 		return rt.scheduler.TriggerNow(rt.deps.Ctx(), cardID)

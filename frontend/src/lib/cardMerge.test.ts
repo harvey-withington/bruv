@@ -213,8 +213,8 @@ describe('mergeCardFromJson', () => {
       },
     ), 'target', { mergedSuffix: '(Merged)', mergedHeading: 'Merged' })
 
-    expect(calls.map((c) => c.method)).toEqual(['getCard', 'updateCardBlocks', 'addCardAttachment', 'addCardComment'])
-    expect(calls[2].args[1]).toBe('new.txt')
+    expect(calls.map((c) => c.method)).toEqual(['getCard', 'addCardAttachment', 'updateCardBlocks', 'addCardComment'])
+    expect(calls[1].args[1]).toBe('new.txt')
     expect(calls[3].args).toEqual(['target', 'Bob', 'fresh'])
     expect(out).toMatchObject({ cardId: 'target', attachmentsAdded: 1, commentsAdded: 1, failedAttachments: [], failedComments: [] })
     expect(out.summary.blocksCopied).toBe(1)

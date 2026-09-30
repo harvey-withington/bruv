@@ -16,7 +16,12 @@
   } from '@shared/api'
   import type { CardComment } from '@shared/types'
 
-  let { cardId, count = $bindable(0) }: { cardId: string; count?: number } = $props()
+  let { cardId, count = $bindable(0), onChanged }: {
+    cardId: string
+    count?: number
+    /** A comment was added, edited or deleted (the card dialog marks the card edited). */
+    onChanged?: () => void
+  } = $props()
 
   let comments = $state<CardComment[]>([])
   let draft = $state('')
@@ -56,6 +61,7 @@
       const created = await AddCardComment(cardId, '', text)
       comments = [...comments, created]
       draft = ''
+      onChanged?.()
     } catch (e) {
       console.error('post comment', e)
       showToast(t('comments.post_failed'), 'error')
@@ -81,6 +87,7 @@
       const updated = await UpdateCardComment(cardId, c.id, text)
       comments = comments.map(x => x.id === c.id ? updated : x)
       cancelEdit()
+      onChanged?.()
     } catch (e) {
       console.error('edit comment', e)
       showToast(t('comments.edit_failed'), 'error')
@@ -93,6 +100,7 @@
     try {
       await DeleteCardComment(cardId, c.id)
       comments = comments.filter(x => x.id !== c.id)
+      onChanged?.()
     } catch (e) {
       console.error('delete comment', e)
       showToast(t('comments.delete_failed'), 'error')

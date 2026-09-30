@@ -5,6 +5,7 @@
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
   import { focusTrap } from '../lib/actions'
+  import { keyLayer } from '../lib/keyLayer'
 
   type CategoryPath = {
     brandSlug: string; streamSlug: string; projectSlug: string; categorySlug: string
@@ -81,13 +82,18 @@
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       selectedIndex = Math.max(selectedIndex - 1, 0)
-    } else if (e.key === 'Enter') {
-      e.preventDefault()
-      if (items.length > 0) selectItem(items[selectedIndex])
-    } else if (e.key === 'Escape') {
-      e.preventDefault()
-      onClose()
     }
+  }
+
+  // Escape / Enter go through the key-layer stack (capture phase,
+  // consumed) so they never reach the card dialog underneath — Escape used
+  // to close the picker AND the card (UI-CONVENTIONS §8.1).
+  function handleEnter(e: KeyboardEvent): boolean {
+    // A focused result/close button activates itself on plain Enter; the
+    // Ctrl/Cmd+Enter chord is still swallowed (it would close the card).
+    if (e.target !== inputEl) return e.ctrlKey || e.metaKey
+    if (items.length > 0) selectItem(items[selectedIndex])
+    return true
   }
 
   function selectItem(item: CategoryPath) {
@@ -102,7 +108,7 @@
 {#if visible}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="pin-backdrop" onmousedown={handleBackdropClick} out:fade={{ duration: 150 }}>
-    <div class="pin-modal" use:focusTrap>
+    <div class="pin-modal" use:focusTrap use:keyLayer={{ onEscape: onClose, onEnter: handleEnter }}>
       <div class="pin-header">
         <span class="pin-title">{t('pin.title')}</span>
         <button class="pin-close" onclick={onClose}><X size={16} /></button>

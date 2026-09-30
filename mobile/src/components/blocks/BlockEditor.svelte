@@ -358,11 +358,4 @@
     font-size: 0.85rem;
     font-style: italic;
   }
-
-  .block-body {
-    transition: max-height 180ms ease, opacity 120ms ease;
-    max-height: 2000px;
-    opacity: 1;
-    overflow: visible;
-  }
 </style>

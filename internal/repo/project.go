@@ -106,6 +106,8 @@ func (r *Repository) ListProjects(brandSlug, streamSlug string) ([]model.Project
 
 // UpdateProject updates a Project's mutable fields.
 func (r *Repository) UpdateProject(brandSlug, streamSlug, projectSlug string, update func(*model.Project)) (*model.Project, error) {
+	unlock := lockPath(r.projectFilePath(brandSlug, streamSlug, projectSlug))
+	defer unlock()
 	project, err := r.GetProject(brandSlug, streamSlug, projectSlug)
 	if err != nil {
 		return nil, err
@@ -135,6 +137,8 @@ func (r *Repository) ReorderProjects(brandSlug, streamSlug string, orderedSlugs 
 
 // RenameProject renames a Project and moves its directory if the slug changes.
 func (r *Repository) RenameProject(brandSlug, streamSlug, projectSlug, newName string) (*model.Project, error) {
+	unlock := lockPath(r.projectFilePath(brandSlug, streamSlug, projectSlug))
+	defer unlock()
 	project, err := r.GetProject(brandSlug, streamSlug, projectSlug)
 	if err != nil {
 		return nil, err
@@ -168,30 +172,12 @@ func (r *Repository) RenameProject(brandSlug, streamSlug, projectSlug, newName s
 
 // UpdateProjectDescription sets or clears the description on a Project.
 func (r *Repository) UpdateProjectDescription(brandSlug, streamSlug, projectSlug, description string) (*model.Project, error) {
-	project, err := r.GetProject(brandSlug, streamSlug, projectSlug)
-	if err != nil {
-		return nil, err
-	}
-	project.Description = description
-	project.UpdatedAt = time.Now().UTC()
-	if err := writeJSON(r.projectFilePath(brandSlug, streamSlug, projectSlug), project); err != nil {
-		return nil, fmt.Errorf("write project: %w", err)
-	}
-	return project, nil
+	return r.UpdateProject(brandSlug, streamSlug, projectSlug, func(p *model.Project) { p.Description = description })
 }
 
 // UpdateProjectIcon sets or clears the icon on a Project.
 func (r *Repository) UpdateProjectIcon(brandSlug, streamSlug, projectSlug, icon string) (*model.Project, error) {
-	project, err := r.GetProject(brandSlug, streamSlug, projectSlug)
-	if err != nil {
-		return nil, err
-	}
-	project.Icon = icon
-	project.UpdatedAt = time.Now().UTC()
-	if err := writeJSON(r.projectFilePath(brandSlug, streamSlug, projectSlug), project); err != nil {
-		return nil, fmt.Errorf("write project: %w", err)
-	}
-	return project, nil
+	return r.UpdateProject(brandSlug, streamSlug, projectSlug, func(p *model.Project) { p.Icon = icon })
 }
 
 // DeleteProject removes a Project and all its contents.

@@ -39,6 +39,8 @@ func TestTriggerNowClaimsSlotImmediately(t *testing.T) {
 		t.Fatal("IsRunning = false right after TriggerNow, want true (slot claimed)")
 	}
 
+	// Stop drops runs that haven't started, so let this one begin first.
+	waitStarted(t, s, "card-1")
 	close(block)
 	s.Stop()
 
@@ -73,6 +75,7 @@ func TestTickSkipsClaimedAgent(t *testing.T) {
 	}
 	s.tick(context.Background()) // must see the claimed slot and skip
 
+	waitStarted(t, s, "card-1")
 	close(block)
 	s.Stop()
 

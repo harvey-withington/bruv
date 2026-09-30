@@ -148,27 +148,56 @@ self.addEventListener('push', (event) => {
   event.waitUntil(self.registration.showNotification(title, opts))
 })
 
+// How long an open page gets to acknowledge an in-app navigation before
+// we fall back to navigating the window ourselves.
+const NAVIGATE_ACK_MS = 1500
+
+/**
+ * Ask an open page to route to `url` IN PLACE (lib/serviceWorker.ts),
+ * resolving true once it acknowledges over the reply port. In-app routing
+ * keeps the page's state — CardPage's pending saves, queued offline
+ * retries, open drafts — which a document navigation would throw away.
+ */
+function navigateInApp(client, url) {
+  return new Promise((resolve) => {
+    const channel = new MessageChannel()
+    const timer = setTimeout(() => resolve(false), NAVIGATE_ACK_MS)
+    channel.port1.onmessage = () => {
+      clearTimeout(timer)
+      resolve(true)
+    }
+    try {
+      client.postMessage({ type: 'bruv:navigate', url }, [channel.port2])
+    } catch (_) {
+      clearTimeout(timer)
+      resolve(false)
+    }
+  })
+}
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
   const target = (event.notification.data && event.notification.data.url) || '/m/'
   event.waitUntil(
     (async () => {
-      // If the PWA is already open, focus the existing window and
-      // navigate it. Otherwise open a fresh one. clients.matchAll
-      // returns every controlled tab/window in scope.
+      // An open PWA window takes the tap in place: focus it (while the
+      // click's user activation lasts), then ask it to route. Only a page
+      // that can't answer (an old build, a hung tab) gets a full
+      // navigate; with no window at all we open one.
       const all = await clients.matchAll({ type: 'window', includeUncontrolled: true })
-      for (const c of all) {
-        // c.url may be a deep path; just need to find any in-scope client.
-        if (c.url.includes('/m/')) {
-          await c.focus()
-          // navigate is a feature flag in some browsers — fall back to
-          // a postMessage if the API is missing.
-          if ('navigate' in c && typeof c.navigate === 'function') {
-            try { await c.navigate(target) } catch (_) { /* best effort */ }
-          } else {
-            c.postMessage({ type: 'bruv:navigate', url: target })
-          }
-          return
+      const inScope = all.filter((c) => new URL(c.url).pathname.startsWith('/m/'))
+      const client =
+        inScope.find((c) => c.focused) ||
+        inScope.find((c) => c.visibilityState === 'visible') ||
+        inScope[0]
+      if (client) {
+        try { await client.focus() } catch (_) { /* best effort */ }
+        if (await navigateInApp(client, target)) return
+        if ('navigate' in client && typeof client.navigate === 'function') {
+          try {
+            await client.navigate(target)
+            return
+          } catch (_) { /* fall through to a fresh window */ }
         }
       }
       await clients.openWindow(target)

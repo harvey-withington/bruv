@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"bruv/internal/fsutil"
 	"bruv/internal/mcp"
 )
 
@@ -66,13 +67,9 @@ func (r *Repository) SaveMCPServerStore(store MCPServerStore) error {
 	if store.Version == 0 {
 		store.Version = 1
 	}
-	path := r.mcpServersPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
 	data, err := json.MarshalIndent(store, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
+	return fsutil.WriteFileAtomic(r.mcpServersPath(), data, 0o600)
 }

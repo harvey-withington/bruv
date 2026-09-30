@@ -248,7 +248,12 @@ func (s *Server) Start() error {
 	s.listener = ln
 
 	mux := s.buildMux()
+	// Request contexts derive from baseCtx, cancelled as Shutdown
+	// begins, so long-lived SSE streams end promptly instead of
+	// holding Shutdown until its deadline.
+	baseCtx, cancelBase := context.WithCancel(context.Background())
 	s.httpServer = &nethttp.Server{
+		BaseContext: func(net.Listener) context.Context { return baseCtx },
 		// CORS wraps the whole mux so every response — including
 		// /app/* static assets and preflight OPTIONS — carries the
 		// right headers. The Wails webview lives at
@@ -259,6 +264,7 @@ func (s *Server) Start() error {
 		WriteTimeout: 0, // SSE streams need unbounded write
 		IdleTimeout:  120 * time.Second,
 	}
+	s.httpServer.RegisterOnShutdown(cancelBase)
 
 	go func() {
 		if err := s.httpServer.Serve(ln); err != nil && err != nethttp.ErrServerClosed {
@@ -276,7 +282,14 @@ func (s *Server) Stop() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	return s.httpServer.Shutdown(ctx)
+	if err := s.httpServer.Shutdown(ctx); err != nil {
+		// Shutdown only waits for idle connections; SSE streams never
+		// go idle. Force-close what's left so no request is still
+		// running when the caller goes on to close the runtimes.
+		_ = s.httpServer.Close()
+		return err
+	}
+	return nil
 }
 
 // buildMux constructs the route table. Kept small so the listing in

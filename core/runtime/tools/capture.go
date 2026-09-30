@@ -8,8 +8,8 @@ package tools
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
-	"time"
 
 	"bruv/core/services/card"
 	"bruv/core/services/catalog"
@@ -19,11 +19,12 @@ import (
 	"github.com/google/uuid"
 )
 
-// TypeResolver canonicalises a card type by id or label, creating an
-// unknown one first (ruling 2026-08-14) so a card is never stamped with a
-// type that doesn't exist. Satisfied by *catalog.Service.
+// TypeResolver canonicalises a card type by id or label and refuses an
+// unknown one (ruling 2026-09-30: LLM surfaces never create types
+// implicitly; create_card_type is the explicit act). Satisfied by
+// *catalog.Service.
 type TypeResolver interface {
-	ResolveOrCreateType(input string) (id string, created bool, err error)
+	ResolveType(input string) (id string, err error)
 }
 
 // Location names a category by its Brand → Stream → Project → Category
@@ -42,7 +43,7 @@ func (l Location) complete() bool {
 // CardSpec is a card to create and populate in one call.
 type CardSpec struct {
 	Title       string
-	Type        string // id or label; unknown is created; empty = catalog.DefaultCardType
+	Type        string // id or label of an existing type; empty = catalog.DefaultCardType
 	Description string
 	DueDate     string // YYYY-MM-DD; empty = none
 	Tags        []string
@@ -52,9 +53,8 @@ type CardSpec struct {
 
 // CreatedCard is the outcome of CreateCard.
 type CreatedCard struct {
-	Card        *model.Card
-	PinnedTo    string // breadcrumb, or "" when left in the inbox
-	TypeCreated bool   // the named type didn't exist and was created
+	Card     *model.Card
+	PinnedTo string // breadcrumb, or "" when left in the inbox
 }
 
 // ParseCardSpec reads create_card tool arguments: title, card_type,
@@ -70,7 +70,6 @@ func ParseCardSpec(a map[string]any) (CardSpec, error) {
 		Description: str("description"),
 		DueDate:     str("due_date"),
 		Tags:        stringList(a["tags"]),
-		Blocks:      ParseBlocks(a["blocks"]),
 		Location:    LocationArgs(a),
 	}
 	var errs []error
@@ -81,71 +80,147 @@ func ParseCardSpec(a map[string]any) (CardSpec, error) {
 		errs = append(errs, errors.New("to file the card, provide all of brand, stream, project and category (or none to leave it in the inbox)"))
 	}
 	if spec.DueDate != "" {
-		if _, err := time.Parse("2006-01-02", spec.DueDate); err != nil {
-			errs = append(errs, fmt.Errorf("due_date %q is not YYYY-MM-DD", spec.DueDate))
+		if _, err := card.ParseDueDate(spec.DueDate); err != nil {
+			errs = append(errs, fmt.Errorf("due_date: %w", err))
 		}
 	}
+	blocks, err := ParseBlocks(a["blocks"])
+	if err != nil {
+		errs = append(errs, err)
+	} else if err := CheckNewBlockKeys(&model.Card{}, blocks); err != nil {
+		errs = append(errs, err)
+	}
+	spec.Blocks = blocks
 	return spec, errors.Join(errs...)
 }
 
 // CreateCard creates a card and applies everything in spec, creating any
-// missing level of the filing path and an unknown type. The location is
-// resolved before the type so a bad path can't leave a stray new type.
+// missing level of the filing path. Everything that can be refused — the
+// type, the category's accepted types — is checked BEFORE the card
+// exists, and a step that still fails afterwards deletes the new card:
+// a refused create must never leave an orphan (each model retry used to
+// add another).
 func CreateCard(cs *card.Service, ps *projectsvc.Service, types TypeResolver, spec CardSpec) (*CreatedCard, error) {
+	cardType := catalog.DefaultCardType
+	if spec.Type != "" {
+		var err error
+		if cardType, err = types.ResolveType(spec.Type); err != nil {
+			return nil, err
+		}
+	}
 	var catID, breadcrumb string
 	if !spec.Location.IsEmpty() {
 		var err error
 		if catID, breadcrumb, err = ResolveOrCreateCategory(ps, spec.Location); err != nil {
 			return nil, err
 		}
-	}
-	cardType, typeCreated := catalog.DefaultCardType, false
-	if spec.Type != "" {
-		var err error
-		if cardType, typeCreated, err = types.ResolveOrCreateType(spec.Type); err != nil {
-			return nil, err
+		if err := cs.CheckCategoryAcceptsType(catID, cardType); err != nil {
+			return nil, fmt.Errorf("pin card: %w", err)
 		}
 	}
 	c, err := cs.Create(cardType, spec.Title)
 	if err != nil {
 		return nil, err
 	}
+	if c, err = populateCard(cs, c, catID, spec); err != nil {
+		if delErr := cs.Delete(c.ID); delErr != nil {
+			return nil, fmt.Errorf("%w (and removing the half-made card %s failed: %v)", err, c.ID, delErr)
+		}
+		return nil, err
+	}
+	return &CreatedCard{Card: c, PinnedTo: breadcrumb}, nil
+}
+
+// populateCard applies the rest of spec to a just-created card. It
+// always returns a card (the latest good state) so the caller can roll
+// back by id.
+func populateCard(cs *card.Service, c *model.Card, catID string, spec CardSpec) (*model.Card, error) {
+	step := func(name string, fn func() (*model.Card, error)) error {
+		updated, err := fn()
+		if err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		c = updated
+		return nil
+	}
 	if catID != "" {
 		if err := cs.Pin(c.ID, catID); err != nil {
-			return nil, fmt.Errorf("pin card: %w", err)
+			return c, fmt.Errorf("pin card: %w", err)
 		}
 	}
 	if len(spec.Tags) > 0 {
-		if c, err = cs.UpdateTags(c.ID, spec.Tags); err != nil {
-			return nil, fmt.Errorf("set tags: %w", err)
+		if err := step("set tags", func() (*model.Card, error) { return cs.UpdateTags(c.ID, spec.Tags) }); err != nil {
+			return c, err
 		}
 	}
 	if spec.Description != "" {
-		if c, err = cs.UpdateDescription(c.ID, spec.Description); err != nil {
-			return nil, fmt.Errorf("set description: %w", err)
+		if err := step("set description", func() (*model.Card, error) { return cs.UpdateDescription(c.ID, spec.Description) }); err != nil {
+			return c, err
 		}
 	}
 	if spec.DueDate != "" {
-		if c, err = cs.UpdateDueDate(c.ID, spec.DueDate); err != nil {
-			return nil, fmt.Errorf("set due date: %w", err)
+		if err := step("set due date", func() (*model.Card, error) { return cs.UpdateDueDate(c.ID, spec.DueDate) }); err != nil {
+			return c, err
 		}
 	}
 	if len(spec.Blocks) > 0 {
-		// c carries the type's seeded blocks; append after them.
-		if c, err = cs.UpdateBlocks(c.ID, append(c.Blocks, spec.Blocks...)); err != nil {
-			return nil, fmt.Errorf("add blocks: %w", err)
+		blocks, err := mergeIntoSeeded(c.Blocks, spec.Blocks)
+		if err != nil {
+			return c, err
+		}
+		if err := step("add blocks", func() (*model.Card, error) { return cs.UpdateBlocks(c.ID, blocks) }); err != nil {
+			return c, err
 		}
 	}
-	return &CreatedCard{Card: c, PinnedTo: breadcrumb, TypeCreated: typeCreated}, nil
+	return c, nil
+}
+
+// mergeIntoSeeded adds a new card's blocks after the ones its type's
+// template seeded. A block whose key the template already gave the card
+// fills that field (shaped by the field's own settings) instead of
+// becoming a second block with the same key — the model can't know the
+// template's keys in advance.
+func mergeIntoSeeded(seeded, blocks []model.Block) ([]model.Block, error) {
+	out := slices.Clone(seeded)
+	byKey := make(map[string]int, len(out))
+	for i, b := range out {
+		if b.Key != "" {
+			byKey[b.Key] = i
+		}
+	}
+	for _, b := range blocks {
+		i, ok := byKey[b.Key]
+		if b.Key == "" || !ok {
+			out = append(out, b)
+			continue
+		}
+		coerced, err := CoerceBlockValueForBlock(&out[i], b.Value)
+		if err != nil {
+			return nil, fmt.Errorf("field %q: %w", b.Key, err)
+		}
+		out[i].Value = coerced
+	}
+	return out, nil
+}
+
+// knownBlockTypes are the block types a tool may create — the frontend's
+// BLOCK_TYPES (shared/types.ts); legacy "video" is read-only.
+var knownBlockTypes = []string{
+	model.BlockText, model.BlockChecklist, model.BlockList, model.BlockMedia, model.BlockURL,
+	model.BlockDivider, model.BlockSelect, model.BlockNumber, model.BlockDate, model.BlockRating,
+	model.BlockCheckbox, model.BlockRadio, model.BlockCheckboxGroup, model.BlockImage,
+	model.BlockProgress, model.BlockAlarm, model.BlockSurvey, model.BlockSlideDeck, model.BlockWorkspaceFiles,
 }
 
 // ParseBlocks converts the tool block shape ({type,label,value,key?})
 // into model.Block values with fresh ids, coercing each value the same
 // way chat edits are coerced (checklists become arrays, dates normalise).
-func ParseBlocks(raw any) []model.Block {
+// An unknown block type is an error listing the valid ones — it would
+// otherwise render as nothing.
+func ParseBlocks(raw any) ([]model.Block, error) {
 	arr, ok := raw.([]any)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	out := make([]model.Block, 0, len(arr))
 	for _, item := range arr {
@@ -157,6 +232,9 @@ func ParseBlocks(raw any) []model.Block {
 		blockType = strings.TrimSpace(blockType)
 		if blockType == "" {
 			blockType = model.BlockText
+		}
+		if !slices.Contains(knownBlockTypes, blockType) {
+			return nil, fmt.Errorf("unknown block type %q; use one of: %s", blockType, strings.Join(knownBlockTypes, ", "))
 		}
 		label, _ := m["label"].(string)
 		key, _ := m["key"].(string)
@@ -183,7 +261,7 @@ func ParseBlocks(raw any) []model.Block {
 		}
 		out = append(out, b)
 	}
-	return out
+	return out, nil
 }
 
 func stringList(raw any) []string {

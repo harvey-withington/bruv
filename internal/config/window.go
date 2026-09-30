@@ -63,7 +63,7 @@ func SaveWindowBounds(wb *WindowBounds) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return atomicWriteFile(path, data, 0o644)
 }
 
 // ClampToVisible adjusts window bounds so that at least minVisible pixels

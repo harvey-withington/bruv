@@ -134,7 +134,21 @@ type ServerProcess struct {
 	startedAt     time.Time
 	failCount     int
 	stopRequested bool
+
+	// exited is closed by supervise once cmd.Wait returns for the
+	// current cmd. supervise is the only caller of cmd.Wait — Stop
+	// waits on this channel instead, since Wait must not be called twice.
+	exited chan struct{}
+
+	// onRestart, if set, runs after supervise has brought a crashed
+	// server back up (its tool list may have changed). The Registry
+	// uses it to rebuild its tool index. Set before Start.
+	onRestart func()
 }
+
+// errStopRequested reports a spawn that completed after Stop was
+// requested; the fresh subprocess has already been killed.
+var errStopRequested = errors.New("stop requested during start")
 
 // NewServerProcess creates an unstarted ServerProcess for a single
 // server spec. Call Start to actually spawn the subprocess.
@@ -244,8 +258,7 @@ func (s *ServerProcess) spawnAndHandshake(ctx context.Context) error {
 	initCtx, cancel := context.WithTimeout(ctx, initTimeout)
 	defer cancel()
 	if err := client.Initialize(initCtx); err != nil {
-		_ = transport.Close()
-		_ = cmd.Process.Kill()
+		killAndReap(cmd, transport)
 		return fmt.Errorf("initialize: %w", err)
 	}
 
@@ -257,13 +270,21 @@ func (s *ServerProcess) spawnAndHandshake(ctx context.Context) error {
 	defer cancel2()
 	tools, err := client.ListTools(listCtx)
 	if err != nil {
-		_ = transport.Close()
-		_ = cmd.Process.Kill()
+		killAndReap(cmd, transport)
 		return fmt.Errorf("tools/list: %w", err)
 	}
 
 	s.mu.Lock()
+	if s.stopRequested {
+		// Stop ran while we were starting (e.g. a supervised restart
+		// racing a shutdown). It couldn't see this process, so it's
+		// ours to kill — otherwise the child would be orphaned.
+		s.mu.Unlock()
+		killAndReap(cmd, transport)
+		return errStopRequested
+	}
 	s.cmd = cmd
+	s.exited = make(chan struct{})
 	s.client = client
 	s.transport = transport
 	s.tools = tools
@@ -280,6 +301,14 @@ func (s *ServerProcess) spawnAndHandshake(ctx context.Context) error {
 		"server_name", s.serverInfo.Name,
 		"server_version", s.serverInfo.Version)
 	return nil
+}
+
+// killAndReap kills a subprocess that never became the live one and
+// waits for it in the background so its process handle is released.
+func killAndReap(cmd *exec.Cmd, transport *Transport) {
+	_ = transport.Close()
+	_ = cmd.Process.Kill()
+	go func() { _ = cmd.Wait() }()
 }
 
 // buildEnv constructs the child process's environment. Starts with a
@@ -340,12 +369,14 @@ func (s *ServerProcess) supervise() {
 	defer logging.Recover("mcp-supervise-" + s.spec.Name)
 	s.mu.Lock()
 	cmd := s.cmd
+	exited := s.exited
 	s.mu.Unlock()
 	if cmd == nil {
 		return
 	}
 
 	waitErr := cmd.Wait()
+	close(exited)
 
 	s.mu.Lock()
 	if s.stopRequested {
@@ -386,9 +417,23 @@ func (s *ServerProcess) supervise() {
 	// backoff is a follow-up enhancement.
 	time.Sleep(2 * time.Second)
 
+	s.mu.Lock()
+	if s.stopRequested {
+		s.status = HealthDisabled
+		s.mu.Unlock()
+		return
+	}
+	s.mu.Unlock()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := s.spawnAndHandshake(ctx); err != nil {
+		if errors.Is(err, errStopRequested) {
+			s.mu.Lock()
+			s.status = HealthDisabled
+			s.mu.Unlock()
+			return
+		}
 		slog.Warn("mcp restart failed", "server", name, "err", err)
 		s.mu.Lock()
 		s.status = HealthFailed
@@ -397,6 +442,9 @@ func (s *ServerProcess) supervise() {
 		return
 	}
 	go s.supervise()
+	if s.onRestart != nil {
+		s.onRestart()
+	}
 }
 
 // CallTool forwards a tool invocation to the underlying client. It
@@ -455,23 +503,23 @@ func (s *ServerProcess) Stop() error {
 	s.mu.Lock()
 	s.stopRequested = true
 	cmd := s.cmd
+	exited := s.exited
 	transport := s.transport
 	s.mu.Unlock()
 
 	if transport != nil {
 		_ = transport.Close() // closes stdin
 	}
-	if cmd == nil || cmd.Process == nil {
+	if cmd == nil || cmd.Process == nil || exited == nil {
 		return nil
 	}
 
 	// Wait for clean exit with a deadline. If the process takes
 	// too long we kill it and move on — a hung server is worse
-	// than a dead one.
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	// than a dead one. supervise owns cmd.Wait and closes exited
+	// when it returns.
 	select {
-	case <-done:
+	case <-exited:
 		return nil
 	case <-time.After(3 * time.Second):
 		if err := cmd.Process.Kill(); err != nil {

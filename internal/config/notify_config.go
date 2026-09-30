@@ -67,5 +67,5 @@ func SaveNotifyConfig(c NotifyConfig) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return atomicWriteFile(path, data, 0o644)
 }

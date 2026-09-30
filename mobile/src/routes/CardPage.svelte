@@ -30,6 +30,8 @@
   import { repoMeta, ensureRepoMeta, loadProjectTags, projectKey as makeProjectKey } from '../lib/repoMeta.svelte'
   import { onEvent } from '../lib/events.svelte'
   import { dragSortable, type DragMoveDetail } from '../lib/actions/dnd.svelte'
+  import { createCardSaveQueue } from '../lib/cardSaveQueue'
+  import { isoToDateInput } from '@shared/dateTimeInput'
   import { CLIP_PENDING_TAG } from '@shared/types'
   import type { Block, Card, CardPin } from '@shared/types'
 
@@ -228,14 +230,37 @@
   let commentCount = $state(0)
 
   // Block save state. `lastSavedBlocks` is the last snapshot the
-  // server confirmed; on a save failure we revert to it. The single
-  // debounce timer coalesces rapid edits (e.g. typing) into one
-  // persistence call. 200ms is short enough that taps feel
-  // instantaneous and long enough that a textarea's per-keystroke
-  // change events don't fire one save per character.
-  let lastSavedBlocks = $state<Block[]>([])
-  let blockSaveTimer: ReturnType<typeof setTimeout> | null = null
+  // server confirmed; on a save failure we revert to it. Every block
+  // mutation persists through ONE save queue (lib/cardSaveQueue): a
+  // 200ms debounce coalesces typing, at most one UpdateCardBlocks is in
+  // flight (later saves coalesce to the latest blocks), a pending
+  // debounce is flushed when the page is left, and its edit counter
+  // lets refreshCardQuietly discard refetches that overlapped an edit.
+  let lastSavedBlocks: Block[] = []
   let savingBlocks = $state(false)
+  // Set on teardown: late save failures toast instead of writing state
+  // into a destroyed page, and deferred refreshes stand down.
+  let destroyed = false
+  const blockSaves = createCardSaveQueue<Block[]>({
+    read: () => (card ? $state.snapshot(card.blocks) : null),
+    persist: async (blocks) => {
+      await repoRPC('UpdateCardBlocks', [id, blocks])
+      lastSavedBlocks = blocks
+      if (!destroyed) flashSaved()
+    },
+    onError: (err, retry) => {
+      if (destroyed) {
+        showToast(t('card.err_save_on_leave'), 'error')
+        return
+      }
+      onSaveFailed(err, 'blocks', retry, () => {
+        // A newer save is already queued with the user's latest blocks —
+        // don't yank them off screen; that save reports its own outcome.
+        if (card && !blockSaves.busy) card.blocks = lastSavedBlocks
+      })
+    },
+    onSavingChange: (saving) => (savingBlocks = saving),
+  })
   let savedFlash = $state(false)
   let savedFlashTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -496,6 +521,7 @@
     if (!card) return
     const previous = card[key]
     card[key] = value
+    blockSaves.markEdit()
     saveError = null
     try {
       await repoRPC(method, [card.id, arg])
@@ -513,21 +539,11 @@
 
   const saveTitle = (next: string) => persistField('title', next, 'UpdateCardTitle')
   const saveTags = (next: string[]) => persistField('tags', next, 'UpdateCardTags')
-  // Stored as null when cleared; the RPC takes the raw input string.
+  // Stored as null when cleared; the RPC takes the raw input string
+  // (YYYY-MM-DD, stored as that date's UTC midnight — isoToDateInput
+  // reads the calendar date back as written, so no zone shift).
   const saveDueDate = (next: string) => persistField('due_date', next || null, 'UpdateCardDueDate', next)
   const saveDescription = (next: string) => persistField('description', next, 'UpdateCardDescription')
-
-  // Native date input wants `YYYY-MM-DD`; the model stores ISO 8601 or
-  // similar. Convert both directions, leaving the original on parse fail.
-  function dueInputValue(raw: string | null | undefined): string {
-    if (!raw) return ''
-    const d = new Date(raw)
-    if (Number.isNaN(d.getTime())) return ''
-    const y = d.getFullYear().toString().padStart(4, '0')
-    const m = (d.getMonth() + 1).toString().padStart(2, '0')
-    const day = d.getDate().toString().padStart(2, '0')
-    return `${y}-${m}-${day}`
-  }
 
   function flashSaved() {
     savedFlash = true
@@ -585,43 +601,21 @@
     await saveBlocksNow()
   }
 
-  function scheduleSave() {
-    if (blockSaveTimer) clearTimeout(blockSaveTimer)
-    blockSaveTimer = setTimeout(() => void saveBlocksNow(), 200)
-  }
+  const scheduleSave = () => blockSaves.schedule()
 
   // Single persistence path for every block mutation (edit / move / delete
-  // / add). Flushes any pending debounce, persists the current snapshot,
-  // and on failure routes through onSaveFailed — so a network drop keeps
-  // the optimistic blocks and retries on reconnect rather than reverting
-  // and losing the edit.
-  async function saveBlocksNow() {
-    if (!card) return
-    if (blockSaveTimer) {
-      clearTimeout(blockSaveTimer)
-      blockSaveTimer = null
-    }
-    const snapshot = card.blocks
-    savingBlocks = true
-    try {
-      await repoRPC('UpdateCardBlocks', [card.id, snapshot])
-      lastSavedBlocks = snapshot
-      flashSaved()
-    } catch (err) {
-      onSaveFailed(err, 'blocks', saveBlocksNow, () => {
-        if (card) card.blocks = lastSavedBlocks
-      })
-    } finally {
-      savingBlocks = false
-    }
-  }
+  // / add). Flushes any pending debounce and persists the current
+  // snapshot behind any in-flight save; failures route through
+  // onSaveFailed — a network drop keeps the optimistic blocks and retries
+  // on reconnect rather than reverting and losing the edit.
+  const saveBlocksNow = () => blockSaves.saveNow()
 
   // Empty checklist/list rows are editing placeholders, not content. Drop
   // any that remain when leaving the card (e.g. a row added then Back-ed
   // out of before it blurred). Done on unmount specifically — stripping
   // during live editing would let the post-save card:updated echo refetch
   // and remove the row the user is mid-typing into.
-  function withoutEmptyItems(blocks: Block[]): { blocks: Block[]; changed: boolean } {
+  function withoutEmptyItems(blocks: Block[]): { value: Block[]; changed: boolean } {
     let changed = false
     const out = blocks.map((b) => {
       if ((b.type === 'checklist' || b.type === 'list') && Array.isArray(b.value)) {
@@ -636,16 +630,17 @@
       }
       return b
     })
-    return { blocks: out, changed }
+    return { value: out, changed }
   }
 
+  // Leaving the card: persist an edit still inside the save debounce
+  // (Ctrl+Enter → close, tick → Back) together with the empty-row
+  // cleanup. The page is gone by the time it settles, so a failure
+  // surfaces as a toast.
   $effect(() => () => {
-    if (blockSaveTimer) clearTimeout(blockSaveTimer)
+    destroyed = true
     if (savedFlashTimer) clearTimeout(savedFlashTimer)
-    if (card) {
-      const { blocks: cleaned, changed } = withoutEmptyItems(card.blocks)
-      if (changed) void repoRPC('UpdateCardBlocks', [card.id, cleaned])
-    }
+    blockSaves.leave(withoutEmptyItems)?.catch(() => showToast(t('card.err_save_on_leave'), 'error'))
   })
 
   // Share/export lives in CardShareMenu (desktop-parity dropdown). The
@@ -775,17 +770,38 @@
 
   onDestroy(unsubscribe)
 
-  // Refetch the card in place (live update, reconnect). Skipped while a
-  // local save is in flight or a field is being edited — it would clobber
-  // the user's pending input; the save's own success/failure path owns
-  // the canonical state for that window.
+  // Refetch the card in place (live update, reconnect). A field being
+  // edited wins outright (the user's session). Block saves are checked
+  // BEFORE and AFTER the fetch: a snapshot fetched while a save was
+  // pending, or across any local edit, predates that edit — it's dropped
+  // and the refetch re-runs once the saves drain, so external changes
+  // still land.
+  let refreshAfterSaves = false
+  function refreshWhenSaved() {
+    if (refreshAfterSaves) return
+    refreshAfterSaves = true
+    void blockSaves.idle().then(() => {
+      refreshAfterSaves = false
+      if (!destroyed) void refreshCardQuietly()
+    })
+  }
+
   async function refreshCardQuietly() {
-    if (blockSaveTimer || savingBlocks || editScope.hasActive()) return
+    if (editScope.hasActive()) return
+    if (blockSaves.busy) {
+      refreshWhenSaved()
+      return
+    }
+    const since = blockSaves.edits
     try {
       const fresh = await repoRPC<Card>('GetCard', [id])
       if (fresh && !editScope.hasActive()) {
-        card = fresh
-        lastSavedBlocks = fresh.blocks ?? []
+        if (blockSaves.canApplyRefetch(since)) {
+          card = fresh
+          lastSavedBlocks = fresh.blocks ?? []
+        } else {
+          refreshWhenSaved()
+        }
       }
     } catch {
       /* transient — keep showing what we have */
@@ -794,6 +810,13 @@
     // fields. Refresh the "Pinned in" rail so it reflects the
     // LLM-suggestion-accept (or any cross-device pin change) too.
     void refreshPins()
+  }
+
+  // Attachment add/remove returns the whole card; take only its
+  // attachment list so a block edit still inside the save debounce (or
+  // in flight) isn't overwritten by the server's older blocks.
+  function mergeAttachments(updated: Card) {
+    if (card) card.file_attachments = updated.file_attachments ?? []
   }
 
   // --- Type picker / refresh ---
@@ -1002,7 +1025,7 @@
           <input
             type="date"
             class="due-input"
-            value={dueInputValue(card.due_date)}
+            value={isoToDateInput(card.due_date)}
             oninput={(e) => saveDueDate((e.currentTarget as HTMLInputElement).value)}
           />
           {#if card.due_date}
@@ -1171,7 +1194,7 @@
         <AttachmentsSection
           cardId={card.id}
           attachments={card.file_attachments ?? []}
-          onCardUpdated={(updated) => card = updated}
+          onCardUpdated={mergeAttachments}
         />
       {:else}
         <CommentsSection cardId={card.id} bind:count={commentCount} />

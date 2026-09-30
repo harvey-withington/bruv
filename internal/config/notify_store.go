@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -15,7 +16,7 @@ const maxNotifications = 200
 // Without this, two concurrent agent completions racing through
 // AppendNotification both see the same pre-state, both append their
 // own entry, and the second writer wins — silently dropping the
-// first notification. Plain os.WriteFile has no locking guarantees.
+// first notification. The atomic write alone has no locking guarantees.
 var notifyMu sync.Mutex
 
 // Notification represents a single notification entry.
@@ -38,7 +39,10 @@ func notificationsPath() (string, error) {
 	return filepath.Join(dir, "notifications.json"), nil
 }
 
-// LoadNotifications reads the notification history from disk.
+// LoadNotifications reads the notification history from disk. A missing
+// file is an empty history; an unreadable or corrupt one is an error, and
+// no writer saves over a history it failed to read (ClearAll, which
+// discards it anyway, is the way back from a corrupt file).
 func LoadNotifications() ([]Notification, error) {
 	path, err := notificationsPath()
 	if err != nil {
@@ -53,7 +57,10 @@ func LoadNotifications() ([]Notification, error) {
 	}
 	var list []Notification
 	if err := json.Unmarshal(data, &list); err != nil {
-		return []Notification{}, nil
+		return nil, fmt.Errorf("parse notifications: %w", err)
+	}
+	if list == nil {
+		list = []Notification{}
 	}
 	return list, nil
 }
@@ -67,7 +74,7 @@ func saveNotifications(list []Notification) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return atomicWriteFile(path, data, 0o644)
 }
 
 // AppendNotification adds a notification to the history (newest first), trimming to maxNotifications.
@@ -76,7 +83,7 @@ func AppendNotification(n Notification) error {
 	defer notifyMu.Unlock()
 	list, err := LoadNotifications()
 	if err != nil {
-		list = []Notification{}
+		return err
 	}
 	list = append([]Notification{n}, list...)
 	if len(list) > maxNotifications {

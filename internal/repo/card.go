@@ -3,9 +3,11 @@ package repo
 import (
 	"bruv/internal/model"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -144,9 +146,14 @@ func (l *legacyCard) migrate() model.Card {
 	return card
 }
 
+// CardExists reports whether a card file with this ID is on disk.
+func (r *Repository) CardExists(id string) bool {
+	return validID(id) == nil && fileExists(r.cardFilePath(id))
+}
+
 // ListCards returns all Cards in the repository.
 func (r *Repository) ListCards() ([]model.Card, error) {
-	ids, err := listJSONFiles(r.cardsPath())
+	ids, err := r.listCardIDs()
 	if err != nil {
 		return nil, fmt.Errorf("list card files: %w", err)
 	}
@@ -162,33 +169,72 @@ func (r *Repository) ListCards() ([]model.Card, error) {
 	return cards, nil
 }
 
-// UpdateCard updates a Card using an update function.
+// ErrNoChange, returned from a MutateCard closure, means "nothing to save":
+// the card is returned as read and no write happens.
+var ErrNoChange = errors.New("no change")
+
+// UpdateCard updates a Card using an update function. The card's file lock
+// is held from the read to the write, so concurrent updates never lose
+// each other's changes.
 func (r *Repository) UpdateCard(id string, update func(*model.Card)) (*model.Card, error) {
+	return r.MutateCard(id, func(card *model.Card) error {
+		update(card)
+		return nil
+	})
+}
+
+// MutateCard is UpdateCard with an error-returning closure, run under the
+// card's file lock on a fresh read. A nil return saves the card (stamping
+// UpdatedAt); ErrNoChange skips the write and returns the card with a nil
+// error; any other error aborts without writing and is returned. The
+// closure must not call other locking card writes for the same card.
+func (r *Repository) MutateCard(id string, fn func(*model.Card) error) (*model.Card, error) {
+	if err := validID(id); err != nil {
+		return nil, err
+	}
+	path := r.cardFilePath(id)
+	unlock := lockPath(path)
+	defer unlock()
+
 	card, err := r.GetCard(id)
 	if err != nil {
 		return nil, err
 	}
-
-	update(card)
+	if err := fn(card); err != nil {
+		if errors.Is(err, ErrNoChange) {
+			return card, nil
+		}
+		return nil, err
+	}
 	card.UpdatedAt = time.Now().UTC()
 
-	if err := writeJSON(r.cardFilePath(id), card); err != nil {
+	if err := writeJSON(path, card); err != nil {
 		return nil, fmt.Errorf("write card: %w", err)
 	}
 	return card, nil
 }
 
-// UpdateCardDirect writes a pre-modified card directly to disk.
+// UpdateCardDirect writes a pre-modified card directly to disk. It is a
+// blind whole-card write: anything saved since the caller read the card is
+// overwritten. Prefer MutateCard for read-modify-write; this remains for
+// importers writing freshly created cards.
 func (r *Repository) UpdateCardDirect(id string, card *model.Card) error {
 	if err := validID(id); err != nil {
 		return err
 	}
-	return writeJSON(r.cardFilePath(id), card)
+	path := r.cardFilePath(id)
+	unlock := lockPath(path)
+	defer unlock()
+	return writeJSON(path, card)
 }
 
 // DeleteCard removes a Card and its associated pins.
 func (r *Repository) DeleteCard(id string) error {
 	cardPath := r.cardFilePath(id)
+	// Held so an in-flight MutateCard can't re-create the file after
+	// the delete.
+	unlock := lockPath(cardPath)
+	defer unlock()
 	if !fileExists(cardPath) {
 		return fmt.Errorf("card %q not found", id)
 	}
@@ -214,8 +260,11 @@ func (r *Repository) DeleteCard(id string) error {
 	// Remove comments file if it exists
 	_ = os.Remove(r.commentsFilePath(id))
 
-	// Remove agent file if it exists
+	// Remove agent file if it exists, under the agent lock so an agent
+	// config write in flight can't re-create it after the delete.
+	unlockAgent := r.lockAgent(id)
 	_ = os.Remove(r.agentFilePath(id))
+	unlockAgent()
 
 	return nil
 }
@@ -443,6 +492,22 @@ func DetectMime(name string) string {
 // ListCardFiles returns the raw file paths of all card JSON files.
 // Useful for index rebuilding.
 func (r *Repository) ListCardFiles() ([]string, error) {
+	ids, err := r.listCardIDs()
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(ids))
+	for _, id := range ids {
+		paths = append(paths, r.cardFilePath(id))
+	}
+	return paths, nil
+}
+
+// listCardIDs returns the IDs of every card file in the cards directory,
+// sorted. The directory also holds per-card sidecars (<id>.comments.json,
+// <id>.agent.json) and temp files, so names go through the same predicate
+// the index uses — otherwise sidecars parse as empty phantom cards.
+func (r *Repository) listCardIDs() ([]string, error) {
 	entries, err := os.ReadDir(r.cardsPath())
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -450,12 +515,15 @@ func (r *Repository) ListCardFiles() ([]string, error) {
 		}
 		return nil, err
 	}
-
-	var paths []string
+	var ids []string
 	for _, e := range entries {
-		if !e.IsDir() && filepath.Ext(e.Name()) == ".json" && filepath.Ext(e.Name()) != ".tmp" {
-			paths = append(paths, filepath.Join(r.cardsPath(), e.Name()))
+		if e.IsDir() {
+			continue
+		}
+		if id, ok := model.CardIDFromFileName(e.Name()); ok {
+			ids = append(ids, id)
 		}
 	}
-	return paths, nil
+	sort.Strings(ids)
+	return ids, nil
 }

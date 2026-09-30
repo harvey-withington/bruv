@@ -4,6 +4,7 @@
   import { documentFormatForPath, documentName } from '@shared/documentFormats'
   import { inlineEdit } from '@shared/inlineEdit'
   import { EditScope } from '@shared/editScope'
+  import { createSerialSaver } from '@shared/serialSave'
   import type { WorkspaceFileStamp } from '@shared/types'
   import { t } from '../lib/i18n.svelte'
   import { autoGrow } from '../lib/actions/autoGrow'
@@ -32,6 +33,9 @@
   let saveError = $state<string | null>(null)
   let savedFlash = $state(false)
   let diverged = $state(false)
+  // A close whose save failed (offline, server error): ask before the
+  // unsaved edits are dropped instead of trapping the user in the sheet.
+  let confirmingDiscard = $state(false)
   let textareaEl: HTMLTextAreaElement | undefined = $state()
   let lastSaved = ''
   let saveTimer: ReturnType<typeof setTimeout> | null = null
@@ -41,9 +45,26 @@
 
   const html = $derived(status === 'ready' ? format.render(text, { name }) : '')
 
+  // The sheet owns one history entry; Back pops it and asks to close.
+  const pushSheetEntry = () => history.pushState({ documentSheet: true }, '')
+
   onMount(() => {
-    history.pushState({ documentSheet: true }, '')
-    const onPop = () => { if (!history.state?.documentSheet) void requestClose() }
+    pushSheetEntry()
+    const onPop = () => {
+      if (history.state?.documentSheet) return
+      // Back while a prompt is up: the prompt stays in charge (Back =
+      // Escape cancels the discard prompt; the diverged choice has no
+      // safe default) and the sheet keeps its entry.
+      if (confirmingDiscard || diverged) {
+        confirmingDiscard = false
+        pushSheetEntry()
+        return
+      }
+      // A refused close (save failed or diverged) re-pushes the entry —
+      // otherwise the NEXT Back would leave the page under the sheet and
+      // silently drop the draft.
+      void requestClose().then((closed) => { if (!closed) pushSheetEntry() })
+    }
     window.addEventListener('popstate', onPop)
     void load()
     return () => {
@@ -72,31 +93,44 @@
     saveTimer = setTimeout(() => void save(), 1000)
   }
 
+  // One save in flight at a time (shared/serialSave); saves requested
+  // meanwhile coalesce into one follow-up carrying the latest text. Each
+  // persist reads the stamp when it RUNS, so a follow-up presents the
+  // stamp its predecessor just wrote — overlapping saves used to send
+  // the stale one and prompt "changed elsewhere" for the user's own edit
+  // (desktop DocumentSession has the same one-at-a-time guard).
+  const saver = createSerialSaver<{ content: string; overwrite: boolean }>(async ({ content, overwrite }) => {
+    if (diverged && !overwrite) return // queued before the refusal — the prompt decides now
+    const res = await source.save(content, overwrite ? '' : (stamp?.hash ?? ''))
+    if (res.diverged) {
+      diverged = true
+      return
+    }
+    stamp = res.stamp
+    lastSaved = content
+    diverged = false
+    savedFlash = true
+    setTimeout(() => savedFlash = false, 1200)
+  })
+
+  /** Save the draft. Resolves true when the current draft is on disk. */
   async function save(overwrite = false): Promise<boolean> {
     if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
     if (status !== 'ready' || diverged && !overwrite) return false
-    if (text === lastSaved && !overwrite) return true
+    // Nothing new — unless a save is in flight, whose older content would
+    // otherwise land after a revert back to the saved text.
+    if (text === lastSaved && !overwrite && !saver.busy) return true
     saving = true
     saveError = null
-    const content = text
     try {
-      const res = await source.save(content, overwrite ? '' : (stamp?.hash ?? ''))
-      if (res.diverged) {
-        diverged = true
-        return false
-      }
-      stamp = res.stamp
-      lastSaved = content
-      diverged = false
-      savedFlash = true
-      setTimeout(() => savedFlash = false, 1200)
-      return true
+      await saver.save({ content: text, overwrite })
     } catch (e) {
       saveError = e instanceof Error ? e.message : String(e)
       return false
     } finally {
-      saving = false
+      saving = saver.busy
     }
+    return !diverged && text === lastSaved
   }
 
   async function reloadFromDisk() {
@@ -115,12 +149,23 @@
     void save()
   }
 
-  async function requestClose() {
-    if (status === 'ready' && text !== lastSaved) {
+  /** Close once the draft is safely on disk. Resolves false when the
+   *  close was refused: a diverged save (its prompt is up) or a failed
+   *  one (the discard prompt is up). */
+  async function requestClose(): Promise<boolean> {
+    if (status === 'ready' && (text !== lastSaved || saver.busy)) {
       const ok = await save()
-      if (!ok && !diverged) return // a failed save keeps the sheet open with its error rail
-      if (diverged) return
+      if (!ok) {
+        if (!diverged) confirmingDiscard = true
+        return false
+      }
     }
+    onClose()
+    return true
+  }
+
+  function discardAndClose() {
+    confirmingDiscard = false
     onClose()
   }
 
@@ -128,7 +173,7 @@
   // Escape/Ctrl+Enter on window bubble — the sheet must consume those
   // before the page underneath reacts (UI-CONVENTIONS §8.1).
   function onWindowKeydownCapture(e: KeyboardEvent) {
-    if (diverged) return // the ConfirmDialog owns the keys
+    if (diverged || confirmingDiscard) return // the ConfirmDialog owns the keys
     if (e.key === 'Escape') {
       if (editScope.hasActive()) return
       e.preventDefault()
@@ -203,6 +248,18 @@
     cancelLabel={t('document.reload')}
     onConfirm={() => void save(true)}
     onCancel={() => void reloadFromDisk()}
+  />
+{/if}
+
+{#if confirmingDiscard}
+  <ConfirmDialog
+    title={t('document.discard_title')}
+    body={t('document.discard_body', { name, error: saveError ?? '' })}
+    confirmLabel={t('document.discard')}
+    cancelLabel={t('document.keep_editing')}
+    destructive
+    onConfirm={discardAndClose}
+    onCancel={() => (confirmingDiscard = false)}
   />
 {/if}
 

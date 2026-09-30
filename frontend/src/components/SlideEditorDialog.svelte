@@ -4,6 +4,7 @@
   import { t } from '../lib/i18n.svelte'
   import { X } from 'lucide-svelte'
   import { portal, focusTrap, clickOutside } from '../lib/actions'
+  import { keyLayer } from '../lib/keyLayer'
   import { GetCard, SearchCards, RecentCards, SignAttachmentURL } from '@shared/api'
   import { showToast } from '../lib/toast.svelte'
   import { SLIDE_CONTENT_TYPES, resolveContentType } from '@shared/slideContentTypes'
@@ -103,9 +104,6 @@
         .filter((a: Attachment) => (wantVideo ? a.mime.startsWith('video/') : a.mime.startsWith('image/')))
         .map((a: Attachment) => ({ ref: `attachment:${c!.id}/${a.id}`, name: a.name, fromLinked }))
     return [...collect(hostCard, false), ...collect(linkedCard, true)]
-  }
-  function pickAttachment(fieldKey: string, ref: string): void {
-    values[fieldKey] = ref
   }
   function refDisplayName(ref: string): string {
     const all = [...(hostCard?.file_attachments ?? []), ...(linkedCard?.file_attachments ?? [])]
@@ -239,49 +237,33 @@
     onSave(d)
   }
 
-  // Escape/Ctrl+Enter handling uses a CAPTURE-phase window listener
-  // (registered before CardDetail's bubble-phase one fires) so neither key
-  // in this second-level dialog falls through to the card underneath — Esc
-  // would close the card (the original data-loss path Harvey hit), and
-  // Ctrl+Enter would commit-and-close the card, discarding slide edits.
-  // stopPropagation() shields the bubble phase; Escape layering is
-  // dropdown-first: an open dropdown consumes the Esc, the dialog only closes
-  // on a "bare" one. (Same capture-shield pattern as mobile's ChatSheet; the
-  // deferred overlay-stack refactor in TODO would replace all of these.)
-  let dialogEl = $state<HTMLElement | null>(null)
-
-  function handleCaptureKeydown(e: KeyboardEvent): void {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-      // Keyboard contract: Ctrl+Enter commits the surface it's pressed in —
-      // here that's the slide, not the card.
-      e.preventDefault()
-      e.stopPropagation()
-      save()
-      return
-    }
-    if (e.key !== 'Escape') return
-    e.preventDefault()
-    e.stopPropagation()
+  // Escape/Ctrl+Enter go through the key-layer stack (UI-CONVENTIONS §8.1):
+  // a capture-phase, topmost-wins router, so neither key in this
+  // second-level dialog falls through to the card underneath — Esc would
+  // close the card (the original data-loss path), and Ctrl+Enter would
+  // commit-and-close the card, discarding slide edits. Escape layering is
+  // dropdown-first: an open BoundField dropdown pushes its own layer above
+  // this one and consumes the Esc; the dialog only closes on a "bare" one.
+  function handleEscape(): void {
     if (cardResults.length > 0) {
       cardResults = []
       return
     }
-    // A BoundField dropdown is open — its own capture listener (registered
-    // later, so it runs after this one) closes it. Just don't close the
-    // dialog on this press.
-    if (dialogEl?.querySelector('.block-picker')) return
     onClose()
   }
 
-  $effect(() => {
-    window.addEventListener('keydown', handleCaptureKeydown, true)
-    return () => window.removeEventListener('keydown', handleCaptureKeydown, true)
-  })
+  // Keyboard contract: Ctrl+Enter commits the surface it's pressed in —
+  // here that's the slide, not the card. Plain Enter stays with the field.
+  function handleEnter(e: KeyboardEvent): boolean {
+    if (!e.ctrlKey && !e.metaKey) return false
+    save()
+    return true
+  }
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div class="overlay" role="presentation" use:portal onclick={(e) => { if (e.target === e.currentTarget) onClose() }}>
-  <div class="dialog" role="dialog" aria-modal="true" tabindex="-1" aria-label={t('slide.editor_title')} use:focusTrap bind:this={dialogEl}>
+  <div class="dialog" role="dialog" aria-modal="true" tabindex="-1" aria-label={t('slide.editor_title')} use:focusTrap use:keyLayer={{ onEscape: handleEscape, onEnter: handleEnter }}>
     <div class="dialog-header">
       <h2>{t('slide.editor_title')}</h2>
       <button class="close-btn" onclick={onClose} title={t('common.close')} aria-label={t('common.close')}><X size={18} /></button>
@@ -335,8 +317,6 @@
               onInput={(v) => (values[field.key] = v)}
               onBind={(blockId) => bindField(field.key, blockId)}
               onUnbind={() => unbindField(field.key)}
-              onPickAttachment={(ref) => pickAttachment(field.key, ref)}
-              onClearAttachment={() => (values[field.key] = '')}
             />
           {/each}
 

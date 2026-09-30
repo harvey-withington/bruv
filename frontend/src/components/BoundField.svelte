@@ -7,7 +7,9 @@
   import type { SlideFieldDef, Block } from '@shared/types'
   import { t } from '../lib/i18n.svelte'
   import { clickOutside } from '../lib/actions'
-  import { Link2, Paperclip, X } from 'lucide-svelte'
+  import { pushKeyLayer } from '../lib/keyLayer'
+  import { Link2, X } from 'lucide-svelte'
+  import MediaRefList from './MediaRefList.svelte'
 
   type AttachOption = { ref: string; name: string; fromLinked: boolean }
 
@@ -24,8 +26,6 @@
     onInput,
     onBind,
     onUnbind,
-    onPickAttachment,
-    onClearAttachment,
   }: {
     field: SlideFieldDef
     value: string
@@ -39,34 +39,23 @@
     onInput: (value: string) => void
     onBind: (blockId: string) => void
     onUnbind: () => void
-    onPickAttachment: (ref: string) => void
-    onClearAttachment: () => void
   } = $props()
 
   let pickerOpen = $state(false)
-  let attachOpen = $state(false)
   const isMedia = $derived(field.type === 'image' || field.type === 'video')
-  const isAttachmentRef = $derived(value.startsWith('attachment:'))
   const label = $derived(t('slide.field.' + field.key))
 
   function closeDropdowns(): void {
     pickerOpen = false
-    attachOpen = false
   }
 
-  // Escape closes an open dropdown. Registered CAPTURE-phase only while a
-  // dropdown is open, so it runs after SlideEditorDialog's capture handler —
-  // which sees the open .block-picker and leaves the dialog open, deferring
-  // the actual close to this listener (topmost-owns-Escape layering).
+  // Escape closes an open dropdown. The dropdown pushes a key layer while
+  // open — above SlideEditorDialog's — so it owns the Esc and the dialog
+  // stays open (topmost-owns-Escape layering, UI-CONVENTIONS §8.1).
   $effect(() => {
-    if (!pickerOpen && !attachOpen) return
-    const onKeydown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.preventDefault()
-      closeDropdowns()
-    }
-    window.addEventListener('keydown', onKeydown, true)
-    return () => window.removeEventListener('keydown', onKeydown, true)
+    if (!pickerOpen) return
+    const layer = pushKeyLayer({ onEscape: closeDropdowns })
+    return () => layer.remove()
   })
 </script>
 
@@ -102,31 +91,7 @@
     {#if field.type === 'longtext'}
       <textarea class="field-input" rows="3" {value} oninput={(e) => onInput(e.currentTarget.value)} placeholder={label}></textarea>
     {:else if isMedia}
-      {#if isAttachmentRef}
-        <div class="attach-chip">
-          <Paperclip size={12} />
-          <span class="attach-name">{refDisplayName(value)}</span>
-          <button class="chip-x" type="button" onclick={onClearAttachment} title={t('common.delete')} aria-label={t('common.delete')}><X size={12} /></button>
-        </div>
-      {:else}
-        <input class="field-input mono" {value} oninput={(e) => onInput(e.currentTarget.value)} placeholder={t('slide.media_placeholder')} />
-        {#if attachmentOptions.length > 0}
-          <button class="attach-toggle" type="button" onclick={() => (attachOpen = !attachOpen)}>
-            <Paperclip size={11} /> {t('slide.pick_attachment')}
-          </button>
-          {#if attachOpen}
-            <div class="block-picker">
-              {#each attachmentOptions as opt (opt.ref)}
-                <button type="button" onclick={() => { attachOpen = false; onPickAttachment(opt.ref) }}>
-                  {opt.name}{opt.fromLinked ? ` ${t('slide.from_linked_card')}` : ''}
-                </button>
-              {/each}
-            </div>
-          {/if}
-        {:else}
-          <span class="field-hint">{t('slide.media_hint')}</span>
-        {/if}
-      {/if}
+      <MediaRefList {value} multiple={field.type === 'image'} {attachmentOptions} {refDisplayName} onChange={onInput} />
     {:else}
       <input class="field-input" {value} oninput={(e) => onInput(e.currentTarget.value)} placeholder={label} />
     {/if}
@@ -166,15 +131,6 @@
   .field-input:focus {
     outline: none;
     border-color: var(--accent);
-  }
-  .field-input.mono {
-    font-family: ui-monospace, Consolas, monospace;
-    font-size: 12px;
-  }
-  .field-hint {
-    font-size: 10px;
-    color: var(--text-muted);
-    font-style: italic;
   }
   .link-btn {
     display: inline-flex;
@@ -238,48 +194,5 @@
     font-size: 11px;
     color: var(--text-muted);
     padding: 4px 6px;
-  }
-  .attach-chip {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 8px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg);
-  }
-  .attach-name {
-    flex: 1;
-    min-width: 0;
-    font-size: 13px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .attach-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    align-self: flex-start;
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    font-size: 11px;
-    cursor: pointer;
-    padding: 2px 0;
-  }
-  .attach-toggle:hover {
-    color: var(--text-primary);
-  }
-  .chip-x {
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    display: flex;
-    padding: 0;
-  }
-  .chip-x:hover {
-    color: var(--danger);
   }
 </style>

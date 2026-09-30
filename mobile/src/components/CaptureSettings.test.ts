@@ -98,11 +98,30 @@ describe('CaptureSettings', () => {
     expect(showToast).not.toHaveBeenCalled()
   })
 
-  it('surfaces a failed load and still offers the defaults', async () => {
+  // §19: a form that couldn't read the vault's prefs must never offer to
+  // save its placeholder defaults over them (they're shared with desktop).
+  it('hides the form after a failed load and never saves the placeholders', async () => {
     stub({ GetCapturePrefs: () => Promise.reject(new Error('server down')) })
     render(CaptureSettings)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('server down')
-    expect(screen.getByRole('radio', { name: /^Best that fits the budget/ })).toBeChecked()
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
+    expect(screen.queryByRole('radio')).toBeNull()
+    expect(repoRPC.mock.calls.some((c) => c[0] === 'SetCapturePrefs')).toBe(false)
+  })
+
+  it('Try again reloads the stored prefs into the form', async () => {
+    let fail = true
+    stub({
+      GetCapturePrefs: () => (fail ? Promise.reject(new Error('server down')) : Promise.resolve(stored)),
+    })
+    render(CaptureSettings)
+    await screen.findByRole('alert')
+
+    fail = false
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(await screen.findByRole('radio', { name: /^Always the best quality/ })).toBeChecked()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
   })
 })

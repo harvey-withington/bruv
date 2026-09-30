@@ -15,10 +15,16 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
 const workspaceCheckoutsFileName = "workspace-checkouts.json"
+
+// workspaceCheckoutsMu serializes the store's load-modify-save cycles:
+// two clones finishing together would otherwise each save a copy missing
+// the other's record.
+var workspaceCheckoutsMu sync.Mutex
 
 // WorkspaceCheckout is one working copy on this device.
 type WorkspaceCheckout struct {
@@ -123,6 +129,8 @@ func GetWorkspaceCheckout(connectionID, repoID, workspaceID string) *WorkspaceCh
 
 // SaveWorkspaceCheckout records a working copy on this device.
 func SaveWorkspaceCheckout(co WorkspaceCheckout) error {
+	workspaceCheckoutsMu.Lock()
+	defer workspaceCheckoutsMu.Unlock()
 	all, err := loadWorkspaceCheckouts()
 	if err != nil {
 		return err
@@ -138,6 +146,8 @@ func SaveWorkspaceCheckout(co WorkspaceCheckout) error {
 // forgetting a checkout is a BRUV bookkeeping change, and deleting a user's
 // working copy is not something a "forget" button may ever do.
 func ForgetWorkspaceCheckout(connectionID, repoID, workspaceID string) error {
+	workspaceCheckoutsMu.Lock()
+	defer workspaceCheckoutsMu.Unlock()
 	all, err := loadWorkspaceCheckouts()
 	if err != nil {
 		return err
@@ -180,6 +190,8 @@ func WorkspaceRoot() (string, error) {
 // changed a preference would be a surprise, and their tools hold paths
 // into those folders.
 func SetWorkspaceRoot(root string) error {
+	workspaceCheckoutsMu.Lock()
+	defer workspaceCheckoutsMu.Unlock()
 	all, err := loadWorkspaceCheckouts()
 	if err != nil {
 		return err

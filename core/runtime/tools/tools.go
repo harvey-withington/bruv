@@ -199,10 +199,12 @@ func normaliseDateValue(raw, format string) (string, error) {
 		"2006-01-02T15:04",
 		"2006-01-02",
 	}
+	// A zone-less date-time is a wall-clock time, so it is read in the
+	// server's local zone (as agentsvc's timeArg does), never as UTC.
 	var parsed time.Time
 	var parseErr error
 	for _, layout := range layouts {
-		parsed, parseErr = time.Parse(layout, raw)
+		parsed, parseErr = time.ParseInLocation(layout, raw, time.Local)
 		if parseErr == nil {
 			break
 		}
@@ -237,21 +239,25 @@ func extractBlockOptions(meta map[string]any) []string {
 	return out
 }
 
-// coerceChecklist converts []any of strings, []any of {text, done} maps,
-// or a single newline-separated string into [{id, text, done}].
+// coerceChecklist converts []any of strings, []any of {id?, text, done}
+// maps, or a single newline-separated string into [{id, text, done}]. A
+// supplied id is kept — items are ID-keyed state (a rewrite of the list
+// must not orphan whatever refers to an item); only new items get one.
 func coerceChecklist(val any) []map[string]any {
-	type entry struct {
-		text string
-		done bool
+	var items []map[string]any
+	add := func(id, text string, done bool) {
+		if id == "" {
+			id = fmt.Sprintf("cli-%s", uuid.New().String()[:8])
+		}
+		items = append(items, map[string]any{"id": id, "text": text, "done": done})
 	}
-	var entries []entry
 	switch v := val.(type) {
 	case []any:
 		for _, item := range v {
 			switch it := item.(type) {
 			case string:
 				if it != "" {
-					entries = append(entries, entry{text: it})
+					add("", it, false)
 				}
 			case map[string]any:
 				text, _ := it["text"].(string)
@@ -259,24 +265,19 @@ func coerceChecklist(val any) []map[string]any {
 					continue
 				}
 				done, _ := it["done"].(bool)
-				entries = append(entries, entry{text: text, done: done})
+				add(itemID(it), text, done)
 			}
 		}
 	case string:
 		for _, line := range strings.Split(v, "\n") {
 			line = stripListPrefix(line)
 			if line != "" {
-				entries = append(entries, entry{text: line})
+				add("", line, false)
 			}
 		}
 	}
-	items := make([]map[string]any, len(entries))
-	for i, e := range entries {
-		items[i] = map[string]any{
-			"id":   fmt.Sprintf("cli-%s", uuid.New().String()[:8]),
-			"text": e.text,
-			"done": e.done,
-		}
+	if items == nil {
+		items = []map[string]any{}
 	}
 	return items
 }
@@ -284,20 +285,27 @@ func coerceChecklist(val any) []map[string]any {
 // coerceList converts []any of strings, []any of {id?, text} maps, or a
 // single newline-separated string into [{id, text}]. This is the fix for
 // the bug where agent `update_self` was writing plain strings directly to
-// list blocks, which the frontend renderer couldn't parse.
+// list blocks, which the frontend renderer couldn't parse. A supplied id
+// is kept, as for checklists.
 func coerceList(val any) []map[string]any {
-	var texts []string
+	var items []map[string]any
+	add := func(id, text string) {
+		if id == "" {
+			id = fmt.Sprintf("li-%s", uuid.New().String()[:8])
+		}
+		items = append(items, map[string]any{"id": id, "text": text})
+	}
 	switch v := val.(type) {
 	case []any:
 		for _, item := range v {
 			switch it := item.(type) {
 			case string:
 				if it != "" {
-					texts = append(texts, it)
+					add("", it)
 				}
 			case map[string]any:
 				if text, ok := it["text"].(string); ok && text != "" {
-					texts = append(texts, text)
+					add(itemID(it), text)
 				}
 			}
 		}
@@ -308,18 +316,20 @@ func coerceList(val any) []map[string]any {
 		for _, line := range strings.Split(v, "\n") {
 			line = stripListPrefix(line)
 			if line != "" {
-				texts = append(texts, line)
+				add("", line)
 			}
 		}
 	}
-	items := make([]map[string]any, len(texts))
-	for i, t := range texts {
-		items[i] = map[string]any{
-			"id":   fmt.Sprintf("li-%s", uuid.New().String()[:8]),
-			"text": t,
-		}
+	if items == nil {
+		items = []map[string]any{}
 	}
 	return items
+}
+
+// itemID is a list/checklist item's supplied id, or "".
+func itemID(item map[string]any) string {
+	id, _ := item["id"].(string)
+	return strings.TrimSpace(id)
 }
 
 // slideContentTypeFields lists the allowed field keys per built-in content
@@ -528,12 +538,6 @@ func (d *Dispatcher) ExecuteCard(cardID string, card *model.Card, tc llm.ToolCal
 		return handler(d, cardID, card, tc, allCats)
 	}
 	return "error: unknown tool " + tc.Name, nil, nil
-}
-
-// resolveCardType canonicalises an LLM-supplied card type — see
-// catalog.Service.ResolveOrCreateType for the matching/creation rules.
-func (d *Dispatcher) resolveCardType(input string) (id string, created bool, err error) {
-	return d.deps.Catalog().ResolveOrCreateType(input)
 }
 
 // toolSetFields is card chat's set_fields: an adapter over the native
@@ -749,46 +753,7 @@ func (d *Dispatcher) ExecuteProject(tc llm.ToolCall, scope ProjectChatScope) (st
 	}
 	switch tc.Name {
 	case "add_tags_to_cards":
-		cardIDsRaw, _ := tc.Arguments["card_ids"].([]any)
-		tagsRaw, _ := tc.Arguments["tags"].([]any)
-		if len(cardIDsRaw) == 0 || len(tagsRaw) == 0 {
-			return "error: card_ids and tags are required", nil
-		}
-		var newTags []string
-		for _, t := range tagsRaw {
-			if s, ok := t.(string); ok && s != "" {
-				newTags = append(newTags, s)
-			}
-		}
-		var updated int
-		for _, raw := range cardIDsRaw {
-			cid, ok := raw.(string)
-			if !ok || cid == "" {
-				continue
-			}
-			c, err := d.deps.Repo().GetCard(cid)
-			if err != nil {
-				continue
-			}
-			existing := make(map[string]bool)
-			for _, t := range c.Tags {
-				existing[strings.ToLower(t)] = true
-			}
-			merged := c.Tags
-			for _, t := range newTags {
-				if !existing[strings.ToLower(t)] {
-					merged = append(merged, t)
-					existing[strings.ToLower(t)] = true
-				}
-			}
-			if len(merged) > len(c.Tags) {
-				d.deps.Card().UpdateTags(cid, merged)
-				updated++
-			}
-		}
-		result := fmt.Sprintf("Added tags [%s] to %d cards", strings.Join(newTags, ", "), updated)
-		action := &model.ToolAction{Tool: "add_tags_to_cards", Input: tc.Arguments, Result: result}
-		return result, action
+		return d.addTagsBatch(tc, &scope)
 
 	case "move_card":
 		cardID, _ := tc.Arguments["card_id"].(string)
@@ -827,45 +792,7 @@ func (d *Dispatcher) ExecuteProject(tc llm.ToolCall, scope ProjectChatScope) (st
 		return result, action
 
 	case "update_cards":
-		updatesRaw, _ := tc.Arguments["updates"].([]any)
-		if len(updatesRaw) == 0 {
-			return "error: updates array is required", nil
-		}
-		type cardResult struct {
-			cardID  string
-			changes []string
-			err     error
-		}
-		var results []cardResult
-		var totalChanges int
-		var failures int
-		for _, raw := range updatesRaw {
-			entry, ok := raw.(map[string]any)
-			if !ok {
-				failures++
-				continue
-			}
-			cardID, _ := entry["card_id"].(string)
-			if cardID == "" {
-				failures++
-				continue
-			}
-			changes, err := d.applyCardUpdate(cardID, entry)
-			results = append(results, cardResult{cardID: cardID, changes: changes, err: err})
-			if err != nil {
-				failures++
-			} else {
-				totalChanges += len(changes)
-			}
-		}
-		var summary strings.Builder
-		successes := len(results) - failures
-		summary.WriteString(fmt.Sprintf("Updated %d cards (%d field changes total)", successes, totalChanges))
-		if failures > 0 {
-			summary.WriteString(fmt.Sprintf("; %d failed", failures))
-		}
-		action := &model.ToolAction{Tool: "update_cards", Input: tc.Arguments, Result: summary.String()}
-		return summary.String(), action
+		return d.updateCardsBatch(tc, &scope)
 
 	case "update_project":
 		var changes []string
@@ -1164,173 +1091,6 @@ func (d *Dispatcher) findCardCurrentCategory(scope ProjectChatScope, cardID stri
 	return "", fmt.Errorf("card %s is not pinned to any category in this project", cardID)
 }
 
-// applyCardUpdate applies a partial update to a single card. Used by both
-// update_card (single) and update_cards (plural). Returns the list of fields
-// that actually changed (used to build the tool-action result string).
-//
-// Supported keys in args:
-//   - title (string)
-//   - card_type (string)
-//   - tags ([]string)              — REPLACE the card's tags
-//   - tags_to_add ([]string)       — APPEND to existing tags (deduped)
-//   - due_date (string)            — ISO 8601 date or datetime; "" clears
-//   - description (string)         — sets the card's intrinsic description
-//   - blocks ([]map)               — REPLACE the card's blocks entirely
-//
-// Unknown keys are ignored.
-func (d *Dispatcher) applyCardUpdate(cardID string, args map[string]any) ([]string, error) {
-	var changes []string
-
-	if title, ok := args["title"].(string); ok && title != "" {
-		if _, err := d.deps.Card().UpdateTitle(cardID, title); err == nil {
-			changes = append(changes, "title")
-		}
-	}
-	if cardType, ok := args["card_type"].(string); ok && cardType != "" {
-		// Resolve against the real roster (match by id OR label, create
-		// when unknown — ruling 2026-08-14) so the card never carries a
-		// type id that doesn't exist.
-		resolved, createdType, err := d.resolveCardType(cardType)
-		if err == nil && resolved != "" {
-			if _, err := d.deps.Card().UpdateType(cardID, resolved); err == nil {
-				if createdType {
-					changes = append(changes, fmt.Sprintf("type (created %q)", resolved))
-				} else {
-					changes = append(changes, "type")
-				}
-			}
-		}
-	}
-
-	// Tag handling: `tags` REPLACES, `tags_to_add` APPENDS. Both can be present.
-	if tagsRaw, ok := args["tags"].([]any); ok {
-		var newTags []string
-		for _, raw := range tagsRaw {
-			if s, ok := raw.(string); ok && s != "" {
-				newTags = append(newTags, s)
-			}
-		}
-		if _, err := d.deps.Card().UpdateTags(cardID, newTags); err == nil {
-			changes = append(changes, "tags")
-		}
-	}
-	if tagsRaw, ok := args["tags_to_add"].([]any); ok && len(tagsRaw) > 0 {
-		c, err := d.deps.Repo().GetCard(cardID)
-		if err == nil {
-			existing := make(map[string]bool)
-			for _, t := range c.Tags {
-				existing[strings.ToLower(t)] = true
-			}
-			merged := c.Tags
-			added := false
-			for _, raw := range tagsRaw {
-				if s, ok := raw.(string); ok && s != "" && !existing[strings.ToLower(s)] {
-					merged = append(merged, s)
-					existing[strings.ToLower(s)] = true
-					added = true
-				}
-			}
-			if added {
-				d.deps.Card().UpdateTags(cardID, merged)
-				if !contains(changes, "tags") {
-					changes = append(changes, "tags")
-				}
-			}
-		}
-	}
-	if tagsRaw, ok := args["tags_to_remove"].([]any); ok && len(tagsRaw) > 0 {
-		c, err := d.deps.Repo().GetCard(cardID)
-		if err == nil {
-			remove := make(map[string]bool, len(tagsRaw))
-			for _, raw := range tagsRaw {
-				if s, ok := raw.(string); ok && s != "" {
-					remove[strings.ToLower(s)] = true
-				}
-			}
-			filtered := make([]string, 0, len(c.Tags))
-			removed := false
-			for _, t := range c.Tags {
-				if remove[strings.ToLower(t)] {
-					removed = true
-					continue
-				}
-				filtered = append(filtered, t)
-			}
-			if removed {
-				d.deps.Card().UpdateTags(cardID, filtered)
-				if !contains(changes, "tags") {
-					changes = append(changes, "tags")
-				}
-			}
-		}
-	}
-
-	// Due date: empty string clears, non-empty parses as ISO date or datetime.
-	if v, ok := args["due_date"].(string); ok {
-		if v == "" {
-			if _, err := d.deps.Card().UpdateDueDate(cardID, ""); err == nil {
-				changes = append(changes, "due_date")
-			}
-		} else {
-			if _, err := d.deps.Card().UpdateDueDate(cardID, v); err == nil {
-				changes = append(changes, "due_date")
-			}
-		}
-	}
-
-	// Description is an intrinsic card property — set it directly rather
-	// than smuggling it into a text block.
-	if desc, ok := args["description"].(string); ok {
-		if _, err := d.deps.Card().UpdateDescription(cardID, desc); err == nil {
-			changes = append(changes, "description")
-		}
-	}
-
-	// Block-level replacement (full restructure).
-	if raw, ok := args["blocks"].([]any); ok {
-		blocks := make([]model.Block, 0, len(raw))
-		for _, item := range raw {
-			m, ok := item.(map[string]any)
-			if !ok {
-				continue
-			}
-			b := model.Block{
-				Type:  asString(m["type"]),
-				Label: asString(m["label"]),
-				Key:   asString(m["key"]),
-				Value: m["value"],
-			}
-			if id := asString(m["id"]); id != "" {
-				b.ID = id
-			} else {
-				b.ID = fmt.Sprintf("blk-%s", uuid.New().String()[:8])
-			}
-			blocks = append(blocks, b)
-		}
-		if _, err := d.deps.Card().UpdateBlocks(cardID, blocks); err == nil {
-			changes = append(changes, "blocks")
-		}
-	}
-
-	return changes, nil
-}
-
-func contains(haystack []string, needle string) bool {
-	for _, s := range haystack {
-		if s == needle {
-			return true
-		}
-	}
-	return false
-}
-
-func asString(v any) string {
-	if s, ok := v.(string); ok {
-		return s
-	}
-	return ""
-}
-
 // resolveOrCreateHierarchy finds or creates brand/stream/project/category by name.
 // Returns (categoryID, breadcrumb, error).
 func (d *Dispatcher) resolveOrCreateHierarchy(brandName, streamName, projectName, categoryName string) (string, string, error) {
@@ -1585,6 +1345,8 @@ func (d *Dispatcher) StageProject(tc llm.ToolCall, scope ProjectChatScope) (stri
 	}
 	switch tc.Name {
 	case "update_cards":
+		// Each field is staged as the native tool that performs it, so
+		// accepting a row really applies it (see card_batch.go).
 		updatesRaw, _ := tc.Arguments["updates"].([]any)
 		var allEdits []model.PendingEdit
 		var rejected []string
@@ -1601,12 +1363,7 @@ func (d *Dispatcher) StageProject(tc llm.ToolCall, scope ProjectChatScope) (stri
 				rejected = append(rejected, cardID)
 				continue
 			}
-			// Stage as singular update_card edits regardless of which tool the
-			// LLM called. The plural-vs-singular distinction only matters at
-			// LLM-call time; on apply, each pending edit is one card / one
-			// field, so the singular executor branch is the right path.
-			edits := d.stageProjectCardUpdates(cardID, entry)
-			allEdits = append(allEdits, edits...)
+			allEdits = append(allEdits, d.stageCardCalls(cardID, d.cardUpdateCalls(cardID, entry))...)
 		}
 		if len(rejected) > 0 && len(allEdits) == 0 {
 			return "error: none of the supplied card_ids belong to the current project: " + strings.Join(rejected, ", ") + ". Use only the card IDs listed in the system prompt.", nil
@@ -1618,37 +1375,22 @@ func (d *Dispatcher) StageProject(tc llm.ToolCall, scope ProjectChatScope) (stri
 		return summary, allEdits
 
 	case "add_tags_to_cards":
-		cardIDsRaw, _ := tc.Arguments["card_ids"].([]any)
-		tagsRaw, _ := tc.Arguments["tags"].([]any)
-		var tags []string
-		for _, t := range tagsRaw {
-			if s, ok := t.(string); ok && s != "" {
-				tags = append(tags, s)
-			}
+		tags := stringList(tc.Arguments["tags"])
+		if len(tags) == 0 {
+			return "error: tags are required", nil
 		}
 		var edits []model.PendingEdit
 		var rejected []string
-		for _, raw := range cardIDsRaw {
-			cid, ok := raw.(string)
-			if !ok || cid == "" {
-				continue
-			}
+		for _, cid := range stringList(tc.Arguments["card_ids"]) {
 			if !inScope(cid) {
 				rejected = append(rejected, cid)
 				continue
 			}
-			cardLabel := d.cardDisplayLabel(cid)
-			// Stage one edit per card so each can be approved individually,
-			// but keep the `card_ids` (plural) shape so the executor matches
-			// the original tool contract — it loops the array even when len=1.
-			edits = append(edits, model.PendingEdit{
-				ID:     uuid.New().String(),
-				Tool:   tc.Name,
-				Input:  map[string]any{"card_ids": []any{cid}, "tags": tagsRaw},
-				Label:  cardLabel + " — add tags",
-				Detail: "+" + strings.Join(tags, ", +"),
-				Status: "pending",
-			})
+			// One native add_card_tags row per card, approved individually.
+			edits = append(edits, d.stageCardCalls(cid, []nativeCall{{
+				Tool: "add_card_tags", Field: "add tags", Detail: "+" + strings.Join(tags, ", +"),
+				Args: map[string]any{"card_id": cid, "tags": toAnySlice(tags)},
+			}})...)
 		}
 		if len(rejected) > 0 && len(edits) == 0 {
 			return "error: none of the supplied card_ids belong to the current project: " + strings.Join(rejected, ", "), nil
@@ -1928,76 +1670,6 @@ func shallowCopyArgs(src map[string]any, lookupKeys []string, field string) map[
 	return out
 }
 
-// stageProjectCardUpdates expands a single-card update into one PendingEdit
-// per field. Each edit is staged with `Tool: "update_card"` (the singular
-// executor) regardless of whether the original LLM call was update_card or
-// update_cards — see the call site comment for why.
-func (d *Dispatcher) stageProjectCardUpdates(cardID string, args map[string]any) []model.PendingEdit {
-	cardLabel := d.cardDisplayLabel(cardID)
-	var edits []model.PendingEdit
-	mkEdit := func(field string, fieldArg any, detail string) {
-		edits = append(edits, model.PendingEdit{
-			ID:     uuid.New().String(),
-			Tool:   "update_card",
-			Input:  map[string]any{"card_id": cardID, field: fieldArg},
-			Label:  cardLabel + " — " + field,
-			Detail: detail,
-			Status: "pending",
-		})
-	}
-	if v, ok := args["title"].(string); ok && v != "" {
-		mkEdit("title", v, v)
-	}
-	if v, ok := args["card_type"].(string); ok && v != "" {
-		mkEdit("card_type", v, v)
-	}
-	if raw, ok := args["tags"].([]any); ok {
-		var tags []string
-		for _, t := range raw {
-			if s, ok := t.(string); ok {
-				tags = append(tags, s)
-			}
-		}
-		detail := "Replace with: " + strings.Join(tags, ", ")
-		if len(tags) == 0 {
-			detail = "Remove all tags"
-		}
-		mkEdit("tags", raw, detail)
-	}
-	if raw, ok := args["tags_to_add"].([]any); ok {
-		var tags []string
-		for _, t := range raw {
-			if s, ok := t.(string); ok {
-				tags = append(tags, "+"+s)
-			}
-		}
-		mkEdit("tags_to_add", raw, strings.Join(tags, ", "))
-	}
-	if raw, ok := args["tags_to_remove"].([]any); ok {
-		var tags []string
-		for _, t := range raw {
-			if s, ok := t.(string); ok {
-				tags = append(tags, "−"+s)
-			}
-		}
-		mkEdit("tags_to_remove", raw, strings.Join(tags, ", "))
-	}
-	if v, ok := args["due_date"].(string); ok {
-		detail := v
-		if v == "" {
-			detail = "Clear due date"
-		}
-		mkEdit("due_date", v, detail)
-	}
-	if v, ok := args["description"].(string); ok {
-		mkEdit("description", v, v)
-	}
-	if raw, ok := args["blocks"].([]any); ok {
-		mkEdit("blocks", raw, fmt.Sprintf("Replace with %d blocks", len(raw)))
-	}
-	return edits
-}
-
 // cardDisplayLabel returns a short label for a card (used in pending edit
 // labels). Falls back to the card ID if the title can't be loaded.
 func (d *Dispatcher) cardDisplayLabel(cardID string) string {
@@ -2009,9 +1681,4 @@ func (d *Dispatcher) cardDisplayLabel(cardID string) string {
 		return cardID
 	}
 	return c.Title
-}
-
-// formatStageResult builds a human-readable acknowledgement string for the LLM.
-func formatStageResult(toolName string) string {
-	return "Edits staged for " + toolName + " — awaiting user approval"
 }

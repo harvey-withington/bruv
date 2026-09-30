@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+
+	"bruv/internal/fsutil"
 )
 
 // SanitizeText replaces reserved internal characters in user-supplied text.
@@ -29,48 +32,37 @@ func readJSON(path string, dest any) error {
 }
 
 // writeJSON atomically writes a JSON file to disk.
-// Pattern: serialize → write to temp file → fsync → rename over original.
-// This guarantees that a crash mid-write never produces a corrupt file.
+// Pattern: serialize → write to a unique temp file → fsync → rename over
+// original (fsutil.WriteFileAtomic). A crash mid-write never produces a
+// corrupt file and concurrent writers never share a temp file. A
+// read-modify-write must also hold r.lockPath(path) across the sequence.
 func writeJSON(path string, v any) error {
 	data, err := marshalSorted(v)
 	if err != nil {
 		return fmt.Errorf("marshal for %s: %w", path, err)
 	}
 
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", dir, err)
-	}
+	return fsutil.WriteFileAtomic(path, data, 0o644)
+}
 
-	tmp := path + ".tmp"
-	f, err := os.Create(tmp)
-	if err != nil {
-		return fmt.Errorf("create temp %s: %w", tmp, err)
-	}
+// fileLocks serializes read-modify-write sequences per file. Package-level
+// (not per Repository) because several Repository values can be open on
+// the same root at once (runtime, MCP server, CLI helpers).
+var fileLocks fsutil.KeyedMutex
 
-	_, writeErr := f.Write(data)
-	syncErr := f.Sync()
-	closeErr := f.Close()
-
-	if writeErr != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("write temp %s: %w", tmp, writeErr)
+// lockPath takes the RMW lock for one file and returns its unlock func.
+// Hold it across load → mutate → writeJSON. Not reentrant: never call
+// another locking method for the same file while holding it.
+func lockPath(path string) func() {
+	key := path
+	if abs, err := filepath.Abs(path); err == nil {
+		key = abs
 	}
-	if syncErr != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("sync temp %s: %w", tmp, syncErr)
+	key = filepath.Clean(key)
+	if runtime.GOOS == "windows" {
+		key = strings.ToLower(key)
 	}
-	if closeErr != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("close temp %s: %w", tmp, closeErr)
-	}
-
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("rename %s → %s: %w", tmp, path, err)
-	}
-
-	return nil
+	return fileLocks.Lock(key)
 }
 
 // marshalSorted produces JSON with sorted map keys and consistent indentation

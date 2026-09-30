@@ -46,6 +46,8 @@ const LocalConnectionName = "Local"
 // empty-string key in repo-recents.json to "local". Safe to call
 // on every boot — second + subsequent calls are no-ops.
 func MigrateLocalConnection() {
+	connectionsMu.Lock()
+	defer connectionsMu.Unlock()
 	store, err := LoadConnections()
 	if err != nil {
 		slog.Warn("migrate local connection: load connections failed", "err", err)

@@ -156,7 +156,7 @@ async function handleDelete() {
 
 **Mounting:** `<ConfirmDialog />` is mounted once in `App.svelte` outside all conditional blocks. Do not mount it elsewhere.
 
-**Keyboard:** Enter confirms, Escape cancels, click-outside cancels.
+**Keyboard (2026-09-30):** Escape cancels, click-outside cancels. **Enter activates the focused button** — Tab to Cancel + Enter cancels; with focus anywhere else (the dialog, the page underneath) Enter confirms. Ctrl/Cmd+Enter follows the same rule (it used to confirm blindly). The dialog owns these keys through the key-layer stack (§8.1): capture phase, consumed, so a confirm raised from inside a card never lets its answering Escape/Enter reach the card — that Escape used to close the card too, and on a fresh "New Card" delete it.
 
 ---
 
@@ -246,6 +246,8 @@ Options: `onCommit`, `onCancel`, `multiline`, `serial`, `blurCommits` (default t
 
 Hand-rolled handlers are acceptable ONLY where the flow is genuinely special (suggestion pickers; mobile item rows where Enter must commit without closing the page) — they must still implement the table above and register with the scope. Reference: `CardTagsField.svelte`.
 
+**Always-mounted fields inside a card** (media captions, an empty image block's url/caption pair) still use `inlineEdit` + the scope, but with `serial: true` so they register only while focused/typing — a non-serial field registers on mount, and an idle one would hold the scope open so Escape could never close the card. A caption that should also commit on blur adds that explicitly (`MediaBlock`). Bypassing the action (hand-rolled Enter, `onchange`-only commits) let Escape close the card and drop the typed caption.
+
 **Container side — `EditScope`.** Each closable container (card dialog, modal dialog, mobile sheet) creates a scope, sets `requestClose`, and shares it via `setContext(EDIT_SCOPE_KEY, scope)`. Nested dialogs create their own scope — context shadowing routes fields to the nearest container. The container's window keydown asks `scope.hasActive()` before closing on Escape and calls `scope.commitAll()` for the Ctrl+Enter chord (`scope.handleWindowKeydown` is a ready-made helper). The scope also feeds "don't clobber my edit" guards (e.g. CardDetail skips silent card reloads while the scope has active edits).
 
 **Do not** write inline `onkeydown` + `onblur` handlers for simple commit/cancel inputs — use this action.
@@ -261,7 +263,23 @@ Two working shield patterns — pick by DOM relationship to the parent's listene
 1. **Child-side capture shield** — a capture-phase window listener (`window.addEventListener('keydown', h, true)`) registered while the layer is open; `preventDefault()` + `stopPropagation()` stops the parent's bubble-phase `<svelte:window>` handler. Reference: `SlideEditorDialog.handleCaptureKeydown`, mobile `ChatSheet`.
 2. **Parent-side stand-down guard** — required when the layer is a portaled **sibling** that itself listens on `<svelte:window>`: `stopPropagation()` cannot stop sibling listeners on the same node (only `stopImmediatePropagation`, unavailable from `<svelte:window>`). The parent checks the layer's visibility and returns early. Reference: CardDetail's `optionsEditorState.visible` / `showCreateTypeDialog` / `showPromoteDialog` guards.
 
-These are stopgaps: the overlay-stack refactor in `plan/TODO.md` replaces all of them with one ordered stack. Until it lands, every new layered dialog adds one of the two shields — for both keys — or it ships this bug again.
+3. **Key-layer stack — `lib/keyLayer.ts` (preferred, 2026-09-30).** One ordered stack with a single capture-phase window listener: Escape and Enter go to the **topmost** layer only and a handled key is consumed, so nothing underneath — the card's bubble-phase handler, a lower layer's capture listener — sees it. Several raw capture listeners on `window` all fire in *registration* order (lowest layer first), which is why patterns 1–2 kept leaking. Attach `use:keyLayer={{ onEscape, onEnter? }}` to the overlay element that only mounts while open (or `pushKeyLayer(...)` in an `$effect` for conditional state). Without `onEnter`, plain Enter is left to the focused control and the Ctrl/Cmd+Enter chord is **swallowed** (it must never commit-and-close the card); a handler returning `false` declines and the key falls through to the next layer. Users: `ConfirmDialog`, `CardShareMenu`, `BlockPicker`, `PinPicker`, the card type picker, the block promote menu, the attachment preview, `SlideEditorDialog` (+ its `BoundField` / `MediaRefList` dropdowns stacked above it).
+
+   The same module counts open modals (`use:modalOpen` on CardDetail's backdrop); `globalShortcutsBlocked()` is true while a modal or a layer is open, and App's single-key shortcuts (`p` `w` `/` `?`) stand down — they used to open panels behind an open card.
+
+Patterns 1–2 remain in older dialogs (OptionsEditorDialog, CreateTypeFromCardDialog, PromoteCardDialog use pattern 2); migrate them to the stack when touched. Every new layered dialog/dropdown uses the stack — for both keys — or it ships this bug again.
+
+### 8.2 Card saves — one block-save queue, close only after commits land
+
+- **Every whole-blocks write for the open card goes through ONE serialized queue** (`lib/cardBlockSaves.svelte.ts`, built on `shared/serialSave.ts`), created per card in CardDetail and handed down as `saveBlocks` (CardBlocks → BlockItem). One persist in flight; later writes coalesce to the latest snapshot. Edits apply to the local card first (value edits in place via BlockItem `commitBlock`, structural changes via CardBlocks `persistBlocks`) and roll back if the save fails and nothing newer replaced them. Never call `UpdateCardBlocks` directly from a card component.
+- **Silent reloads never clobber pending saves:** a `card:updated` (including the watcher's ~200 ms echo of our own save) while the queue is busy is deferred and run once after it drains; a reload whose response lands after a save was requested is discarded and retried. Root cause of "rapid checklist checks lose items".
+- **Ctrl+Enter closes only when every commit succeeded.** Title/description/text-block saves resolve a success boolean, and the scope's `requestClose` waits for every tracked save (`closeWhenSaved`); any failure keeps the card open with the draft and the save's toast.
+- **Fresh-card cleanup (Board):** Escape deletes a just-created card only while it is pristine — the fresh flag (`freshCardId`) is cleared by *any* `onUpdated` from the dialog: title, blocks, tags, comments (`CardComments.onChanged`), attachments, agent config (`AgentTab.onChanged`), chat edits, pins, JSON merges. A silent reload never re-opens the auto title editor.
+- **Mobile equivalent (2026-09-30):** CardPage's block saves go through `mobile/src/lib/cardSaveQueue.ts` (also on `shared/serialSave.ts`, plus the 200 ms debounce). Quiet refetches are gated on its edit counter (`canApplyRefetch(since)`) — a fetched card is discarded if any local edit happened since the fetch began or a save is pending, and one refresh runs after the queue drains. Leaving the page (`leave()`) flushes a pending debounce instead of dropping it; a failure after the page is gone toasts `card.err_save_on_leave`. Attachment uploads merge only `file_attachments` back into the card, never the whole object. _Follow-up: the desktop and mobile queues are near-twins and should fold into one `shared/` helper._
+
+**Mobile ConfirmDialog (2026-09-30):** destructive dialogs focus **Cancel** on open (non-destructive ones the primary action), and the dialog owns Enter and Ctrl+Enter in the capture phase — they activate the focused button (confirm when focus is elsewhere) and never reach the page underneath, so Ctrl+Enter can't close a card behind an open confirm.
+
+**Mobile DocumentSheet (2026-09-30):** saves are serialized (each save presents the stamp its predecessor wrote — no false "changed on disk" prompt for your own edit). A save that fails without divergence offers "Discard unsaved changes?" so an offline user can still close; a refused close (Back while the draft can't be saved) pushes the sheet's history entry back so the next Back doesn't silently leave the card.
 
 **Mobile sheet chrome (2026-07-31):** new mobile bottom sheets use
 `mobile/src/components/BottomSheet.svelte` (props: `title`, `subtitle?`,
@@ -317,7 +335,7 @@ card = await tracked(UpdateCardTitle(cardId, title)) as Card
 
 `clickOutside(node, { onOutsideClick, exclude? })` closes popovers/menus on any click outside the node. Pass the trigger element in `exclude` so its own click can toggle without immediately re-closing. Attach to the popover content and pair with conditional rendering so it only listens while open. **Do not** hand-roll document-level click listeners for this — four divergent copies were consolidated into this action (2026-07-10).
 
-Dropdown menus share the global `.dropdown-menu` / `.dropdown-menu-item` classes (+ `.dropdown-menu--grid` for grid layouts) in `style.css` — same shared-utility pattern as `.action-reveal`. Discrete dropdowns also close on **Escape** (consumed) per §8/§12.5, and every `:hover` style needs its `:focus-visible` twin (§12.2). Reference implementations: `CardShareMenu.svelte`, `BlockPicker.svelte`.
+Dropdown menus share the global `.dropdown-menu` / `.dropdown-menu-item` classes (+ `.dropdown-menu--grid` for grid layouts) in `style.css` — same shared-utility pattern as `.action-reveal`. Discrete dropdowns also close on **Escape** (consumed, via `use:keyLayer` — §8.1 — never a `<svelte:window>` handler, which fires after the card's and closed the card too) per §8/§12.5, and every `:hover` style needs its `:focus-visible` twin (§12.2). Reference implementations: `CardShareMenu.svelte`, `BlockPicker.svelte`.
 
 ---
 
@@ -609,7 +627,7 @@ Exported for the host: `requestClose()` (backdrop click) and `onKeydown(e)` (the
 
 **Layouts** edit / split / preview, remembered **per format** in client-zone UI preferences (`document_layouts`, `document_outline` — `lib/editor/documentPrefs.svelte.ts`). The editor pane stays mounted in preview mode (hidden, not removed) so undo history and the cursor survive a flip. Outline click = `goToLine`; the entry under the cursor is highlighted.
 
-**Autosave + divergence guard (`DocumentSession`).** Debounced autosave 1 s after the last edit; the save presents the stamp (`sha256`) it loaded, and the backend refuses a save when the file on disk changed meanwhile (`SaveWorkspaceFile` → `diverged: true`, nothing written). Policy, never silent clobbering: window focus stats the file — clean draft → reload quietly + an info toast; dirty draft → `showConfirm` reload-or-keep; a refused save → `showConfirm` overwrite-or-keep. **Keep pauses autosave** (status bar says so, with a Save button) so the prompt cannot re-fire per keystroke; the next explicit save asks again. Save state is ambient in the status bar (§9) — **no toast per save**; a failed autosave shows inline and retries on the next edit.
+**Autosave + divergence guard (`DocumentSession`).** Debounced autosave 1 s after the last edit; the save presents the stamp (`sha256`) it loaded, and the backend refuses a save when the file on disk changed meanwhile (`SaveWorkspaceFile` → `diverged: true`, nothing written). Policy, never silent clobbering: window focus stats the file — clean draft → reload quietly + an info toast; dirty draft → `showConfirm` reload-or-keep; a refused save → `showConfirm` overwrite-or-keep. **Keep pauses autosave** (status bar says so, with a Save button) so the prompt cannot re-fire per keystroke; the next explicit save asks again. Save state is ambient in the status bar (§9) — **no toast per save**; a failed autosave shows inline and retries on the next edit — **never on a timer loop** (a thrown save does not reschedule itself). `flush()` waits for an in-flight save, then saves whatever was typed since (it used to return false mid-autosave, so Escape asked "discard?" and lost that text). A failed focus-time reload shows inline (`syncError`, `document.reload_failed`) instead of rejecting. If the editor unmounts without `requestClose` (the card closed underneath, the source swapped) `session.close()` saves a pending draft, and a draft it couldn't save is reported with a toast.
 
 **Keyboard.** All keys stay inside the editor (`stopPropagation` on the dialog — the board's `p`/`w`/`?` shortcuts and any card dialog beneath never see them, §8.1). Escape and Ctrl+Enter both **flush then close**; a draft that cannot be saved asks before being discarded. CodeMirror gets first go (`defaultPrevented` is respected): Escape closes its search panel first, Ctrl+S saves now, Ctrl+F finds. CodeMirror's own strings are localized through `EditorState.phrases` (`lib/editor/phrases.ts`, keys `document.cm.*`).
 
@@ -702,3 +720,16 @@ Anything that shows an agent is **running right now** uses the shared shimmer: t
 | `onchange` | `() => void` | Fired after a grant or revoke (the tab marks itself dirty). |
 
 Labels: built-ins keep `agent.tool_<id>` (+ `_desc`); native tools use `agent.tool.<id>`, falling back to the id for an unknown tool. Desktop only — mobile has no agent editor.
+---
+
+## 22. Slide media fields are lists — `MediaRefList` + `lib/slides/mediaValue.ts`
+
+A slide media field's literal value is a list: image fields hold every gallery URL / `attachment:` ref joined with `'\n'` (the renderer shows a carousel), video fields one. `BoundField` renders media fields through `MediaRefList`: one row per item — an attachment ref is a chip (name via `refDisplayName`), a URL is its own single-line input — each with its own remove ✕; *Add URL* adds a row (image fields), *Pick an attachment* appends a ref (image) or replaces the value (video), and pasting several lines creates one row per line. Rows have stable ids; the value is re-joined (blank rows dropped) on every change. Never edit a joined media value in one `<input>` — inputs strip line breaks, which merged gallery URLs, and a single chip's ✕ used to wipe every image.
+
+| Prop | Type | Notes |
+|---|---|---|
+| `value` | `string` | Newline-joined items. |
+| `multiple` | `boolean` | `true` for image fields (gallery), `false` for video. |
+| `attachmentOptions` | `{ ref, name, fromLinked }[]` | Media attachments of the host + linked card. |
+| `refDisplayName` | `(ref: string) => string` | Chip label for an `attachment:` ref. |
+| `onChange` | `(value: string) => void` | The re-joined value. |

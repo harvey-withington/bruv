@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -8,6 +9,22 @@ import (
 	"bruv/core/events"
 	"bruv/internal/config"
 )
+
+// Errors Load returns when it refuses to build a runtime.
+var (
+	// ErrRepoDisabled: the entry is disabled. Only SetEnabled(true)
+	// (or RegisterAndLoad, which re-enables) brings it back.
+	ErrRepoDisabled = errors.New("supervisor: repo is disabled")
+	// ErrClosed: the supervisor has been closed (app / service exit).
+	ErrClosed = errors.New("supervisor: closed")
+	// errBuildDiscarded: the repo was unloaded, disabled or removed
+	// while its runtime was being built, so the build was thrown away.
+	errBuildDiscarded = errors.New("supervisor: repo unloaded while loading")
+)
+
+// buildRuntimeFn is buildRuntime, swappable so lifecycle tests can
+// hold a build open.
+var buildRuntimeFn = buildRuntime
 
 // Supervisor holds N Runtimes indexed by repo ID and resolves them at
 // request time. Disabled entries are present in the registry but have
@@ -21,6 +38,12 @@ import (
 // /repos/<id>/events) keep talking to their runtime's own bus
 // directly — the aggregated bus is opt-in for hosts that want
 // cross-repo visibility.
+//
+// Lifecycle invariant: at most one Runtime per repo exists at a time,
+// counting runtimes being built and runtimes still closing. A second
+// runtime on the same repo means double schedulers (double agent runs),
+// two watchers and two index handles, so Load waits for an in-flight
+// build or close instead of overlapping it.
 type Supervisor struct {
 	mu        sync.Mutex
 	configDir string
@@ -43,6 +66,18 @@ type Supervisor struct {
 	// That was the "repo loads slowly then renders cardless until app
 	// restart" bug.
 	building map[string]*buildFlight
+
+	// closing counts runtimes per repo ID whose Close is still running.
+	// Load waits (on changed) until it drops to zero, so a reload right
+	// after an unload never overlaps the old runtime's shutdown.
+	closing map[string]int
+
+	// changed is broadcast whenever a build finishes or a close
+	// completes. Waiters hold mu.
+	changed *sync.Cond
+
+	// closed is set by Close; Load refuses from then on.
+	closed bool
 }
 
 // buildFlight is one in-progress buildRuntime shared by concurrent Loads.
@@ -50,6 +85,10 @@ type buildFlight struct {
 	done chan struct{}
 	rt   *Runtime
 	err  error
+	// cancelled is set (under Supervisor.mu) by Unload / disable /
+	// Close while the build runs; the builder then closes the fresh
+	// runtime instead of caching it.
+	cancelled bool
 }
 
 // New constructs a Supervisor from a slice of registry entries. Does
@@ -66,7 +105,9 @@ func New(entries []config.RepoEntry, configDir string) (*Supervisor, error) {
 		mux:       events.NewMemBus(256),
 		muxUnsubs: make(map[string]func(), len(entries)),
 		building:  make(map[string]*buildFlight),
+		closing:   make(map[string]int),
 	}
+	s.changed = sync.NewCond(&s.mu)
 	for _, e := range entries {
 		s.entries[e.ID] = e
 	}
@@ -128,51 +169,117 @@ func (s *Supervisor) LoadAll() {
 
 // Load builds a Runtime for the given registered ID and caches it.
 // Returns the existing Runtime if already loaded. Errors when the ID
-// isn't in the registry or when buildRuntime fails.
+// isn't in the registry, the entry is disabled (ErrRepoDisabled), the
+// supervisor is closed (ErrClosed), or buildRuntime fails.
 //
 // Concurrent Loads for the same ID share ONE buildRuntime (see the
 // `building` field doc) — a build must never run twice for a repo, or
 // the two runtimes contend on the repo's index.db and duplicate every
-// background worker.
+// background worker. For the same reason Load waits for a previous
+// runtime of the repo that is still closing.
 func (s *Supervisor) Load(id string) (*Runtime, error) {
 	s.mu.Lock()
-	if rt, ok := s.runtimes[id]; ok {
-		s.mu.Unlock()
-		return rt, nil
-	}
-	if f, ok := s.building[id]; ok {
-		// Another goroutine is mid-build — wait for its result.
-		s.mu.Unlock()
-		<-f.done
-		if f.err != nil {
-			return nil, f.err
+	for {
+		if s.closed {
+			s.mu.Unlock()
+			return nil, ErrClosed
 		}
-		return f.rt, nil
+		if rt, ok := s.runtimes[id]; ok {
+			s.mu.Unlock()
+			return rt, nil
+		}
+		if f, ok := s.building[id]; ok {
+			// Another goroutine is mid-build — wait for its result.
+			cancelled := f.cancelled
+			s.mu.Unlock()
+			<-f.done
+			if !cancelled {
+				return f.rt, f.err
+			}
+			// That build was abandoned before we joined; start over
+			// (it may have left a runtime closing, handled below).
+			s.mu.Lock()
+			continue
+		}
+		if s.closing[id] > 0 {
+			s.changed.Wait()
+			continue
+		}
+		break
 	}
 	entry, ok := s.entries[id]
 	if !ok {
 		s.mu.Unlock()
 		return nil, fmt.Errorf("supervisor: repo %q not in registry", id)
 	}
+	if entry.Disabled {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("%w: %q", ErrRepoDisabled, id)
+	}
 	f := &buildFlight{done: make(chan struct{})}
 	s.building[id] = f
 	s.mu.Unlock()
 
-	rt, err := buildRuntime(entry.Path, s.configDir, s.secret)
+	rt, err := buildRuntimeFn(entry.Path, s.configDir, s.secret)
 	if err != nil {
 		err = fmt.Errorf("supervisor: build %q: %w", id, err)
 	}
 
+	var discard *Runtime
 	s.mu.Lock()
 	delete(s.building, id)
 	if err == nil {
-		s.runtimes[id] = rt
-		s.startBusFanIn(id, rt)
+		// Re-check: the repo may have been unloaded, disabled or
+		// removed — or the supervisor closed — while we were building.
+		cur, stillThere := s.entries[id]
+		if f.cancelled || s.closed || !stillThere || cur.Disabled {
+			discard, rt, err = rt, nil, errBuildDiscarded
+			s.closing[id]++
+		} else {
+			s.runtimes[id] = rt
+			s.startBusFanIn(id, rt)
+		}
 	}
 	f.rt, f.err = rt, err
+	s.changed.Broadcast()
 	s.mu.Unlock()
 	close(f.done)
+	if discard != nil {
+		s.finishClose(id, discard)
+	}
 	return rt, err
+}
+
+// detachLocked removes id's cached runtime (if any) from the
+// supervisor, cancels an in-flight build of it, and marks the removed
+// runtime as closing. The caller must pass the returned runtime to
+// finishClose after releasing s.mu. Caller holds s.mu.
+func (s *Supervisor) detachLocked(id string) *Runtime {
+	if f, ok := s.building[id]; ok {
+		f.cancelled = true
+	}
+	rt := s.runtimes[id]
+	delete(s.runtimes, id)
+	s.stopBusFanIn(id)
+	if rt != nil {
+		s.closing[id]++
+	}
+	return rt
+}
+
+// finishClose closes a detached runtime outside the lock, then clears
+// its closing mark and wakes any Load waiting to rebuild the repo.
+func (s *Supervisor) finishClose(id string, rt *Runtime) {
+	if rt == nil {
+		return
+	}
+	rt.Close()
+	s.mu.Lock()
+	if s.closing[id]--; s.closing[id] <= 0 {
+		delete(s.closing, id)
+	}
+	s.changed.Broadcast()
+	s.mu.Unlock()
 }
 
 // Secret returns the HMAC secret used for signed attachment URLs.
@@ -184,9 +291,8 @@ func (s *Supervisor) Secret() []byte { return s.secret }
 // the repo is unknown / disabled.
 func (s *Supervisor) Resolve(id string) *Runtime {
 	s.mu.Lock()
-	rt := s.runtimes[id]
-	s.mu.Unlock()
-	return rt
+	defer s.mu.Unlock()
+	return s.runtimes[id]
 }
 
 // LoadedRuntimes returns a snapshot of every Runtime currently loaded
@@ -218,44 +324,33 @@ func (s *Supervisor) List() []config.RepoEntry {
 }
 
 // SetEnabled flips a repo on or off at runtime. Enabling builds and
-// starts its Runtime; disabling shuts the existing Runtime down.
-// Idempotent. Persists the change to repos.json so it survives restart.
+// starts its Runtime; disabling shuts the existing Runtime down (and
+// abandons a build in flight). Idempotent. Persists the change to
+// repos.json so it survives restart.
 func (s *Supervisor) SetEnabled(id string, enabled bool) error {
 	s.mu.Lock()
 	entry, ok := s.entries[id]
-	s.mu.Unlock()
 	if !ok {
+		s.mu.Unlock()
 		return fmt.Errorf("supervisor: repo %q not in registry", id)
 	}
-	currentlyLoaded := s.Resolve(id) != nil
-	if enabled == currentlyLoaded {
-		entry.Disabled = !enabled
-		s.mu.Lock()
-		s.entries[id] = entry
-		s.mu.Unlock()
-		return config.SetRepoDisabled(id, !enabled)
+	// Flip the in-memory flag first: Load reads it, so an enable lets
+	// the Load below build, and a disable stops any concurrent Load
+	// from caching a fresh runtime.
+	entry.Disabled = !enabled
+	s.entries[id] = entry
+	var rt *Runtime
+	if !enabled {
+		rt = s.detachLocked(id)
 	}
+	s.mu.Unlock()
+
 	if enabled {
-		// Persist Disabled=false BEFORE Load so RegistrationByID
-		// reflects the new state if buildRuntime queries it.
-		entry.Disabled = false
-		s.mu.Lock()
-		s.entries[id] = entry
-		s.mu.Unlock()
 		if _, err := s.Load(id); err != nil {
 			return fmt.Errorf("supervisor: enable %q: %w", id, err)
 		}
 	} else {
-		s.mu.Lock()
-		rt := s.runtimes[id]
-		delete(s.runtimes, id)
-		s.stopBusFanIn(id)
-		entry.Disabled = true
-		s.entries[id] = entry
-		s.mu.Unlock()
-		if rt != nil {
-			rt.Close()
-		}
+		s.finishClose(id, rt)
 	}
 	return config.SetRepoDisabled(id, !enabled)
 }
@@ -277,6 +372,12 @@ func (s *Supervisor) RegisterAndLoad(path string) (*Runtime, error) {
 	s.mu.Lock()
 	s.entries[entry.ID] = entry
 	s.mu.Unlock()
+	if entry.Disabled {
+		// Opening a disabled repo explicitly is a request to use it.
+		if err := s.SetEnabled(entry.ID, true); err != nil {
+			return nil, err
+		}
+	}
 	// Delegate to Load so registration shares the same single-flight
 	// as every other build path.
 	return s.Load(entry.ID)
@@ -296,18 +397,15 @@ func (s *Supervisor) EntryByPath(path string) (config.RepoEntry, bool) {
 	return config.RepoEntry{}, false
 }
 
-// Unload shuts a runtime down WITHOUT removing it from the registry.
+// Unload shuts a runtime down WITHOUT removing it from the registry,
+// abandoning a build in flight. Returns once the runtime has closed.
 // The next Resolve will lazy-rebuild it. Used by the desktop when the
 // user closes the active repo.
 func (s *Supervisor) Unload(id string) {
 	s.mu.Lock()
-	rt := s.runtimes[id]
-	delete(s.runtimes, id)
-	s.stopBusFanIn(id)
+	rt := s.detachLocked(id)
 	s.mu.Unlock()
-	if rt != nil {
-		rt.Close()
-	}
+	s.finishClose(id, rt)
 }
 
 // SetName renames a registry entry and (if loaded) propagates the
@@ -318,7 +416,7 @@ func (s *Supervisor) Unload(id string) {
 // the disk-only manifest rewrite (no live runtime) can do it.
 func (s *Supervisor) SetName(id, name string) (string, error) {
 	s.mu.Lock()
-	entry, ok := s.entries[id]
+	_, ok := s.entries[id]
 	s.mu.Unlock()
 	if !ok {
 		return "", fmt.Errorf("supervisor: repo %q not in registry", id)
@@ -326,10 +424,15 @@ func (s *Supervisor) SetName(id, name string) (string, error) {
 	if err := config.SetRepoName(id, name); err != nil {
 		return "", err
 	}
-	entry.Name = name
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Re-read: the entry may have changed (e.g. disabled) meanwhile.
+	entry, ok := s.entries[id]
+	if !ok {
+		return "", fmt.Errorf("supervisor: repo %q not in registry", id)
+	}
+	entry.Name = name
 	s.entries[id] = entry
-	s.mu.Unlock()
 	return entry.Path, nil
 }
 
@@ -347,19 +450,42 @@ func (s *Supervisor) Remove(id string) error {
 	return nil
 }
 
-// Close shuts down every loaded Runtime. Safe to call from a defer.
+// Close shuts down every loaded Runtime and waits for in-flight builds
+// and closes to finish, so nothing keeps running after it returns.
+// Later Loads fail with ErrClosed. Safe to call from a defer and more
+// than once.
 func (s *Supervisor) Close() {
 	s.mu.Lock()
-	rts := make([]*Runtime, 0, len(s.runtimes))
-	for _, rt := range s.runtimes {
-		rts = append(rts, rt)
+	s.closed = true
+	ids := make([]string, 0, len(s.runtimes))
+	for id := range s.runtimes {
+		ids = append(ids, id)
 	}
-	for id := range s.muxUnsubs {
-		s.stopBusFanIn(id)
+	for id := range s.building {
+		ids = append(ids, id)
 	}
-	s.runtimes = nil
+	detached := make(map[string]*Runtime, len(ids))
+	for _, id := range ids {
+		if rt := s.detachLocked(id); rt != nil {
+			detached[id] = rt
+		}
+	}
 	s.mu.Unlock()
-	for _, rt := range rts {
-		rt.Close()
+
+	var wg sync.WaitGroup
+	for id, rt := range detached {
+		wg.Add(1)
+		go func(id string, rt *Runtime) {
+			defer wg.Done()
+			s.finishClose(id, rt)
+		}(id, rt)
 	}
+	wg.Wait()
+
+	// Abandoned builds close their runtimes when they finish.
+	s.mu.Lock()
+	for len(s.building) > 0 || len(s.closing) > 0 {
+		s.changed.Wait()
+	}
+	s.mu.Unlock()
 }

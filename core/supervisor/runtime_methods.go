@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -285,13 +284,6 @@ type CardTypesImportResult = catalog.CardTypesImportResult
 // ListCardTypes returns all card types (built-in first, then user).
 func (r *Runtime) ListCardTypes() []CardTypeInfo { return r.Catalog.ListCardTypes() }
 
-// ResolveOrCreateCardType canonicalises an LLM-supplied card type against
-// the catalog (match by id or label, create when unknown, empty stays
-// untyped) — see catalog.Service.ResolveOrCreateType.
-func (r *Runtime) ResolveOrCreateCardType(input string) (id string, created bool, err error) {
-	return r.Catalog.ResolveOrCreateType(input)
-}
-
 func (r *Runtime) ValidateCardFields(cardType string, fields map[string]any) []string {
 	return r.Catalog.ValidateCardFields(cardType, fields)
 }
@@ -347,10 +339,6 @@ func (r *Runtime) ImportCardTypesFromRepo(otherRepoPath, mode string) (CardTypes
 // Internal helpers — App forwarders so app_card.go's creation flow
 // doesn't need to import the catalog package directly. When the card
 // service is extracted these go away.
-func (r *Runtime) applyTypeBlocks(cardID, cardType string) {
-	r.Catalog.ApplyTypeBlocks(cardID, cardType)
-}
-
 func (r *Runtime) resolveTemplateBlocks(cardType string) []model.Block {
 	return r.Catalog.ResolveTemplateBlocks(cardType)
 }
@@ -439,25 +427,9 @@ func renderCategoryHeader(cat model.Category) string {
 // feed views.
 //
 // Most methods here are thin forwarders to core/services/search — see
-// that package for the domain logic. openIndex, ListActivityLog, and
-// ListRecentlyUpdatedCards remain on App until their neighbouring
-// services are extracted (repository lifecycle + inbox/activity,
-// respectively).
-
-// --- Index lifecycle (stays on App until repository-service extraction) ---
-
-func (r *Runtime) openIndex(repoPath string) error {
-	if r.idx != nil {
-		r.idx.Close()
-	}
-	dbPath := filepath.Join(repoPath, ".bruv", "index.db")
-	idx, err := index.Open(dbPath)
-	if err != nil {
-		return err
-	}
-	r.idx = idx
-	return nil
-}
+// that package for the domain logic. ListActivityLog and
+// ListRecentlyUpdatedCards remain here until the inbox/activity service
+// is extracted.
 
 // --- Search / index-backed lookups (forwarders to core/services/search) ---
 
@@ -891,31 +863,73 @@ func (r *Runtime) ApplyProjectPendingEdits(brandSlug, streamSlug, projectSlug, m
 	// the rest rejected. Edits run synchronously through the project executor.
 	// A tool error marks that one edit failed (reason on the edit, see
 	// resolvePendingEdit) and the walk carries on; the call itself still
-	// succeeds so the caller gets the resolved rows back.
-	for i, m := range cf.Messages {
+	// succeeds so the caller gets the resolved rows back. The tools run
+	// outside the chat lock; only their outcomes land, on a fresh copy.
+	outcomes := map[string]func(*model.PendingEdit){}
+	for _, m := range cf.Messages {
 		if m.ID != msgID {
 			continue
 		}
-		for j, edit := range m.PendingEdits {
+		for _, edit := range m.PendingEdits {
 			if edit.Status != "pending" {
 				continue
 			}
 			if acceptSet[edit.ID] {
 				tc := llm.ToolCall{ID: edit.ID, Name: edit.Tool, Arguments: edit.Input}
 				result, _ := r.executeProjectToolCall(tc, applyScope)
-				resolvePendingEdit(&cf.Messages[i].PendingEdits[j], result)
+				outcomes[edit.ID] = func(e *model.PendingEdit) { resolvePendingEdit(e, result) }
 			} else {
-				cf.Messages[i].PendingEdits[j].Status = "rejected"
+				outcomes[edit.ID] = rejectPendingEdit
 			}
 		}
 		break
 	}
 
-	if err := config.SaveChatFor(r.repo.Manifest.ID, cf); err != nil {
-		return nil, err
-	}
-	return cf, nil
+	return config.UpdateChat(r.repo.Manifest.ID, chatID, func(fresh *model.ChatFile) error {
+		if applyPendingOutcomes(fresh, msgID, outcomes) == 0 {
+			return config.ErrChatUnchanged
+		}
+		return nil
+	})
 }
+
+// applyPendingOutcomes stamps each outcome onto its edit in msgID's
+// message on a freshly loaded chat, skipping edits no longer pending (a
+// concurrent resolution got there first). Returns how many it stamped.
+func applyPendingOutcomes(cf *model.ChatFile, msgID string, outcomes map[string]func(*model.PendingEdit)) int {
+	applied := 0
+	for i := range cf.Messages {
+		if cf.Messages[i].ID != msgID {
+			continue
+		}
+		for j := range cf.Messages[i].PendingEdits {
+			edit := &cf.Messages[i].PendingEdits[j]
+			if outcome, ok := outcomes[edit.ID]; ok && edit.Status == "pending" {
+				outcome(edit)
+				applied++
+			}
+		}
+		break
+	}
+	return applied
+}
+
+// findPendingEdit returns the edit editID on message msgID, or nil.
+func findPendingEdit(cf *model.ChatFile, msgID, editID string) *model.PendingEdit {
+	for i := range cf.Messages {
+		if cf.Messages[i].ID != msgID {
+			continue
+		}
+		for j := range cf.Messages[i].PendingEdits {
+			if cf.Messages[i].PendingEdits[j].ID == editID {
+				return &cf.Messages[i].PendingEdits[j]
+			}
+		}
+	}
+	return nil
+}
+
+func rejectPendingEdit(edit *model.PendingEdit) { edit.Status = "rejected" }
 
 // resolvePendingEdit stamps the outcome of an accepted edit's tool call.
 // Tool handlers report failure as an "error…" result string rather than
@@ -943,29 +957,26 @@ func (r *Runtime) AcceptPendingEdit(cardID, msgID, editID string) (*model.ChatFi
 	if err != nil {
 		return nil, err
 	}
+	edit := findPendingEdit(cf, msgID, editID)
+	if edit == nil {
+		return nil, fmt.Errorf("pending edit not found")
+	}
+	if edit.Status != "pending" {
+		return cf, nil
+	}
+	// The tool runs outside the chat lock; only its outcome is stamped,
+	// onto a fresh copy, so messages appended meanwhile survive.
 	card, _ := r.repo.GetCard(cardID)
 	allCats, _ := r.ListAllCategories()
-	for i, m := range cf.Messages {
-		if m.ID != msgID {
-			continue
+	tc := llm.ToolCall{ID: editID, Name: edit.Tool, Arguments: edit.Input}
+	result, _, _ := r.executeToolCall(cardID, card, tc, allCats)
+	return config.UpdateChat(r.repo.Manifest.ID, cardID, func(fresh *model.ChatFile) error {
+		outcome := map[string]func(*model.PendingEdit){editID: func(e *model.PendingEdit) { resolvePendingEdit(e, result) }}
+		if applyPendingOutcomes(fresh, msgID, outcome) == 0 {
+			return config.ErrChatUnchanged
 		}
-		for j, edit := range m.PendingEdits {
-			if edit.ID != editID {
-				continue
-			}
-			if edit.Status != "pending" {
-				return cf, nil
-			}
-			tc := llm.ToolCall{ID: editID, Name: edit.Tool, Arguments: edit.Input}
-			result, _, _ := r.executeToolCall(cardID, card, tc, allCats)
-			resolvePendingEdit(&cf.Messages[i].PendingEdits[j], result)
-			if err := config.SaveChatFor(r.repo.Manifest.ID, cf); err != nil {
-				return nil, err
-			}
-			return cf, nil
-		}
-	}
-	return nil, fmt.Errorf("pending edit not found")
+		return nil
+	})
 }
 
 // RejectPendingEdit dismisses a single pending edit without applying it.
@@ -973,29 +984,17 @@ func (r *Runtime) RejectPendingEdit(cardID, msgID, editID string) (*model.ChatFi
 	if r.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
-	cf, err := config.LoadChatFor(r.repo.Manifest.ID, cardID)
-	if err != nil {
-		return nil, err
-	}
-	for i, m := range cf.Messages {
-		if m.ID != msgID {
-			continue
+	return config.UpdateChat(r.repo.Manifest.ID, cardID, func(cf *model.ChatFile) error {
+		edit := findPendingEdit(cf, msgID, editID)
+		if edit == nil {
+			return fmt.Errorf("pending edit not found")
 		}
-		for j, edit := range m.PendingEdits {
-			if edit.ID != editID {
-				continue
-			}
-			if edit.Status != "pending" {
-				return cf, nil
-			}
-			cf.Messages[i].PendingEdits[j].Status = "rejected"
-			if err := config.SaveChatFor(r.repo.Manifest.ID, cf); err != nil {
-				return nil, err
-			}
-			return cf, nil
+		if edit.Status != "pending" {
+			return config.ErrChatUnchanged
 		}
-	}
-	return nil, fmt.Errorf("pending edit not found")
+		rejectPendingEdit(edit)
+		return nil
+	})
 }
 
 // ApplyPendingEdits accepts the specified edits (in order) and rejects the rest.
@@ -1074,21 +1073,19 @@ func (r *Runtime) RejectAllPendingEdits(cardID, msgID string) (*model.ChatFile, 
 	if r.repo == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
-	cf, err := config.LoadChatFor(r.repo.Manifest.ID, cardID)
-	if err != nil {
-		return nil, err
-	}
-	for i, m := range cf.Messages {
-		if m.ID == msgID {
-			for j, e := range m.PendingEdits {
-				if e.Status == "pending" {
-					cf.Messages[i].PendingEdits[j].Status = "rejected"
+	return config.UpdateChat(r.repo.Manifest.ID, cardID, func(cf *model.ChatFile) error {
+		for i, m := range cf.Messages {
+			if m.ID == msgID {
+				for j, e := range m.PendingEdits {
+					if e.Status == "pending" {
+						rejectPendingEdit(&cf.Messages[i].PendingEdits[j])
+					}
 				}
+				return nil
 			}
-			return cf, config.SaveChatFor(r.repo.Manifest.ID, cf)
 		}
-	}
-	return cf, nil
+		return config.ErrChatUnchanged
+	})
 }
 
 // --- Pin suggestions ---
@@ -1102,7 +1099,7 @@ func (r *Runtime) AcceptPinSuggestion(cardID, messageID string) error {
 	if err != nil {
 		return err
 	}
-	for i, m := range cf.Messages {
+	for _, m := range cf.Messages {
 		if m.ID == messageID && m.PinSuggestion != nil && m.PinSuggestion.Status == "pending" {
 			// A suggestion staged while the card was in the Inbox may be
 			// accepted after the user filed it by hand — never double-pin.
@@ -1112,11 +1109,26 @@ func (r *Runtime) AcceptPinSuggestion(cardID, messageID string) error {
 			if err := r.PinCard(cardID, m.PinSuggestion.CategoryID); err != nil {
 				return err
 			}
-			cf.Messages[i].PinSuggestion.Status = "accepted"
-			return config.SaveChatFor(r.repo.Manifest.ID, cf)
+			// Pinned outside the chat lock; stamp the status on a fresh copy.
+			_, err := config.UpdateChat(r.repo.Manifest.ID, cardID, func(fresh *model.ChatFile) error {
+				return setPinSuggestionStatus(fresh, messageID, "accepted")
+			})
+			return err
 		}
 	}
 	return fmt.Errorf("pin suggestion not found or already resolved")
+}
+
+// setPinSuggestionStatus resolves messageID's pending pin suggestion.
+// Returns config.ErrChatUnchanged when it is gone or already resolved.
+func setPinSuggestionStatus(cf *model.ChatFile, messageID, status string) error {
+	for i, m := range cf.Messages {
+		if m.ID == messageID && m.PinSuggestion != nil && m.PinSuggestion.Status == "pending" {
+			cf.Messages[i].PinSuggestion.Status = status
+			return nil
+		}
+	}
+	return config.ErrChatUnchanged
 }
 
 // RejectPinSuggestion dismisses a pending pin suggestion on a chat message.
@@ -1124,15 +1136,19 @@ func (r *Runtime) RejectPinSuggestion(cardID, messageID string) error {
 	if r.repo == nil {
 		return fmt.Errorf("no repository open")
 	}
-	cf, err := config.LoadChatFor(r.repo.Manifest.ID, cardID)
+	resolved := false
+	_, err := config.UpdateChat(r.repo.Manifest.ID, cardID, func(cf *model.ChatFile) error {
+		if err := setPinSuggestionStatus(cf, messageID, "rejected"); err != nil {
+			return err
+		}
+		resolved = true
+		return nil
+	})
 	if err != nil {
 		return err
 	}
-	for i, m := range cf.Messages {
-		if m.ID == messageID && m.PinSuggestion != nil && m.PinSuggestion.Status == "pending" {
-			cf.Messages[i].PinSuggestion.Status = "rejected"
-			return config.SaveChatFor(r.repo.Manifest.ID, cf)
-		}
+	if !resolved {
+		return fmt.Errorf("pin suggestion not found or already resolved")
 	}
-	return fmt.Errorf("pin suggestion not found or already resolved")
+	return nil
 }

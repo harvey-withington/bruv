@@ -17,6 +17,7 @@
   import { renderMarkdown } from '@shared/markdown'
   import { t } from '../lib/i18n.svelte'
   import { focusOnMount, inlineEdit, clickOutside } from '../lib/actions'
+  import { keyLayer } from '../lib/keyLayer'
   import { promoteTargets } from '@shared/promote'
   import { asUrlValue, asWorkspaceFiles, asWorkspaceFilesDisplay } from '@shared/blockValues'
   import { isMentionPickerOpenFor } from '@shared/mentions'
@@ -24,7 +25,7 @@
   import { getContext } from 'svelte'
   import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
   import { showToast } from '../lib/toast.svelte'
-  import { UpdateCardBlocks, CreateCard, PinCard } from '@shared/api'
+  import { CreateCard, PinCard } from '@shared/api'
   import type { Block, BlockMeta, Card, ChecklistItem, ListItem, MediaItem, SurveyQuestion, SlideDeckValue } from '@shared/types'
   import EditableChecklist from './EditableChecklist.svelte'
   import EditableList from './EditableList.svelte'
@@ -64,9 +65,9 @@
     blockTextareaEls = $bindable(),
     textBlockEls = $bindable(),
     // Callbacks — all block-mutating operations go through the parent
-    // so CardDetail's save-tracking and optimistic-update paths stay
-    // authoritative.
-    tracked,
+    // so the card's single serialized save queue stays authoritative.
+    // commitBlock mutates the block, saves, rolls back + toasts on failure.
+    commitBlock,
     onUpdated,
     onDragStart,
     onDragEnd,
@@ -99,7 +100,8 @@
     textBlockOverflows: Set<string>
     blockTextareaEls: Record<string, HTMLTextAreaElement | null>
     textBlockEls: Record<string, HTMLElement | null>
-    tracked: <T>(p: Promise<T>) => Promise<T>
+    commitBlock: (target: Block, val: Block['value'], newMeta?: BlockMeta) => Promise<boolean>
+    /** Board-level change outside this card (checklist item promoted to a card). */
     onUpdated?: () => void
     onDragStart: (e: DragEvent, block: Block) => void
     onDragEnd: () => void
@@ -128,31 +130,6 @@
   let promoteOpen = $state(false)
   const promoteableTargets = $derived(onPromote ? promoteTargets(block.type) : [])
 
-  // One guarded save for every widget-style block (select, number,
-  // date, rating, checkbox, radio, checkbox_group, image, progress,
-  // alarm, survey). These used to fire tracked(UpdateCardBlocks(...))
-  // without await/catch — on RPC failure the UI silently kept a value
-  // the disk never got. Rolls the block back and toasts instead.
-  async function commitBlock(target: Block, val: Block['value'], newMeta?: BlockMeta) {
-    if (!card) return
-    const prevValue = target.value
-    const prevMeta = target.meta
-    target.value = val
-    if (newMeta) target.meta = { ...target.meta, ...newMeta }
-    try {
-      await tracked(UpdateCardBlocks(cardId, card.blocks))
-      onUpdated?.()
-    } catch (e) {
-      // Roll back only if no newer local write landed while this save
-      // was in flight — otherwise a slow failing save would clobber the
-      // user's more recent value with the older snapshot.
-      if (target.value === val) {
-        target.value = prevValue
-        target.meta = prevMeta
-      }
-      showToast(t('error.save_failed'), 'error')
-    }
-  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -219,7 +196,7 @@
             <span class="promote-wrap">
               <button class="block-action-btn action-reveal" onclick={(e) => { e.stopPropagation(); promoteOpen = !promoteOpen }} title={t('block.promote_to')} aria-label={t('block.promote_to')}><ChevronsUp size={11} /></button>
               {#if promoteOpen}
-                <div class="promote-menu" use:clickOutside={{ onOutsideClick: () => (promoteOpen = false) }}>
+                <div class="promote-menu" use:clickOutside={{ onOutsideClick: () => (promoteOpen = false) }} use:keyLayer={{ onEscape: () => { promoteOpen = false } }}>
                   {#each promoteableTargets as target}
                     <button type="button" onclick={(e) => { e.stopPropagation(); promoteOpen = false; onPromote?.(block, target) }}>{t('block.' + target)}</button>
                   {/each}
@@ -291,19 +268,7 @@
         {:else if block.type === 'checklist'}
           <EditableChecklist
             items={Array.isArray(block.value) ? block.value as ChecklistItem[] : []}
-            onUpdate={async (updated) => {
-              if (!card) return
-              // Mutate block.value in place so Svelte 5's $state proxy on
-              // card.blocks sees the change and the UI re-renders. Building
-              // a fresh blocks array via map() would persist but leave the
-              // parent's card state stale — toggles would save but not
-              // visibly update until the card was reopened.
-              block.value = updated
-              try {
-                await tracked(UpdateCardBlocks(cardId, card.blocks))
-                onUpdated?.()
-              } catch (e) { showToast(t('error.save_failed'), 'error') }
-            }}
+            onUpdate={(updated) => commitBlock(block, updated)}
             onPromote={async (text) => {
               try {
                 const newCard = await CreateCard(card?.type || 'task', text)
@@ -319,27 +284,13 @@
         {:else if block.type === 'list'}
           <EditableList
             items={Array.isArray(block.value) ? block.value as ListItem[] : []}
-            onUpdate={async (updated) => {
-              if (!card) return
-              block.value = updated
-              try {
-                await tracked(UpdateCardBlocks(cardId, card.blocks))
-                onUpdated?.()
-              } catch (e) { showToast(t('error.save_failed'), 'error') }
-            }}
+            onUpdate={(updated) => commitBlock(block, updated)}
           />
 
         {:else if block.type === 'media'}
           <MediaBlock
             items={Array.isArray(block.value) ? block.value as MediaItem[] : []}
-            onUpdate={async (updated) => {
-              if (!card) return
-              block.value = updated
-              try {
-                await tracked(UpdateCardBlocks(cardId, card.blocks))
-                onUpdated?.()
-              } catch (e) { showToast(t('error.save_failed'), 'error') }
-            }}
+            onUpdate={(updated) => commitBlock(block, updated)}
           />
 
         {:else if block.type === 'url'}

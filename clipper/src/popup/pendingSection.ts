@@ -12,12 +12,9 @@
 import type { ClipperSettings, CompleteRequestMessage, CompleteResponse } from '../lib/types'
 import { repoRPC } from '../lib/api'
 import { loadPendingCards, refreshPendingBadge, type PendingCard } from '../lib/pending'
+import { armButton } from './armButton'
 
 const PENDING_LIMIT = 10
-// Two-step delete: the first click arms, the second confirms, and the
-// arming lapses. Same pattern as the queue's Discard — the extension has
-// no dialog layer, and native confirm() is banned project-wide.
-const DELETE_ARM_MS = 3000
 
 type StatusFn = (text: string, ok: boolean) => void
 
@@ -84,32 +81,6 @@ async function deleteRow(card: PendingCard, li: HTMLLIElement, settings: Clipper
   }
 }
 
-function wireDeleteButton(btn: HTMLButtonElement, card: PendingCard, li: HTMLLIElement, settings: ClipperSettings, showStatus: StatusFn): void {
-  let armed = false
-  let timer: number | undefined
-  const disarm = (): void => {
-    armed = false
-    btn.classList.remove('armed')
-    btn.textContent = '×'
-    btn.title = msg('popup_pending_delete')
-  }
-  disarm()
-  btn.addEventListener('click', () => {
-    if (!armed) {
-      armed = true
-      btn.classList.add('armed')
-      btn.textContent = msg('popup_pending_delete_confirm')
-      btn.title = msg('popup_pending_delete_confirm')
-      clearTimeout(timer)
-      timer = setTimeout(disarm, DELETE_ARM_MS) as unknown as number
-      return
-    }
-    clearTimeout(timer)
-    disarm()
-    void deleteRow(card, li, settings, showStatus)
-  })
-}
-
 function renderRow(card: PendingCard, settings: ClipperSettings, showStatus: StatusFn): HTMLLIElement {
   const li = document.createElement('li')
   li.className = 'pending-row'
@@ -133,7 +104,13 @@ function renderRow(card: PendingCard, settings: ClipperSettings, showStatus: Sta
   del.type = 'button'
   del.className = 'danger'
   li.appendChild(del)
-  wireDeleteButton(del, card, li, settings, showStatus)
+  // Two-step delete (armButton) — same pattern as the queue's Discard.
+  armButton(del, {
+    idleText: '×',
+    idleTitle: msg('popup_pending_delete'),
+    armedText: msg('popup_pending_delete_confirm'),
+    onConfirm: () => void deleteRow(card, li, settings, showStatus),
+  })
 
   rows.set(card.id, { card, button, state })
 

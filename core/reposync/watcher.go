@@ -150,11 +150,14 @@ func (w *Watcher) Stop() {
 	w.mu.Unlock()
 
 	close(w.stopCh)
-	_ = w.watcher.Close()
-	// Block until run() has actually returned. Closing stopCh only signals
-	// it; without this wait an in-flight handleEvent or debounced publish
-	// can still touch the repo after Stop() returns.
+	// Block until run() has actually returned BEFORE closing fsnotify.
+	// Closing stopCh only signals it; without this wait an in-flight
+	// handleEvent or debounced publish can still touch the repo after
+	// Stop() returns — and an in-flight handleEvent → watcher.Add racing
+	// watcher.Close blocks forever on Windows (fsnotify's Add waits for a
+	// reply the closed watcher never sends), hanging repo close.
 	<-w.done
+	_ = w.watcher.Close()
 }
 
 // walkAndAdd recursively adds every directory under root to the

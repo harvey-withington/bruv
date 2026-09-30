@@ -23,6 +23,8 @@ func (r *Repository) GetProjectMembers(brandSlug, streamSlug, projectSlug string
 // SaveProjectMembers writes the project-scoped members.json registry.
 func (r *Repository) SaveProjectMembers(brandSlug, streamSlug, projectSlug string, members []model.ProjectMember) error {
 	path := r.projectMembersFilePath(brandSlug, streamSlug, projectSlug)
+	unlock := lockPath(path)
+	defer unlock()
 	if err := writeJSON(path, members); err != nil {
 		return fmt.Errorf("write project members: %w", err)
 	}

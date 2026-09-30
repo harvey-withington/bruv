@@ -8,14 +8,20 @@
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
   import { floatingDropdown, clickOutside } from '../lib/actions'
+  import { keyLayer } from '../lib/keyLayer'
   import type { Card } from '@shared/types'
 
   // Share/export menu for the card dialog footer: copy as Markdown,
   // save as Markdown file, save as BRUV JSON, and merge a BRUV JSON
   // export INTO this card. Self-contained — owns its open state and
-  // click-outside/Escape handling.
+  // click-outside/Escape handling (Escape via the key-layer stack, so it
+  // closes only the menu, never the card underneath — UI-CONVENTIONS §8.1).
 
-  let { card }: { card: Card } = $props()
+  let { card, onMerged }: {
+    card: Card
+    /** A JSON merge changed the card (the dialog marks it as edited). */
+    onMerged?: () => void
+  } = $props()
 
   let open = $state(false)
   let btnEl = $state<HTMLButtonElement | null>(null)
@@ -44,6 +50,7 @@
       if (isMergeNoop(out.summary) && out.attachmentsAdded === 0 && out.commentsAdded === 0) {
         showToast(t('card.merge_nothing'), 'info')
       } else {
+        onMerged?.()
         const s = out.summary
         showToast(t('card.merge_done', { merged: s.blocksMerged + s.blocksAdded, copies: s.blocksCopied, items: s.itemsAdded }), 'success')
       }
@@ -55,15 +62,6 @@
       showToast(t(key), 'error')
     } finally {
       exporting = false
-    }
-  }
-
-  function handleKeydown(e: KeyboardEvent) {
-    if (!open) return
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      e.stopPropagation()
-      open = false
     }
   }
 
@@ -110,8 +108,6 @@
   }
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
 <button
   class="btn-share"
   bind:this={btnEl}
@@ -131,6 +127,7 @@
     class="dropdown-menu"
     use:floatingDropdown={{ trigger: btnEl }}
     use:clickOutside={{ onOutsideClick: () => open = false, exclude: [btnEl] }}
+    use:keyLayer={{ onEscape: () => { open = false } }}
   >
     <button class="dropdown-menu-item" onclick={copyCardAsMarkdown}>
       <Copy size={14} />

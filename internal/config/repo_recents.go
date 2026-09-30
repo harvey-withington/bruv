@@ -14,7 +14,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 )
+
+// repoRecentsMu serializes SetRecentRepoForConnection's load-modify-save.
+var repoRecentsMu sync.Mutex
 
 // RepoRecents maps connection ID → last-selected repo ID for that
 // connection. The empty string means "no choice yet, show picker".
@@ -61,7 +65,7 @@ func SaveRepoRecents(r RepoRecents) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return atomicWriteFile(path, data, 0o644)
 }
 
 // GetRecentRepoForConnection returns the last-selected repo ID for
@@ -80,6 +84,8 @@ func GetRecentRepoForConnection(connectionID string) string {
 // auto-restore on next launch. We accept the empty key here for that
 // reason — it's not corruption, it's the Local connection's row.
 func SetRecentRepoForConnection(connectionID, repoID string) error {
+	repoRecentsMu.Lock()
+	defer repoRecentsMu.Unlock()
 	r, _ := LoadRepoRecents()
 	if repoID == "" {
 		delete(r, connectionID)

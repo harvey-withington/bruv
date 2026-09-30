@@ -7,6 +7,7 @@
   import type { Attachment, Card } from '@shared/types'
   import { isEditableTextAttachment } from '@shared/attachmentText'
   import AttachmentDocumentViewer from './AttachmentDocumentViewer.svelte'
+  import { keyLayer } from '../lib/keyLayer'
 
   let {
     cardId,
@@ -197,7 +198,8 @@
 {/if}
 
 {#if previewAttachment}
-  <div class="preview-overlay">
+  <!-- Escape closes the preview only (key-layer stack, UI-CONVENTIONS §8.1) -->
+  <div class="preview-overlay" use:keyLayer={{ onEscape: closePreview }}>
     <button type="button" class="preview-backdrop-btn" onclick={closePreview} aria-label={t('attachment.preview_close')}></button>
     <div class="preview-modal" style="position: relative; z-index: 1;">
       <header class="preview-header">

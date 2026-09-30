@@ -26,15 +26,17 @@ var toolHandlers = map[string]toolFunc{
 	"get_card":        hGetCard,
 	"search_cards":    hSearchCards,
 	// Create / capture
-	"create_brand":    hCreateBrand,
-	"create_stream":   hCreateStream,
-	"create_project":  hCreateProject,
-	"create_category": hCreateCategory,
-	"create_card":     hCreateCard,
+	"create_brand":     hCreateBrand,
+	"create_stream":    hCreateStream,
+	"create_project":   hCreateProject,
+	"create_category":  hCreateCategory,
+	"create_card":      hCreateCard,
+	"create_card_type": hCreateCardType,
 	// Populate existing cards
-	"add_card_blocks": hAddCardBlocks,
-	"set_card_fields": hSetCardFields,
-	"add_card_tags":   hAddCardTags,
+	"add_card_blocks":  hAddCardBlocks,
+	"set_card_fields":  hSetCardFields,
+	"add_card_tags":    hAddCardTags,
+	"remove_card_tags": hRemoveCardTags,
 	// Intrinsic card properties
 	"set_card_title":       hSetCardTitle,
 	"set_card_description": hSetCardDescription,
@@ -173,11 +175,12 @@ func cardTypeRoster(rt Board) string {
 // which board each tool writes to and which types it actually has.
 func Defs(rt Board, repoName string) []mcp.Tool {
 	board := "the \"" + repoName + "\" BRUV board"
-	// The live roster rides in the description, never as an enum: an
-	// unknown name is created as a new type, which an enum would forbid.
-	typeDesc := "Card type — matched case-insensitively by id or label; an unrecognised name creates a new type."
+	// The live roster rides in the description rather than an enum, so a
+	// type made by create_card_type earlier in the same session is still
+	// accepted; the handlers refuse an unknown name (ruling 2026-09-30).
+	typeDesc := "Card type — an existing type, matched case-insensitively by id or label (see list_card_types). Unknown types are refused."
 	if roster := cardTypeRoster(rt); roster != "" {
-		typeDesc = "Card type — one of: " + roster + " (matched case-insensitively by id or label; an unrecognised name creates a new type)."
+		typeDesc = "Card type — one of: " + roster + " (matched case-insensitively by id or label; unknown types are refused)."
 	}
 	cardTypeDesc := typeDesc + " Omit for the built-in default '" + catalog.DefaultCardType + "'."
 
@@ -290,6 +293,18 @@ func Defs(rt Board, repoName string) []mcp.Tool {
 				"blocks":      blockArrayProp("Structured content blocks to add to the card."),
 			}, "title"),
 		},
+		{
+			Name: "create_card_type",
+			Description: "Add a new card type to " + board + ". Card types are the user's own vocabulary, so use this SPARINGLY: " +
+				"only when the user explicitly asks for a new type, or when no existing type fits at all — never just to label one card. " +
+				"Check list_card_types first; a label that already exists is refused. Returns the new type's id.",
+			InputSchema: obj(map[string]any{
+				"label":       strProp("Display name of the new type, e.g. 'Recipe'."),
+				"color":       strProp("Optional hex colour, e.g. '#6366f1' (one is picked when omitted)."),
+				"description": strProp("Optional one-line description of what cards of this type are for."),
+				"ai_hint":     strProp("Optional guidance for AI assistants on when to use this type."),
+			}, "label"),
+		},
 
 		// --- Populate existing cards ---
 		{
@@ -319,6 +334,15 @@ func Defs(rt Board, repoName string) []mcp.Tool {
 				"card_id": strProp("The card's id."),
 				"tags":    strArr("Tags to add."),
 			}, "card_id", "tags"),
+		},
+		{
+			Name:        "remove_card_tags",
+			Description: "Remove tags from a card in " + board + " (matched case-insensitively). Pass all=true to clear every tag — only when the user asks for that.",
+			InputSchema: obj(map[string]any{
+				"card_id": strProp("The card's id."),
+				"tags":    strArr("Tags to remove."),
+				"all":     map[string]any{"type": "boolean", "description": "Remove every tag on the card instead of listing them."},
+			}, "card_id"),
 		},
 
 		// --- Intrinsic card properties ---
@@ -352,7 +376,7 @@ func Defs(rt Board, repoName string) []mcp.Tool {
 			Description: "Set or clear a card's due date in " + board + ".",
 			InputSchema: obj(map[string]any{
 				"card_id":  strProp("The card's id."),
-				"due_date": strProp("YYYY-MM-DD, or an empty string to clear the due date."),
+				"due_date": strProp("YYYY-MM-DD (or an ISO 8601 date-time; one without an offset is local time), or an empty string to clear the due date."),
 			}, "card_id", "due_date"),
 		},
 		{

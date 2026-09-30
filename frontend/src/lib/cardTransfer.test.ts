@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import {
   importCardFromJson,
+  mergeCardFromJson,
   ImportError,
   type CardTransferApi,
   type TypeConflictResolution,
 } from '@shared/cardTransfer'
+import { collectAttachmentRefs, remapAttachmentRefs } from '@shared/attachmentRefs'
 import { CARD_JSON_FORMAT, CARD_JSON_VERSION } from '@shared/cardJson'
 import type { Card } from '@shared/types'
 
@@ -92,7 +94,7 @@ describe('importCardFromJson — parse validation', () => {
 })
 
 describe('importCardFromJson — common path (type accepted or unrestricted)', () => {
-  it('replays create → pin → blocks → tags → due → attachments → comments', async () => {
+  it('replays create → pin → attachments → blocks → tags → due → comments', async () => {
     const { api, calls } = makeApi({ acceptedTypes: null })
     const result = await importCardFromJson(api, envelope({
       title: 'T', type: 'task', description: 'D', tags: ['a'], due_date: '2026-08-01',
@@ -107,11 +109,11 @@ describe('importCardFromJson — common path (type accepted or unrestricted)', (
       'getCategoryAcceptedTypes',
       'createCard',
       'pinCard',
+      'addCardAttachment',
       'updateCardDescription',
       'updateCardBlocks',
       'updateCardTags',
       'updateCardDueDate',
-      'addCardAttachment',
       'addCardComment',
     ])
     expect(calls[1].args).toEqual(['task', 'T'])
@@ -274,5 +276,128 @@ describe('importCardFromJson — pin failure', () => {
     await expect(importCardFromJson(api, envelope({ type: 'task' }), 'cat-1', { fallbackTitle: 'F' }))
       .rejects.toSatisfy((e: unknown) => e instanceof ImportError && e.code === 'pin_failed')
     expect(methods(calls)).toEqual(['getCategoryAcceptedTypes', 'createCard', 'pinCard', 'deleteCard'])
+  })
+})
+
+// --- Attachment refs re-homed onto the copies (sweep 9.7) ----------------
+//
+// Import/merge re-upload attachments and the server mints NEW ids; block
+// values and slide decks must follow, or media breaks cross-vault and when
+// the source card is deleted.
+
+describe('remapAttachmentRefs', () => {
+  const remap = {
+    attachments: new Map([['att-a', 'att-A'], ['att-b', 'att-B']]),
+    cards: new Map([['src', 'dst']]),
+    targetCardID: 'dst',
+  }
+
+  it('rewrites {url}, media items, gallery strings and slide links, and leaves the rest alone', () => {
+    const value = {
+      single: { url: 'attachment:src/att-a' },
+      items: [{ id: 'm1', url: 'attachment:src/att-b', mime: 'video/mp4' }],
+      gallery: 'attachment:src/att-a\nhttps://cdn.example/x.jpg\nattachment:src/att-b',
+      foreign: 'attachment:other/att-z',
+      plain: 'https://example.com',
+      slides: [{ cardId: 'src', values: { image: 'attachment:src/att-a' } }, { cardId: 'elsewhere' }],
+    }
+    expect(remapAttachmentRefs(value, remap)).toEqual({
+      single: { url: 'attachment:dst/att-A' },
+      items: [{ id: 'm1', url: 'attachment:dst/att-B', mime: 'video/mp4' }],
+      gallery: 'attachment:dst/att-A\nhttps://cdn.example/x.jpg\nattachment:dst/att-B',
+      foreign: 'attachment:other/att-z',
+      plain: 'https://example.com',
+      slides: [{ cardId: 'dst', values: { image: 'attachment:dst/att-A' } }, { cardId: 'elsewhere' }],
+    })
+    // Pure: the input is untouched.
+    expect(value.single.url).toBe('attachment:src/att-a')
+  })
+
+  it('collects refs from every shape', () => {
+    const refs = collectAttachmentRefs([{ url: 'attachment:c/a1' }, 'attachment:c/a2\nattachment:d/a3', 'nope'])
+    expect(refs.map((r) => `${r.cardID}/${r.attachmentID}`)).toEqual(['c/a1', 'c/a2', 'd/a3'])
+  })
+})
+
+describe('import / merge re-home attachment refs', () => {
+  // Fake backend that mints attachment ids like the server does and hands
+  // back the updated card from AddCardAttachment.
+  function makeAttApi(target?: Card): { api: CardTransferApi; blocksWritten: () => Card['blocks'] } {
+    let written: Card['blocks'] = []
+    let seq = 0
+    const atts: Array<{ id: string; name: string; path: string; mime: string; size: number; added_at: string }> =
+      [...(target?.file_attachments ?? [])]
+    const cardId = target?.id ?? 'new-1'
+    const snapshot = () => ({ id: cardId, file_attachments: [...atts] }) as unknown as Card
+    const api: CardTransferApi = {
+      getCard: async () => ({ ...(target ?? {}), ...snapshot() }) as Card,
+      createCard: async (type, title) => ({ id: 'new-1', title, type, blocks: [], file_attachments: [] }) as unknown as Card,
+      deleteCard: async () => {},
+      pinCard: async () => {},
+      getCategoryAcceptedTypes: async () => null,
+      listCardTypeIds: async () => [],
+      updateCardType: async () => {},
+      updateCardDescription: async () => {},
+      updateCardBlocks: async (_id, blocks) => { written = blocks },
+      updateCardTags: async () => {},
+      updateCardDueDate: async () => {},
+      addCardAttachment: async (_id, name) => {
+        atts.push({ id: `att-new-${++seq}`, name, path: '', mime: '', size: 1, added_at: '' })
+        return snapshot()
+      },
+      addCardComment: async () => {},
+      listCardComments: async () => [],
+      signAttachmentURL: async () => '',
+    }
+    return { api, blocksWritten: () => written }
+  }
+
+  const blocks = [
+    { id: 'b1', type: 'image', label: 'Media', key: 'media', value: { url: 'attachment:src-card/att-old-1' } },
+    { id: 'b2', type: 'media', label: 'Video', key: 'video', value: [{ id: 'm1', url: 'attachment:src-card/att-old-2' }] },
+    {
+      id: 'b3', type: 'slide_deck', label: 'Slides', key: '',
+      value: { slides: [{ id: 's1', cardId: 'src-card', values: { image: 'attachment:src-card/att-old-1\nattachment:src-card/att-old-2' } }] },
+    },
+  ]
+  const attachments = [
+    { id: 'att-old-1', name: 'a.jpg', mime: 'image/jpeg', size: 1, data: 'AA==' },
+    { id: 'att-old-2', name: 'b.mp4', mime: 'video/mp4', size: 2, data: 'AAA=' },
+  ]
+
+  it('import writes blocks that point at the new card\'s copies', async () => {
+    const { api, blocksWritten } = makeAttApi()
+    await importCardFromJson(api, envelope({ blocks }, { attachments }), 'cat-1', { fallbackTitle: 'F' })
+    const out = JSON.stringify(blocksWritten())
+    expect(out).not.toContain('src-card')
+    expect(out).not.toContain('att-old')
+    expect(blocksWritten()[0].value).toEqual({ url: 'attachment:new-1/att-new-1' })
+    expect(blocksWritten()[1].value).toEqual([{ id: 'm1', url: 'attachment:new-1/att-new-2' }])
+    expect(blocksWritten()[2].value).toEqual({
+      slides: [{ id: 's1', cardId: 'new-1', values: { image: 'attachment:new-1/att-new-1\nattachment:new-1/att-new-2' } }],
+    })
+  })
+
+  it('import leaves refs alone when the export predates attachment ids', async () => {
+    const { api, blocksWritten } = makeAttApi()
+    const legacy = attachments.map((a) => ({ name: a.name, mime: a.mime, size: a.size, data: a.data }))
+    await importCardFromJson(api, envelope({ blocks: blocks.slice(0, 1) }, { attachments: legacy }), 'cat-1', { fallbackTitle: 'F' })
+    expect(blocksWritten()[0].value).toEqual({ url: 'attachment:src-card/att-old-1' })
+  })
+
+  it('merge maps refs onto new copies AND onto existing name+size matches', async () => {
+    const target = {
+      id: 'target', title: 'T', type: '', description: '', tags: [], due_date: null, created_at: '', blocks: [],
+      file_attachments: [{ id: 'att-existing', name: 'A.JPG', path: '', mime: 'image/jpeg', size: 1, added_at: '' }],
+    } as unknown as Card
+    const { api, blocksWritten } = makeAttApi(target)
+    const out = await mergeCardFromJson(api, envelope({ blocks: blocks.slice(0, 2) }, { attachments }), 'target', {
+      mergedSuffix: '(Merged)', mergedHeading: 'Merged',
+    })
+    expect(out.attachmentsAdded).toBe(1)
+    expect(blocksWritten().map((b) => b.value)).toEqual([
+      { url: 'attachment:target/att-existing' },
+      [{ id: 'm1', url: 'attachment:target/att-new-1' }],
+    ])
   })
 })

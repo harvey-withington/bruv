@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -77,6 +78,11 @@ func LoadConnections() (ConnectionStore, error) {
 	return s, nil
 }
 
+// connectionsMu serializes the store's load-modify-save cycles (add,
+// update, remove, set-active, the boot migration) so concurrent edits
+// can't drop a connection or its device token.
+var connectionsMu sync.Mutex
+
 // SaveConnections writes the store atomically.
 func SaveConnections(s ConnectionStore) error {
 	path, err := connectionsFilePath()
@@ -87,7 +93,7 @@ func SaveConnections(s ConnectionStore) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return atomicWriteFile(path, data, 0o600)
 }
 
 // AddConnection persists a new connection and returns the stored
@@ -95,6 +101,8 @@ func SaveConnections(s ConnectionStore) error {
 // name + url + token are non-empty and that url doesn't already
 // belong to another connection (avoids accidental duplicates).
 func AddConnection(name, url, deviceToken string) (Connection, error) {
+	connectionsMu.Lock()
+	defer connectionsMu.Unlock()
 	name = trimSpace(name)
 	url = trimTrailingSlash(trimSpace(url))
 	deviceToken = trimSpace(deviceToken)
@@ -131,6 +139,8 @@ func AddConnection(name, url, deviceToken string) (Connection, error) {
 // change. The ID stays stable so per-machine state keyed off it
 // (repo-recents.json, the active pointer) keeps working.
 func UpdateConnection(id, name, url, deviceToken string) (Connection, error) {
+	connectionsMu.Lock()
+	defer connectionsMu.Unlock()
 	store, err := LoadConnections()
 	if err != nil {
 		return Connection{}, err
@@ -159,6 +169,8 @@ func UpdateConnection(id, name, url, deviceToken string) (Connection, error) {
 // RemoveConnection drops an entry by ID. If the removed connection
 // was the active one, Active is reset to "" (Local).
 func RemoveConnection(id string) error {
+	connectionsMu.Lock()
+	defer connectionsMu.Unlock()
 	store, err := LoadConnections()
 	if err != nil {
 		return err
@@ -183,6 +195,8 @@ func RemoveConnection(id string) error {
 // SetActiveConnection marks one connection (by ID) as active, or
 // resets to Local if id is "".
 func SetActiveConnection(id string) error {
+	connectionsMu.Lock()
+	defer connectionsMu.Unlock()
 	store, err := LoadConnections()
 	if err != nil {
 		return err

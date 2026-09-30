@@ -98,6 +98,8 @@ func (r *Repository) ListBrands() ([]model.Brand, error) {
 
 // UpdateBrand updates a Brand's mutable fields.
 func (r *Repository) UpdateBrand(slug string, update func(*model.Brand)) (*model.Brand, error) {
+	unlock := lockPath(r.brandFilePath(slug))
+	defer unlock()
 	brand, err := r.GetBrand(slug)
 	if err != nil {
 		return nil, err
@@ -127,6 +129,8 @@ func (r *Repository) ReorderBrands(orderedSlugs []string) error {
 
 // RenameBrand renames a Brand and moves its directory if the slug changes.
 func (r *Repository) RenameBrand(slug, newName string) (*model.Brand, error) {
+	unlock := lockPath(r.brandFilePath(slug))
+	defer unlock()
 	brand, err := r.GetBrand(slug)
 	if err != nil {
 		return nil, err
@@ -160,30 +164,12 @@ func (r *Repository) RenameBrand(slug, newName string) (*model.Brand, error) {
 
 // UpdateBrandDescription sets or clears the description on a Brand.
 func (r *Repository) UpdateBrandDescription(slug, description string) (*model.Brand, error) {
-	brand, err := r.GetBrand(slug)
-	if err != nil {
-		return nil, err
-	}
-	brand.Description = description
-	brand.UpdatedAt = time.Now().UTC()
-	if err := writeJSON(r.brandFilePath(slug), brand); err != nil {
-		return nil, fmt.Errorf("write brand: %w", err)
-	}
-	return brand, nil
+	return r.UpdateBrand(slug, func(b *model.Brand) { b.Description = description })
 }
 
 // UpdateBrandIcon sets or clears the icon on a Brand.
 func (r *Repository) UpdateBrandIcon(slug, icon string) (*model.Brand, error) {
-	brand, err := r.GetBrand(slug)
-	if err != nil {
-		return nil, err
-	}
-	brand.Icon = icon
-	brand.UpdatedAt = time.Now().UTC()
-	if err := writeJSON(r.brandFilePath(slug), brand); err != nil {
-		return nil, fmt.Errorf("write brand: %w", err)
-	}
-	return brand, nil
+	return r.UpdateBrand(slug, func(b *model.Brand) { b.Icon = icon })
 }
 
 // DeleteBrand removes a Brand and all its contents from the repository.

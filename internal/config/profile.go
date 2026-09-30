@@ -58,13 +58,13 @@ func LoadProfile() (UserProfile, error) {
 			if json.Unmarshal(uidRaw, &uid) == nil && uid != "" {
 				if dpath, derr := deviceIDPath(); derr == nil {
 					if _, statErr := os.Stat(dpath); os.IsNotExist(statErr) {
-						_ = os.WriteFile(dpath, []byte(uid+"\n"), 0o644)
+						_ = atomicWriteFile(dpath, []byte(uid+"\n"), 0o644)
 					}
 				}
 			}
 			delete(raw, "user_id")
 			if cleaned, mErr := json.MarshalIndent(raw, "", "  "); mErr == nil {
-				_ = os.WriteFile(path, cleaned, 0o644)
+				_ = atomicWriteFile(path, cleaned, 0o644)
 			}
 		}
 	}
@@ -96,5 +96,5 @@ func SaveProfile(p UserProfile) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return atomicWriteFile(path, data, 0o644)
 }

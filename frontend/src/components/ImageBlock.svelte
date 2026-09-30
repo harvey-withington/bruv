@@ -4,6 +4,9 @@
   import { mentionable } from '../lib/mentions.svelte'
   import { SignAttachmentURL } from '@shared/api'
   import { parseAttachmentRef } from '@shared/attachmentRefs'
+  import { getContext } from 'svelte'
+  import { EDIT_SCOPE_KEY, type EditScope } from '@shared/editScope'
+  import { inlineEdit } from '../lib/actions'
 
   let {
     value,
@@ -61,10 +64,38 @@
   // svelte-ignore state_referenced_locally
   let captionDraft = $state(imgData.caption || '')
 
+  // Keyboard entry contract (UI-CONVENTIONS §8) via inlineEdit + the card's
+  // EditScope: Enter saves, Escape cancels the edit (never the card),
+  // Ctrl+Enter saves + closes. The hand-rolled Enter-only handler let Escape
+  // close the card and drop the typed caption. Editing an existing image is
+  // edit-in-place (blur out of the url+caption pair saves); an EMPTY block's
+  // inputs are always mounted, so they behave like an add row (serial:
+  // registered only while focused, blur keeps the draft) — otherwise they'd
+  // hold the scope open and Escape could never close the card.
+  const editScope = getContext<EditScope | undefined>(EDIT_SCOPE_KEY) ?? null
+  const editParams = $derived({
+    onCommit: save,
+    onCancel: cancel,
+    scope: editScope,
+    container: '.image-edit',
+    serial: !imgData.url,
+  })
+
   function save() {
-    if (!urlDraft.trim()) return
-    onUpdate({ url: urlDraft.trim(), caption: captionDraft.trim() || undefined })
+    const url = urlDraft.trim()
+    if (!url) return
+    const caption = captionDraft.trim() || undefined
     editing = false
+    // Both inputs register with the scope — a Ctrl+Enter commitAll must not
+    // write the same value twice.
+    if (url === imgData.url && (caption ?? '') === (imgData.caption ?? '')) return
+    onUpdate({ url, caption })
+  }
+
+  function cancel() {
+    urlDraft = imgData.url
+    captionDraft = imgData.caption || ''
+    if (imgData.url) editing = false
   }
 </script>
 
@@ -76,7 +107,7 @@
         class="image-url-input"
         placeholder={t('block.image_url_placeholder')}
         bind:value={urlDraft}
-        onkeydown={(e) => { if (e.key === 'Enter') save() }}
+        use:inlineEdit={editParams}
       />
       <input
         type="text"
@@ -84,7 +115,7 @@
         placeholder={t('block.image_caption_placeholder')}
         use:mentionable
         bind:value={captionDraft}
-        onkeydown={(e) => { if (e.key === 'Enter') save() }}
+        use:inlineEdit={editParams}
       />
       <button class="image-save-btn" onclick={save}>{t('common.save')}</button>
     </div>

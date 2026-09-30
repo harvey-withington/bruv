@@ -10,6 +10,7 @@ import (
 	"bruv/internal/index"
 	"bruv/internal/model"
 	"bruv/internal/repo"
+	"errors"
 	"fmt"
 	"log/slog"
 )
@@ -440,31 +441,70 @@ func (s *Service) UpdateCategoryAcceptedTypes(brandSlug, streamSlug, projectSlug
 	})
 }
 
-// MoveCategoryCards moves every card pin from one category to another
-// and deletes the source category. Re-indexes pins as it goes.
+// MoveCategoryCards moves every card pinned to one category into another
+// (appended after the destination's cards); the source category itself is
+// left in place — the caller deletes it. The card list comes from the pin
+// files, not the search index, so a stale or refreshing index can't leave
+// cards behind. Every card is checked against the destination's accepted
+// types first, so a refusal moves nothing; a failure part-way reports
+// which cards had already moved.
 func (s *Service) MoveCategoryCards(brandSlug, streamSlug, projectSlug, fromCategoryID, toCategoryID string) error {
-	r, idx := s.deps.Repo(), s.deps.Index()
+	r := s.deps.Repo()
 	if r == nil {
 		return fmt.Errorf("no repository open")
 	}
-	if idx == nil {
-		return fmt.Errorf("no index available")
+	dest, err := projectCategory(r, brandSlug, streamSlug, projectSlug, toCategoryID)
+	if err != nil {
+		return err
 	}
-	cardIDs, err := idx.ListCardIDsInCategory(fromCategoryID)
+	pins, err := r.ListCardsInCategory(fromCategoryID)
 	if err != nil {
 		return fmt.Errorf("list cards in category: %w", err)
 	}
-	for i, cardID := range cardIDs {
-		if err := r.MoveCardToCategory(cardID, fromCategoryID, toCategoryID, i); err != nil {
-			return fmt.Errorf("move card %s: %w", cardID, err)
+	for _, pin := range pins {
+		card, err := r.GetCard(pin.CardID)
+		if err != nil {
+			return fmt.Errorf("move cards: %w", err)
 		}
-		if pins, err := r.GetCardPins(cardID); err == nil {
-			if ierr := idx.IndexPins(cardID, pins); ierr != nil {
-				slog.Warn("index pins failed", "card", cardID, "err", ierr)
+		if !repo.CategoryAcceptsType(dest, card.Type) {
+			return fmt.Errorf("category %q does not accept card type %q (card %q); nothing was moved", dest.Name, card.Type, card.Title)
+		}
+	}
+	existing, err := r.ListCardsInCategory(toCategoryID)
+	if err != nil {
+		return fmt.Errorf("list cards in category: %w", err)
+	}
+	idx := s.deps.Index()
+	moved := make([]string, 0, len(pins))
+	for i, pin := range pins {
+		if err := r.MoveCardToCategory(pin.CardID, fromCategoryID, toCategoryID, len(existing)+i); err != nil {
+			return fmt.Errorf("move card %s: %w (moved %d of %d cards: %v)", pin.CardID, err, len(moved), len(pins), moved)
+		}
+		moved = append(moved, pin.CardID)
+		if idx == nil {
+			continue
+		}
+		if cardPins, err := r.GetCardPins(pin.CardID); err == nil {
+			if ierr := idx.IndexPins(pin.CardID, cardPins); ierr != nil {
+				slog.Warn("index pins failed", "card", pin.CardID, "err", ierr)
 			}
 		}
 	}
 	return nil
+}
+
+// projectCategory finds a category of the project by ID.
+func projectCategory(r *repo.Repository, brandSlug, streamSlug, projectSlug, categoryID string) (*model.Category, error) {
+	cats, err := r.ListCategories(brandSlug, streamSlug, projectSlug)
+	if err != nil {
+		return nil, err
+	}
+	for i := range cats {
+		if cats[i].ID == categoryID {
+			return &cats[i], nil
+		}
+	}
+	return nil, fmt.Errorf("category %q not found in project %q", categoryID, projectSlug)
 }
 
 // --- Move ---
@@ -504,28 +544,40 @@ func (s *Service) snapshotCatIDs(brand, stream, project string) map[string]strin
 	return m
 }
 
-func (s *Service) duplicateCardsForProject(oldCatIDs, newCatIDs map[string]string) {
-	r, idx := s.deps.Repo(), s.deps.Index()
-	if idx == nil || r == nil {
-		return
+// duplicateCardsForProject copies the cards of each old category into
+// the new category with the same slug. The card lists come from the pin
+// files, not the search index (which may be stale). Every card is
+// attempted; the error names the ones that could not be copied.
+func (s *Service) duplicateCardsForProject(oldCatIDs, newCatIDs map[string]string) error {
+	r := s.deps.Repo()
+	if r == nil {
+		return fmt.Errorf("no repository open")
 	}
+	var errs []error
 	for slug, oldCatID := range oldCatIDs {
 		newCatID, ok := newCatIDs[slug]
 		if !ok {
 			continue
 		}
-		cardIDs, err := idx.ListCardIDsInCategory(oldCatID)
-		if err != nil || len(cardIDs) == 0 {
+		pins, err := r.ListCardsInCategory(oldCatID)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("category %s: %w", slug, err))
 			continue
 		}
-		for i, cardID := range cardIDs {
-			newCard, err := r.DuplicateCard(cardID)
-			if err != nil {
-				continue
+		for i, pin := range pins {
+			newCard, err := r.DuplicateCard(pin.CardID)
+			if err == nil {
+				err = r.PinCardAt(newCard.ID, newCatID, i)
 			}
-			_ = r.PinCardAt(newCard.ID, newCatID, i)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("card %s: %w", pin.CardID, err))
+			}
 		}
 	}
+	if len(errs) > 0 {
+		return fmt.Errorf("copied, but %d card(s) could not be copied: %w", len(errs), errors.Join(errs...))
+	}
+	return nil
 }
 
 func (s *Service) CopyBrand(brandSlug string) (*model.Brand, error) {
@@ -552,12 +604,15 @@ func (s *Service) CopyBrand(brandSlug string) (*model.Brand, error) {
 	if err != nil {
 		return nil, err
 	}
+	var errs []error
 	for _, snap := range snapshots {
 		newCatIDs := s.snapshotCatIDs(result.Slug, snap.streamSlug, snap.projectSlug)
-		s.duplicateCardsForProject(snap.catIDs, newCatIDs)
+		if err := s.duplicateCardsForProject(snap.catIDs, newCatIDs); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	s.idxRefresh()
-	return result, nil
+	return result, errors.Join(errs...)
 }
 
 func (s *Service) CopyStream(fromBrand, streamSlug, toBrand string) (*model.Stream, error) {
@@ -581,12 +636,15 @@ func (s *Service) CopyStream(fromBrand, streamSlug, toBrand string) (*model.Stre
 	if err != nil {
 		return nil, err
 	}
+	var errs []error
 	for _, snap := range snapshots {
 		newCatIDs := s.snapshotCatIDs(toBrand, result.Slug, snap.projectSlug)
-		s.duplicateCardsForProject(snap.catIDs, newCatIDs)
+		if err := s.duplicateCardsForProject(snap.catIDs, newCatIDs); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	s.idxRefresh()
-	return result, nil
+	return result, errors.Join(errs...)
 }
 
 func (s *Service) CopyProject(fromBrand, fromStream, projectSlug, toBrand, toStream string, position int) (*model.Project, error) {
@@ -600,9 +658,9 @@ func (s *Service) CopyProject(fromBrand, fromStream, projectSlug, toBrand, toStr
 		return nil, err
 	}
 	newCatIDs := s.snapshotCatIDs(toBrand, toStream, result.Slug)
-	s.duplicateCardsForProject(oldCatIDs, newCatIDs)
+	err = s.duplicateCardsForProject(oldCatIDs, newCatIDs)
 	s.idxRefresh()
-	return result, nil
+	return result, err
 }
 
 // --- Reorder ---

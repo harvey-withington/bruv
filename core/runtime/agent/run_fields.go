@@ -15,11 +15,13 @@ package agent
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"bruv/core/runtime/tools"
 	"bruv/internal/model"
+	"bruv/internal/repo"
 )
 
 // Tracking-block keys the runtime writes. The prompt leaves them out of
@@ -125,25 +127,29 @@ func truncateSummary(s string) string {
 	return s
 }
 
-// stampCard writes values onto the card, leaving the keys in keep, and
-// saves it when something changed. Best-effort: bookkeeping never fails
-// a run. Returns the tracked values as they stand afterwards, so the end
-// of the run can tell which ones the model changed.
-func (rt *Runtime) stampCard(cardID string, values map[string]any, keep map[string]bool) fieldSnapshot {
-	card, err := rt.deps.Repo().GetCard(cardID)
+// stampCard writes values onto the card and saves it when something
+// changed. A tracked block whose value differs from since (a snapshot
+// taken earlier in the run; nil for none) was changed by the model and is
+// left alone. Best-effort: bookkeeping never fails a run. Returns the
+// tracked values as they stand afterwards.
+func (rt *Runtime) stampCard(cardID string, values map[string]any, since fieldSnapshot) fieldSnapshot {
+	changed := false
+	card, err := rt.deps.Repo().MutateCard(cardID, func(card *model.Card) error {
+		keep := changedSince(since, snapshotFields(card))
+		if changed = applyRunStamp(card, values, keep); !changed {
+			return repo.ErrNoChange
+		}
+		return nil
+	})
 	if err != nil {
+		slog.Warn("agent run: stamp card failed", "card_id", cardID, "err", err)
 		return nil
 	}
-	if applyRunStamp(card, values, keep) {
-		card.UpdatedAt = time.Now().UTC()
-		if err := rt.deps.Repo().UpdateCardDirect(cardID, card); err != nil {
-			rt.logIdxErr("stamp agent card", err)
-		} else {
-			if rt.deps.Index() != nil {
-				rt.idxIncrementalRefresh()
-			}
-			rt.emitCardUpdated(cardID)
+	if changed {
+		if rt.deps.Index() != nil {
+			rt.idxIncrementalRefresh()
 		}
+		rt.emitCardUpdated(cardID)
 	}
 	return snapshotFields(card)
 }
@@ -152,9 +158,5 @@ func (rt *Runtime) stampCard(cardID string, values map[string]any, keep map[stri
 // the model changed since afterStart (the snapshot stampCard returned
 // when the run began).
 func (rt *Runtime) finishStamp(cardID string, run model.AgentRun, finishedAt time.Time, afterStart fieldSnapshot) {
-	keep := map[string]bool{}
-	if card, err := rt.deps.Repo().GetCard(cardID); err == nil {
-		keep = changedSince(afterStart, snapshotFields(card))
-	}
-	rt.stampCard(cardID, finalValues(run, finishedAt), keep)
+	rt.stampCard(cardID, finalValues(run, finishedAt), afterStart)
 }

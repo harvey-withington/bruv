@@ -1,6 +1,6 @@
 <script lang="ts">
   import { GetCard, UpdateCardTitle, UpdateCardType, RefreshTypeBlocks, UpdateCardDescription, UpdateCardDueDate,
-    DeleteCard, PinCard, UnpinCard, GetCardPinBreadcrumbs, GetProjectLabels, GetCategoryAcceptedTypes, GetAgentConfig, GetProjectMembers, CreateCardTypeFromCard } from '@shared/api'
+    DeleteCard, PinCard, UnpinCard, MoveCardToCategory, UpdateCardBlocks, GetCardPinBreadcrumbs, GetProjectLabels, GetCategoryAcceptedTypes, GetAgentConfig, GetProjectMembers, CreateCardTypeFromCard } from '@shared/api'
   import { onEvent } from '../lib/events'
   import { projectTags, nav, cardTypes, loadCardTypes, board } from '../lib/store.svelte'
   import { X, Trash2, BotMessageSquare, ClipboardList, History, Timer, ArrowUpRight } from 'lucide-svelte'
@@ -25,11 +25,13 @@
   import { fade } from 'svelte/transition'
   import { setContext } from 'svelte'
   import { focusTrap } from '../lib/actions'
+  import { modalOpen } from '../lib/keyLayer'
+  import { createCardBlockSaves } from '../lib/cardBlockSaves.svelte'
   import { EditScope, EDIT_SCOPE_KEY } from '@shared/editScope'
   import { optionsEditorState } from '../lib/optionsEditor.svelte'
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
-  import type { Card, CardPin, ProjectMember } from '@shared/types'
+  import type { Block, Card, CardPin, ProjectMember } from '@shared/types'
 
 
   let { cardId, currentCategoryId, currentCategoryName, categoryAcceptedTypes, onClose, onUpdated, onPin, autoEditTitle, initialTab }: {
@@ -111,11 +113,44 @@
 
   let savingCount = $state(0)
   let saving = $derived(savingCount > 0)
+  // Every tracked save in flight, and how many have failed so far — the
+  // Ctrl+Enter close waits for the former and stays open if the latter
+  // moved (closeWhenSaved).
+  const pendingSaves = new Set<Promise<unknown>>()
+  let saveFailures = 0
 
   async function tracked<T>(promise: Promise<T>): Promise<T> {
     savingCount++
+    pendingSaves.add(promise)
     try { return await promise }
-    finally { savingCount-- }
+    catch (e) { saveFailures++; throw e }
+    finally { savingCount--; pendingSaves.delete(promise) }
+  }
+
+  // Every whole-blocks write for the open card goes through ONE serialized
+  // queue (lib/cardBlockSaves) — overlapping writes and silent reloads used
+  // to lose rapid checklist/checkbox edits. One queue per card: this
+  // instance is reused across cards (mention navigation).
+  const blockSaves = $derived.by(() => {
+    const id = cardId
+    return createCardBlockSaves((blocks) => tracked(UpdateCardBlocks(id, blocks)))
+  })
+  const saveBlocks = (blocks: Block[]) => blockSaves.save(blocks)
+
+  /**
+   * Close only once every commit has landed: waits for in-flight saves
+   * (including queued block writes) and stays open — drafts intact, the
+   * save's own toast already shown — if any of them failed. The Ctrl+Enter
+   * chord used to close on a failed save and drop the draft.
+   */
+  async function closeWhenSaved() {
+    const failuresBefore = saveFailures
+    const saves = blockSaves
+    while (pendingSaves.size > 0 || saves.busy) {
+      await Promise.allSettled([...pendingSaves])
+      await saves.idle()
+    }
+    if (saveFailures === failuresBefore) onClose()
   }
 
   // Allow pinning from Inbox to upgrade the card's display context to the newly pinned category
@@ -161,7 +196,7 @@
   // the card only when the scope is empty; Ctrl+Enter commits all +
   // closes. Children pick the scope up via context.
   const editScope = new EditScope()
-  editScope.requestClose = () => onClose()
+  editScope.requestClose = () => { void closeWhenSaved() }
   setContext(EDIT_SCOPE_KEY, editScope)
 
   // Title + description edits are owned by this component (their save
@@ -198,8 +233,9 @@
       if (editScope.hasActive()) return
       // Silent refresh — don't wipe the visible card with the loading
       // placeholder. Without this, the dialog flashes whenever the agent
-      // writes an update to the card mid-run.
-      loadCard(true)
+      // writes an update to the card mid-run. Deferred while block saves
+      // are pending (also covers the watcher's echo of our own save).
+      requestSilentReload()
     })
     return () => {
       if (typeof unsubscribe === 'function') unsubscribe()
@@ -211,12 +247,25 @@
   // for card A must never render — or seed drafts — under card B.
   let cardLoadSeq = 0
 
+  function requestSilentReload() {
+    blockSaves.requestReload(() => loadCard(true))
+  }
+
   async function loadCard(silent: boolean = false) {
     const seq = ++cardLoadSeq
     if (!silent) loading = true
+    const saves = blockSaves
+    const saveGeneration = saves.generation
     try {
       const loaded = await GetCard(cardId) as Card
       if (seq !== cardLoadSeq) return
+      // A block save was requested while this fetch was out: the snapshot
+      // may predate it, and applying it would drop that local edit (and the
+      // next whole-blocks save would write the loss back). Retry after.
+      if (silent && (saves.busy || saves.generation !== saveGeneration)) {
+        requestSilentReload()
+        return
+      }
       card = loaded
       notFound = false
       const crumbs = await GetCardPinBreadcrumbs(cardId) || []
@@ -234,7 +283,9 @@
       // choices — meta.collapsed isn't actually written anywhere today,
       // so re-reading it on a silent refresh just resets the set.
       if (!silent) cardBlocksRef?.restoreCollapsedFromMeta()
-      if (autoEditTitle) editingTitle = true
+      // Initial open only — a silent reload after a cancelled title edit
+      // must not re-open the editor and steal focus.
+      if (!silent && autoEditTitle) editingTitle = true
       // Check if card has an agent configured
       try { const af = await GetAgentConfig(cardId); hasAgent = af?.config?.enabled ?? false } catch { hasAgent = false }
       // Refresh project tags so new tags (e.g. added by AI) get their colors
@@ -298,10 +349,11 @@
     onUpdated?.()
   }
 
-  async function saveTitle() {
+  /** Resolves true once the title is saved (or had nothing to save). */
+  async function saveTitle(): Promise<boolean> {
     if (!titleDraft.trim() || titleDraft === card?.title) {
       editingTitle = false
-      return
+      return true
     }
     try {
       // Guard against clobbering after a card switch: this dialog
@@ -309,11 +361,12 @@
       // user navigated to another card must not overwrite it.
       const savedFor = cardId
       const updated = await tracked(UpdateCardTitle(cardId, titleDraft.trim())) as Card
-      if (savedFor !== cardId) return
+      if (savedFor !== cardId) return true
       card = updated
       editingTitle = false
-    } catch (e) { showToast(t('error.save_failed'), 'error'); return }
+    } catch (e) { showToast(t('error.save_failed'), 'error'); return false }
     onUpdated?.()
+    return true
   }
 
   function cancelTitle() {
@@ -326,8 +379,8 @@
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()
       e.stopPropagation()  // prevent handleBackdropKeydown from also calling saveTitle
-      await saveTitle()
-      onClose()
+      // A failed save keeps the card open with the draft (toast shown).
+      if (await saveTitle()) await closeWhenSaved()
     } else if (e.key === 'Enter' || e.key === 'Tab') {
       e.preventDefault()
       // Save explicitly. The previous "mount the description
@@ -347,17 +400,19 @@
     }
   }
 
-  async function saveDescription() {
-    if (!editingDescription) return
+  /** Resolves true once the description is saved (or wasn't being edited). */
+  async function saveDescription(): Promise<boolean> {
+    if (!editingDescription) return true
     try {
       // Same card-switch guard as saveTitle.
       const savedFor = cardId
       const updated = await tracked(UpdateCardDescription(cardId, descriptionDraft)) as Card
-      if (savedFor !== cardId) return
+      if (savedFor !== cardId) return true
       card = updated
       editingDescription = false
-    } catch (e) { showToast(t('error.save_failed'), 'error'); return }
+    } catch (e) { showToast(t('error.save_failed'), 'error'); return false }
     onUpdated?.()
+    return true
   }
 
   function cancelDescription() {
@@ -373,8 +428,7 @@
         e.stopPropagation()
         // Await like handleTitleKeydown — closing mid-save let the late
         // response clobber a freshly opened card on this reused instance.
-        await saveDescription()
-        onClose()
+        if (await saveDescription()) await closeWhenSaved()
         return
       }
       // Contract: Enter commits, Shift+Enter inserts the newline.
@@ -398,6 +452,8 @@
   // (attachments panel, tags field, blocks region) and notifies the
   // parent board.
   function applyCardUpdate(updatedCard: Card) {
+    // A late response for the card this reused dialog showed before.
+    if (updatedCard.id !== cardId) return
     card = updatedCard
     onUpdated?.()
   }
@@ -411,18 +467,20 @@
   }
 
   async function toggleCurrentPin() {
-    if (!currentCategoryId) return
+    // Same value PinPanel shows the toggle on — after pinning from the
+    // Inbox/search the card's context is inboxPinCategoryId, not the prop.
+    if (!effectiveCategoryId) return
     pinActionLoading = true
     try {
       if (isPinnedHere && currentPin) {
-        const name = currentCategoryName || currentPin.categoryName
+        const name = effectiveCategoryName || currentPin.categoryName
         const msg = pinBreadcrumbs.length === 1
           ? t('card.confirm_unpin_last', { name })
           : t('card.confirm_unpin', { name })
         if (!await showConfirm(msg)) { pinActionLoading = false; return }
         await UnpinCard(cardId, currentPin.categoryId)
       } else {
-        await PinCard(cardId, effectiveCategoryId!)
+        await PinCard(cardId, effectiveCategoryId)
       }
       pinBreadcrumbs = await GetCardPinBreadcrumbs(cardId) || []
       document.dispatchEvent(new CustomEvent('bruv:inbox-changed'))
@@ -431,6 +489,11 @@
     } catch (e) { showToast(t('error.pin_failed'), 'error') }
     pinActionLoading = false
   }
+
+  // Target position for a picker move: past any real index, so the card
+  // lands at the end of the destination column (board positions are 0..n-1
+  // and get re-persisted densely on the next drag).
+  const MOVE_APPEND_POSITION = 1_000_000
 
   function openPinPicker() {
     pinPickerMode = 'pin'
@@ -451,8 +514,9 @@
     const wasPinningFromInbox = pinPickerMode === 'pin' && !currentCategoryId && !inboxPinCategoryId
     try {
       if (pinPickerMode === 'move' && pinPickerSourcePin) {
-        await UnpinCard(cardId, pinPickerSourcePin.categoryId)
-        await PinCard(cardId, target.categoryId)
+        // One atomic backend move — Unpin-then-Pin lost the source pin
+        // whenever the Pin half failed.
+        await MoveCardToCategory(cardId, pinPickerSourcePin.categoryId, target.categoryId, MOVE_APPEND_POSITION)
       } else {
         await PinCard(cardId, target.categoryId)
       }
@@ -539,7 +603,7 @@
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()
       editScope.commitAll()
-      onClose()
+      void closeWhenSaved()
       return
     }
     if (e.key === 'Escape') {
@@ -554,7 +618,7 @@
 <svelte:window onkeydown={handleBackdropKeydown} onclick={handleWindowClick} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="modal-backdrop" role="presentation" onclick={handleBackdropClick} out:fade={{ duration: 150 }}>
+<div class="modal-backdrop" role="presentation" onclick={handleBackdropClick} out:fade={{ duration: 150 }} use:modalOpen>
   <div class="modal" class:chat-open={chatInDom} class:splitter-dragging={splitterDragging} style:--modal-base="{mainWidth}px" use:draggable={{ handle: '.modal-header' }} use:focusTrap>
    <div class="modal-main" style={chatInDom ? `width: ${mainWidth}px;` : ''}>
     {#if loading}
@@ -623,7 +687,7 @@
       </div>
 
       <div class="modal-body" hidden={activeTab !== 'agent'}>
-        <AgentTab {cardId} />
+        <AgentTab {cardId} onChanged={onUpdated} />
       </div>
       <div class="modal-body" hidden={activeTab !== 'runs'}>
         <AgentRunsTab {cardId} />
@@ -674,16 +738,15 @@
           {card}
           {cardId}
           {currentCategoryId}
-          track={tracked}
-          onCardUpdated={applyCardUpdate}
+          {saveBlocks}
           {onUpdated}
-          onClose={() => onClose()}
+          onClose={() => { void closeWhenSaved() }}
         />
       </div>
 
       <!-- Card-level attachments & comments tabbed panel (pinned between scrollable body and footer) -->
       {#if activeTab === 'details'}
-        <CardMetaPanel {cardId} {card} onAttachmentsUpdated={applyCardUpdate} onAddBlock={(type, label) => cardBlocksRef?.addBlock(type, label)} />
+        <CardMetaPanel {cardId} {card} onAttachmentsUpdated={applyCardUpdate} onCommentsChanged={onUpdated} onAddBlock={(type, label) => cardBlocksRef?.addBlock(type, label)} />
       {/if}
 
       <div class="modal-footer">
@@ -693,7 +756,7 @@
         <span class="modal-footer-right">
           <SaveIndicator {saving} />
           <button class="btn-promote" onclick={() => showPromoteDialog = true} title={t('tooltip.promote_card')}><ArrowUpRight size={14} /> {t('promote.action')}</button>
-          <CardShareMenu {card} />
+          <CardShareMenu {card} onMerged={onUpdated} />
           <button class="btn-delete" onclick={handleDelete} title={t('tooltip.delete_card')}><Trash2 size={14} /> {t('common.delete')}</button>
         </span>
       </div>
@@ -708,7 +771,7 @@
            true, the outer {#if !loading && card} tears ChatSection
            out of the DOM, and its slide-in animation replays every
            time the assistant responds. -->
-      <ChatSection {cardId} bind:visible={showChat} bind:mainWidth bind:splitterDragging onCardChanged={() => loadCard(true)} />
+      <ChatSection {cardId} bind:visible={showChat} bind:mainWidth bind:splitterDragging onCardChanged={() => { requestSilentReload(); onUpdated?.() }} />
     {/if}
 
     <div class="modal-actions">

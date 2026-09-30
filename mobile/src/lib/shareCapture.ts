@@ -87,6 +87,9 @@ export type PlainShareResult = {
   cardID: string
   /** The card saved but the deck slide didn't — the caller warns. */
   deckFailed: boolean
+  /** The card saved but the shared text/URL didn't make it into its
+   *  description — the caller warns (the share itself is otherwise gone). */
+  descriptionFailed: boolean
 }
 
 /** The shared text and URL, verbatim. Only dedup case: the two are
@@ -142,14 +145,17 @@ export async function savePlainShare(input: PlainShareInput): Promise<PlainShare
   // With a deck slide the URL lives in its own bound block, so repeating
   // it in the description would just duplicate it.
   const body = withDeck ? text : buildBody(url, text)
+  let descriptionFailed = false
   if (body) {
     try {
       await repoRPC('UpdateCardDescription', [card.id, body])
     } catch {
-      /* the card exists either way — don't block the navigate */
+      // The card exists either way — don't block the navigate, but the
+      // caller must say the shared text didn't land.
+      descriptionFailed = true
     }
   }
 
   const appended = deck && withDeck ? await appendToDeck(card.id, url, deck) : true
-  return { cardID: card.id, deckFailed: !appended }
+  return { cardID: card.id, deckFailed: !appended, descriptionFailed }
 }

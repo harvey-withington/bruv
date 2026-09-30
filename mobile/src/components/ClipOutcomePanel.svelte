@@ -1,6 +1,6 @@
 <script lang="ts">
   import { MonitorUp } from 'lucide-svelte'
-  import { navigate, cardURL } from '../lib/router.svelte'
+  import { replace, cardURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
 
   // Shown instead of a success toast when a capture came back pending:
@@ -8,6 +8,10 @@
   // one was asked for) exists holding just the link, and the clip gets
   // finished from the desktop browser extension. A half-done clip that
   // silently navigated away like a success would be a lie.
+  //
+  // Both exits REPLACE the share entry (ruling 2026-08-16, same as the
+  // rest of the share flow): pushing left the prefilled form one Back
+  // away, where Save created a duplicate card.
 
   let {
     platform,
@@ -29,8 +33,8 @@
     <p class="note">{t('share.pending_slide_note')}</p>
   {/if}
   <div class="actions">
-    <button type="button" class="ghost" onclick={() => navigate('/')}>{t('share.done')}</button>
-    <button type="button" class="primary" onclick={() => navigate(cardURL(cardId))}>
+    <button type="button" class="ghost" onclick={() => replace('/')}>{t('share.done')}</button>
+    <button type="button" class="primary" onclick={() => replace(cardURL(cardId))}>
       {t('share.view_card')}
     </button>
   </div>

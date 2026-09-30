@@ -41,7 +41,7 @@ func LoadServerSecret() []byte {
 		}
 	}
 	secret := randomSecret()
-	_ = os.WriteFile(path, []byte(hex.EncodeToString(secret)), 0o600)
+	_ = atomicWriteFile(path, []byte(hex.EncodeToString(secret)), 0o600)
 	return secret
 }
 

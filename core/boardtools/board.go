@@ -30,8 +30,6 @@ type Board interface {
 	UpdateCardDescription(id, description string) (*model.Card, error)
 	UpdateCardType(id, cardType string) (*model.Card, error)
 	UpdateCardDueDate(id, dueDate string) (*model.Card, error)
-	UpdateCardTags(id string, tags []string) (*model.Card, error)
-	UpdateCardBlocks(id string, blocks []model.Block) (*model.Card, error)
 	PinCard(cardID, categoryID string) error
 	UnpinCard(cardID, categoryID string) error
 	SearchCards(query string, limit int) ([]index.SearchResult, error)
@@ -56,7 +54,6 @@ type Board interface {
 	UpdateProjectDescription(brandSlug, streamSlug, projectSlug, description string) (*model.Project, error)
 
 	ListCardTypes() []catalog.CardTypeInfo
-	ResolveOrCreateCardType(input string) (id string, created bool, err error)
 	// SchemaBlocks returns a card type's schema fields as empty blocks
 	// (nil for a type without a schema), so set_card_fields can fill a
 	// typed field the card doesn't have yet.

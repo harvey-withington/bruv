@@ -74,10 +74,14 @@ clips (below) only appear for the paired server.
    template resolves from the capture URL at render time.
 4. Open the deck card in BRUV → **Present**. Boom — usable slide deck.
 
-If the server is unreachable, clips queue locally (media already embedded,
-so nothing rots) and drain automatically once it's back — or via **Retry
-now** in the popup. While the server is down the popup greys out what it
-can't do, rather than pretending.
+If a clip can't finish, it queues locally (media already embedded, so
+nothing rots) and retries automatically with backoff (1 min, doubling to
+at most an hour) — or right away via **Retry now** in the popup. Queued
+clips never expire: each one stays listed in the popup with its state and
+last error until it succeeds or you discard it. A retry **resumes** — if
+the card was already created (say the deck append failed), the clipper
+finishes that card instead of creating another. While the server is down
+the popup greys out what it can't do, rather than pretending.
 
 ## Capture options (the dialog)
 
@@ -101,7 +105,12 @@ The dialog offers:
   (`1280×720 · ~725 MB`), plus *Link only* and *Skip*. The ladder comes from
   the plugin when it has one (X's syndication API) and from the server's
   `PreviewCapture` otherwise. Downloading happens **here**, in your
-  logged-in browser — so "store the 3.5 GB rung" means exactly that.
+  logged-in browser. One stored file is capped at 256 MB: media travels to
+  the server as base64 in a JSON body, and bigger files exceed the
+  browser's string limit. Larger rungs are listed but disabled (keep those
+  as a link, or capture from the phone/server). If a download fails or
+  turns out too big, the video is kept as its platform link **and the
+  toast says so** — never silently.
 - **Images** — all / first only / link only / skip.
 - **Destination** — the deck and pin targets shown read-only (they're sticky
   settings: deck in the popup, pin in Options), plus a live *Add a slide to

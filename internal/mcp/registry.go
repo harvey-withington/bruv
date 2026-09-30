@@ -24,15 +24,17 @@ const NamespaceSeparator = "__"
 // layer and the MCP subsystem. app.go never touches ServerProcess
 // or Client directly — it goes through the Registry.
 //
-// Concurrency: the Registry is safe for concurrent use. Mutations
-// (add/update/delete/reload) are serialised by mu. Reads
-// (Tools/CallTool/Health) take the lock briefly and copy.
+// Concurrency: the Registry is safe for concurrent use. mu is only
+// ever held briefly: server start-ups (which can take a minute each)
+// and stops happen outside it, and the finished set is swapped in
+// under it. Reads (Tools/CallTool/Health) take the lock briefly and copy.
 type Registry struct {
 	repoID   string
 	resolver SecretResolver
 
 	mu      sync.Mutex
 	servers map[string]*ServerProcess
+	closed  bool // set by Shutdown; a later swap-in stops its servers instead
 
 	// toolIndex maps a namespaced tool ID (server__tool) to the
 	// server that owns it. Rebuilt on every mutation. Exists so
@@ -58,32 +60,23 @@ func NewRegistry(repoID string, resolver SecretResolver) *Registry {
 // The caller supplies the full list of specs (from per-repo config).
 // Disabled servers are created but not started.
 func (r *Registry) LoadAndStart(ctx context.Context, specs []ServerSpec) map[string]error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Stop any existing servers first — LoadAndStart is idempotent
-	// so calling it twice rebuilds the whole registry. This makes
-	// the "reload config after user edit" flow trivial.
-	for name, sp := range r.servers {
-		if err := sp.Stop(); err != nil {
-			slog.Warn("mcp stop during reload failed", "server", name, "err", err)
-		}
-	}
-	r.servers = make(map[string]*ServerProcess)
-	r.toolIndex = make(map[string]*ServerProcess)
-
+	// Build and start the new set without holding mu, so Tools /
+	// OwnsTool / Health (agent dispatch, the settings UI) keep
+	// answering from the current set while servers start up.
+	servers := make(map[string]*ServerProcess)
 	errs := make(map[string]error)
 	for _, spec := range specs {
 		if spec.Name == "" {
 			errs["(unnamed)"] = fmt.Errorf("server config has empty name")
 			continue
 		}
-		if _, exists := r.servers[spec.Name]; exists {
+		if _, exists := servers[spec.Name]; exists {
 			errs[spec.Name] = fmt.Errorf("duplicate server name")
 			continue
 		}
 		sp := NewServerProcess(spec, r.repoID, r.resolver)
-		r.servers[spec.Name] = sp
+		sp.onRestart = r.rebuildToolIndex
+		servers[spec.Name] = sp
 
 		if !spec.Enabled {
 			continue
@@ -91,35 +84,68 @@ func (r *Registry) LoadAndStart(ctx context.Context, specs []ServerSpec) map[str
 		if err := sp.Start(ctx); err != nil {
 			errs[spec.Name] = err
 			slog.Warn("mcp server start failed", "server", spec.Name, "err", err)
-			continue
 		}
-		r.indexServerTools(sp)
 	}
+
+	// Swap in the new set. LoadAndStart is idempotent — calling it
+	// again replaces the whole registry, which keeps the "reload
+	// config after user edit" flow trivial. If Shutdown ran meanwhile
+	// the new set is stopped instead, so no subprocess outlives it.
+	r.mu.Lock()
+	old := r.servers
+	if r.closed {
+		old = servers
+	} else {
+		r.servers = servers
+		r.rebuildToolIndexLocked()
+	}
+	r.mu.Unlock()
+
+	stopAll(old, "mcp stop during reload failed")
 	return errs
 }
 
-// indexServerTools adds every tool from sp to the registry's
-// toolIndex under its namespaced ID. Assumes r.mu is held.
-func (r *Registry) indexServerTools(sp *ServerProcess) {
-	for _, tool := range sp.Tools() {
-		id := NamespaceTool(sp.Spec().Name, tool.Name)
-		r.toolIndex[id] = sp
+// rebuildToolIndex rebuilds toolIndex from the current servers. Runs
+// after a supervised restart, since the restarted server may
+// advertise a different tool list.
+func (r *Registry) rebuildToolIndex() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.rebuildToolIndexLocked()
+}
+
+// rebuildToolIndexLocked maps every ready tool to its server under its
+// namespaced ID. Assumes r.mu is held.
+func (r *Registry) rebuildToolIndexLocked() {
+	r.toolIndex = make(map[string]*ServerProcess)
+	for _, sp := range r.servers {
+		for _, tool := range sp.Tools() {
+			r.toolIndex[NamespaceTool(sp.Spec().Name, tool.Name)] = sp
+		}
+	}
+}
+
+// stopAll stops every server in the set, logging failures.
+func stopAll(servers map[string]*ServerProcess, msg string) {
+	for name, sp := range servers {
+		if err := sp.Stop(); err != nil {
+			slog.Warn(msg, "server", name, "err", err)
+		}
 	}
 }
 
 // Shutdown stops every server in the registry. Called when the repo
 // is closed or the app is exiting. Errors are logged but not
 // returned — at shutdown time nothing useful can be done with them.
+// A LoadAndStart still in flight stops its own set when it finishes.
 func (r *Registry) Shutdown() {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	for name, sp := range r.servers {
-		if err := sp.Stop(); err != nil {
-			slog.Warn("mcp shutdown stop failed", "server", name, "err", err)
-		}
-	}
+	old := r.servers
+	r.closed = true
 	r.servers = make(map[string]*ServerProcess)
 	r.toolIndex = make(map[string]*ServerProcess)
+	r.mu.Unlock()
+	stopAll(old, "mcp shutdown stop failed")
 }
 
 // Tools returns every ready tool across every enabled server, each

@@ -103,11 +103,10 @@ func (rt *Runtime) RunLoop(ctx context.Context, provider llm.Provider, modelName
 				Timestamp: time.Now().UTC(),
 				Route:     lc.Route,
 			}
-			cf, _ = config.AppendChatMessage(rt.deps.Repo().Manifest.ID, lc.ChatID, errMsg)
 			if lc.TotalTokensUsed != nil {
 				*lc.TotalTokensUsed = cumulativeTokens
 			}
-			return cf, nil
+			return rt.appendMessage(cf, lc, errMsg)
 		}
 
 		// Accumulate token usage
@@ -123,11 +122,12 @@ func (rt *Runtime) RunLoop(ctx context.Context, provider llm.Provider, modelName
 				Content:   fmt.Sprintf("Token budget exceeded (%d / %d). Stopping.", cumulativeTokens, lc.TokenBudget),
 				Timestamp: time.Now().UTC(),
 			}
-			cf, _ = config.AppendChatMessage(rt.deps.Repo().Manifest.ID, lc.ChatID, budgetMsg)
 			if lc.TotalTokensUsed != nil {
 				*lc.TotalTokensUsed = cumulativeTokens
 			}
-			return cf, fmt.Errorf("token budget exceeded (%d / %d)", cumulativeTokens, lc.TokenBudget)
+			budgetErr := fmt.Errorf("token budget exceeded (%d / %d)", cumulativeTokens, lc.TokenBudget)
+			saved, err := rt.appendMessage(cf, lc, budgetMsg)
+			return saved, errors.Join(budgetErr, err)
 		}
 
 		// No tool calls — final text response
@@ -142,11 +142,10 @@ func (rt *Runtime) RunLoop(ctx context.Context, provider llm.Provider, modelName
 				PendingEdits:  allPendingEdits,
 				Route:         lc.Route,
 			}
-			cf, _ = config.AppendChatMessage(rt.deps.Repo().Manifest.ID, lc.ChatID, assistantMsg)
 			if lc.TotalTokensUsed != nil {
 				*lc.TotalTokensUsed = cumulativeTokens
 			}
-			return cf, nil
+			return rt.appendMessage(cf, lc, assistantMsg)
 		}
 
 		// Add assistant message with tool calls to conversation
@@ -234,11 +233,22 @@ func (rt *Runtime) RunLoop(ctx context.Context, provider llm.Provider, modelName
 		PendingEdits:  allPendingEdits,
 		Route:         lc.Route,
 	}
-	cf, _ = config.AppendChatMessage(rt.deps.Repo().Manifest.ID, lc.ChatID, assistantMsg)
 	if lc.TotalTokensUsed != nil {
 		*lc.TotalTokensUsed = cumulativeTokens
 	}
-	return cf, nil
+	return rt.appendMessage(cf, lc, assistantMsg)
+}
+
+// appendMessage persists one message to the loop's chat and returns the
+// saved file. A failed save is an error — dropping it lost the reply
+// while the caller (an agent run) recorded success with no summary. The
+// unsaved cf is returned alongside so callers keep the history they had.
+func (rt *Runtime) appendMessage(cf *model.ChatFile, lc LoopConfig, msg model.ChatMessage) (*model.ChatFile, error) {
+	saved, err := config.AppendChatMessage(rt.deps.Repo().Manifest.ID, lc.ChatID, msg)
+	if err != nil {
+		return cf, fmt.Errorf("save chat reply: %w", err)
+	}
+	return saved, nil
 }
 
 // wrapUp makes the one tool-less closing call WrapUpPrompt asks for and

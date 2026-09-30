@@ -17,6 +17,7 @@ import (
 	"bruv/internal/mcp"
 	"bruv/internal/model"
 	"bruv/internal/repo"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -60,22 +61,79 @@ func (s *Service) GetConfig(cardID string) (*model.AgentFile, error) {
 	return af, nil
 }
 
-// SaveConfig persists agent config, recomputes NextRunAt, and updates
-// the search index's agent-state row. Status is never accepted as
-// 'running' from the frontend — only the executor sets that.
+// SaveConfig saves the Agent tab's whole config, recomputes NextRunAt,
+// and updates the search index's agent-state row. The runtime-owned
+// fields (status, run timestamps, retry count, cost spent) come from the
+// config on disk, not from the caller: the tab holds a copy loaded before
+// any runs since, so taking its values would re-fire one-shot agents,
+// reset the cost budget and flip a running agent to idle. The one
+// exception is a cost of 0 over a non-zero spend — the tab's "reset cost".
 func (s *Service) SaveConfig(cardID string, cfg model.AgentConfig) error {
-	normalizeForSave(&cfg)
-	return s.persist(cardID, cfg)
+	_, err := s.write(cardID, func(disk *model.AgentConfig) error {
+		*disk = mergeUIConfig(*disk, cfg)
+		normalizeForSave(disk)
+		return nil
+	})
+	return err
+}
+
+// mergeUIConfig is incoming with disk's runtime-owned fields.
+func mergeUIConfig(disk, incoming model.AgentConfig) model.AgentConfig {
+	out := incoming
+	out.Status = disk.Status
+	out.LastRunAt = disk.LastRunAt
+	out.RunStartedAt = disk.RunStartedAt
+	out.RetryCount = disk.RetryCount
+	if incoming.CostSpentUSD != 0 {
+		out.CostSpentUSD = disk.CostSpentUSD
+	}
+	return out
+}
+
+// write is every config save: apply edits the current config on disk
+// under the agent lock (runtime writes made meanwhile are kept), then the
+// index row is updated. With no agent file yet, apply edits a fresh
+// config, which is created.
+func (s *Service) write(cardID string, apply func(cfg *model.AgentConfig) error) (*model.AgentConfig, error) {
+	r := s.deps.Repo()
+	if r == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	saved, err := r.UpdateAgentConfig(cardID, apply)
+	if errors.Is(err, repo.ErrAgentNotFound) {
+		cfg := model.AgentConfig{Status: model.AgentStatusDisabled, AllowedTools: []string{}}
+		if err := apply(&cfg); err != nil {
+			return nil, err
+		}
+		if err := r.SaveAgentConfig(cardID, cfg); err != nil {
+			return nil, err
+		}
+		saved, err = &cfg, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if idx := s.deps.Index(); idx != nil {
+		nextRun := ""
+		if saved.NextRunAt != nil {
+			nextRun = saved.NextRunAt.Format(time.RFC3339)
+		}
+		if err := idx.UpdateAgentIndex(cardID, saved.Enabled, string(saved.Status), nextRun); err != nil {
+			slog.Warn("update agent index failed", "card", cardID, "err", err)
+		}
+	}
+	return saved, nil
 }
 
 // normalizeForSave derives status and NextRunAt from the enabled flag
-// and schedule, so every save path schedules an agent the same way.
+// and schedule, so every save path schedules an agent the same way. A
+// running agent stays running — only the executor ends a run.
 func normalizeForSave(cfg *model.AgentConfig) {
-	if cfg.Status == model.AgentStatusRunning {
-		cfg.Status = model.AgentStatusIdle
-	}
+	running := cfg.Status == model.AgentStatusRunning
 	if !cfg.Enabled {
-		cfg.Status = model.AgentStatusDisabled
+		if !running {
+			cfg.Status = model.AgentStatusDisabled
+		}
 		cfg.NextRunAt = nil
 		return
 	}
@@ -102,27 +160,6 @@ func normalizeForSave(cfg *model.AgentConfig) {
 		// Nothing left to run (one-shot already fired, past end date).
 		cfg.NextRunAt = nil
 	}
-}
-
-// persist writes the config and updates the search index's agent-state row.
-func (s *Service) persist(cardID string, cfg model.AgentConfig) error {
-	r := s.deps.Repo()
-	if r == nil {
-		return fmt.Errorf("no repository open")
-	}
-	if err := r.SaveAgentConfig(cardID, cfg); err != nil {
-		return err
-	}
-	if idx := s.deps.Index(); idx != nil {
-		nextRun := ""
-		if cfg.NextRunAt != nil {
-			nextRun = cfg.NextRunAt.Format(time.RFC3339)
-		}
-		if err := idx.UpdateAgentIndex(cardID, cfg.Enabled, string(cfg.Status), nextRun); err != nil {
-			slog.Warn("update agent index failed", "card", cardID, "err", err)
-		}
-	}
-	return nil
 }
 
 // ValidateSchedulePreview returns the next N run times for a schedule.

@@ -20,15 +20,17 @@ package config
 import (
 	"bruv/internal/model"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 )
 
-// chatsMu serializes chat read-modify-write cycles. AppendChatMessage
-// is load → append → save; two concurrent appends (user send racing
-// an agent reply) would otherwise drop one message.
+// chatsMu serializes every chat write. UpdateChat (and AppendChatMessage /
+// ToggleChatBookmark on top of it) is load → modify → save; two
+// concurrent writers (user send racing an agent reply, a pending-edit
+// resolution racing either) would otherwise drop one change.
 var chatsMu sync.Mutex
 
 // chatsDirForRepo returns the directory where a repo's chat files live,
@@ -87,9 +89,18 @@ func LoadChatFor(repoID, chatID string) (*model.ChatFile, error) {
 }
 
 // SaveChatFor persists the entire chat file to disk under the repo's
-// chat directory.
+// chat directory. A blind replace, but taken under the same lock as
+// every other chat writer so it can't interleave with a read-modify-write;
+// anything that edits an existing chat should use UpdateChat instead.
 func SaveChatFor(repoID string, cf *model.ChatFile) error {
-	path, err := chatFilePathFor(repoID, cf.CardID)
+	chatsMu.Lock()
+	defer chatsMu.Unlock()
+	return saveChatUnlocked(repoID, cf.CardID, cf)
+}
+
+// saveChatUnlocked writes cf as chatID's file. Caller holds chatsMu.
+func saveChatUnlocked(repoID, chatID string, cf *model.ChatFile) error {
+	path, err := chatFilePathFor(repoID, chatID)
 	if err != nil {
 		return err
 	}
@@ -100,43 +111,59 @@ func SaveChatFor(repoID string, cf *model.ChatFile) error {
 	return atomicWriteFile(path, data, 0o644)
 }
 
-// AppendChatMessage loads, appends, and saves in one step — the same
-// convenience method the old repo.AppendMessage provided. The lock
-// makes the load-append-save atomic with respect to other appends.
-func AppendChatMessage(repoID, chatID string, msg model.ChatMessage) (*model.ChatFile, error) {
+// ErrChatUnchanged, returned from an UpdateChat closure, means "nothing to
+// save".
+var ErrChatUnchanged = errors.New("chat unchanged")
+
+// UpdateChat is the locked read-modify-write for one chat: it loads the
+// current file (an empty one when none exists yet), applies fn and saves
+// the result. An error from fn aborts without writing. Keep fn short —
+// it runs under the lock every chat writer shares, so slow work (tool
+// execution, LLM calls) belongs before the call, with fn only applying
+// its outcome to the fresh copy. fn returning ErrChatUnchanged skips the
+// write and returns the fresh copy with a nil error.
+func UpdateChat(repoID, chatID string, fn func(cf *model.ChatFile) error) (*model.ChatFile, error) {
 	chatsMu.Lock()
 	defer chatsMu.Unlock()
 	cf, err := LoadChatFor(repoID, chatID)
 	if err != nil {
 		return nil, err
 	}
-	cf.Messages = append(cf.Messages, msg)
-	if err := SaveChatFor(repoID, cf); err != nil {
+	if err := fn(cf); err != nil {
+		if errors.Is(err, ErrChatUnchanged) {
+			return cf, nil
+		}
+		return nil, err
+	}
+	if err := saveChatUnlocked(repoID, chatID, cf); err != nil {
 		return nil, err
 	}
 	return cf, nil
+}
+
+// AppendChatMessage loads, appends, and saves in one step — the same
+// convenience method the old repo.AppendMessage provided. The lock
+// makes the load-append-save atomic with respect to other appends.
+func AppendChatMessage(repoID, chatID string, msg model.ChatMessage) (*model.ChatFile, error) {
+	return UpdateChat(repoID, chatID, func(cf *model.ChatFile) error {
+		cf.Messages = append(cf.Messages, msg)
+		return nil
+	})
 }
 
 // ToggleChatBookmark flips the Bookmarked flag on one message and saves.
 // Same locked load-modify-save shape as AppendChatMessage so a toggle
 // can't race an append and drop either change. Returns the saved file.
 func ToggleChatBookmark(repoID, chatID, messageID string) (*model.ChatFile, error) {
-	chatsMu.Lock()
-	defer chatsMu.Unlock()
-	cf, err := LoadChatFor(repoID, chatID)
-	if err != nil {
-		return nil, err
-	}
-	for i := range cf.Messages {
-		if cf.Messages[i].ID == messageID {
-			cf.Messages[i].Bookmarked = !cf.Messages[i].Bookmarked
-			if err := SaveChatFor(repoID, cf); err != nil {
-				return nil, err
+	return UpdateChat(repoID, chatID, func(cf *model.ChatFile) error {
+		for i := range cf.Messages {
+			if cf.Messages[i].ID == messageID {
+				cf.Messages[i].Bookmarked = !cf.Messages[i].Bookmarked
+				return nil
 			}
-			return cf, nil
 		}
-	}
-	return nil, fmt.Errorf("message %q not found in chat %q", messageID, chatID)
+		return fmt.Errorf("message %q not found in chat %q", messageID, chatID)
+	})
 }
 
 // DeleteChatFor removes a chat file. Missing files are not an error —
@@ -147,6 +174,8 @@ func DeleteChatFor(repoID, chatID string) error {
 	if err != nil {
 		return err
 	}
+	chatsMu.Lock()
+	defer chatsMu.Unlock()
 	err = os.Remove(path)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("delete chat file %q: %w", chatID, err)

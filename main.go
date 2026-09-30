@@ -82,6 +82,12 @@ func main() {
 		OnStartup:        app.startup,
 		OnDomReady:       app.domReady,
 		OnBeforeClose:    app.beforeClose,
+		// One desktop app per user: a second launch surfaces this
+		// window rather than opening the same repos a second time.
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId:               "b8f3c2e4-5d1a-4c7e-9a26-bruv-desktop",
+			OnSecondInstanceLaunch: app.onSecondInstanceLaunch,
+		},
 		// Only the shell-bridge surface is exposed to the frontend via
 		// Wails IPC; the full domain API (~130 methods) is reached over
 		// HTTP+SSE through core/services + transport/http. See shell_bridge.go.

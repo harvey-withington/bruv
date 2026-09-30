@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	wsengine "bruv/core/workspace"
+	"bruv/internal/fsutil"
 	"bruv/internal/model"
 	"bruv/internal/repo"
 	pathsafe "bruv/internal/workspace"
@@ -174,16 +175,10 @@ func (s *Service) RefreshIndex(ctx context.Context, brandSlug, streamSlug, proje
 
 // SetLaunchCommand stores the per-workspace "Open workspace in…" launcher.
 func (s *Service) SetLaunchCommand(brandSlug, streamSlug, projectSlug, command string) (*model.Workspace, error) {
-	r, err := s.repo()
+	ws, err := s.mutateWorkspace(brandSlug, streamSlug, projectSlug, func(ws *model.Workspace) {
+		ws.LaunchCommand = command
+	})
 	if err != nil {
-		return nil, err
-	}
-	ws, err := r.GetWorkspace(brandSlug, streamSlug, projectSlug)
-	if err != nil {
-		return nil, err
-	}
-	ws.LaunchCommand = command
-	if err := r.SaveWorkspace(brandSlug, streamSlug, projectSlug, ws); err != nil {
 		return nil, err
 	}
 	s.emit("workspace:updated", brandSlug, streamSlug, projectSlug)
@@ -314,7 +309,8 @@ func (s *Service) ListDir(ctx context.Context, brandSlug, streamSlug, projectSlu
 
 // WriteFile saves one text file (Tier 2 editor). User-initiated writes only —
 // no AI tool calls this (AI write access is out of scope by spec). Atomic
-// tmp+rename; the parent directory must already exist.
+// (fsutil.WriteFileAtomic), keeping an existing file's mode; the parent
+// directory must already exist.
 func (s *Service) WriteFile(ctx context.Context, brandSlug, streamSlug, projectSlug, rel, content string) error {
 	_, root, err := s.localRoot(brandSlug, streamSlug, projectSlug)
 	if err != nil {
@@ -324,25 +320,17 @@ func (s *Service) WriteFile(ctx context.Context, brandSlug, streamSlug, projectS
 	if err != nil {
 		return err
 	}
-	if info, err := os.Stat(abs); err == nil && info.IsDir() {
-		return fmt.Errorf("%s is a directory", rel)
+	perm := os.FileMode(0o644)
+	if info, err := os.Stat(abs); err == nil {
+		if info.IsDir() {
+			return fmt.Errorf("%s is a directory", rel)
+		}
+		perm = info.Mode().Perm()
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(abs), ".bruv-write-*")
-	if err != nil {
-		return err
+	if info, err := os.Stat(filepath.Dir(abs)); err != nil || !info.IsDir() {
+		return fmt.Errorf("folder of %s does not exist", rel)
 	}
-	tmpName := tmp.Name()
-	if _, err := tmp.WriteString(content); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	if err := os.Rename(tmpName, abs); err != nil {
-		os.Remove(tmpName)
+	if err := fsutil.WriteFileAtomic(abs, []byte(content), perm); err != nil {
 		return err
 	}
 	s.emit("workspace:updated", brandSlug, streamSlug, projectSlug)

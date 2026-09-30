@@ -22,6 +22,7 @@ import (
 	"bruv/mobile"
 	transporthttp "bruv/transport/http"
 
+	"github.com/wailsapp/wails/v2/pkg/options"
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -211,13 +212,34 @@ func (a *App) saveCurrentBounds() {
 	}
 }
 
+// showWindow brings the main window to the foreground (tray "Open",
+// and a second launch of the app).
+func (a *App) showWindow() {
+	if a.ctx == nil {
+		return
+	}
+	wailsRuntime.WindowShow(a.ctx)
+	wailsRuntime.WindowUnminimise(a.ctx)
+}
+
+// onSecondInstanceLaunch runs in the first instance when the app is
+// launched again: surface the existing window instead of starting a
+// second copy (which would run a second agent scheduler, watcher and
+// MCP servers against the same repos).
+func (a *App) onSecondInstanceLaunch(options.SecondInstanceData) {
+	// Off the message thread that delivers this, as the tray does.
+	go a.showWindow()
+}
+
 // beforeClose is the Wails hook for window-close. Hides to tray when
 // agents may still be running; otherwise tears down + allows quit.
 func (a *App) beforeClose(ctx context.Context) bool {
 	a.saveCurrentBounds()
 	if a.forceQuit {
-		a.sup.Close()
+		// Stop accepting HTTP first so no request lands on a runtime
+		// that is closing (or lazily rebuilds one), then close them.
 		a.stopHTTPTransport()
+		a.sup.Close()
 		a.stopBusBridge()
 		logging.Close()
 		return false

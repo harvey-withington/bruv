@@ -101,6 +101,8 @@ func (r *Repository) ListStreams(brandSlug string) ([]model.Stream, error) {
 
 // UpdateStream updates a Stream's mutable fields.
 func (r *Repository) UpdateStream(brandSlug, streamSlug string, update func(*model.Stream)) (*model.Stream, error) {
+	unlock := lockPath(r.streamFilePath(brandSlug, streamSlug))
+	defer unlock()
 	stream, err := r.GetStream(brandSlug, streamSlug)
 	if err != nil {
 		return nil, err
@@ -130,6 +132,8 @@ func (r *Repository) ReorderStreams(brandSlug string, orderedSlugs []string) err
 
 // RenameStream renames a Stream and moves its directory if the slug changes.
 func (r *Repository) RenameStream(brandSlug, streamSlug, newName string) (*model.Stream, error) {
+	unlock := lockPath(r.streamFilePath(brandSlug, streamSlug))
+	defer unlock()
 	stream, err := r.GetStream(brandSlug, streamSlug)
 	if err != nil {
 		return nil, err
@@ -163,30 +167,12 @@ func (r *Repository) RenameStream(brandSlug, streamSlug, newName string) (*model
 
 // UpdateStreamDescription sets or clears the description on a Stream.
 func (r *Repository) UpdateStreamDescription(brandSlug, streamSlug, description string) (*model.Stream, error) {
-	stream, err := r.GetStream(brandSlug, streamSlug)
-	if err != nil {
-		return nil, err
-	}
-	stream.Description = description
-	stream.UpdatedAt = time.Now().UTC()
-	if err := writeJSON(r.streamFilePath(brandSlug, streamSlug), stream); err != nil {
-		return nil, fmt.Errorf("write stream: %w", err)
-	}
-	return stream, nil
+	return r.UpdateStream(brandSlug, streamSlug, func(s *model.Stream) { s.Description = description })
 }
 
 // UpdateStreamIcon sets or clears the icon on a Stream.
 func (r *Repository) UpdateStreamIcon(brandSlug, streamSlug, icon string) (*model.Stream, error) {
-	stream, err := r.GetStream(brandSlug, streamSlug)
-	if err != nil {
-		return nil, err
-	}
-	stream.Icon = icon
-	stream.UpdatedAt = time.Now().UTC()
-	if err := writeJSON(r.streamFilePath(brandSlug, streamSlug), stream); err != nil {
-		return nil, fmt.Errorf("write stream: %w", err)
-	}
-	return stream, nil
+	return r.UpdateStream(brandSlug, streamSlug, func(s *model.Stream) { s.Icon = icon })
 }
 
 // DeleteStream removes a Stream and all its contents.

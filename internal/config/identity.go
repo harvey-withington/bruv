@@ -54,6 +54,6 @@ func LoadDeviceID() string {
 		}
 	}
 	id := uuid.NewString()
-	_ = os.WriteFile(path, []byte(id+"\n"), 0o644)
+	_ = atomicWriteFile(path, []byte(id+"\n"), 0o644)
 	return id
 }

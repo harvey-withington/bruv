@@ -192,12 +192,7 @@ func Open(root string) (*Repository, error) {
 
 // UpdateManifestDescription sets or clears the repository description.
 func (r *Repository) UpdateManifestDescription(description string) error {
-	r.Manifest.Description = description
-	r.Manifest.UpdatedAt = time.Now().UTC()
-	if err := writeJSON(filepath.Join(r.Root, manifestFile), r.Manifest); err != nil {
-		return fmt.Errorf("write manifest: %w", err)
-	}
-	return nil
+	return r.mutateManifest(func(m *model.Manifest) { m.Description = description })
 }
 
 // UpdateManifestName renames the repository. The new name is the
@@ -210,12 +205,42 @@ func (r *Repository) UpdateManifestName(name string) error {
 	if name == "" {
 		return fmt.Errorf("name is required")
 	}
-	r.Manifest.Name = name
-	r.Manifest.UpdatedAt = time.Now().UTC()
-	if err := writeJSON(filepath.Join(r.Root, manifestFile), r.Manifest); err != nil {
-		return fmt.Errorf("write manifest: %w", err)
+	return r.mutateManifest(func(m *model.Manifest) { m.Name = name })
+}
+
+// mutateManifest applies fn to the on-disk manifest and refreshes
+// r.Manifest from the result.
+func (r *Repository) mutateManifest(fn func(*model.Manifest)) error {
+	m, err := mutateManifestFile(filepath.Join(r.Root, manifestFile), fn)
+	if err != nil {
+		return err
+	}
+	if r.Manifest == nil {
+		r.Manifest = m
+	} else {
+		*r.Manifest = *m
 	}
 	return nil
+}
+
+// mutateManifestFile re-reads the manifest under its file lock, applies
+// fn, stamps UpdatedAt and writes it back — so a field set by another
+// open Repository (or another write path) is never reverted by a stale
+// in-memory copy.
+func mutateManifestFile(mpath string, fn func(*model.Manifest)) (*model.Manifest, error) {
+	unlock := lockPath(mpath)
+	defer unlock()
+
+	var manifest model.Manifest
+	if err := readJSON(mpath, &manifest); err != nil {
+		return nil, fmt.Errorf("read manifest: %w", err)
+	}
+	fn(&manifest)
+	manifest.UpdatedAt = time.Now().UTC()
+	if err := writeJSON(mpath, &manifest); err != nil {
+		return nil, fmt.Errorf("write manifest: %w", err)
+	}
+	return &manifest, nil
 }
 
 // RewriteManifestName updates the manifest at the given path WITHOUT
@@ -230,17 +255,8 @@ func RewriteManifestName(path, name string) error {
 	if err != nil {
 		return fmt.Errorf("resolve path: %w", err)
 	}
-	mpath := filepath.Join(root, manifestFile)
-	var manifest model.Manifest
-	if err := readJSON(mpath, &manifest); err != nil {
-		return fmt.Errorf("read manifest: %w", err)
-	}
-	manifest.Name = name
-	manifest.UpdatedAt = time.Now().UTC()
-	if err := writeJSON(mpath, &manifest); err != nil {
-		return fmt.Errorf("write manifest: %w", err)
-	}
-	return nil
+	_, err = mutateManifestFile(filepath.Join(root, manifestFile), func(m *model.Manifest) { m.Name = name })
+	return err
 }
 
 // Path helpers

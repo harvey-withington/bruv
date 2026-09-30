@@ -1,7 +1,10 @@
 package agent
 
 import (
+	"bruv/internal/fsutil"
 	"bruv/internal/logging"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -15,10 +18,13 @@ import (
 type DueDateScanner struct {
 	mu      sync.Mutex
 	stopCh  chan struct{}
+	done    chan struct{} // closed when the poll goroutine exits
+	started bool
 	stopped bool
 
 	cardsDir     string
 	notifiedPath string
+	legacyPath   string               // pre-per-repo shared state file, read once as a fallback
 	notified     map[string]time.Time // "cardID:threshold" → when notified
 
 	thresholds []time.Duration // e.g. 24h, 1h, 0
@@ -30,17 +36,32 @@ type DueDateScanner struct {
 }
 
 // NewDueDateScanner creates a new scanner.
+//
+// The notified state lives in its own file per repo (keyed by the cards
+// directory), so two loaded runtimes never overwrite each other's state.
 func NewDueDateScanner(cardsDir string, configDir string, notifyFn func(cardID, cardTitle string, threshold time.Duration, overdue bool), markAlarmFiredFn func(cardID, blockID string)) *DueDateScanner {
 	s := &DueDateScanner{
 		cardsDir:         cardsDir,
-		notifiedPath:     filepath.Join(configDir, "due_notified.json"),
+		notifiedPath:     filepath.Join(configDir, "due_notified", repoStateKey(cardsDir)+".json"),
+		legacyPath:       filepath.Join(configDir, "due_notified.json"),
 		notified:         make(map[string]time.Time),
 		notifyFn:         notifyFn,
 		markAlarmFiredFn: markAlarmFiredFn,
 		stopCh:           make(chan struct{}),
+		done:             make(chan struct{}),
 	}
 	s.loadNotified()
 	return s
+}
+
+// repoStateKey derives a stable per-repo file key from the repo's cards
+// directory.
+func repoStateKey(cardsDir string) string {
+	if abs, err := filepath.Abs(cardsDir); err == nil {
+		cardsDir = abs
+	}
+	sum := sha256.Sum256([]byte(filepath.Clean(cardsDir)))
+	return hex.EncodeToString(sum[:8])
 }
 
 // Configure updates the scanner settings.
@@ -64,15 +85,28 @@ func (s *DueDateScanner) Configure(enabled bool, thresholdStrs []string, channel
 	}
 }
 
-// Start begins the scanner poll loop.
+// Start begins the scanner poll loop. No-op once stopped or if already
+// started.
 func (s *DueDateScanner) Start() {
+	s.mu.Lock()
+	if s.started || s.stopped {
+		s.mu.Unlock()
+		return
+	}
+	s.started = true
+	s.mu.Unlock()
 	go func() {
+		defer close(s.done)
 		defer logging.Recover("due-date-scanner")
 		ticker := time.NewTicker(60 * time.Second)
 		defer ticker.Stop()
 
 		// Initial scan after short delay
-		time.Sleep(5 * time.Second)
+		select {
+		case <-s.stopCh:
+			return
+		case <-time.After(5 * time.Second):
+		}
 		s.scan()
 
 		for {
@@ -86,7 +120,9 @@ func (s *DueDateScanner) Start() {
 	}()
 }
 
-// Stop stops the scanner.
+// Stop stops the scanner and waits for an in-progress scan to finish,
+// so no card write (alarm-fired stamp) or state save happens after the
+// caller goes on to close the repo.
 func (s *DueDateScanner) Stop() {
 	s.mu.Lock()
 	if s.stopped {
@@ -94,8 +130,23 @@ func (s *DueDateScanner) Stop() {
 		return
 	}
 	s.stopped = true
+	started := s.started
 	s.mu.Unlock()
 	close(s.stopCh)
+	if started {
+		<-s.done
+	}
+}
+
+// stopping reports whether Stop has been called; scan checks it between
+// cards so a stop doesn't wait for a whole directory walk.
+func (s *DueDateScanner) stopping() bool {
+	select {
+	case <-s.stopCh:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *DueDateScanner) scan() {
@@ -116,6 +167,9 @@ func (s *DueDateScanner) scan() {
 
 	changed := false
 	for _, e := range entries {
+		if s.stopping() {
+			break
+		}
 		name := e.Name()
 		// Only look at card JSON files (not .agent.json, .messages.json, etc.)
 		if filepath.Ext(name) != ".json" {
@@ -245,6 +299,12 @@ func (s *DueDateScanner) scan() {
 
 func (s *DueDateScanner) loadNotified() {
 	data, err := os.ReadFile(s.notifiedPath)
+	if os.IsNotExist(err) {
+		// First run since state went per-repo: seed from the old shared
+		// file. Its keys are card IDs (globally unique), so another
+		// repo's entries are inert here.
+		data, err = os.ReadFile(s.legacyPath)
+	}
 	if err != nil {
 		return
 	}
@@ -259,5 +319,7 @@ func (s *DueDateScanner) saveNotified() {
 		slog.Warn("duedate marshal notified failed", "err", err)
 		return
 	}
-	_ = os.WriteFile(s.notifiedPath, data, 0o644)
+	if err := fsutil.WriteFileAtomic(s.notifiedPath, data, 0o644); err != nil {
+		slog.Warn("duedate save notified failed", "path", s.notifiedPath, "err", err)
+	}
 }

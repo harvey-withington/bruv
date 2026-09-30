@@ -129,7 +129,7 @@
     "message": "Server unreachable — clip queued, will retry"
   },
   "toast_failed": {
-    "message": "Clip failed — see the extension console"
+    "message": "Clip failed: {error}"
   },
   "toast_not_paired": {
     "message": "BRUV Clipper isn't paired yet — open its options"
@@ -331,5 +331,77 @@
   },
   "options_saved": {
     "message": "Saved"
+  },
+  "dialog_video_too_large": {
+    "message": "Too large to store from the browser (limit {max}) — pick a smaller quality, or keep it as a link"
+  },
+  "toast_failed_queued": {
+    "message": "Clip failed: {error}. It's kept in the BRUV Clipper popup — retry or discard it there."
+  },
+  "toast_partial_queued": {
+    "message": "The card was saved, but finishing it failed: {error}. The clipper keeps retrying (without creating another card) — see its popup."
+  },
+  "toast_video_too_large": {
+    "message": "The video is over {max}, too large to store from the browser — it was saved as a platform link instead, which can stop working."
+  },
+  "toast_video_download_failed": {
+    "message": "The video couldn't be downloaded — it was saved as a platform link instead, which can stop working."
+  },
+  "toast_image_too_large": {
+    "message": "An image over {max} was too large to store from the browser and was left out."
+  },
+  "toast_image_download_failed": {
+    "message": "An image couldn't be downloaded and was left out."
+  },
+  "popup_deck_block_label": {
+    "message": "Slides"
+  },
+  "popup_queue_state_sending": {
+    "message": "Sending…"
+  },
+  "popup_queue_state_waiting": {
+    "message": "Waiting to sync"
+  },
+  "popup_queue_state_failed": {
+    "message": "Failed"
+  },
+  "popup_queue_state_partial": {
+    "message": "Card saved, not finished"
+  },
+  "popup_queue_next_try": {
+    "message": "next try in {n} min"
+  },
+  "popup_queue_discard": {
+    "message": "Discard this clip"
+  },
+  "popup_queue_discard_confirm": {
+    "message": "Discard?"
+  },
+  "popup_queue_retry_failed": {
+    "message": "Couldn't start the retry — try again"
+  },
+  "popup_queue_discard_failed": {
+    "message": "Couldn't discard — try again"
+  },
+  "queue_err_missing_data": {
+    "message": "This queued clip's data is missing from browser storage — discard it."
+  },
+  "err_unreachable": {
+    "message": "BRUV server unreachable"
+  },
+  "err_malformed_enrol": {
+    "message": "The server's pairing answer was malformed — check the server URL."
+  },
+  "err_list_repos": {
+    "message": "Couldn't list repositories (HTTP {status})."
+  },
+  "err_no_repo": {
+    "message": "No repository selected — pick one in the clipper's Options."
+  },
+  "err_http": {
+    "message": "{method} failed (HTTP {status})."
+  },
+  "err_server_too_old": {
+    "message": "{method}: this BRUV server is too old for the clipper — update BRUV."
   }
 }

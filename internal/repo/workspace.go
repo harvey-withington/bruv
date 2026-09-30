@@ -2,6 +2,7 @@ package repo
 
 import (
 	"bruv/internal/model"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -50,8 +51,40 @@ func (r *Repository) GetWorkspace(brandSlug, streamSlug, projectSlug string) (*m
 }
 
 // SaveWorkspace writes the workspace config, stamping UpdatedAt. The owning
-// project must exist.
+// project must exist. A blind replace — for a read-modify-write of an
+// existing workspace use MutateWorkspace so concurrent edits aren't lost.
 func (r *Repository) SaveWorkspace(brandSlug, streamSlug, projectSlug string, ws *model.Workspace) error {
+	unlock := lockPath(r.workspaceFilePath(brandSlug, streamSlug, projectSlug))
+	defer unlock()
+	return r.saveWorkspaceLocked(brandSlug, streamSlug, projectSlug, ws)
+}
+
+// MutateWorkspace applies fn to a fresh read of the project's workspace
+// config under its file lock and saves the result (stamping UpdatedAt).
+// ErrNoChange from fn skips the write; any other error aborts it. Errors
+// when the project has no workspace (it was detached).
+func (r *Repository) MutateWorkspace(brandSlug, streamSlug, projectSlug string, fn func(ws *model.Workspace) error) (*model.Workspace, error) {
+	unlock := lockPath(r.workspaceFilePath(brandSlug, streamSlug, projectSlug))
+	defer unlock()
+	ws, err := r.GetWorkspace(brandSlug, streamSlug, projectSlug)
+	if err != nil {
+		return nil, err
+	}
+	if err := fn(ws); err != nil {
+		if errors.Is(err, ErrNoChange) {
+			return ws, nil
+		}
+		return nil, err
+	}
+	if err := r.saveWorkspaceLocked(brandSlug, streamSlug, projectSlug, ws); err != nil {
+		return nil, err
+	}
+	return ws, nil
+}
+
+// saveWorkspaceLocked is SaveWorkspace's body; the caller holds the
+// workspace file's lock.
+func (r *Repository) saveWorkspaceLocked(brandSlug, streamSlug, projectSlug string, ws *model.Workspace) error {
 	if _, err := r.GetProject(brandSlug, streamSlug, projectSlug); err != nil {
 		return err
 	}

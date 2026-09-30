@@ -87,7 +87,7 @@ An agent can use **only the tools you grant it** on its card's Agent tab. Nothin
 | `http_request` | Makes an HTTP request (GET/POST/PUT/DELETE) | Public web |
 | `notify` | Sends you a desktop / in-app notification | Local |
 | `update_self` | Updates the card the agent is attached to | That one card |
-| BRUV board tools — `get_card`, `search_cards`, `list_cards`, `create_card`, `update_card`, `set_card_*`, `add_card_tags`, comments, attachments, pins, reading an agent's settings | The same board tools the in-app chat and the MCP connector use: read, create and change cards and their filing | Your whole board (this repo) |
+| BRUV board tools — `get_card`, `search_cards`, `list_cards`, `create_card`, `update_card`, `set_card_*`, `add_card_tags`, `remove_card_tags`, `create_card_type`, comments, attachments, pins, reading an agent's settings | The same board tools the in-app chat and the MCP connector use: read, create and change cards and their filing, and add a card type | Your whole board (this repo) |
 | MCP server tools | Whatever the server you installed provides | Set by that server |
 
 Board tools reach every card in the repo, not just the agent's own project — grant them only to agents you want working across your board.

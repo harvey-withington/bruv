@@ -20,6 +20,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"bruv/internal/fsutil"
 )
 
 // Video/image mode values. Kept as strings (not ints) so the on-disk file
@@ -150,5 +152,5 @@ func (r *Repository) SaveCapturePrefs(p CapturePrefs) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(r.capturePrefsPath(), data, 0o644)
+	return fsutil.WriteFileAtomic(r.capturePrefsPath(), data, 0o644)
 }

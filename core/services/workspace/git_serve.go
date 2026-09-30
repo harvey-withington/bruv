@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -169,16 +170,19 @@ func (s *Service) EnableGitServe(ctx context.Context, brandSlug, streamSlug, pro
 		return ws, nil
 	}
 
-	ws.GitServe = model.GitServeInitializing
-	ws.GitServeError = ""
-	if err := s.saveWorkspace(brandSlug, streamSlug, projectSlug, ws); err != nil {
-		initInFlight.Delete(ws.ID)
+	id := ws.ID
+	ws, err = s.mutateWorkspace(brandSlug, streamSlug, projectSlug, func(ws *model.Workspace) {
+		ws.GitServe = model.GitServeInitializing
+		ws.GitServeError = ""
+	})
+	if err != nil {
+		initInFlight.Delete(id)
 		return nil, err
 	}
 	s.emit("workspace:updated", brandSlug, streamSlug, projectSlug)
 
 	go func() {
-		defer initInFlight.Delete(ws.ID)
+		defer initInFlight.Delete(id)
 		// Deliberately not the caller's context: the RPC that started this
 		// returns immediately, and cancelling the clone setup because the
 		// caller hung up would leave a half-initialized repository.
@@ -191,21 +195,16 @@ func (s *Service) EnableGitServe(ctx context.Context, brandSlug, streamSlug, pro
 }
 
 // finishGitServe records the outcome of initialization and announces it.
-// It re-reads the workspace so a concurrent edit (rename, launch command)
-// isn't clobbered by the copy captured when initialization started.
+// It patches a fresh read under the workspace's lock, so a concurrent edit
+// (rename, launch command) isn't clobbered by the copy captured when
+// initialization started. A workspace detached meanwhile gets no record.
 func (s *Service) finishGitServe(brandSlug, streamSlug, projectSlug, branch string, created bool, initErr error) {
-	r, err := s.repo()
-	if err != nil {
-		return
-	}
-	ws, err := r.GetWorkspace(brandSlug, streamSlug, projectSlug)
-	if err != nil {
-		return // detached while we worked; nothing to record
-	}
-	if initErr != nil {
-		ws.GitServe = model.GitServeError
-		ws.GitServeError = initErr.Error()
-	} else {
+	_, err := s.mutateWorkspace(brandSlug, streamSlug, projectSlug, func(ws *model.Workspace) {
+		if initErr != nil {
+			ws.GitServe = model.GitServeError
+			ws.GitServeError = initErr.Error()
+			return
+		}
 		ws.GitServe = model.GitServeReady
 		ws.GitServeError = ""
 		ws.DefaultBranch = branch
@@ -214,8 +213,9 @@ func (s *Service) finishGitServe(brandSlug, streamSlug, projectSlug, branch stri
 		if created {
 			ws.CommitOnSave = true
 		}
-	}
-	if err := s.saveWorkspace(brandSlug, streamSlug, projectSlug, ws); err != nil {
+	})
+	if err != nil {
+		slog.Warn("workspace: recording git publish outcome failed", "project", projectSlug, "err", err)
 		return
 	}
 	s.emit("workspace:updated", brandSlug, streamSlug, projectSlug)
@@ -225,13 +225,14 @@ func (s *Service) finishGitServe(brandSlug, streamSlug, projectSlug, branch stri
 // left completely alone — un-publishing is a BRUV-level decision and must
 // never delete a user's git history.
 func (s *Service) DisableGitServe(brandSlug, streamSlug, projectSlug string) (*model.Workspace, error) {
-	ws, _, err := s.localRoot(brandSlug, streamSlug, projectSlug)
-	if err != nil {
+	if _, _, err := s.localRoot(brandSlug, streamSlug, projectSlug); err != nil {
 		return nil, err
 	}
-	ws.GitServe = model.GitServeOff
-	ws.GitServeError = ""
-	if err := s.saveWorkspace(brandSlug, streamSlug, projectSlug, ws); err != nil {
+	ws, err := s.mutateWorkspace(brandSlug, streamSlug, projectSlug, func(ws *model.Workspace) {
+		ws.GitServe = model.GitServeOff
+		ws.GitServeError = ""
+	})
+	if err != nil {
 		return nil, err
 	}
 	s.emit("workspace:updated", brandSlug, streamSlug, projectSlug)
@@ -318,13 +319,18 @@ func (s *Service) GitServeDir(workspaceID string) (dir string, ok bool) {
 	return "", false
 }
 
-// saveWorkspace persists a mutated workspace record.
-func (s *Service) saveWorkspace(brandSlug, streamSlug, projectSlug string, ws *model.Workspace) error {
+// mutateWorkspace edits the workspace record on a fresh read under its
+// file lock (repo.MutateWorkspace), so concurrent edits never undo each
+// other. Returns the saved record.
+func (s *Service) mutateWorkspace(brandSlug, streamSlug, projectSlug string, edit func(ws *model.Workspace)) (*model.Workspace, error) {
 	r, err := s.repo()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return r.SaveWorkspace(brandSlug, streamSlug, projectSlug, ws)
+	return r.MutateWorkspace(brandSlug, streamSlug, projectSlug, func(ws *model.Workspace) error {
+		edit(ws)
+		return nil
+	})
 }
 
 // gitRun runs one git command and returns a useful error. Unlike gitOut

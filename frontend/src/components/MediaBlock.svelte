@@ -7,6 +7,7 @@
   import { parseAttachmentRef } from '@shared/attachmentRefs'
   import { SignAttachmentURL } from '@shared/api'
   import { inlineEdit } from '../lib/actions'
+  import { isMentionPickerOpenFor } from '@shared/mentions'
 
   type MediaItem = { id: string; url: string; caption?: string; mime?: string }
 
@@ -41,8 +42,27 @@
     emit(items.filter(item => item.id !== id))
   }
 
-  function updateCaption(id: string, caption: string) {
-    emit(items.map(item => item.id === id ? { ...item, caption } : item))
+  // Caption drafts keyed by item id. Captions follow the keyboard entry
+  // contract via inlineEdit + the card's EditScope (they used to commit
+  // only onchange, so Escape closed the card and dropped the typed
+  // caption): Enter commits, Escape reverts (consumed — the card stays
+  // open), Ctrl+Enter commits + closes, blur commits. The inputs are always
+  // mounted, so they register serially (only while focused/typing) — an
+  // idle caption must not hold the scope open — and commit on blur here.
+  let captionDrafts = $state<Record<string, string>>({})
+
+  function commitCaption(id: string) {
+    const draft = captionDrafts[id]
+    if (draft === undefined) return
+    delete captionDrafts[id]
+    const item = items.find(i => i.id === id)
+    if (!item || draft === (item.caption || '')) return
+    emit(items.map(i => i.id === id ? { ...i, caption: draft } : i))
+  }
+
+  function cancelCaption(id: string) {
+    // Dropping the draft re-renders the committed caption in the input.
+    delete captionDrafts[id]
   }
 
   function guessMime(url: string): string {
@@ -117,8 +137,15 @@
             class="media-caption"
             type="text"
             use:mentionable
-            value={item.caption || ''}
-            onchange={(e) => updateCaption(item.id, (e.target as HTMLInputElement).value)}
+            value={captionDrafts[item.id] ?? item.caption ?? ''}
+            oninput={(e) => { captionDrafts[item.id] = e.currentTarget.value }}
+            onblur={(e) => { if (!isMentionPickerOpenFor(e.currentTarget)) commitCaption(item.id) }}
+            use:inlineEdit={{
+              serial: true,
+              onCommit: () => commitCaption(item.id),
+              onCancel: () => cancelCaption(item.id),
+              scope: editScope,
+            }}
             placeholder={t('block.media_caption_placeholder')}
           />
           <div class="media-actions">

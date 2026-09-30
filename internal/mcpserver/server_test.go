@@ -194,7 +194,7 @@ func TestGetMethodNotAllowed(t *testing.T) {
 
 // TestCreateCardTypeResolution: card_type resolves against the catalog —
 // an existing label matches case-insensitively to its canonical id, an
-// unknown name mints a new user type (flagged in the result), and an
+// unknown name is refused without leaving a card or a type behind, and an
 // omitted type gets the built-in default.
 func TestCreateCardTypeResolution(t *testing.T) {
 	h, sup := newTestHandler(t)
@@ -240,22 +240,18 @@ func TestCreateCardTypeResolution(t *testing.T) {
 		t.Errorf("type_created = %v for a built-in type, want absent", out["type_created"])
 	}
 
-	// Unknown type → created as a user type and flagged.
-	out = create(map[string]any{"title": "New type", "card_type": "Field Note"})
-	if out["type"] != "field-note" {
-		t.Errorf("type = %v, want slugged id \"field-note\"", out["type"])
+	// Unknown type → refused (ruling 2026-09-30): no card, no new type.
+	before, _ := rt.ListCards()
+	if text, isErr := callToolRPC(t, h, "create_card", map[string]any{"title": "New type", "card_type": "Field Note"}); !isErr {
+		t.Fatalf("an unknown type must be refused, got %s", text)
 	}
-	if out["type_created"] != true {
-		t.Errorf("type_created = %v, want true", out["type_created"])
+	if after, _ := rt.ListCards(); len(after) != len(before) {
+		t.Errorf("a refused create_card left a card behind (%d → %d cards)", len(before), len(after))
 	}
-	var found bool
 	for _, ti := range rt.ListCardTypes() {
-		if ti.ID == "field-note" && ti.Label == "Field Note" {
-			found = true
+		if ti.ID == "field-note" {
+			t.Error("create_card created a type")
 		}
-	}
-	if !found {
-		t.Error("created type \"field-note\" missing from the catalog roster")
 	}
 }
 

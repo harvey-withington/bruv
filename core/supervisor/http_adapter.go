@@ -12,7 +12,6 @@ package supervisor
 
 import (
 	"fmt"
-	"log/slog"
 
 	"bruv/internal/repo"
 	transporthttp "bruv/transport/http"
@@ -96,16 +95,12 @@ func (a *HTTPAdapter) InitOrOpen(path, name string) (transporthttp.RepoSummary, 
 	}
 	var rootPath string
 	if inspect != nil {
-		// Existing repo — open + revalidate. Name parameter is
-		// ignored; the manifest's name wins.
+		// Existing repo. Name parameter is ignored; the manifest's name
+		// wins. Revalidation runs when RegisterAndLoad builds the
+		// runtime, under the repo's instance lock.
 		r, err := repo.Open(path)
 		if err != nil {
 			return transporthttp.RepoSummary{}, fmt.Errorf("open repo: %w", err)
-		}
-		if stats, revErr := r.Revalidate(); revErr != nil {
-			slog.Warn("revalidation failed", "err", revErr)
-		} else {
-			slog.Info("revalidate ok", "stats", stats.String())
 		}
 		rootPath = r.Root
 	} else {

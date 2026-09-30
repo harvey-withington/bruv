@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"bruv/internal/agent"
+	"bruv/internal/llm"
 	"bruv/internal/model"
 )
 
@@ -191,28 +192,29 @@ func Validate(cfg model.AgentConfig) error {
 	return errors.Join(errs...)
 }
 
-// Patch applies a partial update to a card's agent, validates the merged
-// config, and saves it through SaveConfig (which recomputes the next run
-// and the index row). Publishes card:updated so an open Agent tab
-// re-fetches. Returns the saved config.
+// Patch applies a partial update to a card's agent's current config,
+// validates the merged config, and saves it (recomputing the next run and
+// the index row). Publishes card:updated so an open Agent tab re-fetches.
+// Returns the saved config.
 func (s *Service) Patch(cardID string, p ConfigPatch) (*model.AgentConfig, error) {
-	af, err := s.GetConfig(cardID)
+	saved, err := s.write(cardID, func(cfg *model.AgentConfig) error {
+		for i, id := range cfg.AllowedTools {
+			cfg.AllowedTools[i] = llm.CanonicalAgentToolID(id)
+		}
+		p.Apply(cfg)
+		if err := Validate(*cfg); err != nil {
+			return err
+		}
+		normalizeForSave(cfg)
+		if p.NextRunAt != nil && !p.NextRunAt.IsZero() && cfg.Enabled {
+			t := *p.NextRunAt
+			cfg.NextRunAt = &t
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	cfg := af.Config
-	p.Apply(&cfg)
-	if err := Validate(cfg); err != nil {
-		return nil, err
-	}
-	normalizeForSave(&cfg)
-	if p.NextRunAt != nil && !p.NextRunAt.IsZero() && cfg.Enabled {
-		t := *p.NextRunAt
-		cfg.NextRunAt = &t
-	}
-	if err := s.persist(cardID, cfg); err != nil {
-		return nil, err
-	}
 	s.deps.Publish("card:updated", map[string]any{"cardID": cardID})
-	return &cfg, nil
+	return saved, nil
 }

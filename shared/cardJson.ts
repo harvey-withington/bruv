@@ -25,6 +25,9 @@ export type EmbeddedAttachment = {
   size: number
   /** Base64 string WITHOUT the data-URL prefix. */
   data: string
+  /** Source attachment id, so an import can re-home `attachment:` refs
+   *  onto the copies. Absent in exports made before it was added. */
+  id?: string
 }
 
 export type ExportedComment = {

@@ -84,9 +84,10 @@ func TestNoSurfaceRedefinesANativeTool(t *testing.T) {
 	}
 }
 
-// REGRESSION (2026-08-14, moved from card chat): card_type must not be a
-// hard enum — an unknown name is created as a new type, which an enum
-// forbids. The roster rides in the description instead.
+// card_type is not a hard enum: a type made by create_card_type earlier
+// in the same session must still be accepted, which a schema frozen at
+// session start would forbid. The roster rides in the description, and
+// the handlers refuse an unknown name (ruling 2026-09-30).
 func TestCardTypeParamsHaveNoEnum(t *testing.T) {
 	rt := newBoard(t)
 	for _, d := range boardtools.LLMDefs(rt, "Board", false, nil) {

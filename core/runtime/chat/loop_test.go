@@ -7,6 +7,8 @@ package chat
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"bruv/internal/config"
@@ -101,6 +103,30 @@ func TestRunLoopExhaustedWithoutWrapUpUsesFallback(t *testing.T) {
 	var exhausted bool
 	if got := runLoop(t, rt, &scriptedProvider{toolTurns: 100}, 2, "", &exhausted); got != "fallback" || !exhausted {
 		t.Errorf("got %q exhausted=%v, want fallback + exhausted", got, exhausted)
+	}
+}
+
+// A reply that can't be saved is an error, not a silent (nil, nil): the
+// reply used to vanish while an agent run recorded success with no
+// summary.
+func TestRunLoopReportsUnsavedReply(t *testing.T) {
+	rt := newLoopRuntime(t)
+	blocker := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	config.SetConfigDir(blocker) // every chat save now fails
+	cf := &model.ChatFile{CardID: "c1", Messages: []model.ChatMessage{{Role: model.RoleUser, Content: "go"}}}
+	out, err := rt.RunLoop(context.Background(), &scriptedProvider{}, "m", cf, LoopConfig{
+		ChatID:      "loop-test",
+		MaxIter:     3,
+		ExecuteTool: func(llm.ToolCall) (string, *model.ToolAction, *model.PinSuggestion) { return "ok", nil, nil },
+	})
+	if err == nil {
+		t.Fatal("RunLoop must report a reply it could not save")
+	}
+	if out == nil {
+		t.Error("the caller should keep the history it passed in")
 	}
 }
 

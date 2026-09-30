@@ -126,7 +126,7 @@ describe('savePlainShare', () => {
       url: 'https://a.example/x',
       prefs: prefs(),
     })
-    expect(res).toEqual({ cardID: 'card-1', deckFailed: false })
+    expect(res).toEqual({ cardID: 'card-1', deckFailed: false, descriptionFailed: false })
     expect(repoRPC).toHaveBeenCalledWith('CreateCard', ['', 'T'])
     expect(repoRPC).toHaveBeenCalledWith('UpdateCardDescription', [
       'card-1',
@@ -175,7 +175,7 @@ describe('savePlainShare', () => {
       prefs: prefs({ deckTarget: deck, includeInDeck: true }),
     })
     // The card survives a failed deck append — the caller warns.
-    expect(res).toEqual({ cardID: 'card-1', deckFailed: true })
+    expect(res).toEqual({ cardID: 'card-1', deckFailed: true, descriptionFailed: false })
   })
 
   it('skips the deck entirely when the toggle is off, even with a target set', async () => {
@@ -190,14 +190,14 @@ describe('savePlainShare', () => {
     expect(repoRPC).not.toHaveBeenCalledWith('AppendDeckSlide', expect.anything())
   })
 
-  it('still returns the card when the description write fails', async () => {
+  it('still returns the card, flagged, when the description write fails', async () => {
     repoRPC.mockImplementation((method: string) => {
       if (method === 'CreateCard') return Promise.resolve({ id: 'card-1' })
       return Promise.reject(new Error('disk full'))
     })
     await expect(
       savePlainShare({ title: 'T', text: 'words', url: '', prefs: prefs() }),
-    ).resolves.toEqual({ cardID: 'card-1', deckFailed: false })
+    ).resolves.toEqual({ cardID: 'card-1', deckFailed: false, descriptionFailed: true })
   })
 
   it('propagates a failure to create the card (nothing was saved)', async () => {

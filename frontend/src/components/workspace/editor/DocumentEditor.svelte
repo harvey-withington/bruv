@@ -41,8 +41,16 @@
   }))
   $effect(() => {
     const s = session
+    const docName = name
     void s.load()
-    return () => s.dispose()
+    // Unmounted without requestClose (the card closed underneath, the
+    // source swapped): save a pending draft rather than dropping it, and
+    // say so when that wasn't possible.
+    return () => {
+      void s.close().then((saved) => {
+        if (!saved) showToast(t('document.unsaved_lost', { name: docName }), 'error')
+      })
+    }
   })
 
   let layout = $state<DocumentLayout>('split')
@@ -213,6 +221,7 @@
       dirty={session.dirty}
       saving={session.saving}
       saveError={session.saveError}
+      syncError={session.syncError}
       paused={session.paused}
       onSaveNow={() => { void session.flush() }}
     />

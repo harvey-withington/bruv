@@ -10,5 +10,11 @@
   "author": {
     "name": "Harvey",
     "email": "kracker.karakas@gmail.com"
+  },
+  "info": {
+    "companyName": "Good Egg Software",
+    "productName": "BRUV",
+    "copyright": "Copyright © 2026 Harvey. MIT licence.",
+    "comments": "Brands, streams, projects and cards — a board for ideas, with AI agents."
   }
 }

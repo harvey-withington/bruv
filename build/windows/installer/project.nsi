@@ -13,6 +13,15 @@ Unicode true
 ## For a AMD64 only installer:
 ## > makensis -DARG_WAILS_AMD64_BINARY=..\..\bin\app.exe
 ####
+
+# Pin the Add/Remove Programs key. Wails' default is company + product,
+# which changed when the company became "Good Egg Software" (it used to
+# be "bruvbruv") — a derived name would drift again on any rename and
+# leave two uninstall entries behind. Upgrades from the legacy key are
+# handled in .onInit.
+!define UNINST_KEY_NAME "BRUV"
+!define LEGACY_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\bruvbruv"
+
 !include "wails_tools.nsh"
 
 # The version information for this two must consist of 4 parts
@@ -79,9 +88,31 @@ Var ServerRepoPath
 Var RepoDialog
 Var RepoTextBox
 Var RepoBrowseBtn
+Var LegacyInstallDir
 
 Function .onInit
    !insertmacro wails.checkArchitecture
+
+   # Upgrade in place: default to the folder an earlier BRUV lives in, so
+   # a reinstall replaces it (and its registered service binary) rather
+   # than leaving a second copy. New installs get the InstallDir above
+   # (Program Files\Good Egg Software\BRUV). Installs made before the
+   # "Good Egg Software" metadata sit in Program Files\bruv\bruv under
+   # the legacy "bruvbruv" uninstall key, which recorded no
+   # InstallLocation — its DisplayIcon is "<dir>\bruv.exe".
+   SetRegView 64
+   ReadRegStr $1 HKLM "${UNINST_KEY}" "InstallLocation"
+   ReadRegStr $2 HKLM "${LEGACY_UNINST_KEY}" "DisplayIcon"
+   ${If} $2 != ""
+      ${GetParent} "$2" $LegacyInstallDir
+      ${If} $1 == ""
+         StrCpy $1 $LegacyInstallDir
+      ${EndIf}
+   ${EndIf}
+   ${If} $1 != ""
+   ${AndIf} ${FileExists} "$1\${PRODUCT_EXECUTABLE}"
+      StrCpy $INSTDIR $1
+   ${EndIf}
    # Default repo path for server installs. The user can override
    # this on the Server Repository page (when the Server component is
    # selected). %PROGRAMDATA% is preferred over %APPDATA% because the
@@ -133,6 +164,19 @@ LangString DESC_SecServer ${LANG_ENGLISH} "Run BRUV as a background Windows serv
     Sleep 500
 !macroend
 
+# RecordInstall: remember where BRUV lives so the next upgrade finds it,
+# and retire the legacy "bruvbruv" uninstall entry once this install has
+# replaced it (same folder). An install into a different folder keeps
+# the legacy entry, so that old copy can still be uninstalled.
+!macro RecordInstall
+    SetRegView 64
+    WriteRegStr HKLM "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
+    ${If} $LegacyInstallDir != ""
+    ${AndIf} $LegacyInstallDir == $INSTDIR
+        DeleteRegKey HKLM "${LEGACY_UNINST_KEY}"
+    ${EndIf}
+!macroend
+
 # --- Sections ---
 #
 # Both sections write the same binaries into $INSTDIR — the desktop
@@ -161,6 +205,7 @@ Section "Desktop App" SecDesktop
     !insertmacro wails.associateCustomProtocols
 
     !insertmacro wails.writeUninstaller
+    !insertmacro RecordInstall
 SectionEnd
 
 Section /o "Server (run in background, auto-start on boot)" SecServer
@@ -179,6 +224,7 @@ Section /o "Server (run in background, auto-start on boot)" SecServer
     SetOutPath $INSTDIR
     !insertmacro wails.files
     !insertmacro wails.writeUninstaller
+    !insertmacro RecordInstall
 
     # Register the Windows Service. bruv.exe service install creates
     # the repo at $ServerRepoPath if it doesn't exist, registers the
@@ -314,4 +360,10 @@ Section "uninstall"
     !insertmacro wails.unassociateCustomProtocols
 
     !insertmacro wails.deleteUninstaller
+    # An upgraded pre-"Good Egg Software" install may still carry the
+    # legacy entry pointing at this folder; drop it with the install.
+    ReadRegStr $1 HKLM "${LEGACY_UNINST_KEY}" "DisplayIcon"
+    ${If} $1 == "$INSTDIR\${PRODUCT_EXECUTABLE}"
+        DeleteRegKey HKLM "${LEGACY_UNINST_KEY}"
+    ${EndIf}
 SectionEnd

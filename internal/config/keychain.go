@@ -36,6 +36,7 @@ package config
 import (
 	"errors"
 	"log/slog"
+	"sync"
 
 	"github.com/zalando/go-keyring"
 )
@@ -50,13 +51,17 @@ const keychainService = "BRUV"
 // (e.g. OAuth refresh tokens) can share the same service without colliding.
 const keychainAccountPrefix = "llm-account-"
 
-// keychainAvailable caches the availability check so we don't repeatedly
-// round-trip a broken keyring. Set on first access; reset never — if the
-// keyring comes online mid-session we'll pick it up on the next restart.
+// The availability check runs once per process so we don't repeatedly
+// round-trip a broken keyring; if the keyring comes online mid-session
+// we pick it up on the next restart. sync.Once matters: the first card
+// open fires several RPCs at once, and two unguarded probes raced — one
+// deleted the shared probe entry while the other was reading it (so the
+// keychain was wrongly judged unusable for the whole session, hiding the
+// stored API keys), and both closed the same channel (a panic the RPC
+// layer surfaced as "Could not load agent configuration").
 var (
-	keychainChecked   bool
-	keychainWorks     bool
-	keychainCheckDone = make(chan struct{})
+	keychainOnce  sync.Once
+	keychainWorks bool
 )
 
 // probeKeychain does a write/read/delete round trip with a harmless value
@@ -82,11 +87,7 @@ func probeKeychain() {
 // KeychainAvailable reports whether the OS keychain is usable for
 // storing BRUV secrets. Exported for tests and diagnostics.
 func KeychainAvailable() bool {
-	if !keychainChecked {
-		probeKeychain()
-		keychainChecked = true
-		close(keychainCheckDone)
-	}
+	keychainOnce.Do(probeKeychain)
 	return keychainWorks
 }
 

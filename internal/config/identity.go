@@ -19,11 +19,14 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/google/uuid"
 )
 
 const deviceIDFileName = "device-id.txt"
+
+var deviceIDMu sync.Mutex
 
 func deviceIDPath() (string, error) {
 	dir, err := ClientDataDir()
@@ -43,6 +46,10 @@ func deviceIDPath() (string, error) {
 // Errors are intentionally swallowed because identity allocation must
 // never block a real user action.
 func LoadDeviceID() string {
+	// Serialized so concurrent first calls (activity writes fire in
+	// parallel) can't each mint and persist a different ID.
+	deviceIDMu.Lock()
+	defer deviceIDMu.Unlock()
 	path, err := deviceIDPath()
 	if err != nil {
 		return uuid.NewString()

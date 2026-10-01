@@ -12,6 +12,8 @@
   import { draggable } from '../lib/draggable'
   import { focusTrap, portal } from '../lib/actions'
   import { computeReorder, wouldReorder, DROP_END } from '../lib/reorder'
+  import { formatMCPCommand } from '../lib/mcpCommand'
+  import MCPUnapprovedNotice from './MCPUnapprovedNotice.svelte'
 
   let { onClose }: { onClose: () => void } = $props()
 
@@ -159,11 +161,11 @@
     const enabling = !view.spec.enabled
     // Enabling spawns the author's chosen subprocess locally — a real
     // execution-of-someone-else's-command moment for a shared repo. Show
-    // the exact command and make the user opt in. Disabling is harmless,
-    // so it stays a one-click toggle.
+    // the exact command and make the user opt in; saving the update
+    // records this device's approval of that command. Disabling is
+    // harmless, so it stays a one-click toggle.
     if (enabling) {
-      const command = [view.spec.command, ...(view.spec.args ?? [])].join(' ').trim()
-      const ok = await showConfirm(t('mcp.enable_confirm', { name: view.spec.name, command }))
+      const ok = await showConfirm(t('mcp.enable_confirm', { name: view.spec.name, command: formatMCPCommand(view.spec) }))
       if (!ok) return
     }
     try {
@@ -342,6 +344,9 @@
                 </div>
                 {#if view.spec.description}
                   <p class="server-description">{view.spec.description}</p>
+                {/if}
+                {#if view.health.status === 'unapproved'}
+                  <MCPUnapprovedNotice {view} onApproved={refresh} />
                 {/if}
                 {#if view.health.last_error}
                   <p class="server-error">{view.health.last_error}</p>
@@ -678,6 +683,7 @@
   .health-restarting  { color: var(--text-muted); background: var(--bg-elevated); }
   .health-failed      { color: #fff; background: var(--danger); }
   .health-disabled    { color: var(--text-muted); background: var(--bg-elevated); }
+  .health-unapproved  { color: var(--on-color); background: var(--warning); }
 
   .tools-disclosure {
     margin-top: 6px;

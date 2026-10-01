@@ -147,6 +147,14 @@ jobs:
       - name: go test
         run: go test ./... -count=1
 
+      # Race detector on Linux only: it needs cgo + a C toolchain, which
+      # the Ubuntu runner has out of the box (the Windows runner and the
+      # dev laptops don't). Most pre-release bugs were data races, so it
+      # runs on every push rather than occasionally by hand.
+      - name: go test -race
+        if: matrix.os == 'ubuntu-latest'
+        run: go test ./... -race -count=1
+
       # foldertemplate/ is its own Go module (future-external, zero BRUV
       # imports — see plan/2026-07-04 implementation plan workspace.md §3),
       # so the root `go test ./...` does not reach it.

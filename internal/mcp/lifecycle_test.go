@@ -137,7 +137,7 @@ func TestServerStopAfterSuperviseWaits(t *testing.T) {
 // Shutdown landing mid-reload must not leave the new set running.
 func TestRegistryReloadSwapsWithoutGap(t *testing.T) {
 	r := NewRegistry("repo", fakeResolver{tool: "alpha"})
-	if errs := r.LoadAndStart(testContext(t), []ServerSpec{fakeSpec(t, "fake")}); len(errs) != 0 {
+	if errs := r.LoadAndStart(testContext(t), []ServerSpec{fakeSpec(t, "fake")}, approveAll); len(errs) != 0 {
 		t.Fatalf("load: %v", errs)
 	}
 	if !r.OwnsTool("fake__alpha") {
@@ -145,7 +145,7 @@ func TestRegistryReloadSwapsWithoutGap(t *testing.T) {
 	}
 
 	r.resolver = fakeResolver{tool: "beta"}
-	if errs := r.LoadAndStart(testContext(t), []ServerSpec{fakeSpec(t, "fake")}); len(errs) != 0 {
+	if errs := r.LoadAndStart(testContext(t), []ServerSpec{fakeSpec(t, "fake")}, approveAll); len(errs) != 0 {
 		t.Fatalf("reload: %v", errs)
 	}
 	if r.OwnsTool("fake__alpha") || !r.OwnsTool("fake__beta") {
@@ -154,7 +154,7 @@ func TestRegistryReloadSwapsWithoutGap(t *testing.T) {
 
 	r.Shutdown()
 	// A reload after Shutdown stops what it starts.
-	r.LoadAndStart(testContext(t), []ServerSpec{fakeSpec(t, "fake")})
+	r.LoadAndStart(testContext(t), []ServerSpec{fakeSpec(t, "fake")}, approveAll)
 	if n := len(r.Health()); n != 0 {
 		t.Fatalf("registry has %d servers after Shutdown, want 0", n)
 	}
@@ -170,7 +170,7 @@ func TestRegistryReindexesAfterSupervisedRestart(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "crashed")
 	r := NewRegistry("repo", fakeResolver{tool: "alpha", crashMarker: marker})
 	defer r.Shutdown()
-	if errs := r.LoadAndStart(testContext(t), []ServerSpec{fakeSpec(t, "fake")}); len(errs) != 0 {
+	if errs := r.LoadAndStart(testContext(t), []ServerSpec{fakeSpec(t, "fake")}, approveAll); len(errs) != 0 {
 		t.Fatalf("load: %v", errs)
 	}
 	deadline := time.Now().Add(10 * time.Second)

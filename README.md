@@ -27,13 +27,13 @@
 ## What BRUV does
 
 - **Organise work as cards on boards.** Brands → streams → projects → categories → cards. Drag to reorder, pin to multiple places, keep everything sortable and searchable.
-- **17 built-in block types.** Text, checklists, selects, numbers, dates, ratings, checkboxes, radios, groups, images, progress bars, alarms, and more. Build your own card schemas without writing a line of code.
+- **19 built-in block types.** Text, checklists, lists, selects, numbers, dates, ratings, checkboxes, radios, checkbox groups, images, media galleries, progress bars, alarms, surveys, and more. Build your own card schemas without writing a line of code.
 - **AI chat on every card, every project.** Three modes: **chat** (ask questions), **suggest** (review AI-proposed edits before they land), **edit** (let the AI mutate cards directly, scoped to the current project).
-- **Autonomous agents attached to cards.** Any card can become an agent — schedule it, give it tools (web search, URL fetching, HTTP, notifications, card reads/writes), set a token budget, and let it run. Full run history, cost tracking, safety rails (rate limits, retries, budget caps).
+- **Autonomous agents attached to cards.** Any card can become an agent — schedule it, grant it the tools it may use (web search, URL fetching, HTTP, notifications, card reads/writes — none by default), set a token budget, and let it run. Full run history, cost tracking, safety rails (rate limits, retries, budget caps).
 - **Pluggable external tools via MCP.** Beyond the built-in tools, agents can use any [Model Context Protocol](https://modelcontextprotocol.io/) server you install — filesystem access, GitHub integration, Playwright scraping, flight/hotel APIs, database queries, the full ecosystem. Configuration is per-repo and travels with the project when shared; API keys stay in your OS keychain and never leak. See [docs/mcp-servers.md](docs/mcp-servers.md).
-- **BRUV is also an MCP server.** Point Claude Desktop (or any MCP-speaking assistant) at a repo and capture into it from a chat — brands, streams, projects, categories and cards, created and populated without leaving the conversation. See [docs/mcp-server.md](docs/mcp-server.md).
+- **BRUV is also an MCP server.** Point Claude Desktop (or any MCP-speaking assistant) at a repo and work on it from a chat — create, file, populate and update cards, add comments and attachments, even set up and run card agents, without leaving the conversation. See [docs/mcp-server.md](docs/mcp-server.md).
 - **Multi-provider LLM support.** Bring your own Anthropic, OpenAI, or Ollama key. Fully local if you use Ollama.
-- **Local-first, file-based storage.** All your data is plain JSON in your OS config directory. No database server, no cloud, no account. Back it up with a file copy.
+- **Local-first, file-based storage.** Your boards are plain JSON files in a repo folder you choose; personal settings and chat history stay in your OS config folder. No database server, no cloud, no account. Back it up with a file copy.
 - **System-tray resident.** Minimise to tray, pause all agents from the tray menu, click a notification to jump to the relevant card.
 
 ## A quick look
@@ -52,7 +52,7 @@
   <tr>
     <td width="50%">
       <a href="website/images/screenshots/ss-card-details-1.png"><img src="website/images/screenshots/ss-card-details-1.png" alt="A card composed of typed blocks" /></a>
-      <p align="center"><sub><b>Typed blocks</b> — compose cards from 17 block types.</sub></p>
+      <p align="center"><sub><b>Typed blocks</b> — compose cards from 19 block types.</sub></p>
     </td>
     <td width="50%">
       <a href="website/images/screenshots/ss-card-agent-3.png"><img src="website/images/screenshots/ss-card-agent-3.png" alt="Agent setup on a card — plain-English goal and model choice" /></a>
@@ -79,31 +79,35 @@
 
 > ⚠️ **SmartScreen warning during the alpha.** BRUV is not yet code-signed, so Windows SmartScreen will warn you when you run the installer for the first time. This is expected. Click **More info → Run anyway**. The warning will go away once BRUV is code-signed. See [SmartScreen and signing](#smartscreen-and-signing) below for why.
 
+New installs go to `Program Files\Good Egg Software\BRUV`; an existing install is upgraded in place, wherever it is. BRUV runs as a single instance — launching it again brings the open window to the front instead of starting a second copy.
+
 **macOS / Linux:** not supported yet. See [Platform status](#platform-status).
 
 ## Quick start
 
 1. **Install and launch.** BRUV opens to an empty workspace on first run.
-2. **Add an LLM provider.** Open **Settings → LLM Accounts** and paste an API key for Anthropic, OpenAI, or point at a local Ollama instance. BRUV works without one — you just won't get AI features until you add one. You'll get a friendly first-run nudge if you skip it.
+2. **Add an LLM provider.** Open **Settings → AI → Providers** and paste an API key for Anthropic, OpenAI, or point at a local Ollama instance. BRUV works without one — you just won't get AI features until you add one. You'll get a friendly first-run nudge if you skip it.
 3. **Create a brand → stream → project.** These are the organisational hierarchy. Think of them as company → department → workstream, or any other three-level grouping that fits your life.
 4. **Add categories (columns) to your project, then drop in cards.** Drag to reorder. Every card has a type that determines its block schema.
 5. **Open the project chat panel** and ask the AI to help you organise, plan, or draft cards. Try suggest mode if you want to review changes before they land.
-6. **Turn a card into an agent.** Open any card → Agent tab → enable an LLM account → pick tools → set a schedule → hit run.
+6. **Turn a card into an agent.** Open any card → Agent tab → write a goal → pick a model and tick the tools it may use (none are granted by default) → set a schedule → hit run.
 
 Full keyboard shortcut list: press `?` anywhere in the app.
 
 ## Sharing a repo
 
-BRUV repos are self-contained and portable. To share a project with someone else — or sync your work across machines — zip the repo folder, commit it to git, or drop it in any sync service. Everything the project needs is inside:
+BRUV repos are self-contained and portable. To give someone a copy of a project — or keep an offline copy — zip the repo folder or commit it to git. Everything the project needs is inside:
 
 - Cards, tags, and the full brand → stream → project → category hierarchy
 - Agent configurations (schedules, tools, budgets)
 - Your custom card types and templates for that repo
 - Attachments and comments
 
-Your personal data stays on your machine and does **not** travel with a shared repo: AI chat history, LLM API keys, notification history, profile, and window state all live in your local config folder keyed per-repo. When a collaborator opens your shared repo, they get their own fresh chat history — your conversations stay private.
+Your personal data stays on your machine and does **not** travel with a shared repo: AI chat history, agent run history, LLM API keys, notification history, profile, and window state all live in your local config folder. When a collaborator opens your shared repo, they get their own fresh chat history — your conversations stay private.
 
-> ⚠️ **Opening a repo you didn't create? Review its MCP servers before enabling them.** A repo's MCP server definitions travel inside it. API keys and secrets never do — they stay in your OS keychain — but enabling a server **runs the author's chosen command as a local subprocess on your machine**. Servers always arrive disabled, and BRUV shows you the exact command in an enable-confirmation prompt, so you stay in control. Only enable servers from repos you trust. See [docs/mcp-servers.md](docs/mcp-servers.md#security-posture).
+**Working on the same repo from several devices?** Don't sync the live folder with Syncthing, Dropbox or similar — that isn't a supported way to share a repo. Run BRUV on the machine that hosts the repo and connect your other devices to it (see [Self-hosting](#self-hosting-one-server-multiple-devices)). Only one BRUV process can open a repo folder at a time: a second one gets an error naming the BRUV process that holds it — connect to that BRUV Server instead of opening the folder directly.
+
+> ⚠️ **Opening a repo you didn't create? Review its MCP servers before approving them.** A repo's MCP server definitions (`mcp_servers.json` at the repo root) travel inside it, including whether each server is enabled. API keys and secrets never do — they stay in your OS keychain. A shared repo's servers **never run on your machine until you approve them on that machine**: they show as *Not approved on this device*, and **Approve** shows you the exact command (which runs as a local subprocess, as you) and asks you to confirm. If the command changes later, it needs approving again. Only approve servers from people you trust. See [docs/mcp-servers.md](docs/mcp-servers.md#approval-on-each-device).
 
 BRUV's **Import card types from another repo** button (Card Types dialog) lets you pull a type vocabulary from another local repo without an intermediate export file — useful when you maintain several repos and want to keep a shared set of types across them.
 
@@ -111,17 +115,20 @@ BRUV's **Import card types from another repo** button (Card Types dialog) lets y
 
 BRUV can run as a Windows Service on a home machine, with other devices on your tailnet pointing at it through the desktop app's **Connections** dialog. One repo, many devices — laptop, partner's PC, a phone in the browser, all editing the same data. Tick the **Server** box on the installer's components page; the rest is one click.
 
+On the server machine itself, use the desktop app through a connection to that server (`http://127.0.0.1:9870`) rather than opening the repo folder directly — only one BRUV process can open a repo folder at a time, and the server already has it open.
+
 Full walkthrough (Tailscale setup, day-two operations, troubleshooting): **[docs/self-hosting.md](docs/self-hosting.md)**.
 
 ## Privacy
 
 BRUV is local-first by design. Your data lives in plain JSON on your disk. No telemetry, no analytics, no crash reporting, no account, no cloud.
 
-The only outbound network traffic happens when:
+BRUV never phones home. Outbound traffic happens only because of something you set up or do — for example:
 - You use AI chat or run an agent — your prompt goes to **the LLM provider you configured**, and only that provider.
-- An agent uses a web tool (`web_search`, `web_fetch`, `http_request`) that you've explicitly enabled for it.
+- AI chat, or an agent you've granted the tools, searches or fetches from the web (`web_search`, `web_fetch`, `http_request`).
+- You capture a post from X, Truth Social, Reddit or YouTube, import from Trello, set up email/webhook notifications, connect to a BRUV Server, or click **Check for updates**.
 
-Full details, including what files live where, what agents can access, and how to wipe everything: **[PRIVACY.md](PRIVACY.md)**.
+The complete list, including what files live where, what agents can access, and how to wipe everything: **[PRIVACY.md](PRIVACY.md)**.
 
 ## SmartScreen and signing
 
@@ -159,7 +166,7 @@ Hey, and coffee keeps the ideas coming!
 
 ## Contributing and development
 
-Source, build instructions, architecture notes, and how to add a new backend adapter live in **[CONTRIBUTING.md](CONTRIBUTING.md)**. Pull requests, issues, and thoughtful feedback are welcome.
+Source, build instructions, architecture notes, and how to add a new backend method live in **[CONTRIBUTING.md](CONTRIBUTING.md)**. Pull requests, issues, and thoughtful feedback are welcome.
 
 ## License
 

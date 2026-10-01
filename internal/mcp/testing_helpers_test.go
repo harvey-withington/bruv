@@ -15,3 +15,7 @@ func testContext(t *testing.T) context.Context {
 	t.Cleanup(cancel)
 	return ctx
 }
+
+// approveAll is the ApprovalFunc for tests that exercise start-up rather
+// than the per-machine approval gate.
+func approveAll(ServerSpec) bool { return true }

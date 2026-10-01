@@ -34,14 +34,26 @@ jobs:
       version: ${{ steps.version.outputs.value }}
 
     steps:
+      # A manual run builds the tag it names, not the branch it was
+      # dispatched from — otherwise the binary is stamped with the tag's
+      # version but built from whatever HEAD was. The tag must exist
+      # (checkout fails otherwise), so the release step below never
+      # creates one at the wrong commit.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
 
+      # The tag reaches the shell through env, never interpolated into
+      # the script text.
       - name: Determine version
         id: version
         shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          if [[ "$EVENT" == "workflow_dispatch" ]]; then
+            echo "value=$INPUT_TAG" >> "$GITHUB_OUTPUT"
           else
             echo "value=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
           fi
@@ -102,6 +114,24 @@ jobs:
         working-directory: mobile
         run: |
           npm ci || npm install
+
+      # Wails takes the exe's file version and the installer's Add/Remove
+      # Programs version from wails.json info.productVersion, which would
+      # otherwise read 1.0.0 on every release. Windows needs a numeric
+      # x.y.z, so v0.4.0-alpha stamps 0.4.0.
+      - name: Stamp product version into wails.json
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          NUM="${VERSION#v}"
+          NUM="${NUM%%-*}"
+          if [[ ! "$NUM" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::tag $VERSION has no x.y.z version to stamp"
+            exit 1
+          fi
+          node -e "const fs=require('fs');const j=JSON.parse(fs.readFileSync('wails.json','utf8'));j.info.productVersion=process.argv[1];fs.writeFileSync('wails.json',JSON.stringify(j,null,2)+'\n')" "$NUM"
+          grep -n productVersion wails.json
 
       - name: Build Windows binary + NSIS installer
         shell: bash

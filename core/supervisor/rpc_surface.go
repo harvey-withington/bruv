@@ -88,7 +88,7 @@ var repoRPCMethods = []string{
 	"PreviewCapture", "RetryCapture", "SetCapturePrefs",
 
 	// MCP servers
-	"AddMCPServer", "DeleteMCPServer", "GetMCPServerSecretStatus",
+	"AddMCPServer", "ApproveMCPServer", "DeleteMCPServer", "GetMCPServerSecretStatus",
 	"ListMCPServers", "RestartMCPServer", "SetMCPServerSecret",
 	"UpdateMCPServer",
 

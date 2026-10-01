@@ -15,20 +15,25 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
+	"unicode/utf8"
 
 	"bruv/core/supervisor"
 	"bruv/internal/config"
 	"bruv/internal/logging"
 	"bruv/internal/mcpserver"
+	"bruv/internal/notify"
 	"bruv/internal/push"
 	transporthttp "bruv/transport/http"
 )
@@ -164,6 +169,11 @@ func Run(opts Options) error {
 	machineSvc := supervisor.NewMachineService()
 	if pushVAPID != nil && pushRegistry != nil {
 		machineSvc = machineSvc.WithPush(pushVAPID, pushRegistry)
+		// Mirror every in-app notification (agent results, due dates,
+		// alarms, pending clips) to the phones that opted into push.
+		sender := push.NewSender(pushVAPID, pushRegistry)
+		notify.SetPushSink(func(n config.Notification) { go sendPush(sender, n) })
+		defer notify.SetPushSink(nil)
 	}
 
 	srv, err := transporthttp.NewMulti(transporthttp.Config{
@@ -273,4 +283,32 @@ func portOf(addr string) string {
 		return addr[i+1:]
 	}
 	return addr
+}
+
+// sendPush delivers one in-app notification to every subscribed phone.
+// A tap opens the card it's about (the mobile PWA routes /m/c/<id>);
+// notifications about the same card replace each other instead of
+// stacking. Best effort: failures are logged per device by the sender,
+// and expired subscriptions are pruned there.
+func sendPush(sender *push.Sender, n config.Notification) {
+	msg := push.Notification{Title: n.Title, Body: truncateRunes(n.Body, 240), URL: "/m/", Tag: n.ID}
+	if n.CardID != "" {
+		msg.URL = "/m/c/" + url.PathEscape(n.CardID)
+		msg.Tag = "card-" + n.CardID
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if sent, err := sender.SendToAll(ctx, msg); err != nil {
+		slog.Warn("push: notification not delivered everywhere", "sent", sent, "err", err)
+	}
+}
+
+// truncateRunes keeps a push body under the push services' small payload
+// limit without cutting a multi-byte character in half.
+func truncateRunes(s string, max int) string {
+	if utf8.RuneCountInString(s) <= max {
+		return s
+	}
+	r := []rune(s)
+	return string(r[:max-1]) + "…"
 }

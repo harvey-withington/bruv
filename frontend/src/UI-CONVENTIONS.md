@@ -733,3 +733,21 @@ A slide media field's literal value is a list: image fields hold every gallery U
 | `attachmentOptions` | `{ ref, name, fromLinked }[]` | Media attachments of the host + linked card. |
 | `refDisplayName` | `(ref: string) => string` | Chip label for an `attachment:` ref. |
 | `onChange` | `(value: string) => void` | The re-joined value. |
+
+---
+
+## 23. Running a repo-defined command needs this device's approval — `MCPUnapprovedNotice` + `lib/mcpCommand.ts`
+
+**Contract (2026-10-01):** a command that arrives in a repo file (today: MCP servers in `mcp_servers.json`) never runs on a device just because the file says "enabled". The device must approve it, and the approval covers the exact command (`fingerprint` = sha256 of command, args, env names); if the command changes, it's unapproved again.
+
+- **Before approving or enabling, show the exact command** — `formatMCPCommand(spec)` (command + args joined), plus env var names — in `showConfirm`. Never a generic "Are you sure?".
+- **Approve what was shown:** pass the view's `fingerprint` back (`ApproveMCPServer(name, fingerprint)`); the backend refuses if the file changed in between.
+- **Unapproved is its own state**, not "failed": health status `unapproved`, a warning-coloured badge (*not approved*) and `MCPUnapprovedNotice` on the row (*Not approved on this device* + **Approve**). Its tools aren't offered; agent grants of them show under *Granted but not available* (§21).
+- Saving a server from this device's UI (add, edit, the enable toggle) approves it here — the local user authored or reviewed it.
+
+| Prop | Type | Notes |
+|---|---|---|
+| `view` | `MCPServerView` | The unapproved server's row. |
+| `onApproved` | `() => void \| Promise<void>` | Called after a successful approval (the dialog refreshes). |
+
+Desktop only — mobile has no MCP settings.

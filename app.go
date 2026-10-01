@@ -68,9 +68,13 @@ type App struct {
 	boundsRestored  bool
 	lastSavedBounds *config.WindowBounds
 	forceQuit       bool
-	trayPauseItem   interface{ Check(); Uncheck(); Checked() bool }
-	traySetUp       bool // guard so reload-driven domReady doesn't re-run systray.Run
-	boundsPolling   bool // same idempotency story for the bounds-saver goroutine
+	trayPauseItem   interface {
+		Check()
+		Uncheck()
+		Checked() bool
+	}
+	traySetUp     bool // guard so reload-driven domReady doesn't re-run systray.Run
+	boundsPolling bool // same idempotency story for the bounds-saver goroutine
 
 	// busBridgeUnsub cancels the supervisor.Bus() subscription used
 	// for tray-tooltip refresh on notification:new events. Stable

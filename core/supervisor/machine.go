@@ -110,8 +110,10 @@ func (m *MachineService) GetLLMRouting() (config.LLMRouting, error) { return m.l
 
 // GetLLMRegistry is the key-free registry for model pickers (chat chips,
 // agent tab, the phone).
-func (m *MachineService) GetLLMRegistry() (llmsvc.RegistryView, error) { return m.llm.GetRegistryView() }
-func (m *MachineService) SaveLLMRouting(r config.LLMRouting) error  { return m.llm.SaveRouting(r) }
+func (m *MachineService) GetLLMRegistry() (llmsvc.RegistryView, error) {
+	return m.llm.GetRegistryView()
+}
+func (m *MachineService) SaveLLMRouting(r config.LLMRouting) error { return m.llm.SaveRouting(r) }
 
 // DiscoverLLMModels lists the models a provider offers. Reads the
 // SAVED provider credentials — the settings editor saves before asking.

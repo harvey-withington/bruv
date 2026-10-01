@@ -24,9 +24,10 @@ This guide walks through the second mode.
 1. **Install Tailscale**, sign in, confirm the machine appears on your tailnet.
 2. **Run the BRUV installer.** On the components page, tick **Server (run in background, auto-start on boot)**. You can leave **Desktop app** ticked too if you also want to use BRUV on this machine; un-tick it for headless boxes.
 3. **Click Install.** The installer will:
-   - Drop `bruv.exe` into `Program Files`.
+   - Drop `bruv.exe` into `Program Files\Good Egg Software\BRUV` (an existing BRUV install is upgraded in place instead, wherever it lives).
    - Create an empty BRUV repo at `%PROGRAMDATA%\BRUV\server-repo` (you can put it elsewhere later — see [moving the repo](#moving-the-repo)).
    - Register a Windows Service named **BRUV Server**, set to auto-start on boot.
+   - Add a Windows Firewall rule named **BRUV Server** allowing inbound TCP 9870.
    - Start the service immediately.
 4. **Note the connection token.** The finish page tells you where to find the *bootstrap token* the other devices will need to enrol:
 
@@ -44,6 +45,12 @@ This guide walks through the second mode.
 
 That's it. The service auto-starts on boot; you don't need to keep an interactive session open.
 
+### Using BRUV on the server machine itself
+
+The service serves the server repo, and **only one BRUV process can open a repo folder at a time** (BRUV holds a lock file, `.bruv\instance.lock`, inside the repo while it's open). If the desktop app on the same machine tries to open that folder directly, it gets an error naming the process that holds it, for example *"this repository is already open in another BRUV process on this computer (BRUV Server, …) — connect to that BRUV Server instead of opening the folder directly"*.
+
+So treat the server machine like any other device: add a connection to `http://127.0.0.1:9870` with the bootstrap token (steps below) and work through that. The desktop app is single-instance as well — launching it a second time just brings the existing window to the front.
+
 ---
 
 ## On every other device
@@ -60,6 +67,8 @@ That's it. The service auto-starts on boot; you don't need to keep an interactiv
      - **Connection Token** — paste the contents of `bootstrap-token.txt` from the server.
    - Click **Add and switch**.
 5. The app reloads connected to the server. The connection indicator now shows your server's name. Every card you create or edit lives on the server's repo and is visible from every other device that's enrolled.
+
+> **Don't share a repo by syncing its folder.** Pointing Syncthing, Dropbox, OneDrive or similar at a live repo folder, and opening the synced copy on several machines, isn't a supported way to share a repo: each machine would run its own agents and write the same files independently. Use a connection to the machine that hosts the repo, as above. A `git clone` (or a zip) is fine as an offline copy or a backup.
 
 ---
 
@@ -88,7 +97,7 @@ Or use Windows' Services app (`services.msc`) and look for **BRUV Server**.
 
 ### Moving the repo
 
-The server expects exactly one repo, picked at install time. To move it:
+To move the repo picked at install time:
 
 ```
 bruv.exe service uninstall
@@ -111,12 +120,16 @@ The server's data lives at the repo path you picked (default: `%PROGRAMDATA%\BRU
 ### "I can't reach the server from another device"
 
 - Both devices are on the same tailnet? Check Tailscale's tray icon on both.
-- Server machine's Windows Firewall is blocking port 9870? Add an inbound rule for TCP 9870 — Tailscale's interface respects Windows Firewall like any other network.
+- Server machine's Windows Firewall is blocking port 9870? The installer adds an inbound rule named **BRUV Server** for TCP 9870; check it's still there and enabled (`wf.msc`), or add one — Tailscale's interface respects Windows Firewall like any other network.
 - Server is actually running? `bruv.exe service status` on the server machine.
 
 ### "I get 'connection token rejected' when trying to enrol"
 
 - Tokens are one-time. If you used it once already (even on a different device), generate a fresh one: stop the service, delete `bootstrap-token.txt`, start the service. The service writes a new token on first request.
+
+### "This repository is already open in another BRUV process"
+
+Another BRUV process on this machine — usually the BRUV Server service — already has that repo folder open. Connect to that server (`http://127.0.0.1:9870`) instead of opening the folder; see [Using BRUV on the server machine itself](#using-bruv-on-the-server-machine-itself). The lock belongs to the running process and disappears when it exits (even after a crash), so a leftover `instance.lock` file never blocks you on its own.
 
 ### "I want to start over"
 

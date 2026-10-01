@@ -25,12 +25,12 @@ import (
 //
 // UX flow:
 //
-//   1. Operator boots bruv-server, sees a "Pair a phone" line with a
-//      pre-filled URL in the startup logs.
-//   2. Clicks the link in their terminal — desktop browser opens to
-//      this handler, page renders the QR plus a copyable link.
-//   3. Phone scans the QR (via camera/Lens), browser opens the mobile
-//      EnrolPage with ?token= already populated, user taps Pair, done.
+//  1. Operator boots bruv-server, sees a "Pair a phone" line with a
+//     pre-filled URL in the startup logs.
+//  2. Clicks the link in their terminal — desktop browser opens to
+//     this handler, page renders the QR plus a copyable link.
+//  3. Phone scans the QR (via camera/Lens), browser opens the mobile
+//     EnrolPage with ?token= already populated, user taps Pair, done.
 //
 // The QR encodes <scheme>://<host>/m/enrol?token=<bootstrap>, where
 // scheme + host are derived from the *incoming request*. Tailscale

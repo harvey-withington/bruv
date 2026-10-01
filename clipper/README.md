@@ -3,13 +3,12 @@
 Browser extension (Chrome MV3) that captures social posts into BRUV cards —
 and, with one click, appends them as slides to a target slide deck.
 Supported platforms: **Twitter/X, Truth Social, Reddit, YouTube** — one
-plugin each in `src/lib/plugins/` (see
-`plan/2026-07-25 twitter to slide deck end-to-end.md` for the genericity
-contract). Adding a platform = one plugin file + a registry line; plugins
-know nothing about slide templates — slides are stamped `auto` and BRUV
-resolves the template from the capture URL (per-platform look, retroactive
-upgrades; see `plan/2026-07-31 per-platform slide templates and auto
-matching.md`).
+plugin each in `src/lib/plugins/`. Every plugin produces the same
+platform-neutral `ClipResult` (`src/lib/types.ts`), so nothing downstream
+knows which platform a clip came from. Adding a platform = one plugin file +
+a registry line; plugins know nothing about slide templates — slides are
+stamped `auto` and BRUV resolves the template from the capture URL
+(per-platform look, retroactive upgrades).
 
 ## Build
 
@@ -87,15 +86,14 @@ the popup greys out what it can't do, rather than pretending.
 
 Capture decisions are yours, made at capture time and pre-filled from your
 vault's capture defaults (BRUV → Settings → Capture; they live in the vault,
-so the phone and this extension agree). Design:
-`plan/2026-08-02 capture options at capture time.md`.
+so the phone and this extension agree).
 
 **Right-click → "Add to BRUV (options…)"** always shows the dialog. The other
 two menu items show it only when your own triggers say the decision is
 consequential — an oversized video, a gallery over N images, a platform that
 blocks BRUV's server — and capture silently otherwise. Set
-Settings → Capture → "Show the capture dialog" to *always* or *never* to move
-that line. (It's a third menu item rather than Shift+click because Chrome's
+Settings → Capture → "Ask before capturing" to *Always* or *Never* (the
+default is *When it matters*) to move that line. (It's a third menu item rather than Shift+click because Chrome's
 context-menu events don't report modifier keys.)
 
 The dialog offers:

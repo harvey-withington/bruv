@@ -8,8 +8,7 @@
   "frontend:dev:serverUrl": "http://localhost:5173",
   "debounceMS": 500,
   "author": {
-    "name": "Harvey",
-    "email": "kracker.karakas@gmail.com"
+    "name": "Harvey"
   },
   "info": {
     "companyName": "Good Egg Software",

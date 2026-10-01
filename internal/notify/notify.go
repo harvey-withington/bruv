@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/smtp"
+	"sync/atomic"
 	"time"
 
 	"github.com/gen2brain/beeep"
@@ -78,12 +79,30 @@ func (d *Dispatcher) Send(req Request) {
 	}
 }
 
+// pushSink, when set, receives every in-app notification so a BRUV
+// Server can mirror it to the phones that subscribed to Web Push. Set
+// once at server start (internal/server); left nil on the desktop,
+// which shows system notifications itself.
+var pushSink atomic.Pointer[func(config.Notification)]
+
+// SetPushSink installs (or, with nil, removes) the push mirror.
+func SetPushSink(f func(config.Notification)) {
+	if f == nil {
+		pushSink.Store(nil)
+		return
+	}
+	pushSink.Store(&f)
+}
+
 func (d *Dispatcher) sendInApp(n config.Notification) {
 	if err := config.AppendNotification(n); err != nil {
 		slog.Warn("notify in-app persist failed", "err", err)
 	}
 	if d.emitEvent != nil {
 		d.emitEvent("notification:new", n)
+	}
+	if sink := pushSink.Load(); sink != nil {
+		(*sink)(n)
 	}
 }
 

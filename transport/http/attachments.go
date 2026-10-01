@@ -97,6 +97,16 @@ func attachmentHandler(cfg *AttachmentConfig) nethttp.Handler {
 		}
 		w.Header().Set("Content-Type", withCharset(mime))
 		w.Header().Set("Content-Length", strconv.FormatInt(stat.Size(), 10))
+		// Attachments come from captures, imports and AI tools, and are
+		// served from the same origin the mobile PWA keeps its device
+		// token on. Never let the browser sniff a type up to HTML, and
+		// run document types that can execute script (HTML, SVG, XML)
+		// in an opaque-origin sandbox: they still render, but can't
+		// read the app's storage or call its API as the user.
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		if isActiveContent(mime) {
+			w.Header().Set("Content-Security-Policy", "sandbox allow-scripts")
+		}
 		// Inline by default — most attachments are images the UI wants
 		// to render in place. Browsers ignore the filename for inline
 		// disposition; downloads still get the right name via <a download>.
@@ -115,6 +125,19 @@ func attachmentHandler(cfg *AttachmentConfig) nethttp.Handler {
 		}
 		_, _ = io.Copy(w, f)
 	})
+}
+
+// isActiveContent reports whether a browser would run script from a
+// document of this type when it's opened directly. Images, PDFs, audio
+// and video aren't (and a sandbox header would break Chrome's PDF
+// viewer), so only these get the sandbox.
+func isActiveContent(mime string) bool {
+	base := strings.ToLower(strings.TrimSpace(strings.SplitN(mime, ";", 2)[0]))
+	switch base {
+	case "text/html", "application/xhtml+xml", "image/svg+xml", "text/xml", "application/xml":
+		return true
+	}
+	return strings.HasSuffix(base, "+xml") && !strings.HasPrefix(base, "application/vnd.")
 }
 
 // withCharset stamps text-shaped types as UTF-8. Attachment bytes are

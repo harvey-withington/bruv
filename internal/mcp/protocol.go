@@ -8,7 +8,7 @@
 //     servers will not send resources, prompts, sampling, or roots
 //     requests. Unexpected server→client requests are rejected with
 //     JSON-RPC -32601 "Method not found" so the server doesn't hang.
-//   - Per-repo configuration. Each repo's .bruv/mcp_servers.json lists
+//   - Per-repo configuration. Each repo's mcp_servers.json (repo root) lists
 //     the servers that travel with the project. Secret env var values
 //     live in the OS keychain, keyed by repo ID + server name + var
 //     name, so sharing a repo never leaks API keys.

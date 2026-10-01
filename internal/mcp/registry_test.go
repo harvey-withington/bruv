@@ -42,7 +42,7 @@ func TestRegistryEmptyStartup(t *testing.T) {
 	// A registry with no servers should come up cleanly and return
 	// empty everything. This is the "fresh repo" case.
 	r := NewRegistry("test-repo", nil)
-	errs := r.LoadAndStart(testContext(t), nil)
+	errs := r.LoadAndStart(testContext(t), nil, approveAll)
 	if len(errs) != 0 {
 		t.Errorf("empty specs should not produce errors, got %v", errs)
 	}
@@ -63,7 +63,7 @@ func TestRegistryDisabledServer(t *testing.T) {
 	specs := []ServerSpec{
 		{Name: "disabled-one", Command: "nonexistent", Enabled: false},
 	}
-	errs := r.LoadAndStart(testContext(t), specs)
+	errs := r.LoadAndStart(testContext(t), specs, approveAll)
 	if len(errs) != 0 {
 		t.Errorf("disabled server should not produce errors, got %v", errs)
 	}
@@ -90,7 +90,7 @@ func TestRegistryDuplicateName(t *testing.T) {
 		{Name: "dup", Command: "x", Enabled: false},
 		{Name: "dup", Command: "y", Enabled: false},
 	}
-	errs := r.LoadAndStart(testContext(t), specs)
+	errs := r.LoadAndStart(testContext(t), specs, approveAll)
 	if _, ok := errs["dup"]; !ok {
 		t.Errorf("expected duplicate name error, got errs=%v", errs)
 	}
@@ -106,7 +106,7 @@ func TestRegistryStartFailure(t *testing.T) {
 	specs := []ServerSpec{
 		{Name: "broken", Command: "this-command-definitely-does-not-exist-xyz123", Enabled: true},
 	}
-	errs := r.LoadAndStart(testContext(t), specs)
+	errs := r.LoadAndStart(testContext(t), specs, approveAll)
 	if _, ok := errs["broken"]; !ok {
 		t.Errorf("expected startup error for broken server, got errs=%v", errs)
 	}

@@ -705,7 +705,7 @@ func (r *Runtime) UpdateMCPServer(spec mcp.ServerSpec) error {
 // DeleteMCPServer removes a server and purges its keychain secrets.
 func (r *Runtime) DeleteMCPServer(name string) error {
 	return r.MCP.Delete(name, func(server, env string, err error) {
-		slog.Warn("mcp delete secret failed", "server", server, "env", env, "err", err)
+		slog.Warn("mcp delete cleanup failed", "server", server, "env", env, "err", err)
 	})
 }
 
@@ -717,6 +717,12 @@ func (r *Runtime) SetMCPServerSecret(serverName, envVarName, value string) error
 // GetMCPServerSecretStatus reports presence of each declared secret.
 func (r *Runtime) GetMCPServerSecretStatus(serverName string) (map[string]bool, error) {
 	return r.MCP.SecretStatus(serverName)
+}
+
+// ApproveMCPServer approves an enabled server on this machine (its
+// fingerprint must match what the UI showed) and reloads the registry.
+func (r *Runtime) ApproveMCPServer(name, fingerprint string) error {
+	return r.MCP.Approve(name, fingerprint)
 }
 
 // RestartMCPServer tears down and re-starts a single server.

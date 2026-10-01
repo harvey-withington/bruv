@@ -163,6 +163,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     SetMCPServerSecret: async () => {},
     GetMCPServerSecretStatus: async () => ({}),
     RestartMCPServer: async () => {},
+    ApproveMCPServer: async () => {},
     PickFolder: async () => '/tmp/picked',
     GetCurrentRepo: async () => null,
     GetRepoDescription: async () => '',

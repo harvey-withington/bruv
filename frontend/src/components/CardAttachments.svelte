@@ -226,7 +226,8 @@
               <img src={previewUrl} alt={previewAttachment.name} />
             </div>
           {:else if mime === 'text/html' || name.endsWith('.html')}
-            <iframe src={previewUrl} title={previewAttachment.name} sandbox="allow-scripts allow-same-origin"></iframe>
+            <!-- No allow-same-origin: with allow-scripts it would void the sandbox and let the page read the app's storage. -->
+            <iframe src={previewUrl} title={previewAttachment.name} sandbox="allow-scripts"></iframe>
           {:else if name.endsWith('.pdf') || mime.includes('pdf')}
             <iframe src={previewUrl} title={previewAttachment.name}></iframe>
           {:else}

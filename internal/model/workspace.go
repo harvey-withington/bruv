@@ -107,8 +107,8 @@ type Workspace struct {
 	// a push into a dirty host tree is refused by updateInstead. Defaults
 	// on when BRUV created the repository, off when the user brought one.
 	CommitOnSave bool      `json:"commit_on_save,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // WorkspaceEntry is one node of the indexed file tree.

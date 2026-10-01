@@ -23,7 +23,7 @@
   // the backend (rather than a filesystem path). Two reasons:
   //   1. Path-passing only works when the backend can see the same
   //      filesystem as the user. Remote BRUV servers can't open
-  //      C:\Users\harve\Downloads\foo.json.
+  //      C:\Users\<you>\Downloads\foo.json.
   //   2. Drag-and-drop uses the browser's File API which gives us
   //      bytes directly. Unifying picker + drop on the same code
   //      path means we always ship JSON, never paths.

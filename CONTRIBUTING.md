@@ -12,7 +12,7 @@ Be kind. Assume good faith. Disagree with ideas, not people. That's the whole th
 - **Frontend:** [Svelte 5](https://svelte.dev/) with runes + TypeScript + Vite
 - **Backend:** Go — repository I/O, SQLite indexing, LLM provider adapters, agent runtime
 - **LLM:** provider-agnostic (Anthropic, OpenAI, Ollama — more welcome)
-- **Storage:** plain JSON files in the OS config directory (`%APPDATA%\bruv\` on Windows)
+- **Storage:** plain JSON files in a repo folder the user picks (portable, shareable), plus personal state in the OS config directory (`%APPDATA%\bruv\` on Windows) — see [Repo format contract](#repo-format-contract)
 
 ## Prerequisites
 
@@ -120,10 +120,10 @@ bruv-1.0/
 ├── frontend/            # Desktop UI (Svelte 5 + Wails)
 │   └── src/
 │       ├── components/  # Svelte components
-│       ├── lib/         # Stores, actions, adapters, locales
+│       ├── lib/         # Stores, actions, locales, the test mock adapter
 │       └── UI-CONVENTIONS.md   # The UI contract — read before adding shared components
 ├── mobile/              # Phone PWA, served at /m/ (embedded into the binary at build time)
-├── shared/              # TypeScript shared by both surfaces (@shared/ alias)
+├── shared/              # TypeScript shared by both surfaces (@shared/ alias): types, api.ts, the backend adapter
 ├── clipper/             # Web clipper browser extension (Chrome MV3, sideloaded)
 ├── docs/                # User-facing docs (self-hosting, MCP)
 ├── scripts/             # Dev/deploy helpers
@@ -142,7 +142,10 @@ BRUV repos are designed to be self-contained and portable. The format is stable 
 ├── card_types.json          # user-defined types, templates, builtin overrides
 ├── tags.json                # repo-global tag color cache (cross-project consistency)
 ├── mcp_servers.json         # MCP server definitions (secrets in OS keychain, not here)
+├── capture_prefs.json       # capture defaults (shared by every device capturing into this repo)
+├── template_prefs.json      # slide-template matching priorities + urlHint overrides
 ├── activity/<actorID>.jsonl # per-actor activity log shards (one file per writer)
+├── attachments/<card-id>/   # card attachment files
 ├── brands/                  # hierarchy root
 │   └── <brand-slug>/
 │       ├── brand.json
@@ -153,39 +156,48 @@ BRUV repos are designed to be self-contained and portable. The format is stable 
 │                   └── <project-slug>/
 │                       ├── project.json
 │                       ├── tags.json                  # per-project tag definitions
+│                       ├── members.json               # project members (optional)
+│                       ├── workspace/                 # workspace.json + index.json (optional)
 │                       └── categories/
 │                           └── <cat-slug>.json
 ├── cards/
 │   ├── <card-id>.json           # card content + blocks
-│   ├── <card-id>.agent.json     # agent config (optional)
+│   ├── <card-id>.agent.json     # agent config (optional; run history lives in <configDir>/runs/)
 │   └── <card-id>.comments.json  # comments (optional)
 ├── pins/
 │   └── <card-id>/pins.json      # cross-project pinning
 ├── types/                        # optional community schema drops
 └── .bruv/                        # PRIVATE — gitignored, derived state only
     ├── index.db                  # SQLite FTS index (rebuildable)
-    └── lock                      # single-process lock file
+    └── instance.lock             # one BRUV process per repo folder (held while the repo is open)
 ```
+
+`.bruv/instance.lock` is taken when a runtime opens the repo ([core/supervisor/runtime.go](core/supervisor/runtime.go)). A second BRUV process opening the same folder — say the desktop app opening the folder the local BRUV Server already serves — fails with an error naming the holder; it should connect to that server instead. File-syncing a live repo folder between machines (Syncthing, Dropbox) is not supported for the same reason: each machine would run its own agents and writers against the same files.
 
 **Personal state lives in the OS config folder**, split into two zones:
 
 ```
 <configDir>/                       # server-owned: shared by every device pointed at this server
 ├── chats/<repoID>/<chatID>.messages.json
+├── runs/<repoID>/<cardID>.json    # agent run history (kept out of the repo so it never travels)
+├── repos.json                     # the repo registry this backend serves
 ├── llm_accounts.json              # metadata only; API keys in OS keychain
 ├── llm_config.json                # mode + system context
+├── llm_routing.json               # models, routers, per-task assignments
 ├── notifications.json
 ├── notify_config.json             # SMTP/webhook destinations
 ├── preferences.json               # server zone: default category name, due-date notify config, importer creds
 ├── profile.json                   # display name, role, bio (per-user, not per-device)
-├── pricing.json                   # cached LLM model pricing
-├── card_types.json                # global default seeded into new repos
-├── crashes/, logs/, runs/         # operational state
+├── pricing.json                   # optional hand-edited token-pricing overrides
+├── devices.json, bootstrap-token.txt, secret.key   # enrolled devices, enrolment seed, URL-signing key
+├── vapid.json, push-subscriptions.json             # Web Push keypair + phone subscriptions
+├── crashes/, logs/                # operational state
 └── clientdata/                    # CLIENT-owned: per-device, never follows the user/server
     ├── connections.json           # known remote BRUV servers + active pointer
     ├── device-id.txt              # stable per-device UUID (activity-log shard key)
     ├── device-token.txt           # this device's bearer token for the local server
-    ├── recent.json                # recently-opened repo paths
+    ├── repo-recents.json          # recently-opened repos per connection
+    ├── workspace-checkouts.json   # where this device cloned workspaces
     ├── ui_preferences.json        # per-device UI prefs: theme, locale, layout, first-run flags
     └── window.json                # window bounds
 ```
@@ -211,79 +223,62 @@ Status of existing files:
 
 | File | Zone | Notes |
 |---|---|---|
-| `chats/`, `llm_accounts.json`, `llm_config.json`, `notify_config.json`, `notifications.json`, `pricing.json`, `card_types.json` (global default), `profile.json`, `crashes/`, `logs/`, `runs/` | ✅ server | Shared identity + content; correct. |
-| `clientdata/connections.json`, `device-id.txt`, `device-token.txt`, `recent.json`, `window.json` | ✅ client | Per-device by definition; correct. |
+| `chats/`, `runs/`, `repos.json`, `llm_accounts.json`, `llm_config.json`, `llm_routing.json`, `notify_config.json`, `notifications.json`, `pricing.json`, `profile.json`, `devices.json`, `vapid.json`, `push-subscriptions.json`, `crashes/`, `logs/` | ✅ server | Shared identity + content; correct. |
+| `clientdata/connections.json`, `device-id.txt`, `device-token.txt`, `repo-recents.json`, `workspace-checkouts.json`, `window.json` | ✅ client | Per-device by definition; correct. |
 | `preferences.json` | ✅ server | Split completed 2026-06-13: holds only server-zone fields (default category name, due-date notification config, Trello importer credentials). Reached over RPC (`GetPreferences`/`SetPreferences`). |
-| `clientdata/ui_preferences.json` | ✅ client | Per-device UI prefs (theme, locale, sidebar width/collapse, type-badge display, inbox limits, reopen-last-repo, LLM-nudge-shown, local-server-port). Served by the local shell (`ShellAPI.Get/SetUIPreferences`) in every desktop mode — never over RPC; browser mode falls back to localStorage. One-shot read-time migration lifts legacy fields from `preferences.json` on first load. `local_server_port` (added 2026-07-25) pins the embedded HTTP server to a fixed loopback port so URL-pairing tools (web clipper) survive restarts; 0 = ephemeral, read at boot in `startHTTPTransport`, falls back to ephemeral if taken. |
+| `clientdata/ui_preferences.json` | ✅ client | Per-device UI prefs (theme, locale, sidebar width/collapse, type-badge display, inbox limits, reopen-last-repo, LLM-nudge-shown, local-server-port). Served by the local shell (`ShellAPI.Get/SetUIPreferences`) in every desktop mode — never over RPC; browser mode falls back to localStorage. One-shot read-time migration lifts legacy fields from `preferences.json` on first load. `local_server_port` (added 2026-07-25) overrides the embedded HTTP server's loopback port so URL-pairing tools (web clipper) survive restarts. 0 = the default: 9870, read at boot in `startHTTPTransport`; if the requested port is taken it walks 9870–9879, then falls back to an ephemeral port, and the UI reports the port it actually got. |
 
 When adding a new persistence surface, ask: *"If Alice shares this repo with Bob, should Bob see this?"* If yes, it goes in the repo. If no, it goes in the config folder, then ask the device-vs-server question to pick the zone.
 
 ### Backend adapter architecture
 
-The frontend is decoupled from the Wails/Go backend via an adapter pattern, making it possible to swap in a cloud or SaaS backend without touching any UI component.
+Every surface talks to the Go backend over the same HTTP transport ([transport/http/](transport/http/)): JSON-RPC 2.0 for calls, Server-Sent Events for live updates. The desktop app is no exception — it runs a loopback server in-process and its UI is a client of it, exactly like a phone or a second desktop connected to a remote BRUV Server.
 
 ```
-UI Components  →  api.ts (delegation)  →  getBackend()  →  adapter (wails / cloud / …)
+UI components  →  shared/api.ts  →  getBackend()  →  shared/adapters/cloud.ts  →  HTTP
+                                                                                  ├─ /repos/<id>/rpc   → supervisor.Runtime        (per repo)
+                                                                                  ├─ /server/rpc       → supervisor.MachineService (per machine)
+                                                                                  └─ Wails ShellAPI    → shell_bridge.go           (desktop shell only)
 ```
 
-- **`src/lib/types.ts`** — defines the `BackendAdapter` interface (every method the UI can call) plus shared types (`UserProfile`, `AuthInfo`, `LLMConfig`, `BackendCapabilities`).
-- **`src/lib/adapters/wails.ts`** — the local adapter; a thin wrapper around Wails' auto-generated Go bindings.
-- **`src/lib/adapters/index.ts`** — reads the `VITE_BACKEND` env var (default `"wails"`) and lazily loads the matching adapter.
-- **`src/lib/api.ts`** — re-exports every method via `getBackend()`, so components import from `api.ts` and never reference an adapter directly.
+- **[shared/types.ts](shared/types.ts)** — the `BackendAdapter` interface (every method the desktop UI can call) plus the shared data types.
+- **[shared/api.ts](shared/api.ts)** — one export per method, delegating to `getBackend()`. Components import from `@shared/api` and never touch an adapter.
+- **[shared/adapters/index.ts](shared/adapters/index.ts)** — `initBackend()` / `getBackend()`. There is one production adapter; `setBackend()` lets tests install `frontend/src/lib/adapters/mock.ts`.
+- **[shared/adapters/cloud.ts](shared/adapters/cloud.ts)** — the adapter. A proxy turns any method name into a JSON-RPC call: names in `SERVER_METHODS` go to `/server/rpc`, everything else to the active repo's `/repos/<id>/rpc`. Names in `SHELL_METHODS` (native dialogs, opening folders, workspace checkouts on this device, build info, update check) are never sent over RPC — they call the Wails-bound `ShellAPI` in [shell_bridge.go](shell_bridge.go) and fail with a clear error when there is no desktop shell. Per-device UI preferences (`Get/SetUIPreferences`) are also local: the shell, or `localStorage` in a browser.
+- **Mobile** ([mobile/](mobile/)) doesn't use the adapter: it calls `repoRPC(method, params)` / `machineRPC(method, params)` from [mobile/src/lib/auth.ts](mobile/src/lib/auth.ts). The **clipper** has its own `repoRPC` in [clipper/src/lib/api.ts](clipper/src/lib/api.ts).
+- **Go side.** The transport dispatches by reflection, but only to the names a target lists in its `RPCMethods()`. Those lists live in [core/supervisor/rpc_surface.go](core/supervisor/rpc_surface.go): `repoRPCMethods` for `*Runtime`, `machineRPCMethods` for `*MachineService`. Any other exported method is unreachable over the network.
+- **Events.** The backend publishes on an event bus; clients subscribe over SSE (`subscribe(cb)` / `unsubscribe(cb)` on the adapter). A new topic must be added to `KNOWN_TOPICS` in [shared/adapters/topics.ts](shared/adapters/topics.ts), or no subscriber receives it.
 
-#### Implementing a new backend
+#### Adding a backend method
 
-1. Create `src/lib/adapters/mybackend.ts` exporting a `BackendAdapter` object. Every method in the interface must be implemented — use the Wails adapter as a reference.
-2. Register it in `src/lib/adapters/index.ts` by adding a `case` to the switch:
-   ```ts
-   case 'mybackend': {
-     const { myAdapter } = await import('./mybackend')
-     _adapter = myAdapter
-     break
-   }
-   ```
-3. Set the env var `VITE_BACKEND=mybackend` (or add it to a `.env` file in `frontend/`).
-4. Return appropriate capabilities from `getCapabilities()` — the UI uses these to show/hide local-only features (e.g. folder picker, file path inputs).
+1. **Implement it in Go.** Per-repo behaviour goes on `*supervisor.Runtime` (usually a thin method in [core/supervisor/runtime_methods.go](core/supervisor/runtime_methods.go) delegating to a service in `core/services/`). Per-machine behaviour — settings, profile, LLM accounts, anything that works before a repo is picked — goes on `*supervisor.MachineService` in [core/supervisor/machine.go](core/supervisor/machine.go). Arguments are positional and JSON-decoded, so keep them to JSON-friendly types. A method that can only run in the desktop process (a native dialog, a file on this device) goes on `ShellAPI` in [shell_bridge.go](shell_bridge.go) instead.
+2. **Classify it in [core/supervisor/rpc_surface.go](core/supervisor/rpc_surface.go).** Add the name to `repoRPCMethods` or `machineRPCMethods`, or — if it's internal plumbing that must not be network-callable — to the internal lists in [rpc_surface_test.go](core/supervisor/rpc_surface_test.go). `TestRPCSurfacePinned` fails until every exported method is classified exactly once.
+3. **Declare it in [shared/types.ts](shared/types.ts)** on `BackendAdapter`, and add a stub to [frontend/src/lib/adapters/mock.ts](frontend/src/lib/adapters/mock.ts) so the test adapter still type-checks.
+4. **Export it from [shared/api.ts](shared/api.ts).**
+5. **Route it in [shared/adapters/cloud.ts](shared/adapters/cloud.ts)** when it isn't a per-repo call: add a `MachineService` method to `SERVER_METHODS`, a `ShellAPI` method to `SHELL_METHODS`. Per-repo methods need no entry.
+6. **Call it.** Desktop components import it from `@shared/api`; mobile calls `repoRPC('Name', [args])` or `machineRPC('Name', [args])`.
+
+A method missing from step 2 answers "method not found" over RPC; a machine method missing from step 5 is sent to the repo endpoint and fails before a repo is picked.
 
 #### Identity model
 
-The adapter exposes three separate concerns:
-
 | Concept | Purpose | Local behaviour |
 |---|---|---|
-| **UserProfile** | Editable display identity (name, role, bio, expertise, avatar) | Auto-populates display name from the Windows account on first launch |
-| **AuthInfo** | Authentication state (id, provider, email, authenticated) | Returns local OS username, `provider: "local"`, `authenticated: true` |
-| **LLMConfig** | AI-specific settings (system prompt, etc.) | Persisted to `llm_config.json` in the app config directory |
+| **UserProfile** | Editable display identity (name, role, bio, expertise, avatar) | Auto-populates display name from the OS account on first launch |
+| **AuthInfo** | Authentication state (id, provider, email, authenticated) | Returns the local OS username, `provider: "local"`, `authenticated: true` |
+| **LLMConfig** | AI-specific settings (system prompt, etc.) | Persisted to `llm_config.json` in the config directory |
 
 #### Capabilities
 
 `getCapabilities()` returns a `BackendCapabilities` object that UI components check before rendering local-only features:
 
 ```ts
-interface BackendCapabilities {
-  hasLocalFilesystem: boolean  // folder picker, path inputs
-  hasAuth: boolean             // login/logout flows
-  hasRealtime: boolean         // live event subscriptions
+type BackendCapabilities = {
+  hasLocalFilesystem: boolean  // true inside the desktop shell: folder pickers, path inputs, open-in-Explorer
+  hasAuth: boolean             // login/logout flows (not used yet; devices enrol with a token)
+  hasRealtime: boolean         // live event subscriptions (SSE)
 }
 ```
-
-#### Events
-
-The adapter supports `subscribe(cb)` / `unsubscribe(cb)` for real-time push events. The local Wails adapter currently no-ops these (Wails uses its own event system), but a cloud adapter would use WebSockets or SSE to push `BackendEvent` objects to subscribers.
-
-## Adding a Wails-exposed Go method
-
-Wails auto-generates TypeScript bindings from methods on the `App` struct. Adding a new method requires updating both the Go side and the adapter so the frontend can reach it:
-
-1. Add the method to `app.go` (or `app_agent.go` for agent-related methods).
-2. Keep the signature simple — Wails can marshal primitives, strings, maps, slices, and structs with JSON tags.
-3. Run `wails dev` or `wails build` — bindings in `frontend/wailsjs/` regenerate automatically.
-4. Add the method to the `BackendAdapter` interface in `src/lib/types.ts`.
-5. Implement it in `src/lib/adapters/wails.ts` — just forward to the generated binding.
-6. Export it from `src/lib/api.ts`.
-7. Call it from your component via `api.yourMethod(...)`.
-
-Skipping steps 4–6 causes silent "function is not a function" errors at runtime — the binding exists but the adapter doesn't know about it.
 
 ## Filing bugs
 

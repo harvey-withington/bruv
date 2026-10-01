@@ -33,10 +33,15 @@ const (
 	// HealthRestarting means the process crashed and we're about to
 	// retry the spawn.
 	HealthRestarting HealthStatus = "restarting"
+	// HealthUnapproved means the server is enabled in the repo file but
+	// has not been approved on this machine (or its command changed
+	// since it was), so it is not spawned and offers no tools. See
+	// approval.go.
+	HealthUnapproved HealthStatus = "unapproved"
 )
 
 // ServerSpec is the config-side description of one MCP server. This
-// is the shape stored in .bruv/mcp_servers.json and used to drive the
+// is the shape stored in <repo>/mcp_servers.json and used to drive the
 // lifecycle manager. The Env map lists environment variable *names*
 // only — values are fetched from the keychain at spawn time so they
 // never touch the repo file and never leak when a repo is shared.
@@ -68,6 +73,9 @@ type ServerSpec struct {
 	// Enabled controls whether this server is spawned at startup.
 	// Disabled servers remain in config but don't consume any
 	// resources and don't contribute tools to the agent catalogue.
+	// Enabled is necessary but not sufficient: the file travels with
+	// the repo, so a server also needs this machine's approval of its
+	// Fingerprint before it is spawned (see approval.go).
 	Enabled bool `json:"enabled"`
 
 	// InitTimeout bounds how long we'll wait for the initialize
@@ -160,6 +168,14 @@ func NewServerProcess(spec ServerSpec, repoID string, resolver SecretResolver) *
 		maxRetries: 3,
 		status:     HealthDisabled,
 	}
+}
+
+// markUnapproved records that the server is enabled but not approved
+// on this machine, so it was deliberately not started.
+func (s *ServerProcess) markUnapproved() {
+	s.mu.Lock()
+	s.status = HealthUnapproved
+	s.mu.Unlock()
 }
 
 // Start spawns the subprocess and performs the full MCP handshake. On

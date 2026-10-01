@@ -75,6 +75,7 @@ export const DeleteMCPServer = (...args: Parameters<ReturnType<typeof getBackend
 export const SetMCPServerSecret = (...args: Parameters<ReturnType<typeof getBackend>['SetMCPServerSecret']>) => getBackend().SetMCPServerSecret(...args)
 export const GetMCPServerSecretStatus = (...args: Parameters<ReturnType<typeof getBackend>['GetMCPServerSecretStatus']>) => getBackend().GetMCPServerSecretStatus(...args)
 export const RestartMCPServer = (...args: Parameters<ReturnType<typeof getBackend>['RestartMCPServer']>) => getBackend().RestartMCPServer(...args)
+export const ApproveMCPServer = (...args: Parameters<ReturnType<typeof getBackend>['ApproveMCPServer']>) => getBackend().ApproveMCPServer(...args)
 // Repo registry CRUD lives on transport HTTP (POST /repos, PATCH
 // /repos/<id>, DELETE /repos/<id>) reached via lib/repos.svelte.ts
 // helpers — not RPC. Per-repo data RPCs (GetCurrentRepo,

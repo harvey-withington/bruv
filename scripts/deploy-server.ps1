@@ -32,7 +32,7 @@
     BRUV_DEPLOY_HOST, BRUV_DEPLOY_USER.
 
 .EXAMPLE
-  ./scripts/deploy-server.ps1 -RemoteHost homeserver.tailnet.ts.net -SshUser harvey
+  ./scripts/deploy-server.ps1 -RemoteHost homeserver.tailnet.ts.net -SshUser admin
 
 .EXAMPLE
   # Redeploy the last-built binary without rebuilding:
@@ -99,7 +99,7 @@ if ($SkipBuild) {
   if (-not $SkipInstaller) {
     $makensis = Get-Command makensis -ErrorAction SilentlyContinue
     if (-not $makensis) {
-      $candidate = @("$env:ProgramFiles(x86)\NSIS\makensis.exe", "$env:ProgramFiles\NSIS\makensis.exe") |
+      $candidate = @("${env:ProgramFiles(x86)}\NSIS\makensis.exe", "$env:ProgramFiles\NSIS\makensis.exe") |
         Where-Object { Test-Path $_ } | Select-Object -First 1
       if ($candidate) { $env:PATH = (Split-Path -Parent $candidate) + ';' + $env:PATH; $makensis = $candidate }
     }

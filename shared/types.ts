@@ -1093,6 +1093,12 @@ export type MCPHealthStatus =
   | 'ready'
   | 'failed'
   | 'restarting'
+  /**
+   * Enabled in the repo's mcp_servers.json but not approved on this
+   * machine (or its command changed since it was), so it isn't run.
+   * Approve with ApproveMCPServer after showing the user the command.
+   */
+  | 'unapproved'
 
 export interface MCPServerSpec {
   name: string
@@ -1137,6 +1143,11 @@ export interface MCPServerView {
   spec: MCPServerSpec
   health: MCPServerHealth
   tools: MCPServerViewTool[]
+  /**
+   * sha256 over the spec's command, args and env names. Pass it back to
+   * ApproveMCPServer so an approval only covers the command the user saw.
+   */
+  fingerprint: string
 }
 
 // --- Connections (per-machine known remote BRUV servers) ---
@@ -1283,6 +1294,8 @@ export interface BackendAdapter {
   SetMCPServerSecret(serverName: string, envVarName: string, value: string): Promise<void>
   GetMCPServerSecretStatus(serverName: string): Promise<Record<string, boolean>>
   RestartMCPServer(name: string): Promise<void>
+  /** Approve an enabled server on this machine; fingerprint is MCPServerView.fingerprint as shown. */
+  ApproveMCPServer(name: string, fingerprint: string): Promise<void>
   // Native dialog methods kept on the cloud-adapter contract because
   // the cloud adapter routes them through the Wails Shell binding
   // (see SHELL_METHODS in cloud.ts). In browser mode they reject

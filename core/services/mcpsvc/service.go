@@ -22,6 +22,10 @@ type ServerView struct {
 	Spec   mcp.ServerSpec   `json:"spec"`
 	Health mcp.ServerHealth `json:"health"`
 	Tools  []ServerViewTool `json:"tools"`
+	// Fingerprint identifies exactly the command the UI showed the user;
+	// Approve takes it back so an approval only ever covers what was
+	// reviewed (see mcp.ServerSpec.Fingerprint).
+	Fingerprint string `json:"fingerprint"`
 }
 
 // ServerViewTool mirrors mcp.NamespacedTool but flattens for UI.
@@ -75,7 +79,7 @@ func (s *Service) List() ([]ServerView, error) {
 
 	out := make([]ServerView, 0, len(store.Servers))
 	for _, spec := range store.Servers {
-		view := ServerView{Spec: spec}
+		view := ServerView{Spec: spec, Fingerprint: spec.Fingerprint()}
 		if h, ok := health[spec.Name]; ok {
 			view.Health = h
 		} else {
@@ -103,7 +107,8 @@ func (s *Service) List() ([]ServerView, error) {
 }
 
 // Add appends a new server to the repo config and triggers a registry
-// reload so its tools become immediately available.
+// reload so its tools become immediately available. The local user
+// authored it, so it is approved on this machine as saved.
 func (s *Service) Add(spec mcp.ServerSpec) error {
 	r := s.deps.Repo()
 	if r == nil {
@@ -125,11 +130,24 @@ func (s *Service) Add(spec mcp.ServerSpec) error {
 	if err := r.SaveMCPServerStore(store); err != nil {
 		return fmt.Errorf("save mcp server store: %w", err)
 	}
+	return s.approveAndReload(r, spec)
+}
+
+// approveAndReload records this machine's approval of spec as it now
+// stands, then reloads the registry. Used where the local user authored
+// or reviewed the spec: Add, Update (which the enable toggle goes
+// through, after confirming the exact command) and Approve.
+func (s *Service) approveAndReload(r *repo.Repository, spec mcp.ServerSpec) error {
+	if err := config.ApproveMCPServer(r.Manifest.ID, spec.Name, spec.Fingerprint()); err != nil {
+		s.deps.ReloadRegistry()
+		return fmt.Errorf("record mcp server approval: %w", err)
+	}
 	s.deps.ReloadRegistry()
 	return nil
 }
 
 // Update replaces an existing server's spec in place. Name is immutable.
+// Saving from this machine's UI approves the saved spec here.
 func (s *Service) Update(spec mcp.ServerSpec) error {
 	r := s.deps.Repo()
 	if r == nil {
@@ -156,8 +174,33 @@ func (s *Service) Update(spec mcp.ServerSpec) error {
 	if err := r.SaveMCPServerStore(store); err != nil {
 		return fmt.Errorf("save mcp server store: %w", err)
 	}
-	s.deps.ReloadRegistry()
-	return nil
+	return s.approveAndReload(r, spec)
+}
+
+// Approve records this machine's approval of an enabled-but-unapproved
+// server (e.g. one that arrived pre-enabled in a shared repo) and
+// reloads the registry so it starts. fingerprint must be the one the UI
+// showed the user (ServerView.Fingerprint): if the file changed since,
+// the approval is refused so it can never cover a command nobody saw.
+func (s *Service) Approve(name, fingerprint string) error {
+	r := s.deps.Repo()
+	if r == nil {
+		return fmt.Errorf("no repository open")
+	}
+	store, err := r.LoadMCPServerStore()
+	if err != nil {
+		return fmt.Errorf("load mcp server store: %w", err)
+	}
+	for _, spec := range store.Servers {
+		if spec.Name != name {
+			continue
+		}
+		if spec.Fingerprint() != fingerprint {
+			return fmt.Errorf("server %q changed since it was shown; review it again", name)
+		}
+		return s.approveAndReload(r, spec)
+	}
+	return fmt.Errorf("server %q not found", name)
 }
 
 // Delete removes a server and purges its keychain secrets. Keychain
@@ -194,6 +237,12 @@ func (s *Service) Delete(name string, logWarn func(server, env string, err error
 		if err := config.DeleteMCPSecret(r.Manifest.ID, deleted.Name, envName); err != nil && logWarn != nil {
 			logWarn(deleted.Name, envName, err)
 		}
+	}
+	// A server re-added later under the same name must be approved
+	// afresh. Best-effort like the secrets: a stale approval only
+	// matches an identical command.
+	if err := config.RevokeMCPServerApproval(r.Manifest.ID, deleted.Name); err != nil && logWarn != nil {
+		logWarn(deleted.Name, "", err)
 	}
 	s.deps.ReloadRegistry()
 	return nil

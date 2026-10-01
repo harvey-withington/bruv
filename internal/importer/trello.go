@@ -656,6 +656,16 @@ func findLatestActionDate(actions []TrelloAction, cardID string, defaultTime tim
 }
 
 // downloadAndSaveAttachment fetches the attachment from the URL and saves it to the repo attachments path.
+// isTrelloAPIHost reports whether rawURL is served by Trello's API over
+// https — the only place the user's key + token may be sent.
+func isTrelloAPIHost(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme != "https" {
+		return false
+	}
+	return strings.EqualFold(u.Hostname(), "api.trello.com")
+}
+
 func downloadAndSaveAttachment(r *repo.Repository, bruvCardID, trelloCardID string, att TrelloAttachment, apiKey, apiToken string) (*model.FileAttachment, error) {
 	targetURL := att.URL
 	if apiKey != "" && apiToken != "" {
@@ -671,7 +681,10 @@ func downloadAndSaveAttachment(r *repo.Repository, bruvCardID, trelloCardID stri
 		return nil, err
 	}
 
-	if apiKey != "" && apiToken != "" {
+	// Only Trello's own API ever sees the credentials: link attachments
+	// point at arbitrary third-party sites, which must not receive the
+	// user's Trello key + token.
+	if apiKey != "" && apiToken != "" && isTrelloAPIHost(targetURL) {
 		// Trello's attachment download endpoint does not support key/token query parameters.
 		// It requires authenticating via the Authorization OAuth header.
 		// Go's http.Client automatically strips this header on redirecting to S3, which prevents S3 from rejecting the request.

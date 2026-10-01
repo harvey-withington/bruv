@@ -43,4 +43,11 @@ describe('buildToolGroups — every permission shows', () => {
     const groups = buildToolGroups(options, [server('fs', ['read'], 'failed')], ['fs__read'])
     expect(groups.find((g) => g.key === 'mcp:fs')!.rows[0]).toMatchObject({ granted: true, available: false })
   })
+
+  // An unapproved server is never started, so it lists no tools; a grant of
+  // one of its tools must still show — ticked, unavailable — not vanish.
+  it('shows grants of an unapproved MCP server as unavailable', () => {
+    const groups = buildToolGroups(options, [server('shared', [], 'unapproved')], ['shared__search'])
+    expect(groups.find((g) => g.key === 'unavailable')!.rows[0]).toMatchObject({ id: 'shared__search', granted: true, available: false })
+  })
 })

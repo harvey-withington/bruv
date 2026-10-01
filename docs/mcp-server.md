@@ -2,8 +2,9 @@
 
 BRUV exposes each repo to external agentic chat apps (Claude Desktop, etc.)
 over the [Model Context Protocol](https://modelcontextprotocol.io). An assistant
-can then help you **capture ideas and inspiration** — creating Brands, Streams,
-Projects, Categories and Cards, and populating cards — straight from a chat.
+can then work on your board straight from a chat — capture ideas into new
+Brands, Streams, Projects, Categories and Cards, read and update existing cards,
+comment, attach files, and set up and run card agents.
 
 > **Terminology.** On this surface a **Repo** is one BRUV board (its own
 > Brands/Streams/Projects/Cards) — *not* a git repository. The word
@@ -21,8 +22,15 @@ Projects, Categories and Cards, and populating cards — straight from a chat.
   no resources/prompts/sampling.
 - **Auth:** the same device bearer token as the mobile app. Reached over
   Tailscale (or any path that reaches the backend).
-- **Capture-focused:** create + populate + read/search. No move/delete/destroy
-  in v1.
+- **Same tools as BRUV's own AI.** The tool set is BRUV's native board tools —
+  the ones card chat, project chat and agents use — over the whole repo. Tools
+  create, read, update, file and comment; there are no delete tools. Edits can
+  still overwrite content (`set_card_description`, `update_card`), drop tags
+  (`remove_card_tags`) or unfile a card (`unpin_card`).
+- **Agents:** the connector can read, configure (goal, schedule, granted tools,
+  model, budgets) and run card agents. An agent it configures runs on this BRUV
+  backend with your LLM accounts and whatever tools it is granted — treat the
+  device token accordingly.
 
 ## Tools
 
@@ -43,6 +51,10 @@ Projects, Categories and Cards, and populating cards — straight from a chat.
 | `pin_card` / `unpin_card` | File a card into a category (parents auto-created) or remove it from one (nothing created; the card is kept). |
 | `list_cards` | Cards on a project board grouped by category in board order — compact summaries; `get_card` for content. |
 | `recent_cards` | Most recently updated cards — find what the user just created. |
+| `update_card` | Change title, due date, tags and block values in one call (blocks matched by key or label; a new key adds a text block). |
+| `get_card_agent` | Read a card's agent: full goal, limits, recent runs, and the valid tool/model options. |
+| `configure_card_agent` | Set up or change a card's agent — only the fields passed change; `goal` replaces the whole goal. Can grant tools, set the schedule, model and budgets, and enable it. |
+| `run_card_agent` | Run a card's agent now, ignoring its schedule (the card must have a goal). Asynchronous — read the result with `get_card_agent`. |
 
 ## Connecting Claude Desktop
 
@@ -92,9 +104,14 @@ A bad/expired token returns `401`; an unknown/disabled repo id returns `404`.
 
 ## How it's wired (for maintainers)
 
-- Package: [internal/mcpserver/](../internal/mcpserver/) — `server.go` (transport
-  + JSON-RPC dispatch), `tools.go` (tool registry + definitions), `handlers.go`
-  (tool implementations), `blocks.go` (arg/block conversion).
+- Tools: [core/boardtools/](../core/boardtools/) is the one registry — `tools.go`
+  (handler tables + definitions advertised via `tools/list`), `handlers*.go`
+  (implementations), `blocks.go` (argument/block conversion), `native.go` (the
+  in-process, optionally project-scoped use by card chat, project chat and
+  agents). A tool added there reaches every surface at once.
+- Transport: [internal/mcpserver/server.go](../internal/mcpserver/server.go) —
+  Streamable HTTP + JSON-RPC dispatch only; `tools/list` and `tools/call`
+  delegate to `boardtools.Defs` / `boardtools.Call`.
 - Protocol types are reused from [internal/mcp/protocol.go](../internal/mcp/protocol.go)
   (the MCP *client* package).
 - Mounted in [transport/http/repos.go](../transport/http/repos.go) `repoRouter`
@@ -104,12 +121,9 @@ A bad/expired token returns `401`; an unknown/disabled repo id returns `404`.
 - Built by the callers: [internal/server/server.go](../internal/server/server.go)
   (headless) and [app.go](../app.go) (desktop loopback), both passing
   `Config.MCPHandler = mcpserver.New(sup, version)`.
-- Tool writes go through the same `Runtime` methods and block coercion
-  (`CoerceBlockValueForBlock`) as the internal AI chat, so behaviour matches.
 
-## Not in v1 (see the plan)
+## Not in v1
 
 Delete and reorder tools (filing is covered by `pin_card`/`unpin_card`; a move is
 an unpin plus a pin), an optional single "all-repos" connector for
-cross-repo capture, MCP resources/prompts, OAuth, and repo-scoped tokens. See
-[plan/bruv-mcp-server-for-third-party-agents-2026-06-19.md](../plan/bruv-mcp-server-for-third-party-agents-2026-06-19.md).
+cross-repo capture, MCP resources/prompts, OAuth, and repo-scoped tokens.

@@ -16,9 +16,9 @@ import (
 // multiple returns, error return, no-return.
 type mockApp struct{}
 
-func (m *mockApp) NoArgs() string                           { return "hello" }
-func (m *mockApp) Echo(s string) string                     { return s }
-func (m *mockApp) Add(a, b int) int                         { return a + b }
+func (m *mockApp) NoArgs() string       { return "hello" }
+func (m *mockApp) Echo(s string) string { return s }
+func (m *mockApp) Add(a, b int) int     { return a + b }
 func (m *mockApp) DivideByZero(n int) (int, error) {
 	if n == 0 {
 		return 0, fmt.Errorf("n must be non-zero")

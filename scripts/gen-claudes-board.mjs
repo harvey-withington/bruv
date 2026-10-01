@@ -3,7 +3,10 @@
 // rebuilds the target folder each time. Open it in BRUV via the repo
 // picker → Open Folder.
 //
-//   node scripts/gen-claudes-board.mjs
+//   node scripts/gen-claudes-board.mjs [target-folder]
+//
+// The target defaults to ~/bruv-repos/claudes-board and must end in
+// "claudes-board" (it gets wiped).
 //
 // Format mirrors a real vault (manifest + brands/streams/projects/
 // categories + flat cards/ + pins/). Tone: gentle, self-aware winks at the
@@ -11,9 +14,10 @@
 
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { homedir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 
-const ROOT = 'C:/Users/harve/bruv-repos/claudes-board'
+const ROOT = process.argv[2] || join(homedir(), 'bruv-repos', 'claudes-board')
 
 // Safety: only ever wipe a path that ends in claudes-board.
 if (!ROOT.replace(/\\/g, '/').endsWith('/claudes-board')) {

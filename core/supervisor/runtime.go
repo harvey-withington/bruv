@@ -476,7 +476,10 @@ func (r *Runtime) reloadMCPRegistry() {
 	// instead of waiting out the full timeout.
 	startCtx, cancel := context.WithTimeout(r.ctx, 60*time.Second)
 	defer cancel()
-	errs := reg.LoadAndStart(startCtx, store.Servers)
+	// Only servers this machine approved run: the repo file's "enabled"
+	// flag travels with shared repos, so it can't be trusted alone.
+	approved := mcpApprovalFunc(r.repo.Manifest.ID, store.Servers)
+	errs := reg.LoadAndStart(startCtx, store.Servers, approved)
 	for name, err := range errs {
 		slog.Warn("mcp server startup failed", "server", name, "err", err)
 	}

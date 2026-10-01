@@ -122,6 +122,7 @@ func (r *Runtime) SaveDueDateSettings(enabled bool, thresholds []string, channel
 func (r *Runtime) GetAgentConfig(cardID string) (*model.AgentFile, error) {
 	return r.Agent.GetConfig(cardID)
 }
+
 // DescribeAgent returns a card's agent config, recent runs and the valid
 // option values (grantable tools, models) — the same view MCP
 // get_card_agent and chat serve, so the Agent tab lists exactly the

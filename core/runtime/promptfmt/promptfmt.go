@@ -262,8 +262,8 @@ type AgentField struct {
 // well-known tracking field. Custom tracking fields fall back to a
 // generic guidance string.
 var AgentFieldGuidance = map[string]string{
-	"last_run": "Write a 1–2 sentence summary of what you actually did this run — tools called, findings, or errors encountered. (If you run out of turns first, the runtime fills this in from your final report.)",
-	"findings": "Append new findings to the existing value. Do not overwrite prior findings — the value should accumulate across runs. If there's nothing new this run, restate the latest.",
+	"last_run":    "Write a 1–2 sentence summary of what you actually did this run — tools called, findings, or errors encountered. (If you run out of turns first, the runtime fills this in from your final report.)",
+	"findings":    "Append new findings to the existing value. Do not overwrite prior findings — the value should accumulate across runs. If there's nothing new this run, restate the latest.",
 	"description": "Only update if the description is empty or materially out of date; otherwise leave it alone.",
 	"next_check":  "If the Goal involves ongoing monitoring, set this to the ISO 8601 timestamp of when you should next run.",
 }

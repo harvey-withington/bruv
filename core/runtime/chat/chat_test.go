@@ -7,8 +7,8 @@ import (
 
 	"bruv/core/runtime/prompts"
 	"bruv/core/runtime/tools"
-	"bruv/core/services/catalog"
 	"bruv/core/services/card"
+	"bruv/core/services/catalog"
 	llmsvc "bruv/core/services/llm"
 	"bruv/internal/llm"
 	"bruv/internal/mcp"

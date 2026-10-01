@@ -57,9 +57,12 @@ func NewRegistry(repoID string, resolver SecretResolver) *Registry {
 // error map — startup failures don't abort the whole load, so a
 // broken config for one server doesn't take out the rest.
 //
-// The caller supplies the full list of specs (from per-repo config).
-// Disabled servers are created but not started.
-func (r *Registry) LoadAndStart(ctx context.Context, specs []ServerSpec) map[string]error {
+// The caller supplies the full list of specs (from per-repo config) and
+// this machine's approval check. Disabled servers are created but not
+// started; enabled servers that approved rejects (or every enabled
+// server, when approved is nil) are created in HealthUnapproved and
+// not started either — the repo file alone can never run a command.
+func (r *Registry) LoadAndStart(ctx context.Context, specs []ServerSpec, approved ApprovalFunc) map[string]error {
 	// Build and start the new set without holding mu, so Tools /
 	// OwnsTool / Health (agent dispatch, the settings UI) keep
 	// answering from the current set while servers start up.
@@ -79,6 +82,11 @@ func (r *Registry) LoadAndStart(ctx context.Context, specs []ServerSpec) map[str
 		servers[spec.Name] = sp
 
 		if !spec.Enabled {
+			continue
+		}
+		if approved == nil || !approved(spec) {
+			sp.markUnapproved()
+			slog.Info("mcp server not approved on this machine; not starting", "server", spec.Name)
 			continue
 		}
 		if err := sp.Start(ctx); err != nil {

@@ -108,7 +108,6 @@ func (s *ShellAPI) ForgetWorkspaceCheckout(workspaceID string) error {
 	return s.app.ForgetWorkspaceCheckout(workspaceID)
 }
 
-
 // --- Process control ---
 
 // ForceQuit stays Shell-bound because it mutates the forceQuit flag

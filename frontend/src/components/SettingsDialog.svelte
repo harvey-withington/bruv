@@ -12,7 +12,8 @@
   import CaptureSettingsSection from './CaptureSettingsSection.svelte'
   import SettingsSectionGate from './SettingsSectionGate.svelte'
   import { SettingsSections } from '../lib/settingsSections.svelte'
-  import type { LLMAccount, LLMRouting, CapturePrefs } from '@shared/types'
+  import type { LLMAccount, LLMRouting, CapturePrefs, ChatBudgetMode } from '@shared/types'
+  import { CHAT_BUDGET_DEFAULT, CHAT_BUDGET_MIN, CHAT_BUDGET_MAX, clampChatBudget } from '@shared/chatTurn.svelte'
   import { theme, setTheme } from '../lib/theme.svelte'
   import { setLocale, availableLocales } from '../lib/i18n.svelte'
   import { nav, prefs as prefsStore } from '../lib/store.svelte'
@@ -54,6 +55,8 @@
     base_url: '',
     ai_mode: 'edit',
     min_confidence: '',
+    chat_budget_mode: 'warn' as ChatBudgetMode,
+    chat_budget_tokens: CHAT_BUDGET_DEFAULT,
   })
   let notifCfg = $state({
     system_enabled: true, // retained for backward-compat with NotifyConfig shape; no longer consulted by the backend
@@ -157,8 +160,10 @@
         llm.base_url = c.base_url || ''
         llm.ai_mode = c.ai_mode || 'edit'
         llm.min_confidence = c.min_confidence || ''
+        llm.chat_budget_mode = c.chat_budget_mode || 'warn'
+        llm.chat_budget_tokens = c.chat_budget_tokens || CHAT_BUDGET_DEFAULT
       },
-      save: () => SetLLMConfig(llm),
+      save: () => SetLLMConfig({ ...llm, chat_budget_tokens: clampChatBudget(llm.chat_budget_tokens) }),
     },
     llmProviders: {
       load: async () => {
@@ -301,6 +306,7 @@
     { tab: 'ai', key: 'routers', label: 'routers routing auto automatic rules complexity heuristic fallback keywords try' },
     { tab: 'ai', key: 'ai_mode', label: 'ai mode chat edit card fields' },
     { tab: 'ai', key: 'min_confidence', label: 'minimum confidence ai suggestion pin threshold' },
+    { tab: 'ai', key: 'chat_budget', label: 'response budget tokens output limit cost warn stop chat reply' },
     { tab: 'ai', key: 'context', label: 'ai context additional' },
     { tab: 'notifications', key: 'system_enabled', label: 'desktop system notifications test' },
     { tab: 'notifications', key: 'smtp_host', label: 'email smtp host server' },
@@ -576,6 +582,24 @@
               </select>
               <span class="field-hint">{t('llm.min_confidence_hint')}</span>
             </label>
+          {/if}
+
+          {#if fieldVisible('chat_budget')}
+            <label class="field">
+              <span class="field-label">{t('llm.chat_budget_mode')}</span>
+              <select bind:value={llm.chat_budget_mode}>
+                <option value="warn">{t('llm.chat_budget_warn')}</option>
+                <option value="hard">{t('llm.chat_budget_hard')}</option>
+                <option value="off">{t('llm.chat_budget_off')}</option>
+              </select>
+            </label>
+            {#if llm.chat_budget_mode !== 'off'}
+              <label class="field">
+                <span class="field-label">{t('llm.chat_budget_tokens')}</span>
+                <input type="number" min={CHAT_BUDGET_MIN} max={CHAT_BUDGET_MAX} step="1000" bind:value={llm.chat_budget_tokens} />
+              </label>
+            {/if}
+            <span class="field-hint">{t(`llm.chat_budget_${llm.chat_budget_mode}_hint`, { max: CHAT_BUDGET_MAX.toLocaleString() })}</span>
           {/if}
 
           {#if fieldVisible('context')}

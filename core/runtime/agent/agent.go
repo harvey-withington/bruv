@@ -499,6 +499,12 @@ func concludeRun(run *model.AgentRun, ctxErr, loopErr error, cf *model.ChatFile,
 	if lastMsg.Role == model.RoleAssistant {
 		run.Summary = lastMsg.Content
 	}
+	// A reply that was cut off, refused or empty is not a finished run,
+	// whatever text came with it.
+	if n := lastMsg.Notice; n != nil && n.Code != model.ChatNoticeOverBudget {
+		run.Error = n.Text()
+		return nil
+	}
 
 	if exhausted {
 		run.Error = fmt.Sprintf("ran out of turns (%d) before finishing; raise the agent's max turns or narrow its goal", maxTurns)

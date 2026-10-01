@@ -34,7 +34,7 @@
   import { installResilience } from './lib/connectivity.svelte'
   import { resolveTransportInfo } from '@shared/adapters/cloud'
 
-  import { GetUIPreferences, SetUIPreferences, GetCurrentRepo, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, ToggleProjectChatBookmark, GetProjectChatModel, SetProjectChatModel, IsLLMConfigured, GetLocalServerStatus } from '@shared/api'
+  import { GetUIPreferences, SetUIPreferences, GetCurrentRepo, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, StopProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, ToggleProjectChatBookmark, GetProjectChatModel, SetProjectChatModel, IsLLMConfigured, GetLocalServerStatus } from '@shared/api'
 
   // Restore persisted preferences
   loadTheme()
@@ -473,6 +473,8 @@
                   reloadKey={nav.projectSlug ? `${nav.brandSlug}/${nav.streamSlug}/${nav.projectSlug}` : undefined}
                   loadFn={() => LoadProjectChatHistory(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!)}
                   sendFn={(text, contextLevel) => SendProjectChatMessage(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, text, contextLevel ?? 'all')}
+                  stopFn={() => StopProjectChatMessage(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!)}
+                  projectPath={`${nav.brandSlug}/${nav.streamSlug}/${nav.projectSlug}`}
                   clearFn={() => ClearProjectChatHistory(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!)}
                   applyFn={(msgID, acceptIDs) => ApplyProjectPendingEdits(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, msgID, acceptIDs)}
                   bookmarkFn={(messageID) => ToggleProjectChatBookmark(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, messageID)}

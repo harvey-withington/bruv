@@ -3,7 +3,7 @@
 // internal/model/model.go's ChatMessage / ToolAction / PendingEdit
 // structs.
 
-import type { RouteDecision } from '@shared/types'
+import type { ChatNotice, RouteDecision } from '@shared/types'
 
 export type ChatRole = 'user' | 'assistant' | 'system'
 
@@ -43,6 +43,8 @@ export type ChatMessage = {
   pending_edits?: PendingEdit[]
   /** Which model answered and why. */
   route?: RouteDecision
+  /** Why the turn ended unusually (cut off, refused, stopped, over budget). */
+  notice?: ChatNotice
 }
 
 export type ChatFile = {

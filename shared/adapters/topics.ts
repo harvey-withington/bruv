@@ -31,6 +31,7 @@ export const KNOWN_TOPICS = [
   'workspace:updated',
   'workspace:deleted',
   'workspace:templates',
+  'chat:progress',
 ] as const
 
 export type KnownTopic = (typeof KNOWN_TOPICS)[number]

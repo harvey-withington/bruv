@@ -57,10 +57,10 @@ func newStub(t *testing.T, status int, body string, respHeader map[string]string
 			body:   raw,
 		})
 		s.mu.Unlock()
-		for k, v := range respHeader {
+		w.Header().Set("Content-Type", "application/json")
+		for k, v := range respHeader { // may override Content-Type (event streams)
 			w.Header().Set(k, v)
 		}
-		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte(body))
 	}))

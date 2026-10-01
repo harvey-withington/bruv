@@ -410,6 +410,25 @@ func (r *Runtime) SendProjectChatMessage(brandSlug, streamSlug, projectSlug, use
 	return r.chatRT.SendProject(brandSlug, streamSlug, projectSlug, userMessage, contextLevel)
 }
 
+// StopChatMessage stops the card chat turn in progress, reporting
+// whether one was running. The pending SendChatMessage call then returns
+// with the turn closed by a "stopped" notice.
+func (r *Runtime) StopChatMessage(cardID string) bool {
+	return r.chatRT.Stop(cardID)
+}
+
+// StopProjectChatMessage is StopChatMessage for a project chat.
+func (r *Runtime) StopProjectChatMessage(brandSlug, streamSlug, projectSlug string) (bool, error) {
+	if r.repo == nil {
+		return false, fmt.Errorf("no repository open")
+	}
+	id, err := r.projectChatID(brandSlug, streamSlug, projectSlug)
+	if err != nil {
+		return false, err
+	}
+	return r.chatRT.Stop(id), nil
+}
+
 // --- Promptfmt wrappers ---
 //
 // availableIconList + renderCategoryHeader are one-line wrappers so

@@ -291,6 +291,8 @@ export const LoadProjectChatHistory = (...args: Parameters<ReturnType<typeof get
 export const ToggleChatBookmark = (...args: Parameters<ReturnType<typeof getBackend>['ToggleChatBookmark']>) => getBackend().ToggleChatBookmark(...args)
 export const ToggleProjectChatBookmark = (...args: Parameters<ReturnType<typeof getBackend>['ToggleProjectChatBookmark']>) => getBackend().ToggleProjectChatBookmark(...args)
 export const SendProjectChatMessage = (...args: Parameters<ReturnType<typeof getBackend>['SendProjectChatMessage']>) => getBackend().SendProjectChatMessage(...args)
+export const StopChatMessage = (...args: Parameters<ReturnType<typeof getBackend>['StopChatMessage']>) => getBackend().StopChatMessage(...args)
+export const StopProjectChatMessage = (...args: Parameters<ReturnType<typeof getBackend>['StopProjectChatMessage']>) => getBackend().StopProjectChatMessage(...args)
 export const ClearProjectChatHistory = (...args: Parameters<ReturnType<typeof getBackend>['ClearProjectChatHistory']>) => getBackend().ClearProjectChatHistory(...args)
 export const ClearCardChatHistory = (...args: Parameters<ReturnType<typeof getBackend>['ClearCardChatHistory']>) => getBackend().ClearCardChatHistory(...args)
 

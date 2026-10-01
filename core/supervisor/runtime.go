@@ -678,6 +678,9 @@ func (d chatRTDeps) Tools() *tools.Dispatcher   { return d.r.tools }
 func (d chatRTDeps) Prompts() *prompts.Builder  { return d.r.prompts }
 func (d chatRTDeps) MCPRegistry() *mcp.Registry { return d.r.MCPRegistry() }
 func (d chatRTDeps) LLMActors() *sync.Map       { return &d.r.llmActors }
+func (d chatRTDeps) Publish(topic string, payload any) {
+	d.r.bus.Publish(topic, payload)
+}
 
 type agentRTDeps struct{ r *Runtime }
 

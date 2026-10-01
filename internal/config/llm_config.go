@@ -16,6 +16,44 @@ type LLMConfig struct {
 	DefaultAccountID string `json:"default_account_id,omitempty"` // references LLMAccount.ID
 	AIMode           string `json:"ai_mode,omitempty"`            // "edit" (default), "suggest", or "chat"
 	MinConfidence    string `json:"min_confidence,omitempty"`     // "high", "medium", "low", "" (any)
+	ChatBudgetMode   string `json:"chat_budget_mode,omitempty"`   // ChatBudgetWarn (default), ChatBudgetHard, ChatBudgetOff
+	ChatBudgetTokens int    `json:"chat_budget_tokens,omitempty"` // 0 = DefaultChatBudgetTokens
+}
+
+// Chat budget modes: what happens when a chat turn's output passes the
+// budget.
+const (
+	ChatBudgetWarn = "warn" // keep going, tell the user, let them stop it
+	ChatBudgetHard = "hard" // cut the reply off at the budget
+	ChatBudgetOff  = "off"  // no budget
+)
+
+// DefaultChatBudgetTokens leaves a thinking model room to think and
+// still write a long answer.
+const DefaultChatBudgetTokens = 16000
+
+// MaxChatOutputTokens is the most one chat call may generate: the cap
+// under the warn and off modes, and the largest budget allowed.
+const MaxChatOutputTokens = 64000
+
+// ChatBudget is a chat turn's output-token budget: thinking, text and
+// tool calls across every model call in the turn.
+type ChatBudget struct {
+	Mode   string
+	Tokens int
+}
+
+// ChatBudget resolves the configured budget, defaults filled in.
+func (c LLMConfig) ChatBudget() ChatBudget {
+	b := ChatBudget{Mode: c.ChatBudgetMode, Tokens: c.ChatBudgetTokens}
+	if b.Mode != ChatBudgetHard && b.Mode != ChatBudgetOff {
+		b.Mode = ChatBudgetWarn
+	}
+	if b.Tokens <= 0 {
+		b.Tokens = DefaultChatBudgetTokens
+	}
+	b.Tokens = min(b.Tokens, MaxChatOutputTokens)
+	return b
 }
 
 // confidenceOrder maps confidence strings to numeric rank (higher = stricter).

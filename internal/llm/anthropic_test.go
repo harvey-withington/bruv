@@ -106,7 +106,11 @@ func TestAnthropicRequestShape(t *testing.T) {
 	// one (provider.go:67). Locked here so adding the knob is a deliberate,
 	// test-visible change rather than an accident.
 	wantAbsent(t, body, "temperature")
-	wantAbsent(t, body, "stream")
+	// Always streamed: long thinking turns outlast idle connections, and
+	// closing a stream is what stops a turn the user cancels.
+	if body["stream"] != true {
+		t.Errorf("stream = %v, want true", body["stream"])
+	}
 }
 
 func TestAnthropicDefaultMaxTokens(t *testing.T) {
@@ -120,8 +124,10 @@ func TestAnthropicDefaultMaxTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got := digNum(t, s.lastBody(t), "max_tokens"); got != 4096 {
-		t.Errorf("default max_tokens = %v, want 4096", got)
+	// 4096 used to be the default, and Opus 5.5's thinking alone could
+	// spend all of it: the reply came back empty.
+	if got := digNum(t, s.lastBody(t), "max_tokens"); got != DefaultMaxTokens {
+		t.Errorf("default max_tokens = %v, want %d", got, DefaultMaxTokens)
 	}
 }
 
@@ -330,12 +336,9 @@ func TestAnthropicParseToolUseResponse(t *testing.T) {
 	}
 }
 
-// DUBIOUS BEHAVIOUR (anthropic.go:157-168): an empty content array yields a
-// successful response with empty Content and no tool calls. OpenAI's adapter
-// guards the analogous case (openai.go:147 "no choices in response") but
-// Anthropic's does not, so RunLoop treats it as a final answer and posts a
-// blank assistant message to the chat. Locked to current behaviour; see the
-// report rather than "fixing" it here.
+// An empty content array is a successful, finished response with nothing
+// in it — the adapter reports it as it is. Deciding what the user sees is
+// RunLoop's job: it posts an "empty reply" notice, never a blank bubble.
 func TestAnthropicEmptyContentIsSilentSuccess(t *testing.T) {
 	s := okStub(t, "anthropic_empty_content.json")
 	resp, err := NewAnthropic("k", s.URL).ChatCompletion(context.Background(), ChatRequest{
@@ -348,7 +351,7 @@ func TestAnthropicEmptyContentIsSilentSuccess(t *testing.T) {
 	if resp == nil {
 		t.Fatal("nil response")
 	}
-	if resp.Content != "" || len(resp.ToolCalls) != 0 {
+	if resp.Content != "" || len(resp.ToolCalls) != 0 || resp.StopReason != StopEnd {
 		t.Errorf("behaviour changed: %+v", resp)
 	}
 }

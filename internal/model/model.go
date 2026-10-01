@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // Manifest holds repository-level metadata stored in .bruv/manifest.json.
 //
@@ -317,6 +320,49 @@ type ChatMessage struct {
 	// Route records which model answered and why, on assistant replies
 	// and on provider-error messages.
 	Route *RouteDecision `json:"route,omitempty"`
+	// Notice says why a turn ended unusually (cut off, refused, stopped,
+	// over budget). On an assistant reply it annotates the text; a turn
+	// that produced nothing to show ends in a system message carrying
+	// only the notice.
+	Notice *ChatNotice `json:"notice,omitempty"`
+}
+
+// ChatNotice is structured so each surface words it in the user's
+// language; Text is the English form for logs and agent run records.
+type ChatNotice struct {
+	Code   string `json:"code"`             // one of the ChatNotice* codes
+	Budget int    `json:"budget,omitempty"` // the turn's output budget, in tokens
+	Used   int    `json:"used,omitempty"`   // output tokens the turn used
+}
+
+// Chat notice codes.
+const (
+	ChatNoticeBudgetReached = "budget_reached" // hard budget: the reply was cut off at it
+	ChatNoticeOverBudget    = "over_budget"    // warn budget: the reply finished over it
+	ChatNoticeCutOff        = "cut_off"        // the reply hit the per-call output cap
+	ChatNoticeRefused       = "refused"        // the provider declined the request
+	ChatNoticeEmpty         = "empty"          // the model finished without saying anything
+	ChatNoticeStopped       = "stopped"        // the user pressed Stop
+)
+
+// Text is the notice in English.
+func (n ChatNotice) Text() string {
+	switch n.Code {
+	case ChatNoticeBudgetReached:
+		return fmt.Sprintf("The reply reached the %d-token budget and was cut off.", n.Budget)
+	case ChatNoticeOverBudget:
+		return fmt.Sprintf("The reply used %d output tokens, over the %d-token budget.", n.Used, n.Budget)
+	case ChatNoticeCutOff:
+		return "The reply ran out of room and was cut off."
+	case ChatNoticeRefused:
+		return "The model declined to answer this request."
+	case ChatNoticeEmpty:
+		return "The model finished without writing a reply."
+	case ChatNoticeStopped:
+		return "Stopped."
+	default:
+		return n.Code
+	}
 }
 
 // RouteDecision records how one AI turn chose its model: the model that

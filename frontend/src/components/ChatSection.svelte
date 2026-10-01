@@ -1,11 +1,15 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import { Send, MapPin, Check, X, Wrench, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Bookmark, MessageCircle, PencilLine, ListChecks, Trash2, BotMessageSquare } from 'lucide-svelte'
-  import { LoadChatHistory, SendChatMessage, IsLLMConfigured, AcceptPinSuggestion, RejectPinSuggestion, GetLLMConfig, SetLLMConfig, ApplyPendingEdits, ClearCardChatHistory, ToggleChatBookmark, GetCardChatModel, SetCardChatModel } from '@shared/api'
-  import type { ChatHistory, ChatMessage, ModelRef, PendingEdit, ToolAction } from '@shared/types'
+  import { LoadChatHistory, SendChatMessage, StopChatMessage, IsLLMConfigured, AcceptPinSuggestion, RejectPinSuggestion, GetLLMConfig, SetLLMConfig, ApplyPendingEdits, ClearCardChatHistory, ToggleChatBookmark, GetCardChatModel, SetCardChatModel } from '@shared/api'
+  import type { ChatHistory, ChatMessage, ChatProgress, ModelRef, PendingEdit, ToolAction } from '@shared/types'
   import { decisionLabel, describeDecision } from '@shared/modelRefs'
   import { toolActionLabel } from '@shared/chatActionLabels'
+  import { ChatTurn } from '@shared/chatTurn.svelte'
+  import { onEvent } from '../lib/events'
   import ChatModelChip from './ChatModelChip.svelte'
+  import ChatTurnStatus from './ChatTurnStatus.svelte'
+  import ChatNoticeLine from './ChatNoticeLine.svelte'
   import { showConfirm } from '../lib/confirm.svelte'
   import { renderMarkdown } from '@shared/markdown'
   import { t } from '../lib/i18n.svelte'
@@ -50,6 +54,8 @@
     hosted = false,
     loadFn,
     sendFn,
+    stopFn,
+    projectPath = '',
     reloadKey,
     clearFn,
     applyFn,
@@ -72,6 +78,12 @@
      *  receives the current contextLevel selection so the parent's closure
      *  can forward it to SendProjectChatMessage. */
     sendFn?: (text: string, contextLevel?: string) => Promise<ChatHistory>
+    /** stopFn stops the running turn in projectMode (routes to
+     *  StopProjectChatMessage). Card mode uses StopChatMessage directly. */
+    stopFn?: () => Promise<boolean>
+    /** "brand/stream/project" in projectMode — how chat:progress names
+     *  the project chat. */
+    projectPath?: string
     reloadKey?: string
     clearFn?: () => Promise<void>
     /** applyFn applies a subset of pending edits in projectMode. Mirrors the
@@ -281,7 +293,13 @@
   let messages = $state<ChatMessage[]>([])
   let inputText = $state('')
   let loading = $state(true)
-  let sending = $state(false)
+  // The turn in flight: elapsed time, live progress, Stop.
+  const turn = new ChatTurn(() => projectMode ? { projectPath } : { cardId })
+  const sending = $derived(turn.running)
+  $effect(() => {
+    const off = onEvent<ChatProgress>('chat:progress', p => turn.progress(p))
+    return () => { off(); turn.finish() }
+  })
   let configured = $state(true)
   let aiMode = $state<'edit' | 'suggest' | 'chat'>('edit')
   let messagesContainerEl = $state<HTMLDivElement | null>(null)
@@ -350,7 +368,7 @@
   async function send() {
     const text = inputText.trim()
     if (!text || sending) return
-    sending = true
+    turn.start()
     inputText = ''
     resetTextareaHeight()
     // Optimistic user message so the thinking indicator appears immediately
@@ -385,7 +403,21 @@
       messages = messages.filter(m => !m.id.startsWith('temp-'))
       if (!inputText.trim()) inputText = text
     }
-    sending = false
+    turn.finish()
+  }
+
+  // Stop the running turn. Its pending send then returns with the turn
+  // closed by a "stopped" notice; false means it had already finished.
+  async function stop() {
+    turn.stopping = true
+    try {
+      const stopped = projectMode && stopFn ? await stopFn() : await StopChatMessage(cardId)
+      if (!stopped) turn.stopping = false
+    } catch (e) {
+      turn.stopping = false
+      console.error('Failed to stop the reply:', e)
+      showToast(t('error.chat_stop_failed'), 'error')
+    }
   }
 
   async function acceptPin(msgId: string) {
@@ -703,7 +735,14 @@
             {#if msg.bookmarked}
               <span class="chat-msg-bookmark" title={t('chat.bookmarked')}><Bookmark size={11} /></span>
             {/if}
-            <div class="chat-msg-content">{@html renderMarkdown(msg.content)}</div>
+            {#if msg.role === 'system' && msg.notice}
+              <ChatNoticeLine notice={msg.notice} />
+            {:else}
+              <div class="chat-msg-content">{@html renderMarkdown(msg.content)}</div>
+              {#if msg.notice}
+                <ChatNoticeLine notice={msg.notice} footer />
+              {/if}
+            {/if}
 
             {#if msg.tool_actions?.length}
               <div class="tool-actions">
@@ -828,9 +867,7 @@
           </div>
         {/each}
         {#if sending}
-          <div class="chat-msg chat-msg-assistant thinking">
-            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-          </div>
+          <ChatTurnStatus {turn} onStop={stop} />
         {/if}
       {/if}
     </div>
@@ -1486,27 +1523,6 @@
     z-index: 9999;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
     pointer-events: none;
-  }
-
-  /* Thinking indicator */
-  .thinking {
-    display: flex;
-    gap: 4px;
-    padding: 10px 14px;
-  }
-  .thinking .dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--text-muted);
-    animation: bounce 1.2s infinite;
-  }
-  .thinking .dot:nth-child(2) { animation-delay: 0.2s; }
-  .thinking .dot:nth-child(3) { animation-delay: 0.4s; }
-
-  @keyframes bounce {
-    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
-    30% { transform: translateY(-4px); opacity: 1; }
   }
 
   .chat-input-wrapper {

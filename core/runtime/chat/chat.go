@@ -63,6 +63,13 @@ type LoopConfig struct {
 	// budget does (agents use it to cut off runs that keep failing).
 	Stop func() string
 
+	// Budget is a chat turn's output budget (see budget.go). The zero
+	// value means none: each call gets the provider's default cap.
+	Budget config.ChatBudget
+	// OnProgress, when set, receives the turn's output so far and whether
+	// it has passed a warn budget, throttled.
+	OnProgress func(used int, over bool)
+
 	// TokenBudget is the maximum total tokens allowed across all iterations (0 = unlimited).
 	TokenBudget int
 	// TotalTokensUsed is written back with the cumulative token count after the loop finishes.
@@ -87,15 +94,52 @@ func (rt *Runtime) RunLoop(ctx context.Context, provider llm.Provider, modelName
 	var allPendingEdits []model.PendingEdit
 	var cumulativeTokens int
 	toolDefs := lc.Tools
+	budget := newTurnBudget(lc.Budget, lc.OnProgress)
+
+	// finish saves the turn's closing message: the reply with everything
+	// the turn did attached, plus any notice. A turn with nothing to show
+	// ends in a system message carrying only its notice — never a blank
+	// reply bubble.
+	finish := func(content string, notice *model.ChatNotice) (*model.ChatFile, error) {
+		if lc.TotalTokensUsed != nil {
+			*lc.TotalTokensUsed = cumulativeTokens
+		}
+		msg := model.ChatMessage{
+			ID:            uuid.New().String(),
+			Role:          model.RoleAssistant,
+			Content:       content,
+			Timestamp:     time.Now().UTC(),
+			ToolActions:   allToolActions,
+			PinSuggestion: pinSuggestion,
+			PendingEdits:  allPendingEdits,
+			Route:         lc.Route,
+			Notice:        notice,
+		}
+		if strings.TrimSpace(content) == "" && len(allToolActions) == 0 && pinSuggestion == nil && len(allPendingEdits) == 0 {
+			if notice == nil || notice.Code == model.ChatNoticeOverBudget {
+				notice = budget.notice(model.ChatNoticeEmpty)
+			}
+			msg.Role, msg.Content, msg.Notice = model.RoleSystem, notice.Text(), notice
+		}
+		return rt.appendMessage(cf, lc, msg)
+	}
 
 	for iteration := 0; iteration < lc.MaxIter; iteration++ {
+		if budget.exhausted() {
+			return finish("", budget.notice(model.ChatNoticeBudgetReached))
+		}
 		resp, err := provider.ChatCompletion(ctx, llm.ChatRequest{
 			SystemPrompt: lc.SystemPrompt,
 			Messages:     llmMessages,
 			Model:        modelName,
 			Tools:        toolDefs,
+			MaxTokens:    budget.maxTokens(),
+			OnOutput:     budget.streamed,
 		})
 		if err != nil {
+			if stoppedByUser(ctx) {
+				return finish("", budget.notice(model.ChatNoticeStopped))
+			}
 			errMsg := model.ChatMessage{
 				ID:        uuid.New().String(),
 				Role:      model.RoleSystem,
@@ -113,6 +157,7 @@ func (rt *Runtime) RunLoop(ctx context.Context, provider llm.Provider, modelName
 		if resp.Usage != nil {
 			cumulativeTokens += resp.Usage.TotalTokens
 		}
+		budget.callFinished(resp.Usage)
 
 		// Check token budget
 		if lc.TokenBudget > 0 && cumulativeTokens > lc.TokenBudget {
@@ -130,22 +175,19 @@ func (rt *Runtime) RunLoop(ctx context.Context, provider llm.Provider, modelName
 			return saved, errors.Join(budgetErr, err)
 		}
 
+		switch resp.StopReason {
+		case llm.StopRefusal:
+			return finish(resp.Content, &model.ChatNotice{Code: model.ChatNoticeRefused})
+		case llm.StopMaxTokens:
+			// Out of room: keep whatever text arrived, but run no tool
+			// call — the turn can't continue, and a call cut off
+			// mid-arguments never arrived whole.
+			return finish(resp.Content, budget.cutOffNotice())
+		}
+
 		// No tool calls — final text response
 		if len(resp.ToolCalls) == 0 {
-			assistantMsg := model.ChatMessage{
-				ID:            uuid.New().String(),
-				Role:          model.RoleAssistant,
-				Content:       resp.Content,
-				Timestamp:     time.Now().UTC(),
-				ToolActions:   allToolActions,
-				PinSuggestion: pinSuggestion,
-				PendingEdits:  allPendingEdits,
-				Route:         lc.Route,
-			}
-			if lc.TotalTokensUsed != nil {
-				*lc.TotalTokensUsed = cumulativeTokens
-			}
-			return rt.appendMessage(cf, lc, assistantMsg)
+			return finish(resp.Content, budget.overNotice())
 		}
 
 		// Add assistant message with tool calls to conversation
@@ -223,20 +265,7 @@ func (rt *Runtime) RunLoop(ctx context.Context, provider llm.Provider, modelName
 			content = wrapUp
 		}
 	}
-	assistantMsg := model.ChatMessage{
-		ID:            uuid.New().String(),
-		Role:          model.RoleAssistant,
-		Content:       content,
-		Timestamp:     time.Now().UTC(),
-		ToolActions:   allToolActions,
-		PinSuggestion: pinSuggestion,
-		PendingEdits:  allPendingEdits,
-		Route:         lc.Route,
-	}
-	if lc.TotalTokensUsed != nil {
-		*lc.TotalTokensUsed = cumulativeTokens
-	}
-	return rt.appendMessage(cf, lc, assistantMsg)
+	return finish(content, budget.overNotice())
 }
 
 // appendMessage persists one message to the loop's chat and returns the
@@ -348,9 +377,10 @@ func (rt *Runtime) SendProject(brandSlug, streamSlug, projectSlug, userMessage, 
 	if err != nil || sel == nil {
 		return cf, err
 	}
-	ctx, cancel := context.WithTimeout(rt.deps.Ctx(), 120*time.Second)
-	defer cancel()
+	ctx, endTurn := rt.beginTurn(chatID)
+	defer endTurn()
 
+	budget := cfg.ChatBudget()
 	suggestMode := cfg.AIMode == "suggest"
 	return rt.RunLoop(ctx, sel.Provider, sel.Model, cf, LoopConfig{
 		ChatID:       chatID,
@@ -358,6 +388,11 @@ func (rt *Runtime) SendProject(brandSlug, streamSlug, projectSlug, userMessage, 
 		Tools:        toolDefs,
 		MaxIter:      5,
 		Route:        &sel.Decision,
+		Budget:       budget,
+		OnProgress: rt.progressReporter(TurnProgress{
+			ProjectPath: brandSlug + "/" + streamSlug + "/" + projectSlug,
+			Budget:      budget.Tokens,
+		}),
 		ExecuteTool: func(tc llm.ToolCall) (string, *model.ToolAction, *model.PinSuggestion) {
 			result, action := rt.deps.Tools().ExecuteProject(tc, scope)
 			return result, action, nil
@@ -531,14 +566,17 @@ func (rt *Runtime) sendCard(cardID, userMessage, modeOverride string) (*model.Ch
 	rt.deps.LLMActors().Store(cardID, sel.Model)
 	defer rt.deps.LLMActors().Delete(cardID)
 
-	ctx, cancel := context.WithTimeout(rt.deps.Ctx(), 120*time.Second)
-	defer cancel()
+	ctx, endTurn := rt.beginTurn(cardID)
+	defer endTurn()
 
+	budget := cfg.ChatBudget()
 	return rt.RunLoop(ctx, sel.Provider, sel.Model, cf, LoopConfig{
 		ChatID:       cardID,
 		SystemPrompt: systemPrompt,
 		Tools:        toolDefs,
 		Route:        &sel.Decision,
+		Budget:       budget,
+		OnProgress:   rt.progressReporter(TurnProgress{CardID: cardID, Budget: budget.Tokens}),
 		// 6 iterations comfortably covers web_search → web_fetch →
 		// summarise, or a couple of card-tool rounds plus a final
 		// message. Previously 3, which was too tight for research

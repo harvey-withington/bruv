@@ -126,6 +126,7 @@ func (p *ollamaProvider) ChatCompletion(ctx context.Context, req ChatRequest) (*
 			} `json:"tool_calls"`
 		} `json:"message"`
 		Model           string `json:"model"`
+		DoneReason      string `json:"done_reason"`
 		PromptEvalCount int    `json:"prompt_eval_count"`
 		EvalCount       int    `json:"eval_count"`
 	}
@@ -134,8 +135,9 @@ func (p *ollamaProvider) ChatCompletion(ctx context.Context, req ChatRequest) (*
 	}
 
 	cr := &ChatResponse{
-		Content: result.Message.Content,
-		Model:   result.Model,
+		Content:    result.Message.Content,
+		Model:      result.Model,
+		StopReason: openAIStopReason(result.DoneReason),
 	}
 	if result.PromptEvalCount > 0 || result.EvalCount > 0 {
 		total := result.PromptEvalCount + result.EvalCount

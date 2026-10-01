@@ -5,6 +5,7 @@
   import type { ChatMessage, ToolAction, PendingEdit } from './types'
   import { decisionLabel, describeDecision } from '@shared/modelRefs'
   import { toolActionLabel } from '@shared/chatActionLabels'
+  import ChatNoticeLine from './ChatNoticeLine.svelte'
 
   let {
     msg,
@@ -129,7 +130,14 @@
 </script>
 
 <article class="msg msg-{msg.role}">
-  <div class="content">{@html renderMarkdown(msg.content)}</div>
+  {#if msg.role === 'system' && msg.notice}
+    <ChatNoticeLine notice={msg.notice} />
+  {:else}
+    <div class="content">{@html renderMarkdown(msg.content)}</div>
+    {#if msg.notice}
+      <ChatNoticeLine notice={msg.notice} footer />
+    {/if}
+  {/if}
 
   {#if msg.tool_actions?.length}
     <div class="tools">

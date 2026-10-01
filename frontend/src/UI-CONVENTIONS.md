@@ -751,3 +751,25 @@ A slide media field's literal value is a list: image fields hold every gallery U
 | `onApproved` | `() => void \| Promise<void>` | Called after a successful approval (the dialog refreshes). |
 
 Desktop only — mobile has no MCP settings.
+
+---
+
+## 24. Chat turns: budget, Stop, and notices — `ChatTurnStatus`, `ChatNoticeLine`, `shared/chatTurn.svelte.ts`
+
+**Contract (2026-10-01): a chat turn never ends in a blank reply bubble.** A thinking model can spend its whole output cap thinking, so every chat turn runs against the user's **response budget** (Settings → AI: *Warn when budget exceeded* (default) / *Stop at budget* / *No budget*, plus the budget in output tokens, default 16,000, max 64,000). Output includes the model's hidden thinking. The backend (`core/runtime/chat/budget.go`) enforces it; the UI only shows it.
+
+- **While a turn runs**, the chat shows `ChatTurnStatus` in place of the old three dots: elapsed time, `~N tokens` once any are counted (streamed text is estimated, hidden thinking counts when a call finishes), a warning once a *warn* budget is passed, and **Stop** (`StopChatMessage` / `StopProjectChatMessage`). Stop resolves the pending Send with a "stopped" notice; output already generated is still charged, which the button's hint says.
+- **State lives in a `ChatTurn`** (one per chat panel): `start()` on send, `finish()` when the send resolves *and* on unmount, `progress(p)` for every `chat:progress` event — it ignores other chats' events (`card_id`, or `project_path` = `brand/stream/project`). Don't keep a separate `sending` flag; derive it from `turn.running`.
+- **A turn that ends unusually carries a `notice`** (`budget_reached`, `over_budget`, `cut_off`, `refused`, `empty`, `stopped`, with `budget` / `used`). On a system message the notice *is* the message (render `ChatNoticeLine`, not `content`, which is an English fallback for logs); on a reply it's a footer under the text (`footer`). Wording comes from `describeNotice(notice, t)` (`chat.notice_*` in both surfaces); `isWarningNotice` picks the warning colour.
+
+| `ChatTurnStatus` prop | Type | Notes |
+|---|---|---|
+| `turn` | `ChatTurn` | The panel's running turn. |
+| `onStop` | `() => void` | Calls the Stop RPC; surface failures (desktop toast, mobile banner). |
+
+| `ChatNoticeLine` prop | Type | Notes |
+|---|---|---|
+| `notice` | `ChatNotice` | From the message. |
+| `footer` | `boolean` | `true` under a reply's text; omit for a notice-only system message. |
+
+Both surfaces: desktop `frontend/src/components/`, mobile `mobile/src/components/chat/` (same props). The budget setting itself is desktop-only, like the rest of the AI settings.

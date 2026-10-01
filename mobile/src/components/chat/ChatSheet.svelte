@@ -3,12 +3,16 @@
   import { Send, X, Trash2, MessageCircle, PencilLine, ListChecks } from 'lucide-svelte'
   import { repoRPC, machineRPC } from '../../lib/auth'
   import { onReconnect } from '../../lib/connectivity.svelte'
+  import { onEvent } from '../../lib/events.svelte'
+  import { ChatTurn } from '@shared/chatTurn.svelte'
+  import type { ChatProgress } from '@shared/types'
   import { inlineEdit } from '@shared/inlineEdit'
   import { EditScope } from '@shared/editScope'
   import { t } from '../../lib/i18n.svelte'
   import { replace, cardURL } from '../../lib/router.svelte'
   import ChatMessage from './ChatMessage.svelte'
   import ChatModelChip from './ChatModelChip.svelte'
+  import ChatTurnStatus from './ChatTurnStatus.svelte'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import type { ChatScope } from './scope'
   import type {
@@ -55,7 +59,11 @@
   let messages = $state<ChatMsg[]>([])
   let inputText = $state('')
   let loading = $state(true)
-  let sending = $state(false)
+  // The turn in flight: elapsed time, live progress, Stop.
+  const turn = new ChatTurn(() =>
+    scope.kind === 'card' ? { cardId: scope.cardID } : { projectPath: `${scope.brand}/${scope.stream}/${scope.project}` },
+  )
+  const sending = $derived(turn.running)
   let configured = $state(true)
   let aiMode = $state<AIMode>('edit')
   let saveError = $state<string | null>(null)
@@ -148,7 +156,7 @@
   async function send() {
     const text = inputText.trim()
     if (!text || sending) return
-    sending = true
+    turn.start()
     saveError = null
     inputText = ''
     resetTextareaHeight()
@@ -182,7 +190,23 @@
       // Drop the optimistic bubble so the user can retry.
       messages = messages.filter((m) => m.id !== tempID)
     } finally {
-      sending = false
+      turn.finish()
+    }
+  }
+
+  // Stop the running turn. Its pending send then returns with the turn
+  // closed by a "stopped" notice; false means it had already finished.
+  async function stop() {
+    turn.stopping = true
+    try {
+      const stopped =
+        scope.kind === 'card'
+          ? await repoRPC<boolean>('StopChatMessage', [scope.cardID])
+          : await repoRPC<boolean>('StopProjectChatMessage', [scope.brand, scope.stream, scope.project])
+      if (!stopped) turn.stopping = false
+    } catch (err) {
+      turn.stopping = false
+      saveError = err instanceof Error ? err.message : t('chat.err_stop')
     }
   }
 
@@ -325,6 +349,9 @@
     const offReconnect = onReconnect(() => {
       if (!sending) void load()
     })
+    const offProgress = onEvent((ev) => {
+      if (ev.topic === 'chat:progress') turn.progress(ev.payload as ChatProgress)
+    })
     // Push a synthetic history entry so hardware Back closes the sheet
     // without leaving the underlying route. The cleanup pops it on any
     // other close path.
@@ -334,6 +361,8 @@
     window.addEventListener('keydown', onWindowKeydownCapture, true)
     return () => {
       offReconnect()
+      offProgress()
+      turn.finish()
       window.removeEventListener('popstate', onPop)
       window.removeEventListener('keydown', onWindowKeydownCapture, true)
       if (!navigatedAway && history.state?.chat) history.back()
@@ -445,9 +474,7 @@
         />
       {/each}
       {#if sending}
-        <div class="thinking" aria-label={t('chat.thinking')}>
-          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-        </div>
+        <ChatTurnStatus {turn} onStop={stop} />
       {/if}
     {/if}
   </div>
@@ -661,25 +688,6 @@
     font-size: 0.85rem;
   }
 
-  .thinking {
-    align-self: flex-start;
-    display: inline-flex;
-    gap: 4px;
-    padding: 10px 14px;
-    background: var(--bg-elev-1);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-  }
-  .dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--text-muted);
-    animation: bounce 1.2s infinite;
-  }
-  .dot:nth-child(2) { animation-delay: 0.2s; }
-  .dot:nth-child(3) { animation-delay: 0.4s; }
-
   .composer {
     display: flex;
     align-items: flex-end;
@@ -756,10 +764,6 @@
   @keyframes slide-up {
     from { transform: translateY(100%); }
     to { transform: translateY(0); }
-  }
-  @keyframes bounce {
-    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
-    30% { transform: translateY(-4px); opacity: 1; }
   }
 
   @media (prefers-reduced-motion: reduce) {

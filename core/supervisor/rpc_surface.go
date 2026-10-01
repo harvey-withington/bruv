@@ -80,7 +80,8 @@ var repoRPCMethods = []string{
 	"ClearProjectChatHistory", "GetCardChatModel", "GetProjectChatModel",
 	"LoadChatHistory", "LoadProjectChatHistory", "RejectAllPendingEdits",
 	"RejectPendingEdit", "SendChatMessage", "SendProjectChatMessage",
-	"SetCardChatModel", "SetProjectChatModel", "ToggleChatBookmark",
+	"SetCardChatModel", "SetProjectChatModel", "StopChatMessage",
+	"StopProjectChatMessage", "ToggleChatBookmark",
 	"ToggleProjectChatBookmark",
 
 	// Capture

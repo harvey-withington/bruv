@@ -63,14 +63,44 @@ type ToolCall struct {
 	Arguments map[string]any `json:"arguments"`
 }
 
+// DefaultMaxTokens is the output cap for a call that sets none. Thinking
+// models spend part of the cap before writing a word: the old 4096 could
+// go entirely on thinking, and the reply came back empty.
+const DefaultMaxTokens = 16000
+
 // ChatRequest is sent to the provider.
 type ChatRequest struct {
 	SystemPrompt string
 	Messages     []Message
 	Model        string
-	MaxTokens    int       // 0 = provider default
+	MaxTokens    int       // 0 = DefaultMaxTokens
 	Tools        []ToolDef // optional; empty = no tool calling
+
+	// OnOutput, when set, is called while a streaming call generates,
+	// with a running estimate of its output tokens: visible text and
+	// tool input only — hidden thinking counts once the final usage
+	// arrives. Providers that don't stream never call it.
+	OnOutput func(estimatedTokens int)
 }
+
+// maxTokensOrDefault resolves a request's output cap.
+func maxTokensOrDefault(n int) int {
+	if n > 0 {
+		return n
+	}
+	return DefaultMaxTokens
+}
+
+// StopReason is why a call stopped generating, normalised across
+// providers so callers never parse provider-specific strings.
+type StopReason string
+
+const (
+	StopEnd       StopReason = "end"        // finished on its own
+	StopToolUse   StopReason = "tool_use"   // wants tool results
+	StopMaxTokens StopReason = "max_tokens" // hit the output cap; content may be cut off
+	StopRefusal   StopReason = "refusal"    // declined by the provider's safety systems
+)
 
 // Usage reports token consumption for a single LLM call.
 type Usage struct {
@@ -85,6 +115,9 @@ type ChatResponse struct {
 	Model     string
 	ToolCalls []ToolCall // non-empty when the LLM wants to call tools
 	Usage     *Usage     // token usage; nil if provider doesn't report it
+	// StopReason is why generation stopped. On StopMaxTokens, Content may
+	// be cut off and ToolCalls holds only the calls that arrived whole.
+	StopReason StopReason
 }
 
 // Provider is the interface all LLM backends implement.

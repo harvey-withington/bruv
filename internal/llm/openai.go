@@ -58,11 +58,6 @@ func (p *openaiProvider) ChatCompletion(ctx context.Context, req ChatRequest) (*
 		msgs = append(msgs, msg)
 	}
 
-	maxTokens := req.MaxTokens
-	if maxTokens == 0 {
-		maxTokens = 4096
-	}
-
 	// max_completion_tokens is the current name for the output cap. The
 	// gpt-5 family and the o-series reasoning models reject the legacy
 	// max_tokens outright (400 "Unsupported parameter"), while every
@@ -71,7 +66,7 @@ func (p *openaiProvider) ChatCompletion(ctx context.Context, req ChatRequest) (*
 	body := map[string]any{
 		"model":                 req.Model,
 		"messages":              msgs,
-		"max_completion_tokens": maxTokens,
+		"max_completion_tokens": maxTokensOrDefault(req.MaxTokens),
 	}
 
 	if len(req.Tools) > 0 {
@@ -138,6 +133,7 @@ func (p *openaiProvider) ChatCompletion(ctx context.Context, req ChatRequest) (*
 					} `json:"function"`
 				} `json:"tool_calls"`
 			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
 		Model string `json:"model"`
 		Usage struct {
@@ -155,8 +151,9 @@ func (p *openaiProvider) ChatCompletion(ctx context.Context, req ChatRequest) (*
 
 	choice := result.Choices[0]
 	cr := &ChatResponse{
-		Content: choice.Message.Content,
-		Model:   result.Model,
+		Content:    choice.Message.Content,
+		Model:      result.Model,
+		StopReason: openAIStopReason(choice.FinishReason),
 	}
 	if result.Usage.TotalTokens > 0 {
 		cr.Usage = &Usage{
@@ -186,4 +183,19 @@ func (p *openaiProvider) ChatCompletion(ctx context.Context, req ChatRequest) (*
 	}
 
 	return cr, nil
+}
+
+// openAIStopReason maps a chat-completions finish_reason onto StopReason.
+// Ollama's done_reason uses the same vocabulary ("stop", "length").
+func openAIStopReason(s string) StopReason {
+	switch s {
+	case "tool_calls", "function_call":
+		return StopToolUse
+	case "length":
+		return StopMaxTokens
+	case "content_filter":
+		return StopRefusal
+	default:
+		return StopEnd
+	}
 }

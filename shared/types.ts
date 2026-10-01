@@ -509,6 +509,30 @@ export type ChatMessage = {
   bookmarked?: boolean
   /** Which model answered and why (assistant replies and provider errors). */
   route?: RouteDecision
+  /** Why the turn ended unusually. On a system message it is the whole
+   *  message (content holds an English fallback); on a reply it annotates
+   *  the text. */
+  notice?: ChatNotice
+}
+
+// ChatNotice mirrors Go's model.ChatNotice; describeNotice (shared/chatNotice)
+// words it.
+export type ChatNoticeCode = 'budget_reached' | 'over_budget' | 'cut_off' | 'refused' | 'empty' | 'stopped'
+export type ChatNotice = {
+  code: ChatNoticeCode
+  budget?: number   // the turn's output budget, in tokens
+  used?: number     // output tokens the turn used
+}
+
+// ChatProgress is the chat:progress event payload: a running turn's output
+// so far. Exactly one of card_id / project_path ("brand/stream/project")
+// names the chat.
+export type ChatProgress = {
+  card_id?: string
+  project_path?: string
+  used: number          // output tokens so far; streamed text is estimated
+  budget: number
+  over_budget: boolean  // warn mode only
 }
 
 // ChatHistory mirrors Go's model.ChatFile — the unit returned by the
@@ -1027,7 +1051,13 @@ export type LLMConfig = {
   base_url: string
   ai_mode: string
   min_confidence: string
+  /** What happens when a chat turn's output passes the budget; '' = warn. */
+  chat_budget_mode?: ChatBudgetMode | ''
+  /** Output-token budget per chat turn; 0 / absent = the default (16,000). */
+  chat_budget_tokens?: number
 }
+
+export type ChatBudgetMode = 'warn' | 'hard' | 'off'
 
 // --- Backend capabilities ---
 export type BackendCapabilities = {
@@ -1564,6 +1594,10 @@ export interface BackendAdapter {
   // Project chat
   LoadProjectChatHistory(brandSlug: string, streamSlug: string, projectSlug: string): Promise<ChatHistory>
   SendProjectChatMessage(brandSlug: string, streamSlug: string, projectSlug: string, userMessage: string, contextLevel: string): Promise<ChatHistory>
+  /** Stop the turn in progress; its pending Send call then returns with a
+   *  "stopped" notice. Resolves false when no turn was running. */
+  StopChatMessage(cardID: string): Promise<boolean>
+  StopProjectChatMessage(brandSlug: string, streamSlug: string, projectSlug: string): Promise<boolean>
   ClearProjectChatHistory(brandSlug: string, streamSlug: string, projectSlug: string): Promise<void>
   ClearCardChatHistory(cardID: string): Promise<void>
   ToggleChatBookmark(cardID: string, messageID: string): Promise<ChatHistory>

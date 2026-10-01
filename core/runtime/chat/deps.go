@@ -43,15 +43,22 @@ type Deps interface {
 	// profile. Passed through so the runtime can Store/Delete during
 	// a chat turn.
 	LLMActors() *sync.Map
+
+	// Publish sends an event to every connected client (chat:progress
+	// while a turn runs).
+	Publish(topic string, payload any)
 }
 
 // Runtime is the chat entry point. Construct once per App / headless
 // binary and reuse for every SendCard / SendProject call.
 type Runtime struct {
 	deps Deps
+
+	turnsMu sync.Mutex
+	turns   map[string]*activeTurn // running turns by chat ID, for Stop
 }
 
 // New constructs a chat Runtime.
 func New(deps Deps) *Runtime {
-	return &Runtime{deps: deps}
+	return &Runtime{deps: deps, turns: map[string]*activeTurn{}}
 }

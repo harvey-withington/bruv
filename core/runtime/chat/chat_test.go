@@ -35,6 +35,7 @@ func (s *stubDeps) Tools() *tools.Dispatcher   { return nil }
 func (s *stubDeps) Prompts() *prompts.Builder  { return nil }
 func (s *stubDeps) MCPRegistry() *mcp.Registry { return nil }
 func (s *stubDeps) LLMActors() *sync.Map       { return &s.actors }
+func (s *stubDeps) Publish(string, any)        {}
 
 func TestRuntimeConstruction(t *testing.T) {
 	// The Runtime must instantiate without touching any concrete

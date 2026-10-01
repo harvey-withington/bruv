@@ -87,6 +87,19 @@ func TestConcludeRun(t *testing.T) {
 			t.Errorf("exhausted run: status %q summary %q", run.Status, run.Summary)
 		}
 	})
+
+	// A cut-off, refused or empty reply is not a finished run, even with
+	// text attached; the notice says why.
+	t.Run("a reply ending in a notice is a failure", func(t *testing.T) {
+		run := newRun("c")
+		run.StartedAt = started
+		cut := msg(model.RoleAssistant, "half a report", after)
+		cut.Notice = &model.ChatNotice{Code: model.ChatNoticeCutOff}
+		_ = concludeRun(&run, nil, nil, &model.ChatFile{Messages: []model.ChatMessage{cut}}, false, 25)
+		if run.Status != "failure" || run.Summary != "half a report" || run.Error != cut.Notice.Text() {
+			t.Errorf("got status %q summary %q error %q", run.Status, run.Summary, run.Error)
+		}
+	})
 }
 
 // A run that panics never reaches concludeRun; the deferred finalize

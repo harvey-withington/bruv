@@ -112,14 +112,43 @@ func TestOpenAIDefaultMaxTokens(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	body := s.lastBody(t)
-	if got := digNum(t, body, "max_completion_tokens"); got != 4096 {
-		t.Errorf("default max_completion_tokens = %v, want 4096", got)
+	if got := digNum(t, body, "max_completion_tokens"); got != DefaultMaxTokens {
+		t.Errorf("default max_completion_tokens = %v, want %d", got, DefaultMaxTokens)
 	}
 	// The legacy "max_tokens" key must never be sent: the gpt-5 family and
 	// the o-series reasoning models reject it with a 400, and
 	// max_completion_tokens is accepted by every model we target
 	// (verified live against gpt-5.5 and gpt-4o, 2026-09-06).
 	wantAbsent(t, body, "max_tokens")
+}
+
+// finish_reason is what tells the chat loop a reply was cut off or
+// filtered rather than finished.
+func TestOpenAIStopReason(t *testing.T) {
+	for _, c := range []struct {
+		finish string
+		want   StopReason
+	}{
+		{"stop", StopEnd},
+		{"length", StopMaxTokens},
+		{"content_filter", StopRefusal},
+		{"tool_calls", StopToolUse},
+	} {
+		t.Run(c.finish, func(t *testing.T) {
+			body := strings.Replace(fixture(t, "openai_text.json"), `"finish_reason": "stop"`, `"finish_reason": "`+c.finish+`"`, 1)
+			s := newStub(t, http.StatusOK, body, nil)
+			resp, err := NewOpenAI("k", s.URL).ChatCompletion(context.Background(), ChatRequest{
+				Model:    "gpt-4o",
+				Messages: []Message{{Role: "user", Content: "hi"}},
+			})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp.StopReason != c.want {
+				t.Errorf("StopReason = %q, want %q", resp.StopReason, c.want)
+			}
+		})
+	}
 }
 
 // A local OpenAI-compatible endpoint (LM Studio, llama.cpp, vLLM) needs no

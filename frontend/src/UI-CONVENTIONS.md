@@ -781,3 +781,29 @@ Desktop only — mobile has no MCP settings.
 | `footer` | `boolean` | `true` under a reply's text; omit for a notice-only system message. |
 
 Both surfaces: desktop `frontend/src/components/`, mobile `mobile/src/components/chat/` (same props). The budget setting itself is desktop-only, like the rest of the AI settings.
+
+---
+
+## 25. Load failures show the cause — `LoadErrorState` + `shared/errors.ts`
+
+**Contract (2026-10-16):** a panel whose data failed to load renders `LoadErrorState`, never a default form (Save would overwrite real data with blanks) and never a bare headline. Under the localized headline it shows the caught error's own text (`errorDetail(e)`), so a screenshot is enough to diagnose it — e.g. the RPC client's *"DescribeAgent is not supported by BRUV server dev-… — update the server to use this feature."* Keep the failure toast too; the inline state is what stays on screen.
+
+Hold the failure as `let loadError = $state<{ cause: unknown } | null>(null)` — set `{ cause: e }` in the `catch`, `null` on success — and pass `loadError.cause` as `error`.
+
+| Prop | Type | Notes |
+|---|---|---|
+| `message` | `string` | Localized headline (`agent.load_failed`, …). |
+| `error` | `unknown` | The caught value; its message is shown underneath (hidden when empty or equal to `message`). |
+| `onRetry` | `() => void` | Reloads. The button reads `agent.load_retry` (*Retry*). |
+| `icon` | `ComponentType<Icon>` (lucide) | Optional large icon above the text (the agent dashboard's `Timer`). |
+| `fill` | `boolean` | Take the parent's full height (full-page views). |
+
+Used by `AgentTab`, `AgentRunsTab`, `AgentDashboard`, `AgentsPage`. Desktop only for now; mobile has no agent views.
+
+### 25.1 Server older than this app — `ServerOutdatedBanner` + `shared/serverSkew.ts`
+
+Builds stamp their commit's time (`-X main.CommitDate=…`, set by `scripts/deploy-server.ps1` and the release workflow). The server serves it as `commit_date` on `GET /version`; the desktop binary reports it in `GetBuildInfo`. On launch `ServerOutdatedBanner` (mounted once in `App.svelte`) compares the two with `serverIsOlder` and, when the server's commit is older, shows a dismissible warning naming both versions — a stale deploy otherwise surfaces one feature at a time as unexplained load failures. `build_date` can't be used for this: an old checkout built today gets today's date.
+
+- Unstamped builds (`wails dev`, plain `go build`) and servers predating `commit_date` never warn — no false alarms.
+- Dismissing stores `<app version>|<server version>`, so it comes back only when either build changes.
+- Local connections run the same binary, so they never trip it. Mobile is served by the server it talks to, so it can't be newer than the server — desktop only by design.

@@ -35,16 +35,23 @@ var AppVersion = "v1.0a-dev"
 // Defaults to "development" for local dev builds.
 var BuildDate = "development"
 
+// CommitDate is the built commit's committer time (RFC 3339), stamped via
+// -ldflags "-X main.CommitDate=...". Unlike BuildDate it orders builds by
+// the code they contain, so a client can tell a server runs older code.
+// Empty for unstamped dev builds — those never claim to be older or newer.
+var CommitDate = ""
+
 // BugReportURL is the GitHub issues page used by the "Report a bug" action.
 const BugReportURL = "https://github.com/harvey-withington/bruv/issues/new"
 
 // BuildInfo is returned to the frontend for the About dialog.
 type BuildInfo struct {
-	Version   string `json:"version"`
-	BuildDate string `json:"build_date"`
-	OS        string `json:"os"`
-	Arch      string `json:"arch"`
-	GoVersion string `json:"go_version"`
+	Version    string `json:"version"`
+	BuildDate  string `json:"build_date"`
+	CommitDate string `json:"commit_date,omitempty"`
+	OS         string `json:"os"`
+	Arch       string `json:"arch"`
+	GoVersion  string `json:"go_version"`
 }
 
 // App is the Wails desktop shell. After the 2026-04-26 local-as-remote
@@ -326,6 +333,7 @@ func (a *App) startHTTPTransport() {
 			ConfigDir:     cfgDir,
 			Version:       AppVersion,
 			BuildDate:     BuildDate,
+			CommitDate:    CommitDate,
 			StaticAssets:  assets,
 			MobileAssets:  mobile.Assets(),
 			Repos:         supervisor.NewHTTPAdapter(a.sup),
@@ -550,11 +558,12 @@ func (a *App) Version() string { return AppVersion }
 
 func (a *App) GetBuildInfo() BuildInfo {
 	return BuildInfo{
-		Version:   AppVersion,
-		BuildDate: BuildDate,
-		OS:        runtime.GOOS,
-		Arch:      runtime.GOARCH,
-		GoVersion: runtime.Version(),
+		Version:    AppVersion,
+		BuildDate:  BuildDate,
+		CommitDate: CommitDate,
+		OS:         runtime.GOOS,
+		Arch:       runtime.GOARCH,
+		GoVersion:  runtime.Version(),
 	}
 }
 

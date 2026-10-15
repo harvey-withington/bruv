@@ -7,6 +7,7 @@
   import { Timer, Play, Square, Pause, CirclePlay, CircleCheck, CircleX, TriangleAlert, Clock, X } from 'lucide-svelte'
   import { onMount, onDestroy } from 'svelte'
   import { onEvent } from '../lib/events'
+  import LoadErrorState from './LoadErrorState.svelte'
 
   let { onClose, onOpenCard }: {
     onClose: () => void
@@ -15,7 +16,7 @@
 
   let agents = $state<AgentSummary[]>([])
   let loading = $state(true)
-  let loadError = $state(false)
+  let loadError = $state<{ cause: unknown } | null>(null)
   let schedulerPaused = $state(false)
 
   async function load() {
@@ -28,10 +29,10 @@
         return a.card_title.localeCompare(b.card_title)
       })
       schedulerPaused = status.paused
-      loadError = false
+      loadError = null
     } catch (e) {
       console.error('Failed to load agents:', e)
-      loadError = true
+      loadError = { cause: e }
       showToast(t('dashboard.load_failed'), 'error')
     } finally {
       loading = false
@@ -164,11 +165,7 @@
     {#if loading}
       <div class="dashboard-loading">{t('app.loading')}</div>
     {:else if loadError}
-      <div class="dashboard-empty dashboard-load-error">
-        <Timer size={32} strokeWidth={1} />
-        <p class="load-error-text">{t('dashboard.load_failed')}</p>
-        <button class="retry-btn" onclick={load}>{t('agent.load_retry')}</button>
-      </div>
+      <LoadErrorState message={t('dashboard.load_failed')} error={loadError.cause} onRetry={load} icon={Timer} />
     {:else if agents.length === 0}
       <div class="dashboard-empty">
         <Timer size={32} strokeWidth={1} />
@@ -350,24 +347,6 @@
     flex-direction: column;
     align-items: center;
     gap: 0.5rem;
-  }
-  .load-error-text {
-    color: var(--danger);
-    margin: 0;
-  }
-  .retry-btn {
-    padding: 0.3rem 0.75rem;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-muted);
-    border-radius: 5px;
-    color: var(--text-body);
-    font-size: 0.75rem;
-    cursor: pointer;
-    transition: border-color var(--duration-normal), color var(--duration-normal);
-  }
-  .retry-btn:hover {
-    border-color: var(--accent);
-    color: var(--accent);
   }
 
   /* Table */

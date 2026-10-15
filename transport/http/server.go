@@ -42,6 +42,10 @@ type Config struct {
 	ConfigDir string
 	Version   string
 	BuildDate string
+	// CommitDate is the built commit's time (RFC 3339; empty when
+	// unstamped). /version serves it so clients can detect a server
+	// running older code than they do.
+	CommitDate string
 	// StaticAssets optionally embeds the Svelte frontend so the server
 	// can serve the bundle at /app/*. Set from the main binary's own
 	// //go:embed directive. Leave nil in headless server builds that
@@ -305,11 +309,12 @@ func (s *Server) buildMux() *nethttp.ServeMux {
 	mux.HandleFunc("/version", func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{
-			"version":    s.cfg.Version,
-			"build_date": s.cfg.BuildDate,
-			"os":         runtime.GOOS,
-			"arch":       runtime.GOARCH,
-			"go_version": runtime.Version(),
+			"version":     s.cfg.Version,
+			"build_date":  s.cfg.BuildDate,
+			"commit_date": s.cfg.CommitDate,
+			"os":          runtime.GOOS,
+			"arch":        runtime.GOARCH,
+			"go_version":  runtime.Version(),
 		})
 	})
 

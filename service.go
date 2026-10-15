@@ -295,6 +295,7 @@ func (p *serverProgram) Start(s service.Service) error {
 			ConfigDir:    *configDir,
 			Version:      AppVersion,
 			BuildDate:    BuildDate,
+			CommitDate:   CommitDate,
 			Assets:       frontend.Assets(),
 			MobileAssets: mobile.Assets(),
 			Stop:         p.stop,

@@ -26,10 +26,11 @@ import (
 	"bruv/mobile"
 )
 
-// Version + BuildDate are stamped at build time via -ldflags.
+// Version, BuildDate and CommitDate are stamped at build time via -ldflags.
 var (
-	Version   = "dev"
-	BuildDate = "unknown"
+	Version    = "dev"
+	BuildDate  = "unknown"
+	CommitDate = ""
 )
 
 func main() {
@@ -56,6 +57,7 @@ func main() {
 		ConfigDir:    *configDir,
 		Version:      Version,
 		BuildDate:    BuildDate,
+		CommitDate:   CommitDate,
 		Assets:       frontend.Assets(),
 		MobileAssets: mobile.Assets(),
 	}); err != nil {

@@ -1084,6 +1084,8 @@ export type EventCallback = (event: BackendEvent) => void
 export interface BuildInfo {
   version: string
   build_date: string
+  /** Built commit's time (RFC 3339); absent/empty on unstamped dev builds. */
+  commit_date?: string
   os: string
   arch: string
   go_version: string

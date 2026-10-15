@@ -7,6 +7,7 @@
   import { Timer, Play, Square, Pause, CirclePlay, CircleCheck, CircleX, TriangleAlert, Clock } from 'lucide-svelte'
   import { onMount, onDestroy } from 'svelte'
   import { onEvent } from '../lib/events'
+  import LoadErrorState from './LoadErrorState.svelte'
 
   let { onCardClick }: { onCardClick: (cardId: string) => void } = $props()
 
@@ -15,7 +16,7 @@
   let analytics = $state<AgentAnalytics>({ total_agents: 0, enabled_agents: 0, total_runs: 0, success_runs: 0, failed_runs: 0, total_tokens: 0, total_cost: 0, cost_today: 0, cost_7d: 0, cost_by_model: {} })
   let schedulerPaused = $state(false)
   let loading = $state(true)
-  let loadError = $state(false)
+  let loadError = $state<{ cause: unknown } | null>(null)
   let activeSection = $state<'overview' | 'history'>('overview')
 
   // Splitter: top pane (overview table) vs bottom pane (analytics)
@@ -71,10 +72,10 @@
       runs = allRuns || []
       analytics = stats
       schedulerPaused = status.paused
-      loadError = false
+      loadError = null
     } catch (e) {
       console.error('Failed to load agents page:', e)
-      loadError = true
+      loadError = { cause: e }
       showToast(t('agents_page.load_failed'), 'error')
     } finally {
       loading = false
@@ -212,10 +213,7 @@
       <span>{t('app.loading')}</span>
     </div>
   {:else if loadError}
-    <div class="page-loading page-load-error">
-      <span class="load-error-text">{t('agents_page.load_failed')}</span>
-      <button class="retry-btn" onclick={load}>{t('agent.load_retry')}</button>
-    </div>
+    <LoadErrorState message={t('agents_page.load_failed')} error={loadError.cause} onRetry={load} fill />
   {:else}
     <!-- Stats bar -->
     <div class="stats-bar">
@@ -503,26 +501,6 @@
     gap: 0.5rem;
     height: 100%;
     color: var(--text-muted);
-  }
-  .page-load-error {
-    flex-direction: column;
-  }
-  .load-error-text {
-    color: var(--danger);
-  }
-  .retry-btn {
-    padding: 0.3rem 0.75rem;
-    background: var(--bg-surface);
-    border: 1px solid var(--border-muted);
-    border-radius: 5px;
-    color: var(--text-body);
-    font-size: 0.75rem;
-    cursor: pointer;
-    transition: border-color 0.15s, color 0.15s;
-  }
-  .retry-btn:hover {
-    border-color: var(--accent);
-    color: var(--accent);
   }
 
   /* Stats bar */

@@ -60,6 +60,7 @@ func buildTestServer(t *testing.T, customise ...func(*RepoTarget)) (*Server, str
 		ConfigDir:     cfgDir,
 		Version:       "test",
 		BuildDate:     "test",
+		CommitDate:    "2026-10-16T05:00:00+07:00",
 		Repos:         backend,
 		MachineTarget: &mockApp{},
 	})
@@ -103,6 +104,10 @@ func TestVersionUnauthenticated(t *testing.T) {
 	_ = json.NewDecoder(resp.Body).Decode(&body)
 	if body["version"] != "test" {
 		t.Errorf("version = %q, want 'test'", body["version"])
+	}
+	// Clients compare commit_date to detect a server running older code.
+	if body["commit_date"] != "2026-10-16T05:00:00+07:00" {
+		t.Errorf("commit_date = %q, want the configured commit date", body["commit_date"])
 	}
 }
 

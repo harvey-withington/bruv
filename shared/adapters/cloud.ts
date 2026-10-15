@@ -20,6 +20,7 @@ import type {
   WailsWindow,
 } from '../types'
 import { KNOWN_TOPICS } from './topics'
+import { fetchServerBuild } from '../serverSkew'
 
 // --- Bootstrap: get the HTTP transport addr + token ---
 
@@ -109,7 +110,7 @@ export function clearEnrolment(): void {
 // httpBase builds the scheme-aware base URL for the backend. Honours
 // the scheme hint from resolveTransport so Mode B2 against a
 // tailnet-TLS-fronted server uses https without hardcoding.
-function httpBase(info: TransportInfo): string {
+export function httpBase(info: TransportInfo): string {
   const scheme = info.scheme === 'https' ? 'https' : 'http'
   return `${scheme}://${info.addr}`
 }
@@ -219,10 +220,7 @@ class RPCClient {
   // actionable — see the -32601 branch in call().
   private serverVersion(): Promise<string> {
     if (!this.versionPromise) {
-      this.versionPromise = fetch(`${this.base}/version`)
-        .then(r => (r.ok ? r.json() : null))
-        .then(v => (v && typeof v.version === 'string' ? v.version : ''))
-        .catch(() => '')
+      this.versionPromise = fetchServerBuild(this.base).then(b => b?.version ?? '')
     }
     return this.versionPromise
   }

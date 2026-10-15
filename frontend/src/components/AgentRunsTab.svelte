@@ -9,11 +9,12 @@
   import { onMount, onDestroy } from 'svelte'
   import { onEvent } from '../lib/events'
   import { board } from '../lib/store.svelte'
+  import LoadErrorState from './LoadErrorState.svelte'
 
   let { cardId }: { cardId: string } = $props()
 
   let loading = $state(true)
-  let loadError = $state(false)
+  let loadError = $state<{ cause: unknown } | null>(null)
   let runs = $state<AgentRun[]>([])
   let expandedRun = $state<string | null>(null)
   // The in-progress run isn't in the history until it finishes; show it
@@ -27,10 +28,10 @@
       const af = await GetAgentConfig(cardId)
       runs = af.runs || []
       runStartedAt = af.config.run_started_at ?? null
-      loadError = false
+      loadError = null
     } catch (e) {
       console.error('Failed to load agent runs:', e)
-      loadError = true
+      loadError = { cause: e }
       showToast(t('agent.runs_load_failed'), 'error')
     } finally {
       loading = false
@@ -115,10 +116,7 @@
     <span>{t('app.loading')}</span>
   </div>
 {:else if loadError}
-  <div class="runs-loading runs-load-error">
-    <span class="load-error-text">{t('agent.runs_load_failed')}</span>
-    <button class="retry-btn" onclick={() => loadRuns()}>{t('agent.load_retry')}</button>
-  </div>
+  <LoadErrorState message={t('agent.runs_load_failed')} error={loadError.cause} onRetry={() => loadRuns()} />
 {:else}
   <div class="runs-tab">
     {#if running}
@@ -206,19 +204,6 @@
     display: flex; align-items: center; gap: 0.5rem;
     padding: 2rem; color: var(--text-muted); justify-content: center;
   }
-  .runs-load-error { flex-direction: column; }
-  .load-error-text { color: var(--danger); }
-  .retry-btn {
-    padding: 0.3rem 0.75rem;
-    background: var(--bg-surface);
-    border: 1px solid var(--border-muted);
-    border-radius: 5px;
-    color: var(--text-body);
-    font-size: 0.75rem;
-    cursor: pointer;
-    transition: border-color var(--duration-normal), color var(--duration-normal);
-  }
-  .retry-btn:hover { border-color: var(--accent); color: var(--accent); }
   .runs-tab {
     padding: 1rem 1.25rem;
     display: flex; flex-direction: column; gap: 0.5rem;

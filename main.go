@@ -152,6 +152,7 @@ func runServerMode() {
 		ConfigDir:    *configDir,
 		Version:      AppVersion,
 		BuildDate:    BuildDate,
+		CommitDate:   CommitDate,
 		Assets:       frontend.Assets(),
 		MobileAssets: mobile.Assets(),
 	}); err != nil {

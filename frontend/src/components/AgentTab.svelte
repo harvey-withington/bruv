@@ -11,6 +11,7 @@
   import { Timer, Play, Square, Download, Trash2 } from 'lucide-svelte'
   import ModelChoiceSelect from './ModelChoiceSelect.svelte'
   import AgentToolPicker from './AgentToolPicker.svelte'
+  import LoadErrorState from './LoadErrorState.svelte'
   import { llmRegistry, loadLLMRegistry } from '../lib/llmRegistry'
   import { effectiveRef, refFromLegacyPair, refLabel } from '@shared/modelRefs'
   import { onMount, onDestroy } from 'svelte'
@@ -23,7 +24,8 @@
   } = $props()
 
   let loading = $state(true)
-  let loadError = $state(false)
+  // Non-null while the last load failed; `cause` feeds LoadErrorState.
+  let loadError = $state<{ cause: unknown } | null>(null)
   let llmConfigured = $state(true)
   let saving = $state(false)
   let triggering = $state(false)
@@ -173,14 +175,14 @@
       lastRunAt = af.config.last_run_at ?? null
       runStartedAt = af.config.run_started_at ?? null
       retryCount = af.config.retry_count || 0
-      loadError = false
+      loadError = null
       dirty = false
     } catch (e) {
       if (seq !== configLoadSeq) return
       // Render an explicit error state instead of a default form — a
       // transient load failure followed by Save used to overwrite the
       // real on-disk config with blank defaults.
-      loadError = true
+      loadError = { cause: e }
       console.error('Failed to load agent config:', e)
       showToast(t('agent.load_failed'), 'error')
     } finally {
@@ -439,10 +441,7 @@
 {:else if loadError}
   <!-- Explicit error state: rendering the default form here would let
        Save overwrite the real on-disk config with blanks. -->
-  <div class="agent-loading agent-load-error">
-    <span class="load-error-text">{t('agent.load_failed')}</span>
-    <button class="retry-btn" onclick={() => loadConfig()}>{t('agent.load_retry')}</button>
-  </div>
+  <LoadErrorState message={t('agent.load_failed')} error={loadError.cause} onRetry={() => loadConfig()} />
 {:else}
   <div class="agent-tab">
     {#if !llmConfigured}
@@ -710,26 +709,6 @@
     padding: 2rem;
     color: var(--text-muted);
     justify-content: center;
-  }
-  .agent-load-error {
-    flex-direction: column;
-  }
-  .load-error-text {
-    color: var(--danger);
-  }
-  .retry-btn {
-    padding: 0.3rem 0.75rem;
-    background: var(--bg-surface);
-    border: 1px solid var(--border-muted);
-    border-radius: 5px;
-    color: var(--text-body);
-    font-size: 0.75rem;
-    cursor: pointer;
-    transition: border-color var(--duration-normal), color var(--duration-normal);
-  }
-  .retry-btn:hover {
-    border-color: var(--accent);
-    color: var(--accent);
   }
 
   .agent-tab {

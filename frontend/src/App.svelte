@@ -29,6 +29,7 @@
   import RepoSelector from './components/RepoSelector.svelte'
   import RemoteUnreachableScreen from './components/RemoteUnreachableScreen.svelte'
   import ConnectionOverlay from './components/ConnectionOverlay.svelte'
+  import ServerOutdatedBanner from './components/ServerOutdatedBanner.svelte'
   import { loadConnections } from './lib/connections.svelte'
   import { probeBackend } from './lib/repos.svelte'
   import { installResilience } from './lib/connectivity.svelte'
@@ -553,6 +554,7 @@
 <ConfirmDialog />
 <OptionsEditorDialog />
 <ConnectionOverlay />
+<ServerOutdatedBanner />
 
 <style>
   .app-shell {

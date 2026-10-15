@@ -90,12 +90,16 @@ if ($SkipBuild) {
   try { $sha = (git -C $repoRoot rev-parse --short HEAD).Trim() } catch { }
   $version   = if ($sha) { "dev-$sha" } else { "dev" }
   $buildDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+  # The commit's own time, not the build's: clients compare it to spot a
+  # server running older code (a stale checkout deploys a fresh build_date).
+  $commitDate = ''
+  try { $commitDate = (git -C $repoRoot log -1 --format=%cI).Trim() } catch { }
   # -nsis makes wails emit the installer alongside the binary. wails spawns
   # makensis as a native process, so its directory must be on the WINDOWS
   # PATH; a missing NSIS makes wails skip the installer silently (the
   # release workflow learned this the hard way), hence the explicit check.
   $buildArgs = @('build', '-platform', 'windows/amd64', '-trimpath',
-    '-ldflags', "-X main.AppVersion=$version -X main.BuildDate=$buildDate")
+    '-ldflags', "-X main.AppVersion=$version -X main.BuildDate=$buildDate -X main.CommitDate=$commitDate")
   if (-not $SkipInstaller) {
     $makensis = Get-Command makensis -ErrorAction SilentlyContinue
     if (-not $makensis) {

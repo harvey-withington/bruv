@@ -51,6 +51,9 @@ type Options struct {
 	ConfigDir string // default <user-config>/bruv/
 	Version   string // build-stamped, defaults to "dev"
 	BuildDate string // build-stamped, defaults to "unknown"
+	// CommitDate is the built commit's time (RFC 3339), build-stamped;
+	// empty when unstamped. Served on /version for client skew checks.
+	CommitDate string
 	// Assets is the embedded Svelte bundle to serve at /app/*.
 	// Pass frontend.Assets() at the call site so this package
 	// stays free of the frontend embed (which would otherwise
@@ -181,6 +184,7 @@ func Run(opts Options) error {
 		ConfigDir:     opts.ConfigDir,
 		Version:       opts.Version,
 		BuildDate:     opts.BuildDate,
+		CommitDate:    opts.CommitDate,
 		StaticAssets:  opts.Assets,
 		MobileAssets:  opts.MobileAssets,
 		Repos:         supervisor.NewHTTPAdapter(sup),

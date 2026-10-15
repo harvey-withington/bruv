@@ -138,15 +138,17 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.value }}
         run: |
-          # Stamp version + build date into the binary. See app.go for the
-          # var declarations these -X flags override. -nsis produces an
-          # installer alongside the raw .exe; -clean wipes build/bin first.
+          # Stamp version, build date and commit date into the binary. See
+          # app.go for the var declarations these -X flags override. -nsis
+          # produces an installer alongside the raw .exe; -clean wipes
+          # build/bin first.
           BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          COMMIT_DATE=$(git log -1 --format=%cI)
           wails build \
             -nsis \
             -clean \
             -trimpath \
-            -ldflags "-X main.AppVersion=${VERSION} -X main.BuildDate=${BUILD_DATE}"
+            -ldflags "-X main.AppVersion=${VERSION} -X main.BuildDate=${BUILD_DATE} -X main.CommitDate=${COMMIT_DATE}"
 
       # Guard against the installer silently going missing (wails does not
       # fail the build when NSIS generation is skipped/unavailable). The

@@ -403,16 +403,24 @@
   /** Resolves true once the description is saved (or wasn't being edited). */
   async function saveDescription(): Promise<boolean> {
     if (!editingDescription) return true
+    const result = await persistDescription(descriptionDraft)
+    if (result === 'saved') editingDescription = false
+    return result !== 'failed'
+  }
+
+  /** Writes the description (editor save and rendered checkbox ticks).
+   *  'failed' is already toasted; 'switched' means the card changed
+   *  while the save was in flight, so the result was dropped. */
+  async function persistDescription(text: string): Promise<'saved' | 'switched' | 'failed'> {
     try {
       // Same card-switch guard as saveTitle.
       const savedFor = cardId
-      const updated = await tracked(UpdateCardDescription(cardId, descriptionDraft)) as Card
-      if (savedFor !== cardId) return true
+      const updated = await tracked(UpdateCardDescription(cardId, text)) as Card
+      if (savedFor !== cardId) return 'switched'
       card = updated
-      editingDescription = false
-    } catch (e) { showToast(t('error.save_failed'), 'error'); return false }
+    } catch (e) { showToast(t('error.save_failed'), 'error'); return 'failed' }
     onUpdated?.()
-    return true
+    return 'saved'
   }
 
   function cancelDescription() {
@@ -730,6 +738,7 @@
           bind:descTextareaEl
           onKeydown={handleDescKeydown}
           onBlur={handleDescBlur}
+          onToggleTask={async (next) => { if (await persistDescription(next) === 'saved') descriptionDraft = next }}
         />
 
         <!-- Custom blocks region: toolbar + DnD list + block mention picker -->

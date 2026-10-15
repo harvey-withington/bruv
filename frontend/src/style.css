@@ -17,6 +17,8 @@ input[type="checkbox"] {
     --bg-overlay: rgba(0,0,0,0.5);
     --bg-subtle: rgba(255,255,255,0.05);
     --bg-subtle-hover: rgba(255,255,255,0.1);
+    /* Stronger than subtle: row / item hover in lists, pickers and dialogs. */
+    --bg-hover: rgba(255,255,255,0.15);
 
     /* Borders */
     --border: #3f3f46;
@@ -108,6 +110,7 @@ input[type="checkbox"] {
     --bg-overlay: rgba(0,0,0,0.3);
     --bg-subtle: rgba(0,0,0,0.04);
     --bg-subtle-hover: rgba(0,0,0,0.08);
+    --bg-hover: rgba(0,0,0,0.12);
 
     /* Borders */
     --border: #dfe1e6;
@@ -305,6 +308,11 @@ button.press-still:not(:disabled):active,
 
 .markdown-content ul, .markdown-content ol { margin: 0.25em 0; padding-left: 1.5em; }
 .markdown-content li { margin: 0.15em 0; }
+/* GFM task lists: the checkbox replaces the bullet; tickable where the
+   surface passes { tasks: true } to renderMarkdown. */
+.markdown-content li:has(> input[type="checkbox"], > p:first-child > input[type="checkbox"]) { list-style: none; margin-left: -1.25em; }
+.markdown-content input[type="checkbox"] { margin: 0 0.35em 0 0; vertical-align: -0.1em; accent-color: var(--accent); }
+.markdown-content input.md-task { cursor: pointer; }
 
 .markdown-content blockquote {
     margin: 0.5em 0;
@@ -683,4 +691,126 @@ button.press-still:not(:disabled):active,
     body.printing-document .doc-editor .body > :not(.preview-host) {
         display: none !important;
     }
+}
+
+/*
+ * .settings-form: the field vocabulary of the Settings dialog — .field /
+ * .toggle-field / .field-label / .field-hint / .field-section-label /
+ * .field-row / .field-value / .toggle / .checkbox-group / .range-row /
+ * .key-row. Global for the same reason as .btn (UI-CONVENTIONS §4.5): the
+ * tabs are child components (SettingsGeneralTab, SettingsAITab, …), so
+ * dialog-scoped rules would leave them unstyled. Native inputs are only
+ * styled inside those field containers, never components that bring
+ * their own (the AI tab's provider and router editors).
+ */
+.settings-form .field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+.settings-form .toggle-field {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+}
+.settings-form .field-label {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+.settings-form .field-section-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-top: 0.5rem;
+    padding-bottom: 0.25rem;
+    border-bottom: 1px solid var(--border-muted);
+}
+.settings-form .field-hint {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+.settings-form .field-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+}
+.settings-form .field-row > .field-label {
+    min-width: 120px;
+    flex-shrink: 0;
+}
+.settings-form .field-value {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+/* A row with a single action button: size to content, push right. */
+.settings-form .field-value--action {
+    flex-direction: row;
+    justify-content: flex-end;
+    align-items: center;
+}
+.settings-form :is(.field, .field-value) :is(select, textarea, input[type="text"], input[type="password"], input[type="number"], input[type="email"], input[type="url"]) {
+    padding: 0.45rem 0.6rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    font-family: inherit;
+    outline: none;
+    box-sizing: border-box;
+}
+.settings-form :is(.field, .field-value) :is(select, textarea, input):focus {
+    border-color: var(--accent);
+}
+.settings-form :is(.field, .field-value) :is(select, textarea, input):disabled {
+    opacity: 0.5;
+}
+.settings-form :is(.field, .field-value) select { cursor: pointer; }
+.settings-form :is(.field, .field-value) textarea { resize: vertical; }
+.settings-form :is(.field, .field-value, .toggle) input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+.settings-form .field-input-short,
+.settings-form .number-input { max-width: 6.5rem; }
+.settings-form .range-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+.settings-form .range-row input[type="range"] {
+    flex: 1;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+.settings-form .range-value {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    min-width: 48px;
+    text-align: right;
+}
+.settings-form .key-row {
+    display: flex;
+    gap: 4px;
+}
+.settings-form .key-row input { flex: 1; }
+.settings-form .toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+.settings-form .checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
 }

@@ -47,7 +47,7 @@
         type="number"
         min="1"
         max="10000"
-        class="field-input field-input-short"
+        class="field-input-short"
         value={prefs.videoBudgetMB ?? 50}
         oninput={(e) => (prefs.videoBudgetMB = Number(e.currentTarget.value))}
       />
@@ -97,7 +97,7 @@
         type="number"
         min="0"
         max="10000"
-        class="field-input field-input-short"
+        class="field-input-short"
         value={prefs.triggers.videoOverMB ?? 0}
         oninput={(e) => (prefs.triggers.videoOverMB = Number(e.currentTarget.value))}
       />
@@ -112,7 +112,7 @@
         type="number"
         min="0"
         max="1000"
-        class="field-input field-input-short"
+        class="field-input-short"
         value={prefs.triggers.galleryOverCount ?? 0}
         oninput={(e) => (prefs.triggers.galleryOverCount = Number(e.currentTarget.value))}
       />
@@ -132,99 +132,16 @@
 {/if}
 
 <style>
+  /* Field styles are the dialog's global .settings-form vocabulary
+     (style.css); only this section's own pieces live here. */
   .intro {
     font-size: 0.8rem;
     color: var(--text-muted);
-    margin: 0 0 0.75rem;
+    margin: 0;
     line-height: 1.45;
   }
 
   .triggers-hint {
     margin-top: -0.25rem;
-  }
-
-  .field-section-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-muted);
-    margin-top: 0.5rem;
-    padding-bottom: 0.25rem;
-    border-bottom: 1px solid var(--border-muted);
-  }
-
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-  }
-
-  .toggle-field {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .field-row {
-    display: flex;
-    align-items: baseline;
-    gap: 0.75rem;
-    margin-top: 0.6rem;
-  }
-  .field-row > .field-label {
-    min-width: 120px;
-    flex-shrink: 0;
-  }
-
-  .field-label {
-    font-size: 0.85rem;
-    font-weight: 500;
-    color: var(--text-secondary);
-  }
-
-  .field-value {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-
-  .field-hint {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-  }
-
-  .field-input,
-  select {
-    padding: 0.45rem 0.6rem;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    background: var(--bg-elevated);
-    color: var(--text-primary);
-    font-size: 0.85rem;
-    font-family: inherit;
-    outline: none;
-    box-sizing: border-box;
-  }
-  .field-input:focus,
-  select:focus {
-    border-color: var(--accent);
-  }
-
-  select {
-    cursor: pointer;
-    width: 100%;
-  }
-
-  .field-input-short {
-    max-width: 100px;
-  }
-
-  input[type='checkbox'] {
-    accent-color: var(--accent);
-    width: 16px;
-    height: 16px;
-    cursor: pointer;
   }
 </style>

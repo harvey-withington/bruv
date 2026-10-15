@@ -15,6 +15,7 @@
    */
   import { X, Trash2, GripVertical, Pencil, ChevronDown, ChevronRight, Maximize2, Minimize2, ListTree, ChevronsUp } from 'lucide-svelte'
   import { renderMarkdown } from '@shared/markdown'
+  import { taskToggleFromClick } from '@shared/markdownTasks'
   import { t } from '../lib/i18n.svelte'
   import { focusOnMount, inlineEdit, clickOutside } from '../lib/actions'
   import { keyLayer } from '../lib/keyLayer'
@@ -130,6 +131,20 @@
   let promoteOpen = $state(false)
   const promoteableTargets = $derived(onPromote ? promoteTargets(block.type) : [])
 
+  // Click on a rendered text block: tick a "- [ ]" checkbox in place, or
+  // open the editor. The draft follows whatever value the save settled on.
+  async function handleTextClick(e: MouseEvent) {
+    const target = e.target as HTMLElement
+    if (target.closest('a') || target.closest('.text-expand-btn')) return
+    const next = taskToggleFromClick(e, String(block.value ?? ''))
+    if (next !== null) {
+      await commitBlock(block, next)
+      blockDrafts[block.id] = String(block.value ?? '')
+      return
+    }
+    if (target.closest('input')) return // refused toggle — don't open the editor either
+    editingBlockId = block.id
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -239,12 +254,12 @@
                 bind:this={textBlockEls[block.id]}
                 role="button"
                 tabindex={0}
-                onclick={(e) => { if ((e.target as HTMLElement).closest('a') || (e.target as HTMLElement).closest('.text-expand-btn')) return; editingBlockId = block.id }}
+                onclick={handleTextClick}
                 onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editingBlockId = block.id } }}
                 title={t('tooltip.edit_description')}
               >
                 {#if block.value}
-                  <div class="markdown-content">{@html renderMarkdown(String(block.value))}</div>
+                  <div class="markdown-content">{@html renderMarkdown(String(block.value), { tasks: true })}</div>
                 {:else}
                   <p class="placeholder">{t('block.text_placeholder')}</p>
                 {/if}

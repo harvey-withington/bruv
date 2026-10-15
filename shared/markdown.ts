@@ -1,4 +1,5 @@
 import { Marked, type RendererObject } from 'marked'
+import { TASK_CLASS } from './markdownTasks'
 
 const linkRenderer: RendererObject = {
   link({ href, title, tokens }) {
@@ -35,7 +36,18 @@ const linkRenderer: RendererObject = {
   },
 }
 
+// Enabled task checkboxes for surfaces that can save the toggle back
+// (see markdownTasks.ts). Mouse/tap only — the surrounding display is the
+// keyboard target and Space there means "edit".
+const taskRenderer: RendererObject = {
+  ...linkRenderer,
+  checkbox({ checked }) {
+    return `<input type="checkbox" class="${TASK_CLASS}" tabindex="-1"${checked ? ' checked' : ''}> `
+  },
+}
+
 const blockMarked = new Marked({ renderer: linkRenderer, gfm: true, breaks: true })
+const taskMarked = new Marked({ renderer: taskRenderer, gfm: true, breaks: true })
 const inlineMarked = new Marked({ renderer: linkRenderer, gfm: true, breaks: false })
 
 // Normalize "[text](url, _target)" → "[text](url,_target)" so marked's
@@ -44,10 +56,11 @@ function preprocess(text: string): string {
   return text.replace(/\]\(([^)]+?),\s+(_\w+)\)/g, ']($1,$2)')
 }
 
-/** Render full block markdown (paragraphs, lists, headings, code blocks, etc.) */
-export function renderMarkdown(text: string): string {
+/** Render full block markdown (paragraphs, lists, headings, code blocks, etc.).
+ *  `tasks` makes "- [ ]" checkboxes clickable; pair it with taskToggleFromClick. */
+export function renderMarkdown(text: string, opts: { tasks?: boolean } = {}): string {
   if (!text) return ''
-  return blockMarked.parse(preprocess(text)) as string
+  return (opts.tasks ? taskMarked : blockMarked).parse(preprocess(text)) as string
 }
 
 /** Render inline-only markdown (bold, italic, strikethrough, code, links — no block elements) */

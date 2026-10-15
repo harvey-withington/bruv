@@ -1,368 +1,57 @@
 <script lang="ts">
-  import { X, Eye, EyeOff, Search, Bell } from 'lucide-svelte'
+  // Settings dialog shell: header with search, tab bar, the active tab,
+  // and Save. The working copy, per-section load/save and Save's side
+  // effects live in lib/settingsForm.svelte.ts; each tab is its own
+  // component; the field styles are global (.settings-form in style.css).
+  import { X, Search } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
-  import { GetPreferences, SetPreferences, GetUIPreferences, SetUIPreferences, GetLLMConfig, SetLLMConfig, GetNotifyConfig, SetNotifyConfig, GetLLMAccounts, SaveLLMAccounts, GetLLMRouting, SaveLLMRouting, TestSystemNotification, GetDueDateSettings, SaveDueDateSettings, GetCapturePrefs, SetCapturePrefs } from '@shared/api'
-  import LLMProvidersManager from './LLMProvidersManager.svelte'
-  import TaskRoutingTable from './TaskRoutingTable.svelte'
-  import LLMRoutersManager from './LLMRoutersManager.svelte'
-  import { loadLLMRegistry } from '../lib/llmRegistry'
-  import { normalizeRouting } from '@shared/modelRefs'
-  import SlideTemplatePrefsSection from './SlideTemplatePrefsSection.svelte'
-  import CaptureSettingsSection from './CaptureSettingsSection.svelte'
-  import SettingsSectionGate from './SettingsSectionGate.svelte'
-  import { SettingsSections } from '../lib/settingsSections.svelte'
-  import type { LLMAccount, LLMRouting, CapturePrefs, ChatBudgetMode } from '@shared/types'
-  import { CHAT_BUDGET_DEFAULT, CHAT_BUDGET_MIN, CHAT_BUDGET_MAX, clampChatBudget } from '@shared/chatTurn.svelte'
-  import { theme, setTheme } from '../lib/theme.svelte'
-  import { setLocale, availableLocales } from '../lib/i18n.svelte'
-  import { nav, prefs as prefsStore } from '../lib/store.svelte'
   import { draggable } from '../lib/draggable'
   import { fade } from 'svelte/transition'
   import { focusTrap } from '../lib/actions'
-  type TabId = 'general' | 'ai' | 'notifications' | 'templates' | 'capture'
+  import { SettingsForm } from '../lib/settingsForm.svelte'
+  import { SETTINGS_TABS, CAPTURE_KEYS, matchSettings, tabsMatching, type SettingsTabId } from '../lib/settingsSearch'
+  import SettingsSectionGate from './SettingsSectionGate.svelte'
+  import SettingsGeneralTab from './SettingsGeneralTab.svelte'
+  import SettingsAITab from './SettingsAITab.svelte'
+  import SettingsNotificationsTab from './SettingsNotificationsTab.svelte'
+  import SlideTemplatePrefsSection from './SlideTemplatePrefsSection.svelte'
+  import CaptureSettingsSection from './CaptureSettingsSection.svelte'
 
-  let { onClose, initialTab }: { onClose: () => void; initialTab?: TabId } = $props()
+  let { onClose, initialTab }: { onClose: () => void; initialTab?: SettingsTabId } = $props()
 
   // initialTab is intentionally read once at mount time — the dialog is
   // re-created on every open, so reactive capture would be wrong here.
   // svelte-ignore state_referenced_locally
-  let activeTab = $state<TabId>(initialTab ?? 'general')
+  let activeTab = $state<SettingsTabId>(initialTab ?? 'general')
   let searchQuery = $state('')
   let searchInputEl = $state<HTMLInputElement | null>(null)
 
-  // --- General prefs ---
-  let prefs = $state({
-    reopen_last_repo: false,
-    theme: 'dark',
-    locale: 'en',
-    confirm_before_delete: true,
-    sidebar_width: 260,
-    type_badge_display: 'color' as 'text' | 'color' | 'hidden',
-    default_category_name: t('prefs.default_category_placeholder'),
-    inbox_recent_cards_limit: 21,
-    inbox_activity_limit: 25,
-    sidebar_collapse_default: false,
-    local_server_port: 0,
-  })
-
-  // --- AI / LLM ---
-  let llm = $state({
-    context: '',
-    provider: '',
-    model: '',
-    api_key: '',
-    base_url: '',
-    ai_mode: 'edit',
-    min_confidence: '',
-    chat_budget_mode: 'warn' as ChatBudgetMode,
-    chat_budget_tokens: CHAT_BUDGET_DEFAULT,
-  })
-  let notifCfg = $state({
-    system_enabled: true, // retained for backward-compat with NotifyConfig shape; no longer consulted by the backend
-    smtp_host: '',
-    smtp_port: 587,
-    smtp_username: '',
-    smtp_password: '',
-    smtp_from_addr: '',
-    smtp_to_addr: '',
-    smtp_tls: true,
-    webhook_url: '',
-    webhook_auth_header: '',
-  })
-  let llmAccounts = $state<LLMAccount[]>([])
-  let llmRouting = $state<LLMRouting>({ models: [], routers: [], default: '', tasks: {} })
-  let showSmtpPassword = $state(false)
-  let testingSystem = $state(false)
-
-  // --- Due-date notifications ---
-  let dueDateEnabled = $state(true)
-  let dueDateThresholds = $state<Record<string, boolean>>({
-    '24h': true,
-    '1h': true,
-    '0': true,
-    'overdue': false,
-  })
-  let dueDateChannels = $state<Record<string, boolean>>({
-    system: true,
-    email: false,
-    webhook: false,
-  })
-
-  // --- Capture defaults (per-vault, mirrors internal/repo/capture_prefs.go
-  // DefaultCapturePrefs — these fallbacks only matter until the first
-  // GetCapturePrefs response arrives, since the server always fills blanks) ---
-  let capturePrefs = $state<CapturePrefs>({
-    videoMode: 'fit',
-    videoBudgetMB: 50,
-    imageMode: 'all',
-    askMode: 'triggers',
-    triggers: {
-      videoOverMB: 50,
-      galleryOverCount: 8,
-      unsupportedUrl: true,
-      blocked: true,
-      pinMayReject: true,
-    },
-  })
-
-  // Each section loads and saves on its own (lib/settingsSections): a
-  // section that failed to load shows an error with Try again and is
-  // never saved, so a flaky RPC can't overwrite real settings with the
-  // defaults above. Server-zone prefs come over RPC; per-device prefs
-  // (theme, locale, layout) come from the local shell / localStorage.
-  type SectionId = 'prefs' | 'ui' | 'llmConfig' | 'llmProviders' | 'notify' | 'dueDate' | 'capture'
-
-  const sections = new SettingsSections<SectionId>({
-    prefs: {
-      load: async () => {
-        const p = await GetPreferences()
-        prefs.default_category_name = p?.default_category_name || t('prefs.default_category_placeholder')
-      },
-      save: () => SetPreferences({ default_category_name: prefs.default_category_name }),
-    },
-    ui: {
-      load: async () => {
-        const ui = await GetUIPreferences()
-        if (!ui) return
-        prefs.reopen_last_repo = ui.reopen_last_repo ?? false
-        prefs.theme = ui.theme || 'dark'
-        prefs.locale = ui.locale || 'en'
-        prefs.confirm_before_delete = ui.confirm_before_delete ?? true
-        prefs.sidebar_width = nav.sidebarWidth
-        prefs.type_badge_display = (ui.type_badge_display || 'color') as 'text' | 'color' | 'hidden'
-        prefs.inbox_recent_cards_limit = ui.inbox_recent_cards_limit || 21
-        prefs.inbox_activity_limit = ui.inbox_activity_limit || 25
-        prefs.sidebar_collapse_default = ui.sidebar_collapse_default ?? false
-        prefs.local_server_port = ui.local_server_port || 0
-      },
-      save: () => {
-        // Sync the live theme into prefs before persisting so whatever
-        // the user (or the sidebar footer toggle) chose is written to
-        // disk. setTheme itself is not called here — the dropdown's
-        // onchange already applies it live.
-        prefs.theme = theme.mode
-        const { default_category_name: _serverOwned, ...uiPrefs } = prefs
-        // sidebar_width is an int server-side; the splitter can leave a
-        // fractional px value, so coerce before persisting.
-        uiPrefs.sidebar_width = Math.round(uiPrefs.sidebar_width)
-        return SetUIPreferences(uiPrefs)
-      },
-    },
-    llmConfig: {
-      load: async () => {
-        const c = await GetLLMConfig()
-        if (!c) return
-        llm.context = c.context || ''
-        llm.provider = c.provider || ''
-        llm.model = c.model || ''
-        llm.api_key = c.api_key || ''
-        llm.base_url = c.base_url || ''
-        llm.ai_mode = c.ai_mode || 'edit'
-        llm.min_confidence = c.min_confidence || ''
-        llm.chat_budget_mode = c.chat_budget_mode || 'warn'
-        llm.chat_budget_tokens = c.chat_budget_tokens || CHAT_BUDGET_DEFAULT
-      },
-      save: () => SetLLMConfig({ ...llm, chat_budget_tokens: clampChatBudget(llm.chat_budget_tokens) }),
-    },
-    llmProviders: {
-      load: async () => {
-        const [accts, routing] = await Promise.all([GetLLMAccounts(), GetLLMRouting()])
-        llmAccounts = accts || []
-        llmRouting = normalizeRouting(routing)
-      },
-      save: () => persistLLM(),
-    },
-    notify: {
-      load: async () => {
-        const nc = await GetNotifyConfig()
-        if (!nc) return
-        // system_enabled is no longer consulted by the backend — keep it true
-        // so any config written from this dialog doesn't re-introduce the
-        // silent gate if a future client reads it.
-        notifCfg.system_enabled = true
-        notifCfg.smtp_host = nc.smtp_host || ''
-        notifCfg.smtp_port = nc.smtp_port || 587
-        notifCfg.smtp_username = nc.smtp_username || ''
-        notifCfg.smtp_password = nc.smtp_password || ''
-        notifCfg.smtp_from_addr = nc.smtp_from_addr || ''
-        notifCfg.smtp_to_addr = nc.smtp_to_addr || ''
-        notifCfg.smtp_tls = nc.smtp_tls ?? true
-        notifCfg.webhook_url = nc.webhook_url || ''
-        notifCfg.webhook_auth_header = nc.webhook_auth_header || ''
-      },
-      save: () => SetNotifyConfig(notifCfg),
-    },
-    dueDate: {
-      load: async () => {
-        const dd = await GetDueDateSettings()
-        if (!dd) return
-        dueDateEnabled = dd.enabled ?? true
-        const ts = dd.thresholds || []
-        dueDateThresholds = { '24h': ts.includes('24h'), '1h': ts.includes('1h'), '0': ts.includes('0'), 'overdue': ts.includes('overdue') }
-        const ch = (dd.channels || 'in-app,system').split(',').map((s: string) => s.trim())
-        dueDateChannels = { system: ch.includes('system'), email: ch.includes('email'), webhook: ch.includes('webhook') }
-      },
-      save: () => {
-        const ddThresholds = Object.entries(dueDateThresholds).filter(([, v]) => v).map(([k]) => k)
-        const ddChannelStr = ['in-app', ...Object.entries(dueDateChannels).filter(([, v]) => v).map(([k]) => k)].join(',')
-        return SaveDueDateSettings(dueDateEnabled, ddThresholds, ddChannelStr)
-      },
-    },
-    capture: {
-      load: async () => {
-        const cp = await GetCapturePrefs()
-        if (!cp) return
-        capturePrefs.videoMode = cp.videoMode ?? 'fit'
-        capturePrefs.videoBudgetMB = cp.videoBudgetMB ?? 50
-        capturePrefs.imageMode = cp.imageMode ?? 'all'
-        capturePrefs.askMode = cp.askMode ?? 'triggers'
-        capturePrefs.triggers = {
-          videoOverMB: cp.triggers?.videoOverMB ?? 50,
-          galleryOverCount: cp.triggers?.galleryOverCount ?? 8,
-          unsupportedUrl: cp.triggers?.unsupportedUrl ?? true,
-          blocked: cp.triggers?.blocked ?? true,
-          pinMayReject: cp.triggers?.pinMayReject ?? true,
-        }
-      },
-      save: () => SetCapturePrefs(capturePrefs),
-    },
-  })
-
-  const sectionLabels: Record<SectionId, string> = {
-    prefs: t('prefs.section_prefs'),
-    ui: t('prefs.section_ui'),
-    llmConfig: t('prefs.section_llm_config'),
-    llmProviders: t('prefs.section_llm_providers'),
-    notify: t('prefs.section_notify'),
-    dueDate: t('prefs.section_due_date'),
-    capture: t('prefs.section_capture'),
-  }
-
-  $effect(() => { void sections.loadAll() })
-
-  let saving = $state(false)
+  const form = new SettingsForm()
+  $effect(() => { void form.load() })
 
   async function save() {
-    if (saving || sections.anyLoading) return
-    saving = true
-    const { saved, failed } = await sections.saveReady()
-    saving = false
-    if (saved.includes('ui')) {
-      setLocale(prefs.locale)
-      nav.sidebarWidth = prefs.sidebar_width
-      localStorage.setItem('bruv-sidebar-width', String(prefs.sidebar_width))
-      prefsStore.typeBadgeDisplay = prefs.type_badge_display
-    }
-    // Open chats' model chips re-read the registry.
-    if (saved.includes('llmProviders')) void loadLLMRegistry(true).catch(() => {})
+    const failed = await form.save()
     if (failed.length > 0) {
       // Keep the dialog open with the user's edits so they can retry.
-      showToast(t('prefs.save_some_failed', { sections: failed.map(id => sectionLabels[id]).join(', ') }), 'error')
+      showToast(t('prefs.save_some_failed', { sections: failed.join(', ') }), 'error')
       return
     }
     onClose()
   }
 
-  /** Saves providers + models + routing. Also called by model Test and
-   *  Find models, which need the draft on the backend first. */
-  async function persistLLM() {
-    // Never write the placeholder arrays over providers we couldn't read.
-    if (!sections.isReady('llmProviders')) throw new Error(t('prefs.section_not_loaded'))
-    await Promise.all([SaveLLMAccounts(llmAccounts), SaveLLMRouting(llmRouting)])
-  }
+  // --- Search ---
+  let matchingKeys = $derived(matchSettings(searchQuery))
+  let matchingTabs = $derived(tabsMatching(matchingKeys))
+  const visible = (key: string): boolean => !matchingKeys || matchingKeys.has(key)
 
-  async function testSystemNotif() {
-    testingSystem = true
-    try {
-      await TestSystemNotification()
-      showToast(t('notifications.test_system_ok'), 'success')
-    } catch {
-      showToast(t('notifications.test_system_fail'), 'error')
-    }
-    testingSystem = false
-  }
-
-  // --- Search filtering ---
-  interface SettingsField {
-    tab: TabId
-    key: string
-    label: string
-  }
-
-  const allFields: SettingsField[] = [
-    { tab: 'general', key: 'reopen_last_repo', label: 'reopen last repository launch' },
-    { tab: 'general', key: 'theme', label: 'theme dark light' },
-    { tab: 'general', key: 'locale', label: 'language locale' },
-    { tab: 'general', key: 'confirm_before_delete', label: 'confirm before deleting' },
-    { tab: 'general', key: 'sidebar_width', label: 'sidebar width' },
-    { tab: 'general', key: 'type_badge_display', label: 'category type badges' },
-    { tab: 'general', key: 'default_category_name', label: 'default category name' },
-    { tab: 'general', key: 'inbox_recent_cards_limit', label: 'inbox recently updated card limit' },
-    { tab: 'general', key: 'sidebar_collapse_default', label: 'sidebar collapsed collapse tree startup' },
-    { tab: 'general', key: 'local_server_port', label: 'local server port fixed stable clipper pairing' },
-    { tab: 'ai', key: 'accounts', label: 'ai providers accounts provider openai anthropic ollama openrouter lm studio compatible local api key models find discover tier tools' },
-    { tab: 'ai', key: 'use_for', label: 'use for model per task default card chat project chat create with ai agents assign' },
-    { tab: 'ai', key: 'routers', label: 'routers routing auto automatic rules complexity heuristic fallback keywords try' },
-    { tab: 'ai', key: 'ai_mode', label: 'ai mode chat edit card fields' },
-    { tab: 'ai', key: 'min_confidence', label: 'minimum confidence ai suggestion pin threshold' },
-    { tab: 'ai', key: 'chat_budget', label: 'response budget tokens output limit cost warn stop chat reply' },
-    { tab: 'ai', key: 'context', label: 'ai context additional' },
-    { tab: 'notifications', key: 'system_enabled', label: 'desktop system notifications test' },
-    { tab: 'notifications', key: 'smtp_host', label: 'email smtp host server' },
-    { tab: 'notifications', key: 'smtp_to', label: 'email smtp recipient to address' },
-    { tab: 'notifications', key: 'webhook_url', label: 'webhook url post' },
-    { tab: 'notifications', key: 'due_date', label: 'due date notifications reminder overdue' },
-    { tab: 'templates', key: 'slide_templates', label: 'slide templates auto matching priority url pattern regex social post clipper' },
-    { tab: 'capture', key: 'capture_video', label: 'capture video quality mode best fit smallest link skip budget mb size' },
-    { tab: 'capture', key: 'capture_images', label: 'capture images gallery all first only link skip' },
-    { tab: 'capture', key: 'capture_ask', label: 'capture ask before dialog always never triggers when it matters' },
-    { tab: 'capture', key: 'capture_triggers', label: 'capture triggers consequential video size gallery count unsupported platform blocked' },
-  ]
-
-  // Fields owned by CaptureSettingsSection, gated as one unit (the child
-  // has no fieldVisible plumbing of its own — mirrors how the Templates
-  // tab gates SlideTemplatePrefsSection on a single key).
-  const CAPTURE_KEYS = ['capture_video', 'capture_images', 'capture_ask', 'capture_triggers']
-
-  let matchingKeys = $derived.by(() => {
-    const q = searchQuery.trim().toLowerCase()
-    if (!q) return null
-    return new Set(
-      allFields.filter(f => f.label.includes(q) || f.key.includes(q)).map(f => f.key)
-    )
-  })
-
-  let matchingTabs = $derived.by(() => {
-    if (!matchingKeys) return null
-    return new Set(allFields.filter(f => matchingKeys!.has(f.key)).map(f => f.tab))
-  })
-
-  function fieldVisible(key: string): boolean {
-    if (!matchingKeys) return true
-    return matchingKeys.has(key)
-  }
-
-  function tabHasResults(tab: TabId): boolean {
-    if (!matchingTabs) return true
-    return matchingTabs.has(tab)
-  }
-
-  // Auto-switch to first matching tab when searching
+  // Auto-switch to the first matching tab when searching.
   $effect(() => {
     if (matchingTabs && !matchingTabs.has(activeTab)) {
-      const first = (['general', 'ai', 'notifications', 'templates', 'capture'] as TabId[]).find(t => matchingTabs!.has(t))
-      if (first) activeTab = first
+      const first = SETTINGS_TABS.find(tab => matchingTabs!.has(tab.id))
+      if (first) activeTab = first.id
     }
   })
-
-  const tabs: { id: TabId; labelKey: string }[] = [
-    { id: 'general', labelKey: 'prefs.tab_general' },
-    { id: 'ai', labelKey: 'prefs.tab_ai' },
-    { id: 'notifications', labelKey: 'prefs.tab_notifications' },
-    { id: 'templates', labelKey: 'prefs.tab_templates' },
-    { id: 'capture', labelKey: 'prefs.tab_capture' },
-  ]
 
   function handleOverlayClick(e: MouseEvent) {
     if (e.target === e.currentTarget) onClose()
@@ -397,341 +86,48 @@
     </div>
 
     <div class="tab-bar">
-      {#each tabs as tab}
+      {#each SETTINGS_TABS as tab (tab.id)}
         <button
           class="tab-btn"
           class:active={activeTab === tab.id}
-          class:dimmed={!tabHasResults(tab.id)}
+          class:dimmed={matchingTabs !== null && !matchingTabs.has(tab.id)}
           onclick={() => activeTab = tab.id}
         >{t(tab.labelKey)}</button>
       {/each}
     </div>
 
-    <div class="dialog-body">
-      <!-- GENERAL TAB -->
+    <div class="dialog-body settings-form">
       {#if activeTab === 'general'}
-        <SettingsSectionGate {sections} ids={['prefs', 'ui']} labels={sectionLabels}>
-          {#if fieldVisible('reopen_last_repo')}
-            <label class="field toggle-field">
-              <span class="field-label">{t('prefs.reopen_last_repo')}</span>
-              <input type="checkbox" bind:checked={prefs.reopen_last_repo} />
-            </label>
-          {/if}
-
-          {#if fieldVisible('theme')}
-            <label class="field">
-              <span class="field-label">{t('prefs.theme')}</span>
-              <!-- Bound to the live theme store rather than prefs.theme
-                   so the dropdown always reflects the current theme
-                   even when the sidebar footer toggle changed it after
-                   this dialog opened. onchange calls setTheme which
-                   applies immediately + persists to localStorage;
-                   save() below syncs theme.mode into prefs for the
-                   Preferences-on-disk write. -->
-              <select value={theme.mode} onchange={(e) => setTheme((e.currentTarget as HTMLSelectElement).value as 'dark' | 'light')}>
-                <option value="dark">{t('prefs.theme_dark')}</option>
-                <option value="light">{t('prefs.theme_light')}</option>
-              </select>
-            </label>
-          {/if}
-
-          {#if fieldVisible('locale')}
-            <label class="field">
-              <span class="field-label">{t('prefs.locale')}</span>
-              <select bind:value={prefs.locale}>
-                {#each availableLocales() as loc}
-                  <option value={loc}>{loc.toUpperCase()}</option>
-                {/each}
-              </select>
-            </label>
-          {/if}
-
-          {#if fieldVisible('confirm_before_delete')}
-            <label class="field toggle-field">
-              <span class="field-label">{t('prefs.confirm_delete')}</span>
-              <input type="checkbox" bind:checked={prefs.confirm_before_delete} />
-            </label>
-          {/if}
-
-          {#if fieldVisible('sidebar_width')}
-            <label class="field">
-              <span class="field-label">{t('prefs.sidebar_width')}</span>
-              <div class="range-row">
-                <input type="range" min="160" max="500" step="10" bind:value={prefs.sidebar_width} />
-                <span class="range-value">{prefs.sidebar_width}px</span>
-              </div>
-            </label>
-          {/if}
-
-          {#if fieldVisible('type_badge_display')}
-            <label class="field">
-              <span class="field-label">{t('prefs.type_badges')}</span>
-              <select bind:value={prefs.type_badge_display}>
-                <option value="text">{t('prefs.type_badge_text')}</option>
-                <option value="color">{t('prefs.type_badge_color')}</option>
-                <option value="hidden">{t('prefs.type_badge_hidden')}</option>
-              </select>
-            </label>
-          {/if}
-
-          {#if fieldVisible('default_category_name')}
-            <label class="field">
-              <span class="field-label">{t('prefs.default_category')}</span>
-              <input
-                type="text"
-                bind:value={prefs.default_category_name}
-                placeholder={t('prefs.default_category_placeholder')}
-                class="text-input"
-              />
-              <span class="field-hint">{t('prefs.default_category_hint')}</span>
-            </label>
-          {/if}
-
-          {#if fieldVisible('inbox_recent_cards_limit')}
-            <label class="field">
-              <span class="field-label">{t('prefs.inbox_recent_limit')}</span>
-              <input
-                type="number"
-                min="1"
-                max="100"
-                bind:value={prefs.inbox_recent_cards_limit}
-                class="text-input number-input"
-              />
-              <span class="field-hint">{t('prefs.inbox_recent_limit_hint')}</span>
-            </label>
-          {/if}
-
-          {#if fieldVisible('inbox_activity_limit')}
-            <label class="field">
-              <span class="field-label">{t('prefs.inbox_activity_limit')}</span>
-              <input
-                type="number"
-                min="1"
-                max="500"
-                bind:value={prefs.inbox_activity_limit}
-                class="text-input number-input"
-              />
-              <span class="field-hint">{t('prefs.inbox_activity_limit_hint')}</span>
-            </label>
-          {/if}
-
-          {#if fieldVisible('sidebar_collapse_default')}
-            <label class="field toggle-field">
-              <span class="field-label">{t('prefs.sidebar_collapse_default')}</span>
-              <input type="checkbox" bind:checked={prefs.sidebar_collapse_default} />
-            </label>
-          {/if}
-
-          {#if fieldVisible('local_server_port')}
-            <label class="field">
-              <span class="field-label">{t('prefs.local_server_port')}</span>
-              <input
-                type="number"
-                min="0"
-                max="65535"
-                bind:value={prefs.local_server_port}
-                class="text-input number-input"
-              />
-              <span class="field-hint">{t('prefs.local_server_port_hint')}</span>
-            </label>
-          {/if}
+        <SettingsSectionGate sections={form.sections} ids={['prefs', 'ui']} labels={form.labels}>
+          <SettingsGeneralTab {form} {visible} />
         </SettingsSectionGate>
-      {/if}
-
-      <!-- AI TAB -->
-      {#if activeTab === 'ai'}
-        <SettingsSectionGate {sections} ids={['llmConfig', 'llmProviders']} labels={sectionLabels}>
-          {#if fieldVisible('accounts')}
-            <div class="field-section-label">{t('llm.accounts_title')}</div>
-            <LLMProvidersManager bind:accounts={llmAccounts} bind:routing={llmRouting} persist={persistLLM} />
-          {/if}
-
-          {#if fieldVisible('use_for')}
-            <div class="field-section-label">{t('llm_routing.use_for_title')}</div>
-            <TaskRoutingTable bind:routing={llmRouting} accounts={llmAccounts} />
-          {/if}
-
-          {#if fieldVisible('routers')}
-            <div class="field-section-label">{t('llm_routing.routers_title')}</div>
-            <p class="field-hint">{t('llm_routing.routers_hint')}</p>
-            <LLMRoutersManager bind:routing={llmRouting} accounts={llmAccounts} />
-          {/if}
-
-          <!-- Behavior section -->
-          <div class="field-section-label">{t('llm.behavior_title')}</div>
-
-          {#if fieldVisible('ai_mode')}
-            <label class="field">
-              <span class="field-label">{t('llm.ai_mode')}</span>
-              <select bind:value={llm.ai_mode}>
-                <option value="edit">{t('llm.ai_mode_edit')}</option>
-                <option value="suggest">{t('llm.ai_mode_suggest')}</option>
-                <option value="chat">{t('llm.ai_mode_chat')}</option>
-              </select>
-            </label>
-          {/if}
-
-          {#if fieldVisible('min_confidence')}
-            <label class="field">
-              <span class="field-label">{t('llm.min_confidence')}</span>
-              <select bind:value={llm.min_confidence}>
-                <option value="">{t('llm.min_confidence_any')}</option>
-                <option value="low">{t('llm.min_confidence_low')}</option>
-                <option value="medium">{t('llm.min_confidence_medium')}</option>
-                <option value="high">{t('llm.min_confidence_high')}</option>
-              </select>
-              <span class="field-hint">{t('llm.min_confidence_hint')}</span>
-            </label>
-          {/if}
-
-          {#if fieldVisible('chat_budget')}
-            <label class="field">
-              <span class="field-label">{t('llm.chat_budget_mode')}</span>
-              <select bind:value={llm.chat_budget_mode}>
-                <option value="warn">{t('llm.chat_budget_warn')}</option>
-                <option value="hard">{t('llm.chat_budget_hard')}</option>
-                <option value="off">{t('llm.chat_budget_off')}</option>
-              </select>
-            </label>
-            {#if llm.chat_budget_mode !== 'off'}
-              <label class="field">
-                <span class="field-label">{t('llm.chat_budget_tokens')}</span>
-                <input type="number" min={CHAT_BUDGET_MIN} max={CHAT_BUDGET_MAX} step="1000" bind:value={llm.chat_budget_tokens} />
-              </label>
-            {/if}
-            <span class="field-hint">{t(`llm.chat_budget_${llm.chat_budget_mode}_hint`, { max: CHAT_BUDGET_MAX.toLocaleString() })}</span>
-          {/if}
-
-          {#if fieldVisible('context')}
-            <label class="field">
-              <span class="field-label">{t('llm.context')}</span>
-              <textarea rows="4" bind:value={llm.context} placeholder={t('llm.context_placeholder')}></textarea>
-            </label>
-          {/if}
+      {:else if activeTab === 'ai'}
+        <SettingsSectionGate sections={form.sections} ids={['llmConfig', 'llmProviders']} labels={form.labels}>
+          <SettingsAITab {form} {visible} />
         </SettingsSectionGate>
-      {/if}
-
-      {#if activeTab === 'notifications'}
-        <SettingsSectionGate {sections} ids={['notify', 'dueDate']} labels={sectionLabels}>
-          <!-- System notifications: no in-app master toggle. Per-agent /
-               per-alarm channel selection is authoritative. Use Windows
-               Settings → Notifications → BRUV to mute everything. -->
-          <div class="field-row">
-            <span class="field-label">{t('notifications.system_enabled')}</span>
-            <div class="field-value field-value--action">
-              <button class="btn btn-outline btn-sm" onclick={testSystemNotif} disabled={testingSystem}>
-                <Bell size={14} />
-                {testingSystem ? '...' : t('notifications.test_system')}
-              </button>
-            </div>
-          </div>
-
-          <!-- Email SMTP -->
-          <div class="field-section-label">{t('notifications.email_title')}</div>
-          <div class="field-row">
-            <span class="field-label">{t('notifications.smtp_host')}</span>
-            <div class="field-value"><input type="text" class="field-input" bind:value={notifCfg.smtp_host} placeholder="smtp.gmail.com" /></div>
-          </div>
-          <div class="field-row">
-            <span class="field-label">{t('notifications.smtp_port')}</span>
-            <div class="field-value"><input type="number" class="field-input field-input-short" bind:value={notifCfg.smtp_port} /></div>
-          </div>
-          <div class="field-row">
-            <span class="field-label">{t('notifications.smtp_username')}</span>
-            <div class="field-value"><input type="text" class="field-input" bind:value={notifCfg.smtp_username} /></div>
-          </div>
-          <div class="field-row">
-            <span class="field-label">{t('notifications.smtp_password')}</span>
-            <div class="field-value">
-              <div class="key-row">
-                <input type={showSmtpPassword ? 'text' : 'password'} class="field-input" bind:value={notifCfg.smtp_password} />
-                <button class="btn-icon" onclick={() => showSmtpPassword = !showSmtpPassword}>
-                  {#if showSmtpPassword}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
-                </button>
-              </div>
-            </div>
-          </div>
-          <div class="field-row">
-            <span class="field-label">{t('notifications.smtp_from')}</span>
-            <div class="field-value"><input type="email" class="field-input" bind:value={notifCfg.smtp_from_addr} placeholder="bruv@example.com" /></div>
-          </div>
-          <div class="field-row">
-            <span class="field-label">{t('notifications.smtp_to')}</span>
-            <div class="field-value"><input type="email" class="field-input" bind:value={notifCfg.smtp_to_addr} placeholder="you@example.com" /></div>
-          </div>
-          <div class="field-row">
-            <span class="field-label">{t('notifications.smtp_tls')}</span>
-            <div class="field-value"><input type="checkbox" bind:checked={notifCfg.smtp_tls} /></div>
-          </div>
-
-          <!-- Webhook -->
-          <div class="field-section-label">{t('notifications.webhook_title')}</div>
-          <div class="field-row">
-            <span class="field-label">{t('notifications.webhook_url')}</span>
-            <div class="field-value"><input type="url" class="field-input" bind:value={notifCfg.webhook_url} placeholder="https://example.com/webhook" /></div>
-          </div>
-          <div class="field-row">
-            <span class="field-label">{t('notifications.webhook_auth')}</span>
-            <div class="field-value"><input type="text" class="field-input" bind:value={notifCfg.webhook_auth_header} placeholder="Bearer token..." /></div>
-          </div>
-
-          <!-- Due Date Notifications -->
-          {#if fieldVisible('due_date')}
-            <div class="field-section-label">{t('prefs.due_date_title')}</div>
-            <div class="field-row">
-              <span class="field-label">{t('prefs.due_date_enabled')}</span>
-              <div class="field-value"><input type="checkbox" bind:checked={dueDateEnabled} /></div>
-            </div>
-            {#if dueDateEnabled}
-              <div class="field-row">
-                <span class="field-label">{t('prefs.due_date_thresholds')}</span>
-                <div class="field-value checkbox-group">
-                  <label class="toggle"><input type="checkbox" bind:checked={dueDateThresholds['24h']} /> {t('prefs.due_date_24h')}</label>
-                  <label class="toggle"><input type="checkbox" bind:checked={dueDateThresholds['1h']} /> {t('prefs.due_date_1h')}</label>
-                  <label class="toggle"><input type="checkbox" bind:checked={dueDateThresholds['0']} /> {t('prefs.due_date_at_due')}</label>
-                  <label class="toggle"><input type="checkbox" bind:checked={dueDateThresholds['overdue']} /> {t('prefs.due_date_overdue')}</label>
-                </div>
-              </div>
-              <div class="field-row">
-                <span class="field-label">{t('prefs.due_date_channels')}</span>
-                <div class="field-value checkbox-group">
-                  <label class="toggle"><input type="checkbox" checked disabled /> {t('agent.channel_inapp')}</label>
-                  <label class="toggle"><input type="checkbox" bind:checked={dueDateChannels['system']} /> {t('agent.channel_system')}</label>
-                  <label class="toggle"><input type="checkbox" bind:checked={dueDateChannels['email']} /> {t('agent.channel_email')}</label>
-                  <label class="toggle"><input type="checkbox" bind:checked={dueDateChannels['webhook']} /> {t('agent.channel_webhook')}</label>
-                  <span class="field-hint">{t('notifications.channels_hint')}</span>
-                </div>
-              </div>
-            {/if}
-          {/if}
+      {:else if activeTab === 'notifications'}
+        <SettingsSectionGate sections={form.sections} ids={['notify', 'dueDate']} labels={form.labels}>
+          <SettingsNotificationsTab {form} {visible} />
         </SettingsSectionGate>
-      {/if}
-
-      <!-- SLIDE TEMPLATES TAB — vault-level Auto-matching prefs; the
-           section persists its own changes (no dialog Save involved). -->
-      {#if activeTab === 'templates'}
-        {#if fieldVisible('slide_templates')}
+      {:else if activeTab === 'templates'}
+        <!-- Vault-level auto-matching prefs; the section persists its own
+             changes (no dialog Save involved). -->
+        {#if visible('slide_templates')}
           <SlideTemplatePrefsSection />
         {/if}
-      {/if}
-
-      <!-- CAPTURE TAB — vault-level defaults for what web/mobile clips
-           store and when they prompt. Bound into this dialog's normal
-           Save flow (unlike Templates, nothing here needs to persist
-           mid-edit). -->
-      {#if activeTab === 'capture'}
-        <SettingsSectionGate {sections} ids={['capture']} labels={sectionLabels}>
-          {#if CAPTURE_KEYS.some(fieldVisible)}
-            <CaptureSettingsSection bind:prefs={capturePrefs} />
+      {:else if activeTab === 'capture'}
+        <!-- Vault-level capture defaults, saved with the dialog. -->
+        <SettingsSectionGate sections={form.sections} ids={['capture']} labels={form.labels}>
+          {#if CAPTURE_KEYS.some(visible)}
+            <CaptureSettingsSection bind:prefs={form.capture} />
           {/if}
         </SettingsSectionGate>
       {/if}
-
     </div>
 
     <div class="dialog-footer">
       <button class="btn btn-ghost" onclick={onClose}>{t('common.cancel')}</button>
-      <button class="btn btn-primary" onclick={save} disabled={saving || sections.anyLoading}>{t('common.save')}</button>
+      <button class="btn btn-primary" onclick={save} disabled={form.saving || form.sections.anyLoading}>{t('common.save')}</button>
     </div>
   </div>
 </div>
@@ -794,7 +190,8 @@
 
   .search-input {
     flex: 1;
-    border: none !important;
+    padding: 0.45rem 0;
+    border: none;
     background: transparent;
     color: var(--text-primary);
     font-size: 0.8rem;
@@ -867,110 +264,6 @@
     min-height: 0;
   }
 
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-  }
-
-  .toggle-field {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .field-label {
-    font-size: 0.85rem;
-    font-weight: 500;
-    color: var(--text-secondary);
-  }
-
-  .field-section-label {
-    grid-column: 1 / -1;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-muted);
-    margin-top: 0.5rem;
-    padding-bottom: 0.25rem;
-    border-bottom: 1px solid var(--border-muted);
-  }
-
-  .field-input-short {
-    max-width: 100px;
-  }
-
-  select, input[type="text"], input[type="password"], input[type="number"], input[type="email"], input[type="url"], .text-input, textarea {
-    padding: 0.45rem 0.6rem;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    background: var(--bg-elevated);
-    color: var(--text-primary);
-    font-size: 0.85rem;
-    font-family: inherit;
-    outline: none;
-    box-sizing: border-box;
-  }
-  select:focus, input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:focus, .text-input:focus, textarea:focus {
-    border-color: var(--accent);
-  }
-  select:disabled, input:disabled, textarea:disabled {
-    opacity: 0.5;
-  }
-
-  textarea {
-    resize: vertical;
-  }
-
-  select {
-    cursor: pointer;
-  }
-
-  .field-hint {
-    margin: 0;
-    font-size: 0.75rem;
-    color: var(--text-muted);
-  }
-
-  .number-input {
-    width: 6rem;
-  }
-
-  input[type="checkbox"] {
-    accent-color: var(--accent);
-    width: 16px;
-    height: 16px;
-    cursor: pointer;
-  }
-
-  input[type="range"] {
-    flex: 1;
-    accent-color: var(--accent);
-    cursor: pointer;
-  }
-
-  .range-row {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-
-  .range-value {
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    min-width: 48px;
-    text-align: right;
-  }
-
-  .key-row {
-    display: flex;
-    gap: 4px;
-  }
-  .key-row input {
-    flex: 1;
-  }
-
   .dialog-footer {
     display: flex;
     align-items: center;
@@ -1005,75 +298,4 @@
     color: var(--text-secondary);
   }
   .btn-ghost:hover { color: var(--text-primary); }
-
-  .btn-outline {
-    background: transparent;
-    color: var(--text-secondary);
-    border: 1px solid var(--border);
-  }
-  .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
-  .btn-outline:disabled { opacity: 0.5; cursor: default; }
-  .btn-sm { padding: 0.3rem 0.65rem; font-size: 0.8rem; }
-
-  .field-row {
-    display: flex;
-    align-items: baseline;
-    gap: 0.75rem;
-  }
-  .field-row > .field-label {
-    min-width: 120px;
-    flex-shrink: 0;
-  }
-  .field-value {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-  /* One-off row with a single action button: don't stretch it to the full
-     column width. Size to content, push to the right. */
-  .field-value--action {
-    flex-direction: row;
-    justify-content: flex-end;
-    align-items: center;
-  }
-  .field-input {
-    padding: 0.45rem 0.6rem;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    background: var(--bg-elevated);
-    color: var(--text-primary);
-    font-size: 0.85rem;
-    font-family: inherit;
-    outline: none;
-    width: 100%;
-    box-sizing: border-box;
-  }
-  .field-input:focus { border-color: var(--accent); }
-
-  .toggle {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    font-size: 0.85rem;
-    color: var(--text-secondary);
-    cursor: pointer;
-  }
-
-  .checkbox-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-  }
-
-  .btn-icon {
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    padding: 0.25rem;
-    display: flex;
-    align-items: center;
-  }
-  .btn-icon:hover { color: var(--text-primary); }
 </style>

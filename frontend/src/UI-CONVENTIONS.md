@@ -135,6 +135,12 @@ A component with a genuinely different button still wins: Svelte adds a scoping 
 
 ---
 
+## 4.6 Hover backgrounds — `--bg-hover` vs `--bg-subtle-hover`
+
+Two tokens, two meanings (2026-09-27): **`--bg-hover`** (15% white dark / 12% black light) is the item hover — rows in lists, pickers, menus and dialogs, where the highlight says "this is what you'll pick". **`--bg-subtle-hover`** (10% / 8%) is the quiet one for controls that shouldn't flash (buttons, headers, toggles). `--bg-hover` was referenced in ~40 places for months without being defined, so those hovers only switched on now; if one looks heavy, move it to `--bg-subtle-hover` rather than inventing a third value.
+
+---
+
 ## 5. ConfirmDialog — Destructive Action Confirmation
 
 **Files:** `components/ConfirmDialog.svelte`, `lib/confirm.svelte.ts`
@@ -655,6 +661,8 @@ Exported for the host: `requestClose()` (backdrop click) and `onKeydown(e)` (the
 **Labels follow the card.** The stored label freezes at insert time (`[Old Title](…)`) and nothing on disk rewrites it on rename — a rename would otherwise strand every mention. Instead links are refreshed where they render: `lib/mentionLabels.ts` (desktop) / `installMentionLabelRefresh` (mobile) watch the DOM, set each card link's text to the live title and its tooltip to the breadcrumb from a per-session cache, and a `card:updated` event invalidates that id. Stored text stays as written.
 
 **Rendering.** Anything that shows user text renders it through `renderInline` / `renderMarkdown` so mentions are links: this pass moved desktop comment bodies and image captions onto the renderer. A new display of user text must not print the raw string. `.bruv-link` styling is in `frontend/src/style.css` and `mobile/src/app.css` (⌘ glyph, dashed underline).
+
+**Tickable task lists.** A rendered markdown field the user owns (description, text blocks — both surfaces) passes `renderMarkdown(text, { tasks: true })` and, in its display click handler, calls `taskToggleFromClick(e, source)` (`shared/markdownTasks.ts`) before opening the editor: a non-null result is the source with that `- [ ]` flipped — save it through the field's normal save path; the checkbox re-renders from the saved value. The helper refuses (null) if the source scan and rendered boxes disagree, so never fall through to edit when the click landed on an `input`. Read-only renders (chat, comments) keep marked's disabled boxes.
 
 ---
 

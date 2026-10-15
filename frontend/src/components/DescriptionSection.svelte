@@ -17,6 +17,7 @@
    * Extracted from CardDetail to shrink the god-component.
    */
   import { renderMarkdown } from '@shared/markdown'
+  import { taskToggleFromClick } from '@shared/markdownTasks'
   import { t } from '../lib/i18n.svelte'
   import { focusOnMount } from '../lib/actions'
   import { mentionable } from '../lib/mentions.svelte'
@@ -29,6 +30,7 @@
     descTextareaEl = $bindable(),
     onKeydown,
     onBlur,
+    onToggleTask,
   }: {
     card: Card
     editingDescription: boolean
@@ -36,7 +38,18 @@
     descTextareaEl: HTMLTextAreaElement | null
     onKeydown: (e: KeyboardEvent) => void
     onBlur: () => void
+    /** A "- [ ]" checkbox was ticked in the rendered view; save this text. */
+    onToggleTask: (next: string) => void
   } = $props()
+
+  function handleDisplayClick(e: MouseEvent) {
+    const target = e.target as HTMLElement
+    if (target.closest('a')) return
+    const next = taskToggleFromClick(e, card.description)
+    if (next !== null) { onToggleTask(next); return }
+    if (target.closest('input')) return // refused toggle — don't open the editor either
+    editingDescription = true
+  }
 </script>
 
 <section class="section">
@@ -56,12 +69,12 @@
     <div class="desc-display"
       role="button"
       tabindex="0"
-      onclick={(e) => { if ((e.target as HTMLElement).closest('a')) return; editingDescription = true }}
+      onclick={handleDisplayClick}
       onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editingDescription = true } }}
       title={t('tooltip.edit_description')}
     >
       {#if card.description}
-        <div class="markdown-content">{@html renderMarkdown(card.description)}</div>
+        <div class="markdown-content">{@html renderMarkdown(card.description, { tasks: true })}</div>
       {:else}
         <p class="placeholder">{t('card.description_placeholder')}</p>
       {/if}

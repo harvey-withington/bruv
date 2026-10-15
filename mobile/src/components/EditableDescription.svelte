@@ -13,6 +13,7 @@
 
   import { tick, getContext } from 'svelte'
   import { renderMarkdown } from '@shared/markdown'
+  import { taskToggleFromClick } from '@shared/markdownTasks'
   import { inlineEdit } from '@shared/inlineEdit'
   import { autoGrow } from '../lib/actions/autoGrow'
   import { tapGuardActive } from '../lib/tapGuard'
@@ -60,6 +61,16 @@
     editing = false
   }
 
+  // Tap on the rendered text: follow an @mention, tick a "- [ ]"
+  // checkbox in place, or start editing.
+  function handleDisplayClick(e: MouseEvent) {
+    if (followMention(e.target)) { e.preventDefault(); e.stopPropagation(); return }
+    const next = taskToggleFromClick(e, value)
+    if (next !== null) { void onSave(next); return }
+    if ((e.target as Element).closest('input')) return // refused toggle — don't open the editor either
+    void startEdit()
+  }
+
 </script>
 
 {#if editing}
@@ -77,8 +88,8 @@
     <EditorDoneButton onDone={commit} />
   </div>
 {:else if value}
-  <button type="button" class="display" onclick={(e) => { if (followMention(e.target)) { e.preventDefault(); e.stopPropagation(); return } void startEdit() }} aria-label={editLabel}>
-    <div class="prose">{@html renderMarkdown(value)}</div>
+  <button type="button" class="display" onclick={handleDisplayClick} aria-label={editLabel}>
+    <div class="prose">{@html renderMarkdown(value, { tasks: true })}</div>
   </button>
 {:else}
   <button type="button" class="display empty" onclick={startEdit} aria-label={editLabel}>
@@ -165,5 +176,17 @@
   .prose :global(ol) {
     padding-left: 1.25rem;
     margin: 0.5rem 0;
+  }
+  /* GFM task lists: the checkbox replaces the bullet and is the tap target. */
+  .prose :global(li:has(> input[type="checkbox"], > p:first-child > input[type="checkbox"])) {
+    list-style: none;
+    margin-left: -1.1rem;
+  }
+  .prose :global(input.md-task) {
+    width: 1.1rem;
+    height: 1.1rem;
+    margin: 0 0.45rem 0 0;
+    vertical-align: -0.15rem;
+    accent-color: var(--accent);
   }
 </style>

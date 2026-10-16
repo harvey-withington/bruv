@@ -66,7 +66,9 @@
       rows="4"
     ></textarea>
   {:else}
-    <div class="desc-display"
+    <!-- press-still: the global press pulse shrinks this wide area enough to
+         slide a task checkbox out from under the pointer (UI-CONVENTIONS §12.8). -->
+    <div class="desc-display press-still"
       role="button"
       tabindex="0"
       onclick={handleDisplayClick}

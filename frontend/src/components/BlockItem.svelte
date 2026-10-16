@@ -248,8 +248,9 @@
             ></textarea>
           {:else}
             <div class="text-scroll-wrap">
+              <!-- press-still: see DescriptionSection — keeps task checkboxes still under the pointer. -->
               <div
-                class="desc-display"
+                class="desc-display press-still"
                 class:text-scroll={!expandedTextBlocks.has(block.id)}
                 bind:this={textBlockEls[block.id]}
                 role="button"

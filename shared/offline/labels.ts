@@ -73,3 +73,17 @@ export function formatBytes(n: number): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
 }
+
+/** How loud a card's offline mark is: quiet when synced, accent with edits
+ *  waiting, a warning colour when it needs the user (conflict / failed). */
+export type OfflineMarkTone = 'quiet' | 'pending' | 'attention'
+
+export function offlineMarkTone(s: OfflineCardSummary): OfflineMarkTone {
+  if (s.status === 'conflict' || s.status === 'error') return 'attention'
+  return s.status === 'pending' ? 'pending' : 'quiet'
+}
+
+/** The mark's tooltip / accessible name: "Available offline · Synced 5m ago". */
+export function offlineMarkLabel(s: OfflineCardSummary, t: TranslateFn, workingOffline: boolean): string {
+  return t('offline.mark_label', { status: offlineStatusText(s, t, workingOffline) })
+}

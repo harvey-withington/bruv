@@ -1742,5 +1742,6 @@
   "offline.column_all_marked": "Every card in this category is already available offline",
   "offline.column_mark_failed": "{count} cards couldn't be made available offline",
   "offline.place_inbox": "Inbox (not in a project)",
-  "offline.card_place": "Pinned in {place}"
+  "offline.card_place": "Pinned in {place}",
+  "offline.mark_label": "Available offline · {status}"
 }

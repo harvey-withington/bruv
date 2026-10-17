@@ -27,6 +27,7 @@
   import ChatButton from '../components/chat/ChatButton.svelte'
   import OfflineCardNotices from '../components/OfflineCardNotices.svelte'
   import OfflineToggleButton from '../components/OfflineToggleButton.svelte'
+  import OfflineMark from '../components/OfflineMark.svelte'
   import { offline } from '../lib/offline.svelte'
   import { isPopulating, populateFinished } from '../lib/aiCreate.svelte'
   import { getCardTypeColor, getCardTypeTextColor, getCardTypeLabel } from '@shared/cardTypes'
@@ -1032,6 +1033,11 @@
             <RefreshCw size={13} />
           </button>
         {/if}
+        <OfflineMark
+          cardId={card.id}
+          size={15}
+          onActivate={() => document.getElementById('offline-toggle')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+        />
         <div class="due-row">
           <span class="due-label">{t('card.due')}</span>
           <input

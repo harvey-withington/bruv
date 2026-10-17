@@ -51,7 +51,7 @@
 </script>
 
 {#if offline.scope}
-  <button type="button" class="offline-link" class:on={marked} onclick={toggle} disabled={busy || offline.working} aria-pressed={marked}>
+  <button type="button" id="offline-toggle" class="offline-link" class:on={marked} onclick={toggle} disabled={busy || offline.working} aria-pressed={marked}>
     {#if marked}<CloudOff size={14} />{:else}<Cloud size={14} />{/if}
     {busy ? t('common.working') : marked ? t('offline.toggle_on') : t('offline.toggle_off')}
   </button>

@@ -789,5 +789,6 @@
   "settings.offline_cards": "Offline cards",
   "settings.offline_cards_sub": "{count} cards kept on this phone — mark more from a card's page",
   "offline.bar": "Working offline · {count} cards on this phone",
-  "offline.place_inbox": "Inbox (not in a project)"
+  "offline.place_inbox": "Inbox (not in a project)",
+  "offline.mark_label": "Available offline · {status}"
 }

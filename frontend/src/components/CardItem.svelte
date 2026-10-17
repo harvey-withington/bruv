@@ -6,8 +6,8 @@
   import { getCardTypeColor, getCardTypeTextColor } from '@shared/cardTypes'
   import { TriggerAgent, CancelAgent } from '@shared/api'
   import { showToast } from '../lib/toast.svelte'
-  import { Timer, Play, Square, Calendar, Presentation, CloudOff } from 'lucide-svelte'
-  import { offline } from '../lib/offline.svelte'
+  import { Timer, Play, Square, Calendar, Presentation } from 'lucide-svelte'
+  import OfflineMark from './OfflineMark.svelte'
 
   type CardData = {
     id: string
@@ -116,9 +116,7 @@
   <div class="card-header">
     <span class="header-start">
       <span class="type-badge" style="background: {getCardTypeColor(card.type, cardTypes.list)}; color: {getCardTypeTextColor(card.type)}">{cardTypes.list.find(t => t.id === card.type)?.label || card.type || t('card.type_none')}</span>
-      {#if offline.isMarked(card.id)}
-        <span class="offline-mark" title={t('offline.toggle_on')} aria-label={t('offline.toggle_on')}><CloudOff size={11} /></span>
-      {/if}
+      <OfflineMark cardId={card.id} />
     </span>
     {#if card.due_date}
       <span class="due-date"><Calendar size={11} /> {card.due_date.slice(0, 10)}</span>
@@ -329,12 +327,6 @@
     align-items: center;
     gap: 0.35rem;
     min-width: 0;
-  }
-
-  .offline-mark {
-    display: inline-flex;
-    flex-shrink: 0;
-    color: var(--text-muted);
   }
 
   .card-footer {

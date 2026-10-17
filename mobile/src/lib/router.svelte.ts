@@ -22,6 +22,7 @@ export type Route =
   | { name: 'share' }
   | { name: 'settings' }
   | { name: 'activity' }
+  | { name: 'offline' }
   | { name: 'unknown'; path: string }
 
 let _route = $state<Route>(parseAndMaybeMigrate(currentPath()))
@@ -75,6 +76,8 @@ function parse(path: string): Route {
       return { name: 'settings' }
     case 'activity':
       return { name: 'activity' }
+    case 'offline':
+      return { name: 'offline' }
     case 'p':
       // /p/<brand>/<stream>/<project>          → project view
       // /p/<brand>/<stream>/<project>/<cat>    → focused single-category view

@@ -21,6 +21,9 @@
   import CreateTypeFromCardDialog from './CreateTypeFromCardDialog.svelte'
   import PromoteCardDialog from './PromoteCardDialog.svelte'
   import SaveIndicator from './SaveIndicator.svelte'
+  import OfflineToggle from './OfflineToggle.svelte'
+  import OfflineCardBanner from './OfflineCardBanner.svelte'
+  import { offline } from '../lib/offline.svelte'
   import { draggable } from '../lib/draggable'
   import { fade } from 'svelte/transition'
   import { setContext } from 'svelte'
@@ -80,6 +83,8 @@
   const CHAT_OUT_DURATION = 240
   // svelte-ignore state_referenced_locally
   let chatInDom = $state(showChat)
+  // Working offline there's no chat panel at all (it needs the server).
+  const chatLayout = $derived(chatInDom && !offline.working)
   $effect(() => {
     if (showChat) {
       chatInDom = true
@@ -627,8 +632,8 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div class="modal-backdrop" role="presentation" onclick={handleBackdropClick} out:fade={{ duration: 150 }} use:modalOpen>
-  <div class="modal" class:chat-open={chatInDom} class:splitter-dragging={splitterDragging} style:--modal-base="{mainWidth}px" use:draggable={{ handle: '.modal-header' }} use:focusTrap>
-   <div class="modal-main" style={chatInDom ? `width: ${mainWidth}px;` : ''}>
+  <div class="modal" class:chat-open={chatLayout} class:splitter-dragging={splitterDragging} style:--modal-base="{mainWidth}px" use:draggable={{ handle: '.modal-header' }} use:focusTrap>
+   <div class="modal-main" style={chatLayout ? `width: ${mainWidth}px;` : ''}>
     {#if loading}
       <div class="modal-loading">{t('app.loading')}</div>
     {:else if notFound}
@@ -656,7 +661,11 @@
       />
 
       <PendingClipBanner {card} onCardUpdated={applyCardUpdate} />
+      <OfflineCardBanner {cardId} />
 
+      <!-- Working offline the dialog is content only: placement, agents,
+           runs and chat need the server. -->
+      {#if !offline.working}
       <PinPanel
         {pinBreadcrumbs}
         {currentPin}
@@ -700,7 +709,8 @@
       <div class="modal-body" hidden={activeTab !== 'runs'}>
         <AgentRunsTab {cardId} />
       </div>
-      <div class="modal-body" hidden={activeTab !== 'details'}>
+      {/if}
+      <div class="modal-body" hidden={!offline.working && activeTab !== 'details'}>
         <!-- Standard fields: compact flex layout for responsiveness -->
         <div class="fields-grid">
           <div class="field-cell">
@@ -754,7 +764,7 @@
       </div>
 
       <!-- Card-level attachments & comments tabbed panel (pinned between scrollable body and footer) -->
-      {#if activeTab === 'details'}
+      {#if activeTab === 'details' || offline.working}
         <CardMetaPanel {cardId} {card} onAttachmentsUpdated={applyCardUpdate} onCommentsChanged={onUpdated} onAddBlock={(type, label) => cardBlocksRef?.addBlock(type, label)} />
       {/if}
 
@@ -764,18 +774,21 @@
         </span>
         <span class="modal-footer-right">
           <SaveIndicator {saving} />
+          <OfflineToggle {cardId} title={card.title} />
+          {#if !offline.working}
           <button class="btn-promote" onclick={() => showPromoteDialog = true} title={t('tooltip.promote_card')}><ArrowUpRight size={14} /> {t('promote.action')}</button>
           <CardShareMenu {card} onMerged={onUpdated} />
           <button class="btn-delete" onclick={handleDelete} title={t('tooltip.delete_card')}><Trash2 size={14} /> {t('common.delete')}</button>
+          {/if}
         </span>
       </div>
     {/if}
-    {#if showChat}
+    {#if showChat && !offline.working}
       <button class="chat-toggle-btn chat-toggle-docked active" onclick={() => showChat = !showChat} title={t('tooltip.toggle_chat')}><BotMessageSquare size={16} /></button>
     {/if}
    </div>
 
-    {#if !loading && card}
+    {#if !loading && card && !offline.working}
       <!-- Silent reload on LLM replies — otherwise `loading` flips
            true, the outer {#if !loading && card} tears ChatSection
            out of the DOM, and its slide-in animation replays every
@@ -784,7 +797,7 @@
     {/if}
 
     <div class="modal-actions">
-      {#if !showChat}
+      {#if !showChat && !offline.working}
         <button class="chat-toggle-btn" onclick={() => showChat = !showChat} title={t('tooltip.toggle_chat')}><BotMessageSquare size={16} /></button>
       {/if}
       <button class="close-btn" onclick={() => onClose()} title={t('tooltip.close_card')}><X size={18} /></button>

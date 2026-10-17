@@ -213,6 +213,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     UpdateCardType: async () => mockCard(),
     RefreshTypeBlocks: async () => mockCard(),
     UpdateCardDescription: async () => mockCard(),
+    CommitCardEdit: async () => ({ conflict: false, card: mockCard() }),
     UpdateCardBlocks: async () => mockCard(),
     UpdateCardTags: async () => mockCard(),
     UpdateCardLabels: async () => mockCard(),

@@ -7,6 +7,7 @@
   import { connectivity, retryNow } from '../lib/connectivity.svelte'
   import { switchConnection, LOCAL_CONNECTION_ID, activeConnectionLabel } from '../lib/connections.svelte'
   import { t } from '../lib/i18n.svelte'
+  import { offline, workOffline } from '../lib/offline.svelte'
 
   let retrying = $state(false)
 
@@ -21,7 +22,7 @@
   }
 </script>
 
-{#if connectivity.offline}
+{#if connectivity.offline && !offline.working}
   <div class="overlay" role="alertdialog" aria-modal="true" aria-label={t('connection.lost_title')}>
     <div class="panel">
       <h2>{t('connection.lost_title')}</h2>
@@ -30,6 +31,11 @@
         <button type="button" class="primary" onclick={handleRetry} disabled={retrying || connectivity.checking}>
           {retrying || connectivity.checking ? t('connection.reconnecting') : t('common.retry')}
         </button>
+        {#if offline.cards.length > 0}
+          <button type="button" class="secondary" onclick={workOffline}>
+            {t('offline.work_offline', { count: offline.cards.length })}
+          </button>
+        {/if}
         <button type="button" class="secondary" onclick={() => switchConnection(LOCAL_CONNECTION_ID)}>
           {t('connection.use_local')}
         </button>

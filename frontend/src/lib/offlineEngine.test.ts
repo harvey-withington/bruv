@@ -1,0 +1,255 @@
+import { describe, it, expect, beforeEach } from 'vitest'
+import { OfflineEngine, OfflineUnavailableError, offlineCopyName, type RpcSend } from '@shared/offline/engine.svelte'
+import { MemoryStorage } from '@shared/offline/storage'
+import type { Block, Card, CardEdit } from '@shared/types'
+
+class NetworkDown extends Error {}
+
+const PIN = { brandName: 'Home', streamName: 'Blog', projectName: 'Writing', categoryName: 'Drafts', breadcrumb: 'Home / Blog / Writing / Drafts' }
+
+/** A tiny in-memory BRUV server with revisions and guarded attachment saves. */
+class FakeServer {
+  cards = new Map<string, Card>()
+  files = new Map<string, string>()
+  down = false
+  calls: string[] = []
+  private hash(s: string) { return 'sha256:' + s.length + ':' + s }
+
+  add(card: Card, files: Record<string, string> = {}) {
+    this.cards.set(card.id, card)
+    for (const [id, text] of Object.entries(files)) this.files.set(`${card.id}/${id}`, text)
+  }
+  private save(id: string, fn: (c: Card) => void): Card {
+    const c = structuredClone(this.cards.get(id)!)
+    fn(c)
+    c.rev = (c.rev ?? 0) + 1
+    this.cards.set(id, c)
+    return structuredClone(c)
+  }
+  /** An edit made at home while the device was away. */
+  homeEdit(id: string, fn: (c: Card) => void) { this.save(id, fn) }
+
+  send: RpcSend = async (method, params) => {
+    this.calls.push(method)
+    if (this.down) throw new NetworkDown('fetch failed')
+    const id = params[0] as string
+    switch (method) {
+      case 'GetCard': return structuredClone(this.cards.get(id)!)
+      case 'ListCardTypes': return [{ id: 'blog', label: 'Blog Article' }]
+      case 'GetCardPinBreadcrumbs': return [PIN]
+      case 'UpdateCardDescription': return this.save(id, (c) => { c.description = params[1] as string })
+      case 'UpdateCardTitle': return this.save(id, (c) => { c.title = params[1] as string })
+      case 'CommitCardEdit': {
+        const [, rev, edit] = params as [string, number, CardEdit]
+        if ((this.cards.get(id)!.rev ?? 0) !== rev) return { conflict: true, card: structuredClone(this.cards.get(id)!) }
+        return {
+          conflict: false,
+          card: this.save(id, (c) => {
+            if (edit.title !== undefined) c.title = edit.title
+            if (edit.description !== undefined) c.description = edit.description
+            if (edit.tags) c.tags = edit.tags
+            if (edit.blocks) c.blocks = edit.blocks
+            if (edit.due_date !== undefined) c.due_date = edit.due_date || null
+          }),
+        }
+      }
+      case 'OpenCardAttachmentText': {
+        const text = this.files.get(`${id}/${params[1]}`)
+        if (text === undefined) throw new Error('attachment not found')
+        return { content: text, stamp: { hash: this.hash(text), size: text.length } }
+      }
+      case 'SaveCardAttachmentText': {
+        const [, att, content, expected] = params as [string, string, string, string]
+        const cur = this.files.get(`${id}/${att}`)
+        if (cur === undefined) throw new Error('attachment not found')
+        if (expected && this.hash(cur) !== expected) return { diverged: true, stamp: { hash: this.hash(cur), size: cur.length } }
+        this.files.set(`${id}/${att}`, content)
+        this.save(id, () => {})
+        return { diverged: false, stamp: { hash: this.hash(content), size: content.length } }
+      }
+      case 'AddCardAttachment': {
+        const [, name, b64] = params as [string, string, string]
+        const attId = `att-${name}`
+        this.files.set(`${id}/${attId}`, new TextDecoder().decode(Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0))))
+        return this.save(id, (c) => { c.file_attachments.push({ id: attId, name, path: '', mime: 'text/markdown', size: 0, added_at: '' }) })
+      }
+    }
+    throw new Error(`unexpected ${method}`)
+  }
+}
+
+const block = (id: string, value: string): Block => ({ id, type: 'text', label: id, key: '', value })
+function blogCard(): Card {
+  return {
+    id: 'post', title: 'Plane post', description: 'intro\nbody\noutro', type: 'blog', tags: ['blog'], due_date: null,
+    created_at: '2026-10-01T00:00:00Z', rev: 4, blocks: [block('notes', 'n')],
+    file_attachments: [{ id: 'a1', name: 'post.md', path: '', mime: 'text/markdown', size: 5, added_at: '' }],
+  }
+}
+
+let server: FakeServer
+let engine: OfflineEngine
+const call = (method: string, ...params: unknown[]) => engine.handle(method, params, server.send)
+
+beforeEach(async () => {
+  server = new FakeServer()
+  server.add(blogCard(), { a1: '# Draft\nfirst para' })
+  engine = new OfflineEngine({
+    storage: new MemoryStorage(),
+    reads: { ListCardTypes: 'board', GetCardPinBreadcrumbs: 'card' },
+    isNetworkError: (e) => e instanceof NetworkDown,
+    prefetch: async (_id, _card, fetch) => { await fetch('ListCardTypes', []) },
+  })
+  await engine.attach('https://ripped|vault', server.send)
+  await engine.mark('post')
+})
+
+async function goOffline() {
+  server.down = true
+  engine.setWorking(true)
+}
+async function comeBack() {
+  server.down = false
+  engine.setWorking(false)
+  await engine.sync()
+}
+
+describe('OfflineEngine', () => {
+  it('downloads the card, its text attachments and warm reads', async () => {
+    expect(engine.isMarked('post')).toBe(true)
+    expect(engine.summary('post')?.status).toBe('synced')
+    await goOffline()
+    expect(((await call('GetCard', 'post')) as Card).title).toBe('Plane post')
+    expect(await call('ListCardTypes')).toEqual([{ id: 'blog', label: 'Blog Article' }])
+    expect(await call('GetCardPinBreadcrumbs', 'post')).toEqual([PIN])
+    expect(engine.summary('post')?.places).toEqual([{ brand: 'Home', stream: 'Blog', project: 'Writing', category: 'Drafts' }])
+    expect((await call('OpenCardAttachmentText', 'post', 'a1')) as { content: string }).toMatchObject({ content: '# Draft\nfirst para' })
+  })
+
+  it('refuses what it cannot do offline', async () => {
+    await goOffline()
+    await expect(call('MoveCardToCategory', 'post', 'x')).rejects.toBeInstanceOf(OfflineUnavailableError)
+    await expect(call('GetCard', 'not-marked')).rejects.toBeInstanceOf(OfflineUnavailableError)
+  })
+
+  it('takes offline edits home when the card did not change meanwhile', async () => {
+    await goOffline()
+    await call('UpdateCardDescription', 'post', 'intro\nbody, written at 35,000 ft\noutro')
+    await call('UpdateCardTitle', 'post', 'Plane post (v2)')
+    expect(engine.summary('post')?.status).toBe('pending')
+    await comeBack()
+    const home = server.cards.get('post')!
+    expect(home.description).toBe('intro\nbody, written at 35,000 ft\noutro')
+    expect(home.title).toBe('Plane post (v2)')
+    expect(engine.summary('post')?.status).toBe('synced')
+    expect(server.calls.filter((c) => c === 'CommitCardEdit')).toHaveLength(1)
+  })
+
+  it('merges with edits made at home meanwhile', async () => {
+    await goOffline()
+    await call('UpdateCardDescription', 'post', 'intro, rewritten\nbody\noutro')
+    server.homeEdit('post', (c) => {
+      c.description = 'intro\nbody\noutro\nP.S. from home'
+      c.blocks = [...c.blocks, block('agent', 'status: reviewed')]
+    })
+    await comeBack()
+    const home = server.cards.get('post')!
+    expect(home.description).toBe('intro, rewritten\nbody\noutro\nP.S. from home')
+    expect(home.blocks.map((b) => b.id)).toEqual(['notes', 'agent'])
+    expect(engine.summary('post')?.status).toBe('synced')
+  })
+
+  it('holds a real conflict for the user, then syncs their choice', async () => {
+    await goOffline()
+    await call('UpdateCardTitle', 'post', 'Offline title')
+    server.homeEdit('post', (c) => { c.title = 'Home title' })
+    await comeBack()
+    expect(engine.summary('post')?.status).toBe('conflict')
+    expect(server.cards.get('post')!.title).toBe('Home title')
+    const { conflicts } = await engine.conflictsFor('post')
+    expect(conflicts.map((c) => [c.id, c.mine, c.theirs])).toEqual([['title', 'Offline title', 'Home title']])
+
+    await engine.resolve('post', 'title', 'mine')
+    expect(server.cards.get('post')!.title).toBe('Offline title')
+    expect(engine.summary('post')?.status).toBe('synced')
+  })
+
+  it('syncs an edited attachment, keeping both copies if home changed it too', async () => {
+    await goOffline()
+    const opened = (await call('OpenCardAttachmentText', 'post', 'a1')) as { stamp: { hash: string } }
+    const saved = (await call('SaveCardAttachmentText', 'post', 'a1', '# Draft\nwritten offline', opened.stamp.hash)) as { diverged: boolean }
+    expect(saved.diverged).toBe(false)
+    server.files.set('post/a1', '# Draft\nedited at home')
+    await comeBack()
+    expect(server.files.get('post/a1')).toBe('# Draft\nedited at home')
+    expect(server.files.get(`post/att-${offlineCopyName('post.md')}`)).toBe('# Draft\nwritten offline')
+    expect(engine.summary('post')?.keptBoth).toEqual(['post.md'])
+    expect(engine.summary('post')?.status).toBe('synced')
+  })
+
+  it('saves an edited attachment straight over an unchanged one', async () => {
+    await goOffline()
+    await call('SaveCardAttachmentText', 'post', 'a1', 'new text', '')
+    await comeBack()
+    expect(server.files.get('post/a1')).toBe('new text')
+    expect(engine.summary('post')?.keptBoth).toEqual([])
+  })
+
+  it('answers from the device when a live call fails for want of a network', async () => {
+    server.down = true // the surface hasn't noticed yet — no setWorking(true)
+    expect(((await call('GetCard', 'post')) as Card).id).toBe('post')
+    await call('UpdateCardDescription', 'post', 'typed as the wifi dropped')
+    expect(engine.summary('post')?.status).toBe('pending')
+    await expect(call('ListCards')).rejects.toBeInstanceOf(NetworkDown)
+    server.down = false
+    await engine.sync()
+    expect(server.cards.get('post')!.description).toBe('typed as the wifi dropped')
+  })
+
+  it('keeps live responses fresh for marked cards', async () => {
+    await call('UpdateCardDescription', 'post', 'edited online')
+    await new Promise((r) => setTimeout(r, 0))
+    await goOffline()
+    expect(((await call('GetCard', 'post')) as Card).description).toBe('edited online')
+  })
+
+  it('a copy stored before pins were kept shows no place until refreshed', async () => {
+    const storage = new MemoryStorage()
+    const old = new OfflineEngine({ storage, reads: {}, isNetworkError: (e) => e instanceof NetworkDown })
+    await old.attach('s|v', server.send)
+    await old.mark('post')
+    const rec = (await storage.listCards('s|v'))[0]
+    delete rec.places
+    await storage.putCard(rec)
+    await old.attach('s|v', server.send) // reload
+    expect(old.summary('post')?.places).toBeNull()
+    await old.refreshAll()
+    expect(old.summary('post')?.places?.[0]?.project).toBe('Writing')
+
+    // Places kept before the full path was are refetched too.
+    const rec2 = (await storage.listCards('s|v'))[0]
+    rec2.places = [{ project: 'Writing', category: 'Drafts' }]
+    await storage.putCard(rec2)
+    await old.attach('s|v', server.send)
+    await old.refreshAll()
+    expect(old.summary('post')?.places).toEqual([{ brand: 'Home', stream: 'Blog', project: 'Writing', category: 'Drafts' }])
+  })
+
+  it('unmarking forgets the card', async () => {
+    await engine.unmark('post')
+    expect(engine.isMarked('post')).toBe(false)
+    await goOffline()
+    await expect(call('ListCardTypes')).rejects.toBeInstanceOf(OfflineUnavailableError)
+  })
+
+  it('a stale offline sync never overwrites a newer home edit of the same field', async () => {
+    await goOffline()
+    await call('UpdateCardDescription', 'post', 'offline version')
+    server.homeEdit('post', (c) => { c.description = 'home version' })
+    await comeBack()
+    expect(server.cards.get('post')!.description).toBe('home version')
+    expect(engine.summary('post')?.status).toBe('conflict')
+    await engine.resolve('post', 'description', 'both')
+    expect(server.cards.get('post')!.description).toBe('home version\n\n---\n\noffline version')
+  })
+})

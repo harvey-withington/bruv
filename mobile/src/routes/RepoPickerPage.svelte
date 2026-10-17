@@ -6,6 +6,7 @@
   import { replace } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
   import { onReconnect } from '../lib/connectivity.svelte'
+  import { initOffline } from '../lib/offline.svelte'
   import ErrorState from '../components/ErrorState.svelte'
 
   // Server-side RepoSummary shape (transport/http/server.go).
@@ -67,6 +68,7 @@
     resetRepoMeta()
     saveActiveRepoID(repo.id)
     saveActiveRepoName(repo.name)
+    void initOffline() // the offline cache is per vault
     // Pre-warm card types + global tag colour map for the newly-
     // active repo. Per-project tags load lazily on first project /
     // card view.

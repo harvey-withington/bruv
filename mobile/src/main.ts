@@ -5,6 +5,7 @@ import { registerServiceWorker } from './lib/serviceWorker'
 import { loadLocale } from './lib/i18n.svelte'
 import { hasActiveRepo, isEnrolled } from './lib/auth'
 import { loadRepoMeta } from './lib/repoMeta.svelte'
+import { initOffline } from './lib/offline.svelte'
 // Side-effectful import — applies the user's persisted theme class to
 // <html> at module load, before any render. Without this the page
 // would briefly flash the default dark theme even for users who
@@ -23,6 +24,10 @@ loadLocale()
 if (isEnrolled() && hasActiveRepo()) {
   loadRepoMeta()
 }
+
+// Offline cards: route repo RPCs through the device cache. Attaching only
+// reads IndexedDB, so it works with no connection at all.
+void initOffline()
 
 const target = document.getElementById('app')
 if (!target) throw new Error('mobile: #app root element missing from index.html')

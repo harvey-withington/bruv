@@ -46,8 +46,8 @@ var repoRPCMethods = []string{
 	"UpdateProjectLabel",
 
 	// Cards
-	"AcceptPinSuggestion", "CreateCard", "DeleteCard", "DuplicateCard",
-	"GetCard", "GetCardLocation", "GetCardPinBreadcrumbs", "GetCardPins",
+	"AcceptPinSuggestion", "CommitCardEdit", "CreateCard", "DeleteCard",
+	"DuplicateCard", "GetCard", "GetCardLocation", "GetCardPinBreadcrumbs", "GetCardPins",
 	"GetCardProjectContext", "ListCardIDsByTag", "ListCardIDsInCategory",
 	"ListCards", "ListOrphanedCardIDs", "ListRecentlyUpdatedCards",
 	"MoveCardInCategory", "MoveCardToCategory", "PinCard",

@@ -27,6 +27,7 @@ func (r *Repository) CreateCard(cardType, title string) (*model.Card, error) {
 		Title:        title,
 		CreatedAt:    now,
 		UpdatedAt:    now,
+		Rev:          1,
 		ContextLevel: model.ContextProject,
 		Tags:         []string{},
 		Blocks:       []model.Block{},
@@ -207,6 +208,7 @@ func (r *Repository) MutateCard(id string, fn func(*model.Card) error) (*model.C
 		return nil, err
 	}
 	card.UpdatedAt = time.Now().UTC()
+	card.Rev++
 
 	if err := writeJSON(path, card); err != nil {
 		return nil, fmt.Errorf("write card: %w", err)
@@ -225,6 +227,7 @@ func (r *Repository) UpdateCardDirect(id string, card *model.Card) error {
 	path := r.cardFilePath(id)
 	unlock := lockPath(path)
 	defer unlock()
+	card.Rev++
 	return writeJSON(path, card)
 }
 
@@ -288,6 +291,7 @@ func (r *Repository) DuplicateCard(srcCardID string) (*model.Card, error) {
 	newCard.ID = uuid.New().String()
 	newCard.CreatedAt = now
 	newCard.UpdatedAt = now
+	newCard.Rev = 1
 
 	if len(src.FileAttachments) > 0 {
 		copies, err := r.duplicateAttachmentFiles(src.ID, newCard.ID, src.FileAttachments)

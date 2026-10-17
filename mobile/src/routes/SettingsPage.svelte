@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { ChevronLeft, Bell, BellOff, Sun, Moon, Smartphone, LogOut, Database, Activity } from 'lucide-svelte'
+  import { ChevronLeft, Bell, BellOff, Sun, Moon, Smartphone, LogOut, Database, Activity, CloudOff } from 'lucide-svelte'
+  import { offline } from '../lib/offline.svelte'
   import { navigate } from '../lib/router.svelte'
   import { clearEnrolment, readEnrolment } from '../lib/auth'
   import { stopEvents } from '../lib/events.svelte'
@@ -148,6 +149,16 @@
       </div>
       <span class="row-arrow" aria-hidden="true">›</span>
     </button>
+    {#if offline.scope}
+      <button type="button" class="row" onclick={() => navigate('/offline')}>
+        <span class="row-icon"><CloudOff size={18} /></span>
+        <div class="row-text">
+          <span class="row-title">{t('settings.offline_cards')}</span>
+          <span class="row-sub">{t('settings.offline_cards_sub', { count: offline.cards.length })}</span>
+        </div>
+        <span class="row-arrow" aria-hidden="true">›</span>
+      </button>
+    {/if}
   </section>
 
   <!-- Account -->

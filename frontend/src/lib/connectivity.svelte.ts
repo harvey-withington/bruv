@@ -25,12 +25,44 @@ let probeTimer: ReturnType<typeof setTimeout> | null = null
 let suspected = false
 // Calls parked in the RPC layer awaiting reconnection. Released together
 // on recovery (or immediately if a suspected drop turns out transient).
-let waiters: Array<() => void> = []
+type Waiter = { resolve: () => void; reject: (e: Error) => void }
+let waiters: Waiter[] = []
 
 function releaseWaiters(): void {
   const pending = waiters
   waiters = []
-  for (const resolve of pending) resolve()
+  for (const w of pending) w.resolve()
+}
+
+/** Thrown out of every parked call when the user chooses to work offline:
+ *  the offline layer answers what it can from the device instead. */
+export class WorkingOfflineError extends Error {
+  constructor() {
+    super('working offline')
+    this.name = 'WorkingOfflineError'
+  }
+}
+
+/** Fail every parked call now (working offline) instead of waiting for
+ *  the connection; probing carries on, so recovery is still noticed. */
+export function abandonParkedCalls(): void {
+  const pending = waiters
+  waiters = []
+  for (const w of pending) w.reject(new WorkingOfflineError())
+}
+
+const recoveryListeners = new Set<() => void>()
+/** Run `fn` each time the remote comes back. Returns an unsubscribe. */
+export function onRecovered(fn: () => void): () => void {
+  recoveryListeners.add(fn)
+  return () => recoveryListeners.delete(fn)
+}
+
+/** Treat the remote as down and poll for it — for a boot that found it
+ *  unreachable and went on to work offline. */
+export function watchForReconnect(): void {
+  connectivity.offline = true
+  startProbing()
 }
 
 // Confirm a reported failure with a direct probe before blurring — a
@@ -114,15 +146,19 @@ function recovered(): void {
   // Release every parked RPC so the views that stalled during the outage
   // resolve in place — no reload, optimistic edits intact.
   releaseWaiters()
+  for (const fn of recoveryListeners) fn()
 }
 
 /** Wire the resilience strategy into the cloud adapter. Call once at
  *  startup, before any RPC. */
 export function installResilience(): void {
+  // The machine itself dropped its network: confirm right away rather
+  // than waiting for a request to stall.
+  window.addEventListener('offline', () => { if (!isLocalActive()) void checkReachable() })
   setNetworkResilience({
     shouldHandleOffline: () => !isLocalActive(),
     onNetworkFailure: () => void confirmOffline(),
     onSlowRequest: () => void checkReachable(),
-    whenReconnected: () => new Promise<void>((resolve) => waiters.push(resolve)),
+    whenReconnected: () => new Promise<void>((resolve, reject) => waiters.push({ resolve, reject })),
   })
 }

@@ -127,6 +127,13 @@ func (r *Runtime) UpdateCardDueDate(id, dueDate string) (*model.Card, error) {
 	return r.Card.UpdateDueDate(id, dueDate)
 }
 
+// CommitCardEdit applies a content edit only if the card is still at
+// expectedRev — how a device syncs edits it made offline. On a moved
+// revision nothing is written and the result carries the current card.
+func (r *Runtime) CommitCardEdit(id string, expectedRev int64, edit model.CardEdit) (*model.CardCommitResult, error) {
+	return r.Card.CommitEdit(id, expectedRev, edit)
+}
+
 // --- Category helpers / pins / moves ---
 
 func (r *Runtime) GetCategoryAcceptedTypes(categoryID string) ([]string, error) {

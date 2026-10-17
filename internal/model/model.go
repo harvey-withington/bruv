@@ -219,12 +219,17 @@ type FileAttachment struct {
 // One Block in the data is one Field in the UI; templates pre-define
 // these and switching Card Type merges them into the card.
 type Card struct {
-	ID              string           `json:"id"`
-	Type            string           `json:"type"`
-	Title           string           `json:"title"`
-	Description     string           `json:"description,omitempty"`
-	CreatedAt       time.Time        `json:"created_at"`
-	UpdatedAt       time.Time        `json:"updated_at"`
+	ID          string    `json:"id"`
+	Type        string    `json:"type"`
+	Title       string    `json:"title"`
+	Description string    `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	// Rev counts saves: every write of the card file bumps it (cards
+	// written before revisions existed read as 0). Offline edits name the
+	// revision they were made against so a sync can tell whether the card
+	// changed meanwhile — wall clocks across devices can't.
+	Rev             int64            `json:"rev,omitempty"`
 	ContextLevel    ContextLevel     `json:"context_level"`
 	DueDate         *time.Time       `json:"due_date"`
 	Tags            []string         `json:"tags"`
@@ -232,6 +237,26 @@ type Card struct {
 	Members         []string         `json:"members,omitempty"` // member IDs/usernames
 	Blocks          []Block          `json:"blocks"`
 	FileAttachments []FileAttachment `json:"file_attachments,omitempty"`
+}
+
+// CardEdit is a content edit applied only if the card is still at an
+// expected revision (CommitCardEdit). Nil fields are left alone; DueDate
+// "" clears the date. The type, attachments and placement are never part
+// of it — offline editing covers content only.
+type CardEdit struct {
+	Title       *string   `json:"title,omitempty"`
+	Description *string   `json:"description,omitempty"`
+	DueDate     *string   `json:"due_date,omitempty"`
+	Tags        *[]string `json:"tags,omitempty"`
+	Blocks      *[]Block  `json:"blocks,omitempty"`
+}
+
+// CardCommitResult reports a CommitCardEdit. Conflict means the card had
+// moved past the expected revision and nothing was written; Card is then
+// the current card so the caller can merge against it and retry.
+type CardCommitResult struct {
+	Conflict bool  `json:"conflict"`
+	Card     *Card `json:"card"`
 }
 
 // WorkspaceFileEntry is one item of a BlockWorkspaceFiles value: a file or

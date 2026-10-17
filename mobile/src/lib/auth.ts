@@ -11,8 +11,10 @@ import { reportOffline, checkReachable } from './connectivity.svelte'
 
 // A request still pending after this long triggers an early reachability
 // probe (without aborting it) so a dropped connection surfaces in seconds
-// rather than waiting out the browser's native socket timeout.
-const SLOW_REQUEST_MS = 5000
+// rather than waiting out the browser's native socket timeout. Short:
+// the probe is cheap, and a dead tunnel otherwise freezes the page for
+// the whole socket timeout before Work offline is offered.
+const SLOW_REQUEST_MS = 2500
 
 /** Thrown by apiFetch when a request never reaches the server (offline,
  *  DNS, tunnel down). Lets callers tell a connectivity failure apart from
@@ -307,9 +309,22 @@ async function rpcCall<T>(endpoint: string, method: string, params: unknown[]): 
  * returns an error.
  */
 export async function repoRPC<T = unknown>(method: string, params: unknown[] = []): Promise<T> {
+  return (repoInterceptor ? repoInterceptor(method, params, sendRepoRPC) : sendRepoRPC(method, params)) as Promise<T>
+}
+
+/** repoRPC without the interceptor — the transport call itself. */
+export async function sendRepoRPC(method: string, params: unknown[]): Promise<unknown> {
   const repoID = readActiveRepoID()
   if (!repoID) throw new Error(t('error.no_active_repo'))
-  return rpcCall<T>(`/repos/${encodeURIComponent(repoID)}/rpc`, method, params)
+  return rpcCall<unknown>(`/repos/${encodeURIComponent(repoID)}/rpc`, method, params)
+}
+
+// One hook every per-repo RPC passes through, so the offline layer
+// (lib/offline.svelte.ts) can answer from the device's copy of a card.
+export type RepoRpcInterceptor = (method: string, params: unknown[], send: (method: string, params: unknown[]) => Promise<unknown>) => Promise<unknown>
+let repoInterceptor: RepoRpcInterceptor | null = null
+export function setRepoRpcInterceptor(i: RepoRpcInterceptor | null): void {
+  repoInterceptor = i
 }
 
 /**

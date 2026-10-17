@@ -136,6 +136,7 @@ export const UpdateCardTitle = (...args: Parameters<ReturnType<typeof getBackend
 export const UpdateCardType = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardType']>) => getBackend().UpdateCardType(...args)
 export const RefreshTypeBlocks = (...args: Parameters<ReturnType<typeof getBackend>['RefreshTypeBlocks']>) => getBackend().RefreshTypeBlocks(...args)
 export const UpdateCardDescription = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardDescription']>) => getBackend().UpdateCardDescription(...args)
+export const CommitCardEdit = (...args: Parameters<ReturnType<typeof getBackend>['CommitCardEdit']>) => getBackend().CommitCardEdit(...args)
 export const UpdateCardBlocks = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardBlocks']>) => getBackend().UpdateCardBlocks(...args)
 export const UpdateCardTags = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardTags']>) => getBackend().UpdateCardTags(...args)
 export const UpdateCardLabels = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardLabels']>) => getBackend().UpdateCardLabels(...args)

@@ -807,3 +807,22 @@ Builds stamp their commit's time (`-X main.CommitDate=…`, set by `scripts/depl
 - Unstamped builds (`wails dev`, plain `go build`) and servers predating `commit_date` never warn — no false alarms.
 - Dismissing stores `<app version>|<server version>`, so it comes back only when either build changes.
 - Local connections run the same binary, so they never trip it. Mobile is served by the server it talks to, so it can't be newer than the server — desktop only by design.
+
+---
+
+## 26. Offline cards — `shared/offline/`, `lib/offline.svelte.ts` (both surfaces)
+
+**Contract (2026-10-17):** a card marked *Available offline* on a device can be opened and edited with no connection, and its edits reach home without overwriting anything changed there meanwhile. Design: BRUV card "Offline cards" (08a5bb15), `plan/2026-10-17 offline cards.md`.
+
+**One choke point.** Every per-repo RPC passes through `offline.handle(method, params, send)` — desktop via `setRpcInterceptor` in `shared/adapters/cloud.ts`, mobile via `setRepoRpcInterceptor` in `lib/auth.ts`. With no vault attached (Local connection, no storage) it is a pass-through. Components don't know about it: `GetCard`, the content `UpdateCard*` writes and the text-attachment trio (`Open/Stat/SaveCardAttachmentText`) answer from the device's copy when working offline, when a live call fails for want of a network, or while the card has unsynced edits. Any other call offline throws `OfflineUnavailableError` — handle it like any failed call (toast / error state).
+
+**What's cached.** The card (`base` = the server copy, `local` = the working copy), its text attachments' content + server hash, and the reads listed in each surface's `reads` table (breadcrumbs, comments, card types, tag colours, project tags…), warmed by `prefetch` on download and refreshed from live responses. Images, media and Workspace Files aren't — they show their normal failure offline.
+
+**Sync is by state, never by replay.** `CommitCardEdit(id, expectedRev, edit)` applies only if the card is still at the revision the copy was taken at (`Card.rev`, bumped by every save in `repo.MutateCard`). On a moved revision the engine merges three-way (`shared/offline/merge.ts`: fields one by one, tags as a set, blocks and checklist items by id, text by line via `diff3.ts`) and commits the result; what both sides changed differently becomes a conflict the user resolves (`OfflineConflictDialog` / `OfflineConflictSheet`: keep this device's / home's / both). Text attachments save guarded by the downloaded hash; if home changed the file too, the offline copy is added as "name (offline).ext" and the card says so.
+
+**Working offline is a mode, not a page state.** Desktop: the connection overlay and the unreachable-at-boot screen offer *Work offline (N cards)* → `OfflineWorkspace` replaces the app (parked RPCs are failed over with `WorkingOfflineError`); the card dialog hides placement, agents, runs, chat, promote, share and delete. Back online it syncs on its own; *Back to your projects* reloads. Mobile: the overlay offers the same → `/offline` (`OfflinePage`), with `OfflineBar` on every other page while offline; a card opened from there carries `{ fromOffline }` and Back returns to the list (never the hierarchy, which isn't on the device). The engine leaves working-offline on reconnect and syncs. Both offline lists (and the desktop card dialog, whose pin panel is hidden) show where each card is pinned as the full Brand › Stream › Project › Category path, one line per pin — `summary.places`, kept from `GetCardPinBreadcrumbs`, via `placesText`. `places: null` means not known yet (a copy stored before pins were kept): show nothing until the next online refresh fills it, never a wrong "Inbox".
+
+**Detection is quick.** A request still pending after 2.5 s triggers a reachability probe that itself gives up after 3 s, and the browser's `offline` event (or starting with no network) skips straight to it — so a dead link offers *Work offline* within ~5 s instead of freezing for the socket timeout.
+
+**Marking.** `OfflineToggle` (desktop card footer) / `OfflineToggleButton` (mobile card footer); desktop category headers have a *make every card available offline* action. Unmarking a card with unsynced edits confirms first. Marking requests persistent storage; on iOS in a browser tab it explains that only home-screen apps keep the cache. A marked card shows a small cloud-off mark beside its type badge wherever it's listed in a project. User-facing wording says *project* and *category*, never "board".
+

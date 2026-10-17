@@ -26,6 +26,16 @@ let probeTimer: ReturnType<typeof setTimeout> | null = null
 let suspected = false
 
 const PROBE_INTERVAL_MS = 3000
+// A probe that hasn't answered by now counts as unreachable — a dead
+// tunnel otherwise hangs the fetch for the native socket timeout.
+const PROBE_TIMEOUT_MS = 3000
+
+// The device itself has no network (at launch, or dropping it later): no
+// need to wait for a request to stall before saying so.
+if (typeof window !== 'undefined') {
+  window.addEventListener('offline', () => reportOffline())
+  if (navigator.onLine === false) queueMicrotask(() => reportOffline())
+}
 
 // Handlers run when connectivity is restored — typically the mounted
 // page's data loader, so the view it owns refreshes in place.
@@ -44,11 +54,15 @@ export function onReconnect(handler: () => void): () => void {
 async function pingServer(): Promise<boolean> {
   const enrolment = readEnrolment()
   if (!enrolment) return false
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS)
   try {
-    const res = await fetch(`${enrolment.serverURL}/version`, { cache: 'no-store' })
+    const res = await fetch(`${enrolment.serverURL}/version`, { cache: 'no-store', signal: ctrl.signal })
     return res.ok
   } catch {
     return false
+  } finally {
+    clearTimeout(timer)
   }
 }
 

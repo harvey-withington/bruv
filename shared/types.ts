@@ -646,11 +646,31 @@ export type Card = {
   due_date: string | null
   created_at: string
   updated_at?: string
+  /** Save counter, bumped by every write of the card (absent = 0). An
+   *  offline edit names the revision it was made against. */
+  rev?: number
   context_level?: string    // "isolated" | "project" | "brand" | "global"
   labels?: string[]         // label IDs from the project's tags.json
   blocks: Block[]
   file_attachments: Attachment[]
   members?: string[]
+}
+
+/** A content edit for CommitCardEdit. Omitted fields are left alone;
+ *  due_date "" clears the date. */
+export type CardEdit = {
+  title?: string
+  description?: string
+  due_date?: string
+  tags?: string[]
+  blocks?: Block[]
+}
+
+/** conflict: the card had moved past the expected revision, nothing was
+ *  written, and `card` is the current card to merge against. */
+export type CardCommitResult = {
+  conflict: boolean
+  card: Card
 }
 
 // CardPin mirrors Go's card.CategoryPath — a category's full
@@ -1405,6 +1425,8 @@ export interface BackendAdapter {
   UpdateCardTags(id: string, tags: string[]): Promise<Card>
   UpdateCardLabels(id: string, labelIDs: string[]): Promise<Card>
   UpdateCardDueDate(id: string, dueDate: string): Promise<Card>
+  /** Apply `edit` only if the card is still at `expectedRev` (offline sync). */
+  CommitCardEdit(id: string, expectedRev: number, edit: CardEdit): Promise<CardCommitResult>
 
   // Pins
   PinCard(cardID: string, categoryID: string): Promise<void>

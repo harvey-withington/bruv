@@ -2,7 +2,8 @@
   import CardItem from './CardItem.svelte'
   import DynamicIcon from './DynamicIcon.svelte'
   import IconPicker from './IconPicker.svelte'
-  import { Trash2, Layers, Smile, Upload, Loader2 } from 'lucide-svelte'
+  import { Trash2, Layers, Smile, Upload, Loader2, CloudOff } from 'lucide-svelte'
+  import { offline, markAllOffline } from '../lib/offline.svelte'
   import { dnd, prefs, columnSettings, cardTypes } from '../lib/store.svelte'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
@@ -325,6 +326,14 @@
             title={t('icon.pick')}
             onclick={(e: MouseEvent) => { e.stopPropagation(); showIconPicker = true }}
           ><Smile size={13} /></button>
+          {#if offline.scope && category.cards.length > 0}
+            <button
+              class="col-action-btn"
+              title={t('offline.column_mark_all')}
+              disabled={offline.working}
+              onclick={(e: MouseEvent) => { e.stopPropagation(); void markAllOffline(category.cards.map((c) => c.id)) }}
+            ><CloudOff size={13} /></button>
+          {/if}
           <button
             class="col-action-btn"
             bind:this={settingsBtnEl}

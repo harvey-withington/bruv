@@ -4,16 +4,20 @@
   //   - Test again (re-run the probe; reload on success)
   //   - Use Local (switch the active connection back to Local)
   //   - Manage connections (open the dialog to add/edit/remove)
+  //   - Work offline, when cards are kept on this device
 
-  import { Server, AlertTriangle, RefreshCw, Monitor, Settings } from 'lucide-svelte'
+  import { Server, AlertTriangle, RefreshCw, Monitor, Settings, CloudOff } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
   import BruvIcon from './BruvIcon.svelte'
   import { activeConnectionLabel, switchConnection, connections } from '../lib/connections.svelte'
   import { probeBackend } from '../lib/repos.svelte'
 
-  let { onOpenConnections, onProbeOk }: {
+  let { onOpenConnections, onProbeOk, offlineCount = 0, onWorkOffline }: {
     onOpenConnections?: () => void
     onProbeOk?: () => void
+    /** Cards kept on this device for this vault. */
+    offlineCount?: number
+    onWorkOffline?: () => void
   } = $props()
 
   let testing = $state(false)
@@ -64,7 +68,12 @@
     </div>
 
     <div class="actions">
-      <button class="btn-primary" onclick={testAgain} disabled={testing}>
+      {#if offlineCount > 0 && onWorkOffline}
+        <button class="btn-primary" onclick={onWorkOffline}>
+          <CloudOff size={14} /> {t('offline.work_offline', { count: offlineCount })}
+        </button>
+      {/if}
+      <button class={offlineCount > 0 && onWorkOffline ? 'btn-secondary' : 'btn-primary'} onclick={testAgain} disabled={testing}>
         <RefreshCw size={14} />
         {testing ? t('common.loading') : t('remote.test_again')}
       </button>

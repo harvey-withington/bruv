@@ -3,7 +3,7 @@
   import { EditScope, EDIT_SCOPE_KEY } from '@shared/editScope'
   import { repoRPC, NetworkError } from '../lib/auth'
   import { onReconnect } from '../lib/connectivity.svelte'
-  import { navigate, projectURL, cardURL } from '../lib/router.svelte'
+  import { navigate, replace, projectURL, cardURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
   import { renderInline } from '@shared/markdown'
   import { Trash2, MapPin, Plus, X, RefreshCw, Search, Paperclip, MessageSquare, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, ArrowUpRight, MonitorUp, Sparkles } from 'lucide-svelte'
@@ -25,6 +25,9 @@
   import CardShareMenu from '../components/CardShareMenu.svelte'
   import PromoteCardSheet from '../components/PromoteCardSheet.svelte'
   import ChatButton from '../components/chat/ChatButton.svelte'
+  import OfflineCardNotices from '../components/OfflineCardNotices.svelte'
+  import OfflineToggleButton from '../components/OfflineToggleButton.svelte'
+  import { offline } from '../lib/offline.svelte'
   import { isPopulating, populateFinished } from '../lib/aiCreate.svelte'
   import { getCardTypeColor, getCardTypeTextColor, getCardTypeLabel } from '@shared/cardTypes'
   import { repoMeta, ensureRepoMeta, loadProjectTags, projectKey as makeProjectKey } from '../lib/repoMeta.svelte'
@@ -117,6 +120,12 @@
   function onBackClick() {
     if (backTapConsumed) {
       backTapConsumed = false
+      return
+    }
+    // Working offline the hierarchy isn't on the device: Back returns to
+    // the offline cards (where the card was opened from, normally).
+    if (offline.working && !(history.state as { fromOffline?: boolean } | null)?.fromOffline) {
+      replace('/offline')
       return
     }
     history.back()
@@ -379,7 +388,7 @@
       } catch {
         /* unpinned card or RPC error — global tag colours only */
       }
-      synthesizeBackStack(loc)
+      if (!offline.working) synthesizeBackStack(loc)
       // Pin breadcrumbs power the "Pinned in" section + per-pin unpin.
       // Orphan cards just get an empty array.
       try {
@@ -948,7 +957,9 @@
         <span class="chip saved">{t('card.saved')}</span>
       {/if}
     </span>
-    <ChatButton scope={{ kind: 'card', cardID: id }} bind:open={chatOpen} />
+    {#if !offline.working}
+      <ChatButton scope={{ kind: 'card', cardID: id }} bind:open={chatOpen} />
+    {/if}
     <button type="button" class="topbar-search" onclick={() => (searchOpen = true)} aria-label={t('browse.search')} title={t('browse.search')}>
       <Search size={18} />
     </button>
@@ -966,6 +977,7 @@
     <ErrorState message={errorMsg} />
   {:else if card}
     <section class="meta">
+      <OfflineCardNotices cardId={card.id} />
       {#if isPopulating(id)}
         <div class="ai-populating" role="status" aria-live="polite">
           <span class="pending-icon" aria-hidden="true"><Sparkles size={16} /></span>
@@ -1204,15 +1216,19 @@
     <footer class="actions">
       <span class="created">{t('card.created')} {createdDate(card.created_at)}</span>
       <span class="actions-right">
-        <button type="button" class="promote-link" onclick={() => (promoteOpen = true)} title={t('tooltip.promote_card')}>
-          <ArrowUpRight size={14} />
-          {t('promote.action')}
-        </button>
-        <CardShareMenu {card} bind:open={shareMenuOpen} />
-        <button type="button" class="danger-link" onclick={() => (confirmingDelete = true)}>
-          <Trash2 size={14} />
-          {t('common.delete')}
-        </button>
+        <OfflineToggleButton cardId={card.id} title={card.title} />
+        <!-- Placement, sharing and deletion need the server. -->
+        {#if !offline.working}
+          <button type="button" class="promote-link" onclick={() => (promoteOpen = true)} title={t('tooltip.promote_card')}>
+            <ArrowUpRight size={14} />
+            {t('promote.action')}
+          </button>
+          <CardShareMenu {card} bind:open={shareMenuOpen} />
+          <button type="button" class="danger-link" onclick={() => (confirmingDelete = true)}>
+            <Trash2 size={14} />
+            {t('common.delete')}
+          </button>
+        {/if}
       </span>
     </footer>
   {/if}
@@ -1753,6 +1769,8 @@
   .actions-right {
     display: inline-flex;
     align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
     gap: 0.25rem;
   }
 

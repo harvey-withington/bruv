@@ -17,6 +17,9 @@ export type OfflineAttachment = {
   baseHash: string
   /** Edited offline and not yet synced; null when clean. */
   local: string | null
+  /** Added on this device while offline (see pendingAttachments): base is
+   *  its content, and sync uploads it rather than saving over a file. */
+  pending?: boolean
 }
 
 /** A non-text attachment kept on the device (PDF, image…) — what the
@@ -78,6 +81,10 @@ export type OfflineCardRecord = {
   /** Made on this device while offline and not on the server yet; the
    *  next sync creates it there under the same id. */
   created?: boolean
+  /** Attachments added on this device while offline, in the order added,
+   *  under device ids (`offline-…`). Their bytes are in the files store
+   *  (or `attachments`, for text); sync uploads them. */
+  pendingAttachments?: OfflineFileInfo[]
 }
 
 /** A cached read response, keyed by method and arguments. */

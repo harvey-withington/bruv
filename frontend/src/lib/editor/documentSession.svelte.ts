@@ -1,5 +1,6 @@
 import type { WorkspaceFileStamp } from '@shared/types'
-import type { DocumentSource } from './documentSource'
+import type { DocumentSource, SavedAs } from './documentSource'
+import { saveAsAndRestore } from '@shared/documentSource'
 
 /**
  * Decisions only the user can make, injected so the session stays free of
@@ -48,6 +49,9 @@ export class DocumentSession {
   syncError = $state('')
 
   readonly dirty = $derived(this.text !== this.savedText)
+  /** The document as it was when opened (or last reloaded) — what Save as
+   *  puts back, since autosave has been overwriting it all along. */
+  private openedText = ''
 
   private timer: ReturnType<typeof setTimeout> | null = null
   /** The running save (incl. its diverged prompt), so flush/close can wait for it. */
@@ -69,6 +73,7 @@ export class DocumentSession {
       if (this.disposed) return
       this.text = file.content
       this.savedText = file.content
+      this.openedText = file.content
       this.stamp = file.stamp
       this.status = 'ready'
     } catch (e) {
@@ -210,10 +215,25 @@ export class DocumentSession {
     if (this.disposed) return
     this.text = file.content
     this.savedText = file.content
+    this.openedText = file.content
     this.stamp = file.stamp
     this.saveError = ''
     this.syncError = ''
     this.paused = false
+  }
+
+  /**
+   * Save as (shared saveAsAndRestore): the draft becomes a new document
+   * `name` and this one goes back to how it was when opened. This session
+   * is disposed; open the returned source in a new one.
+   */
+  async saveAs(name: string): Promise<SavedAs> {
+    await this.settle()
+    if (this.timer) { clearTimeout(this.timer); this.timer = null }
+    const saved = await saveAsAndRestore(this.source, name, this.text, this.openedText, this.savedText, this.stamp?.hash ?? '')
+    this.text = this.savedText = this.openedText
+    this.dispose()
+    return saved
   }
 
   /**

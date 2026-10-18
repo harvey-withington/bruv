@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
-  import { X, Eye, PencilLine, AlertTriangle } from 'lucide-svelte'
+  import { X, Eye, PencilLine, AlertTriangle, CopyPlus } from 'lucide-svelte'
   import { documentFormatForPath, documentName } from '@shared/documentFormats'
   import { inlineEdit } from '@shared/inlineEdit'
   import { EditScope } from '@shared/editScope'
@@ -8,8 +8,11 @@
   import type { WorkspaceFileStamp } from '@shared/types'
   import { t } from '../lib/i18n.svelte'
   import { autoGrow } from '../lib/actions/autoGrow'
-  import type { DocumentSource } from '../lib/documentSource'
+  import type { DocumentSource, SavedAs } from '../lib/documentSource'
+  import { saveAsAndRestore, saveAsName } from '@shared/documentSource'
+  import { showToast } from '../lib/toast.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
+  import SaveAsBar from './SaveAsBar.svelte'
   import EditorDoneButton from './EditorDoneButton.svelte'
 
   // A document on the phone: rendered preview by default (readable
@@ -19,10 +22,20 @@
   // asks overwrite-or-reload, never clobbers. Deliberate asymmetry with
   // desktop — no CodeMirror, no outline — the phone edits a paragraph,
   // it doesn't author a manuscript.
-  let { source, onClose }: { source: DocumentSource; onClose: () => void } = $props()
+  let { source, onClose, onSavedAs }: {
+    source: DocumentSource
+    onClose: () => void
+    /** Save as finished (the sheet carries on in the copy) — for the
+     *  host's attachment list. */
+    onSavedAs?: (saved: SavedAs) => void
+  } = $props()
 
-  const name = $derived(documentName(source.path))
-  const format = $derived(documentFormatForPath(source.path))
+  // The document on screen: the prop, until Save as moves to the copy.
+  // svelte-ignore state_referenced_locally
+  let doc = $state<DocumentSource>(source)
+
+  const name = $derived(documentName(doc.path))
+  const format = $derived(documentFormatForPath(doc.path))
 
   let status = $state<'loading' | 'ready' | 'error'>('loading')
   let loadError = $state('')
@@ -38,6 +51,9 @@
   let confirmingDiscard = $state(false)
   let textareaEl: HTMLTextAreaElement | undefined = $state()
   let lastSaved = ''
+  // How the document was when opened — what Save as puts back.
+  let openedText = ''
+  let savingAs = $state<'closed' | 'open' | 'busy'>('closed')
   let saveTimer: ReturnType<typeof setTimeout> | null = null
 
   const editScope = new EditScope()
@@ -77,10 +93,11 @@
   async function load() {
     status = 'loading'
     try {
-      const doc = await source.open()
-      text = doc.content
-      stamp = doc.stamp
-      lastSaved = doc.content
+      const file = await doc.open()
+      text = file.content
+      stamp = file.stamp
+      lastSaved = file.content
+      openedText = file.content
       status = 'ready'
     } catch (e) {
       loadError = e instanceof Error ? e.message : String(e)
@@ -101,7 +118,7 @@
   // (desktop DocumentSession has the same one-at-a-time guard).
   const saver = createSerialSaver<{ content: string; overwrite: boolean }>(async ({ content, overwrite }) => {
     if (diverged && !overwrite) return // queued before the refusal — the prompt decides now
-    const res = await source.save(content, overwrite ? '' : (stamp?.hash ?? ''))
+    const res = await doc.save(content, overwrite ? '' : (stamp?.hash ?? ''))
     if (res.diverged) {
       diverged = true
       return
@@ -131,6 +148,25 @@
       saving = saver.busy
     }
     return !diverged && text === lastSaved
+  }
+
+  /** Save as (shared saveAsAndRestore): the draft becomes the copy, the
+   *  original goes back to how it was when opened. */
+  async function saveAs(typed: string) {
+    savingAs = 'busy'
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
+    try {
+      await saver.idle()
+      const saved = await saveAsAndRestore(doc, saveAsName(typed, doc.path), text, openedText, lastSaved, stamp?.hash ?? '')
+      savingAs = 'closed'
+      onSavedAs?.(saved)
+      // Carry on in the copy (the draft is its content).
+      doc = saved.source
+      await load()
+    } catch (e) {
+      savingAs = 'open'
+      showToast(`${t('document.save_as_failed')}: ${e instanceof Error ? e.message : String(e)}`, 'error')
+    }
   }
 
   async function reloadFromDisk() {
@@ -174,6 +210,12 @@
   // before the page underneath reacts (UI-CONVENTIONS §8.1).
   function onWindowKeydownCapture(e: KeyboardEvent) {
     if (diverged || confirmingDiscard) return // the ConfirmDialog owns the keys
+    if (e.key === 'Escape' && savingAs === 'open') {
+      e.preventDefault()
+      e.stopPropagation()
+      savingAs = 'closed'
+      return
+    }
     if (e.key === 'Escape') {
       if (editScope.hasActive()) return
       e.preventDefault()
@@ -195,9 +237,14 @@
 <div class="sheet" role="dialog" aria-label={name}>
   <div class="header">
     <span class="grabber" aria-hidden="true"></span>
-    <span class="title" title={source.path}>{name}</span>
+    <span class="title" title={doc.path}>{name}</span>
     {#if status === 'ready'}
       <span class="state" class:on={savedFlash || saving}>{saving ? t('document.saving') : savedFlash ? t('document.saved') : ''}</span>
+      {#if doc.saveAs}
+        <button type="button" class="icon-btn" class:active={savingAs !== 'closed'} onclick={() => (savingAs = savingAs === 'closed' ? 'open' : 'closed')} aria-label={t('document.save_as')} title={t('document.save_as')}>
+          <CopyPlus size={16} />
+        </button>
+      {/if}
       <button type="button" class="icon-btn" class:active={mode === 'edit'} onclick={() => mode === 'edit' ? commitEdit() : void startEdit()} aria-label={mode === 'edit' ? t('document.preview') : t('document.edit')}>
         {#if mode === 'edit'}<Eye size={16} />{:else}<PencilLine size={16} />{/if}
       </button>
@@ -207,6 +254,9 @@
     </button>
   </div>
 
+  {#if savingAs !== 'closed'}
+    <SaveAsBar original={name} busy={savingAs === 'busy'} onSave={(n) => void saveAs(n)} onCancel={() => (savingAs = 'closed')} />
+  {/if}
   {#if saveError}
     <div class="banner banner-error" role="alert"><AlertTriangle size={14} /> {t('document.save_failed', { error: saveError })}</div>
   {/if}

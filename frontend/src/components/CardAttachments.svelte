@@ -194,7 +194,7 @@
 </section>
 
 {#if editingAttachment}
-  <AttachmentDocumentViewer {cardId} attachment={editingAttachment} onClose={() => editingAttachment = null} />
+  <AttachmentDocumentViewer {cardId} attachment={editingAttachment} onClose={() => editingAttachment = null} {onCardUpdated} />
 {/if}
 
 {#if previewAttachment}

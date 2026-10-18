@@ -794,5 +794,10 @@
   "offline.new_card": "New card",
   "offline.new_card_placeholder": "New card title — it goes in your Inbox",
   "offline.new_card_failed": "Couldn't make the card",
-  "offline.status_new": "New — goes home on the next sync"
+  "offline.status_new": "New — goes home on the next sync",
+  "document.save_as": "Save as…",
+  "document.save_as_label": "Save as",
+  "document.save_as_confirm": "Save copy",
+  "document.save_as_hint": "Your edits go into the new attachment, and this one goes back to how it was when you opened it.",
+  "document.save_as_failed": "Couldn't save the copy"
 }

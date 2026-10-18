@@ -15,6 +15,7 @@
 
 import type { Card, CardCommitResult, CardEdit, CardPin, WorkspaceFileContent, WorkspaceFileStamp, WorkspaceSaveResult } from '../types'
 import { isEditableTextAttachment } from '../attachmentText'
+import { nameWithSuffix, utf8Base64 } from '../documentSource'
 import { applyResolutions, cardEditBetween, isEmptyEdit, mergeCard, type ConflictChoice, type OfflineConflict } from './merge'
 import { cardKey, fileKey, responseKey, type OfflineAttachment, type OfflineCardRecord, type OfflineFileInfo, type OfflinePlace, type OfflineStorage } from './storage'
 
@@ -275,7 +276,7 @@ export class OfflineEngine {
 
   private revokeURL(fk: string): void {
     const url = this.objectURLs.get(fk)
-    if (url) URL.revokeObjectURL(url)
+    if (url && typeof URL.revokeObjectURL === 'function') URL.revokeObjectURL(url)
     this.objectURLs.delete(fk)
   }
 
@@ -358,7 +359,7 @@ export class OfflineEngine {
 
   private async canAnswer(method: string, params: unknown[]): Promise<boolean> {
     const cardId = typeof params[0] === 'string' ? params[0] : ''
-    if (cardId && this.isMarked(cardId) && (CARD_WRITES.has(method) || TEXT_ATTACHMENT_CALLS.has(method) || method === 'GetCard')) return true
+    if (cardId && this.isMarked(cardId) && (CARD_WRITES.has(method) || TEXT_ATTACHMENT_CALLS.has(method) || method === 'GetCard' || method === 'AddCardAttachment')) return true
     if (method === 'SignAttachmentURL' && cardId && this.isMarked(cardId) && this.scope) {
       return !!(await this.opts.storage.getFile(fileKey(this.scope, cardId, String(params[1]))))
     }
@@ -376,6 +377,10 @@ export class OfflineEngine {
       }
       if (CARD_WRITES.has(method)) return this.editLocally(cardId, method, params)
       if (TEXT_ATTACHMENT_CALLS.has(method)) return this.attachmentLocally(cardId, method, params)
+      if (method === 'AddCardAttachment') return this.addAttachmentLocally(cardId, String(params[1] ?? ''), String(params[2] ?? ''))
+      if (method === 'RemoveCardAttachment' && String(params[1]).startsWith(PENDING_ATTACHMENT_PREFIX)) {
+        return this.removePendingAttachment(cardId, String(params[1]))
+      }
       if (method === 'SignAttachmentURL') {
         const url = await this.fileURL(cardId, String(params[1]))
         if (url) return url
@@ -517,6 +522,54 @@ export class OfflineEngine {
     return result
   }
 
+  /** An attachment added offline: kept under a device id, listed on the
+   *  working copy so it shows (and opens) at once, uploaded on sync. */
+  private async addAttachmentLocally(cardId: string, name: string, base64: string): Promise<Card> {
+    const scope = this.scope!
+    const key = cardKey(scope, cardId)
+    const bytes = base64Bytes(base64)
+    const info: OfflineFileInfo = { id: PENDING_ATTACHMENT_PREFIX + crypto.randomUUID(), name, mime: guessMime(name), size: bytes.length }
+    const card = await this.withCard(key, async () => {
+      const rec = await this.opts.storage.getCard(key)
+      if (!rec) throw new OfflineUnavailableError('AddCardAttachment')
+      if (isEditableTextAttachment({ name, mime: info.mime })) {
+        rec.attachments[info.id] = { id: info.id, name, base: new TextDecoder().decode(bytes), baseHash: '', local: null, pending: true }
+      } else {
+        await this.opts.storage.putFile({ ...info, key: fileKey(scope, cardId, info.id), scope, cardId, blob: new Blob([bytes], { type: info.mime }) })
+        rec.files = { ...(rec.files ?? {}), [info.id]: info }
+      }
+      rec.pendingAttachments = [...(rec.pendingAttachments ?? []), info]
+      const work: Card = structuredCloneCard(rec.local ?? rec.base)
+      work.file_attachments = [...(work.file_attachments ?? []), { id: info.id, name, path: '', mime: info.mime, size: info.size, added_at: new Date(this.now()).toISOString() }]
+      rec.local = work
+      await this.opts.storage.putCard(rec)
+      return work
+    })
+    await this.refreshSummaries()
+    return card
+  }
+
+  /** Taking back an attachment added offline just forgets it. */
+  private async removePendingAttachment(cardId: string, attachmentId: string): Promise<Card> {
+    const scope = this.scope!
+    const key = cardKey(scope, cardId)
+    const card = await this.withCard(key, async () => {
+      const rec = await this.opts.storage.getCard(key)
+      if (!rec) throw new OfflineUnavailableError('RemoveCardAttachment')
+      rec.pendingAttachments = (rec.pendingAttachments ?? []).filter((p) => p.id !== attachmentId)
+      delete rec.attachments[attachmentId]
+      if (rec.files) delete rec.files[attachmentId]
+      await this.dropFile(scope, cardId, attachmentId)
+      const work: Card = structuredCloneCard(rec.local ?? rec.base)
+      work.file_attachments = (work.file_attachments ?? []).filter((a) => a.id !== attachmentId)
+      rec.local = work
+      await this.opts.storage.putCard(rec)
+      return work
+    })
+    await this.refreshSummaries()
+    return card
+  }
+
   // --- sync ---
 
   /** Take every card's offline edits home. Runs one at a time; a call
@@ -633,7 +686,7 @@ export class OfflineEngine {
     const sentAttachments = new Map<string, string>()
     const keptBoth: string[] = []
     for (const att of Object.values(rec.attachments)) {
-      if (att.local === null) continue
+      if (att.local === null || att.pending) continue
       sentAttachments.set(att.id, att.local)
       let saved: WorkspaceSaveResult | null = null
       try {
@@ -646,6 +699,27 @@ export class OfflineEngine {
         await send('AddCardAttachment', [cardId, saved ? offlineCopyName(att.name) : att.name, utf8Base64(att.local)])
         keptBoth.push(att.name)
       }
+    }
+
+    // Attachments added offline go up in the order they were added. Each
+    // is struck off the moment it's uploaded, so a sync that fails later
+    // never uploads it twice.
+    for (const p of rec.pendingAttachments ?? []) {
+      const text = rec.attachments[p.id]
+      const file = text ? null : await this.opts.storage.getFile(fileKey(this.scope!, cardId, p.id))
+      if (text || file) {
+        const data = text ? utf8Base64(text.local ?? text.base) : await blobBase64(file!.blob)
+        await send('AddCardAttachment', [cardId, p.name, data])
+      }
+      await this.withCard(key, async () => {
+        const cur = await this.opts.storage.getCard(key)
+        if (!cur) return
+        cur.pendingAttachments = (cur.pendingAttachments ?? []).filter((x) => x.id !== p.id)
+        delete cur.attachments[p.id]
+        if (cur.files) delete cur.files[p.id]
+        await this.opts.storage.putCard(cur)
+      })
+      await this.dropFile(this.scope!, cardId, p.id)
     }
 
     const fresh = (await send('GetCard', [cardId])) as Card
@@ -686,6 +760,9 @@ export class OfflineEngine {
       cur.fetchedAt = this.now()
       await this.opts.storage.putCard(cur)
     })
+    // Attachments it just uploaded now have server ids: fetch them back so
+    // they still open offline without waiting for the next refresh.
+    if (start.pendingAttachments?.length) await this.download(cardId).catch(() => undefined)
     return conflicts.length ? 'conflicts' : 'synced'
   }
 
@@ -771,7 +848,7 @@ function newRecord(scope: string, card: Card, now: number): OfflineCardRecord {
 }
 
 function isClean(rec: OfflineCardRecord): boolean {
-  return !rec.created && rec.local === null && rec.conflicts.length === 0 && Object.values(rec.attachments).every((a) => a.local === null)
+  return !rec.created && !rec.pendingAttachments?.length && rec.local === null && rec.conflicts.length === 0 && Object.values(rec.attachments).every((a) => a.local === null)
 }
 
 function allResolved(rec: OfflineCardRecord): boolean {
@@ -811,7 +888,7 @@ function mergeAttachments(
     if (text && !(prev && prev.local !== null)) out[att.id] = { id: att.id, name: att.name, base: text.content, baseHash: text.stamp?.hash ?? '', local: null }
     else if (prev) out[att.id] = { ...prev, name: att.name }
   }
-  for (const [id, prev] of Object.entries(current)) if (!out[id] && prev.local !== null) out[id] = prev
+  for (const [id, prev] of Object.entries(current)) if (!out[id] && (prev.local !== null || prev.pending)) out[id] = prev
   return out
 }
 
@@ -833,16 +910,46 @@ function utf8Length(s: string): number {
   return new TextEncoder().encode(s).length
 }
 
-function utf8Base64(s: string): string {
+const PENDING_ATTACHMENT_PREFIX = 'offline-'
+
+function base64Bytes(b64: string): Uint8Array<ArrayBuffer> {
+  const bin = atob(b64.includes(',') ? b64.slice(b64.indexOf(',') + 1) : b64)
+  const out = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+  return out
+}
+
+async function blobBase64(blob: Blob): Promise<string> {
+  // FileReader where there is one (every browser); arrayBuffer elsewhere.
+  if (typeof FileReader !== 'undefined') {
+    const dataURL = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(blob)
+    })
+    return dataURL.slice(dataURL.indexOf(',') + 1)
+  }
   let bin = ''
-  for (const byte of new TextEncoder().encode(s)) bin += String.fromCharCode(byte)
+  for (const byte of new Uint8Array(await blob.arrayBuffer())) bin += String.fromCharCode(byte)
   return btoa(bin)
 }
 
+/** What the server would call it: enough for the preview to pick a viewer. */
+function guessMime(name: string): string {
+  const ext = name.toLowerCase().split('.').pop() ?? ''
+  const map: Record<string, string> = {
+    pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+    webp: 'image/webp', heic: 'image/heic', svg: 'image/svg+xml', md: 'text/markdown', markdown: 'text/markdown',
+    txt: 'text/plain', json: 'application/json', csv: 'text/csv', fountain: 'text/plain',
+  }
+  return map[ext] ?? 'application/octet-stream'
+}
+
+
 /** "post.md" → "post (offline).md" */
 export function offlineCopyName(name: string): string {
-  const dot = name.lastIndexOf('.')
-  return dot > 0 ? `${name.slice(0, dot)} (offline)${name.slice(dot)}` : `${name} (offline)`
+  return nameWithSuffix(name, ' (offline)')
 }
 
 function structuredCloneCard(card: Card): Card {

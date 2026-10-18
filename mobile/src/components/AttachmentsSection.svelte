@@ -153,7 +153,7 @@
 </section>
 
 {#if viewing}
-  <DocumentSheet source={viewing} onClose={() => (viewing = null)} />
+  <DocumentSheet source={viewing} onClose={() => (viewing = null)} onSavedAs={(s) => onCardUpdated(s.card)} />
 {/if}
 
 {#if confirmingDelete}

@@ -320,6 +320,30 @@ describe('OfflineEngine', () => {
     expect(server.cards.get(made.id)?.title).toBe('Typed before the sync ran')
   })
 
+  it('attachments added offline show at once, open offline and upload on sync', async () => {
+    URL.createObjectURL = () => 'blob:device/added'
+    await goOffline()
+    const made = await engine.createOffline('Visa run')
+    const b64 = (s: string) => btoa(s)
+    let card = (await call('AddCardAttachment', made.id, 'visa.pdf', b64('%PDF visa'))) as Card
+    card = (await call('AddCardAttachment', made.id, 'notes.md', b64('# Notes'))) as Card
+    expect(card.file_attachments.map((a) => a.name)).toEqual(['visa.pdf', 'notes.md'])
+    const [pdf, md] = card.file_attachments
+    expect(await call('SignAttachmentURL', made.id, pdf.id)).toBe('blob:device/added')
+    const opened = (await call('OpenCardAttachmentText', made.id, md.id)) as { content: string; stamp: { hash: string } }
+    expect(opened.content).toBe('# Notes')
+    await call('SaveCardAttachmentText', made.id, md.id, '# Notes\nfrom the plane', opened.stamp.hash)
+    // Taking one back before syncing just forgets it.
+    const tmp = (await call('AddCardAttachment', made.id, 'oops.png', b64('png'))) as Card
+    await call('RemoveCardAttachment', made.id, tmp.file_attachments[2].id)
+
+    await comeBack()
+    expect(server.files.get(`${made.id}/att-visa.pdf`)).toBe('%PDF visa')
+    expect(server.files.get(`${made.id}/att-notes.md`)).toBe('# Notes\nfrom the plane')
+    expect(server.cards.get(made.id)!.file_attachments.map((a) => a.name)).toEqual(['visa.pdf', 'notes.md'])
+    expect(engine.summary(made.id)?.status).toBe('synced')
+  })
+
   it('unmarking forgets the card', async () => {
     await engine.unmark('post')
     expect(engine.isMarked('post')).toBe(false)

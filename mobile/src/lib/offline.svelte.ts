@@ -34,7 +34,16 @@ export const offline = new OfflineEngine({
       await fetch('GetProjectLabels', [loc.brandSlug, loc.streamSlug, loc.projectSlug]).catch(() => undefined)
     }
   },
-  isNetworkError: (e) => e instanceof NetworkError,
+  isNetworkError: (e) => e instanceof NetworkError || e instanceof TypeError,
+  // Travel documents, scans, photos: the bytes through a fresh signed URL.
+  // A raw fetch fails with TypeError (not NetworkError) when unreachable.
+  fetchFile: async (cardId, attachmentId) => {
+    const path = (await sendRepoRPC('SignAttachmentURL', [cardId, attachmentId])) as string
+    const enrol = readEnrolment()
+    const res = await fetch(enrol ? `${enrol.serverURL}${path}` : path)
+    if (!res.ok) throw new Error(`attachment download failed: HTTP ${res.status}`)
+    return res.blob()
+  },
   onReport: (r) => {
     if (r.synced) showToast(t('offline.sync_report', { count: r.synced }), 'success')
     if (r.conflicts) showToast(t('offline.sync_report_conflicts', { count: r.conflicts }), 'error')

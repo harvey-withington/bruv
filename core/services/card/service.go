@@ -133,6 +133,26 @@ func (s *Service) idxRefresh() {
 // --- CRUD ---
 
 func (s *Service) Create(cardType, title string) (*model.Card, error) {
+	return s.create(cardType, title, func(r *repo.Repository, title string) (*model.Card, error) {
+		return r.CreateCard(cardType, title)
+	})
+}
+
+// CreateWithID is Create under an id the caller chose (a card made on a
+// device while offline, synced home). Idempotent: if the card already
+// exists — a sync that created it and then lost the connection before
+// hearing back — it is returned as is.
+func (s *Service) CreateWithID(id, cardType, title string) (*model.Card, error) {
+	card, err := s.create(cardType, title, func(r *repo.Repository, title string) (*model.Card, error) {
+		return r.CreateCardWithID(id, cardType, title)
+	})
+	if errors.Is(err, repo.ErrCardExists) {
+		return s.Get(id)
+	}
+	return card, err
+}
+
+func (s *Service) create(cardType, title string, write func(r *repo.Repository, title string) (*model.Card, error)) (*model.Card, error) {
 	title = repo.SanitizeText(title)
 	r := s.deps.Repo()
 	if r == nil {
@@ -141,7 +161,7 @@ func (s *Service) Create(cardType, title string) (*model.Card, error) {
 	if err := s.checkType(cardType); err != nil {
 		return nil, err
 	}
-	card, err := r.CreateCard(cardType, title)
+	card, err := write(r, title)
 	if err != nil {
 		return nil, err
 	}

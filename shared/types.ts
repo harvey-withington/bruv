@@ -1411,6 +1411,9 @@ export interface BackendAdapter {
 
   // Card CRUD
   CreateCard(cardType: string, title: string): Promise<Card>
+  /** CreateCard under a client-chosen UUID (a card made offline); returns
+   *  the existing card when that id is already taken. */
+  CreateCardWithID(id: string, cardType: string, title: string): Promise<Card>
   GetCard(id: string): Promise<Card>
   ListCards(): Promise<Card[]>
   DeleteCard(id: string): Promise<void>

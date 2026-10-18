@@ -16,7 +16,7 @@
 import type { Card, CardCommitResult, CardEdit, CardPin, WorkspaceFileContent, WorkspaceFileStamp, WorkspaceSaveResult } from '../types'
 import { isEditableTextAttachment } from '../attachmentText'
 import { applyResolutions, cardEditBetween, isEmptyEdit, mergeCard, type ConflictChoice, type OfflineConflict } from './merge'
-import { cardKey, responseKey, type OfflineAttachment, type OfflineCardRecord, type OfflinePlace, type OfflineStorage } from './storage'
+import { cardKey, fileKey, responseKey, type OfflineAttachment, type OfflineCardRecord, type OfflineFileInfo, type OfflinePlace, type OfflineStorage } from './storage'
 
 export type RpcSend = (method: string, params: unknown[]) => Promise<unknown>
 
@@ -46,6 +46,8 @@ export type OfflineCardSummary = {
   places: OfflinePlace[] | null
   /** Bytes of text held for it (card + attachments), for the size readout. */
   bytes: number
+  /** Made offline on this device; not on the server until it syncs. */
+  created: boolean
 }
 
 export type SyncReport = { synced: number; conflicts: number; failed: number }
@@ -63,6 +65,11 @@ export interface OfflineEngineOptions {
   prefetch?: (cardId: string, card: Card, fetch: RpcSend) => Promise<void>
   /** True for "the server can't be reached", as opposed to a server error. */
   isNetworkError: (e: unknown) => boolean
+  /** The bytes of a non-text attachment (PDF, image…), fetched through a
+   *  freshly signed URL. Without it only text attachments go offline. */
+  fetchFile?: (cardId: string, attachmentId: string) => Promise<Blob>
+  /** Attachments bigger than this stay online-only (default 25 MB). */
+  maxFileBytes?: number
   /** A sync took something home or found conflicts (for a toast). */
   onReport?: (report: SyncReport) => void
   now?: () => number
@@ -77,6 +84,7 @@ const CARD_RESULTS = new Set(['GetCard', ...CARD_WRITES, 'UpdateCardType', 'Refr
 
 /** How long a downloaded copy counts as fresh before a refresh re-fetches it. */
 const REFRESH_AFTER_MS = 2 * 60 * 1000
+const DEFAULT_MAX_FILE_BYTES = 25 * 1024 * 1024
 
 export class OfflineEngine {
   /** The server + vault the cache is for; null until attached. */
@@ -89,6 +97,8 @@ export class OfflineEngine {
   private send: RpcSend | null = null
   private locks = new Map<string, Promise<unknown>>()
   private syncRun: Promise<SyncReport> | null = null
+  /** Object URLs handed out for kept files, by file key (revoked on unmark). */
+  private objectURLs = new Map<string, string>()
   private syncAgain = false
   private readonly now: () => number
 
@@ -151,12 +161,29 @@ export class OfflineEngine {
     await this.download(cardId)
   }
 
+  /** Make a new card on this device while offline. It lives in the Inbox
+   *  (no pins) and is created at home, under the same id, on the next
+   *  sync. Returns the card so the caller can open it. */
+  async createOffline(title: string): Promise<Card> {
+    const { scope } = this.requireAttached()
+    const now = new Date(this.now()).toISOString()
+    const card: Card = {
+      id: crypto.randomUUID(), title, description: '', type: '', tags: [], due_date: null,
+      created_at: now, updated_at: now, rev: 0, blocks: [], file_attachments: [],
+    }
+    await this.opts.storage.putCard({ ...newRecord(scope, card, this.now()), created: true, places: [], files: {} })
+    await this.refreshSummaries()
+    return card
+  }
+
   /** Stop keeping a card offline. Unsynced edits are discarded — callers
    *  confirm first when the card isn't synced. */
   async unmark(cardId: string): Promise<void> {
     const { scope } = this.requireAttached()
     const key = cardKey(scope, cardId)
     await this.withCard(key, async () => {
+      const rec = await this.opts.storage.getCard(key)
+      for (const id of Object.keys(rec?.files ?? {})) await this.dropFile(scope, cardId, id)
       await this.opts.storage.deleteCard(key)
       await this.opts.storage.deleteResponses(scope, cardId)
     })
@@ -189,6 +216,7 @@ export class OfflineEngine {
       rec.fetchedAt = this.now()
       await this.opts.storage.putCard(rec)
     })
+    await this.downloadFiles(scope, card)
     const fetch: RpcSend = async (method, params) => {
       const value = await send(method, params)
       await this.cacheRead(scope, method, params, value)
@@ -203,16 +231,86 @@ export class OfflineEngine {
     await this.refreshSummaries()
   }
 
-  /** Re-download every clean card that isn't fresh, and fill in the pins
-   *  of any copy that doesn't know them in full yet (even an edited one —
-   *  pins aren't part of its edits). */
+  /** Keep the bytes of the card's non-text attachments (travel documents,
+   *  scans, photos) within the size cap. Unchanged files aren't fetched
+   *  again; files the card no longer has are dropped. */
+  private async downloadFiles(scope: string, card: Card): Promise<void> {
+    if (!this.opts.fetchFile) return
+    const max = this.opts.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES
+    const key = cardKey(scope, card.id)
+    const prev = (await this.opts.storage.getCard(key))?.files ?? {}
+    const files: Record<string, OfflineFileInfo> = {}
+    for (const att of card.file_attachments ?? []) {
+      if (isEditableTextAttachment(att) || att.size > max) continue
+      const info: OfflineFileInfo = { id: att.id, name: att.name, mime: att.mime, size: att.size }
+      const fk = fileKey(scope, card.id, att.id)
+      if (prev[att.id]?.size === att.size && (await this.opts.storage.getFile(fk))) {
+        files[att.id] = info
+        continue
+      }
+      try {
+        const blob = await this.opts.fetchFile(card.id, att.id)
+        await this.opts.storage.putFile({ ...info, key: fk, scope, cardId: card.id, blob })
+        this.revokeURL(fk)
+        files[att.id] = info
+      } catch (e) {
+        if (this.opts.isNetworkError(e)) throw e
+        // Gone or unreadable at home — it just won't open offline.
+      }
+    }
+    for (const id of Object.keys(prev)) if (!files[id]) await this.dropFile(scope, card.id, id)
+    await this.withCard(key, async () => {
+      const rec = await this.opts.storage.getCard(key)
+      if (!rec) return
+      rec.files = files
+      await this.opts.storage.putCard(rec)
+    })
+  }
+
+  private async dropFile(scope: string, cardId: string, attachmentId: string): Promise<void> {
+    const fk = fileKey(scope, cardId, attachmentId)
+    this.revokeURL(fk)
+    await this.opts.storage.deleteFile(fk)
+  }
+
+  private revokeURL(fk: string): void {
+    const url = this.objectURLs.get(fk)
+    if (url) URL.revokeObjectURL(url)
+    this.objectURLs.delete(fk)
+  }
+
+  /** A blob: URL for a kept file — what SignAttachmentURL answers offline. */
+  private async fileURL(cardId: string, attachmentId: string): Promise<string | null> {
+    const fk = fileKey(this.scope!, cardId, attachmentId)
+    const cached = this.objectURLs.get(fk)
+    if (cached) return cached
+    const file = await this.opts.storage.getFile(fk)
+    if (!file) return null
+    // Typed so the browser previews it (a PDF opens as a PDF, not bytes).
+    const blob = file.blob.type ? file.blob : new Blob([file.blob], { type: file.mime })
+    const url = URL.createObjectURL(blob)
+    this.objectURLs.set(fk, url)
+    return url
+  }
+
+  /** Re-download every clean card that isn't fresh, and fill in what an
+   *  older copy lacks (full pins, attachment files) even when it's edited —
+   *  neither is part of its edits. */
   async refreshAll(): Promise<void> {
     if (!this.scope || this.working) return
     const scope = this.scope
     for (const rec of await this.opts.storage.listCards(scope)) {
       try {
-        if (isClean(rec) && this.now() - rec.fetchedAt >= REFRESH_AFTER_MS) await this.download(rec.cardId)
-        else if (!rec.places || rec.places.some((p) => p.brand === undefined)) await this.notePlaces(scope, rec.cardId, ((await this.transport()('GetCardPinBreadcrumbs', [rec.cardId])) as CardPin[] | null) ?? [])
+        if (isClean(rec) && this.now() - rec.fetchedAt >= REFRESH_AFTER_MS) {
+          await this.download(rec.cardId)
+          continue
+        }
+        // Copies stored before pins / attachment files were kept get them
+        // now, even when fresh or edited.
+        if (!rec.places || rec.places.some((p) => p.brand === undefined)) {
+          await this.notePlaces(scope, rec.cardId, ((await this.transport()('GetCardPinBreadcrumbs', [rec.cardId])) as CardPin[] | null) ?? [])
+        }
+        if (rec.files === undefined && this.opts.fetchFile) await this.downloadFiles(scope, (await this.transport()('GetCard', [rec.cardId])) as Card)
       } catch (e) {
         if (this.opts.isNetworkError(e)) return
         // A card deleted at home: leave the copy; the user can unmark it.
@@ -227,6 +325,14 @@ export class OfflineEngine {
     if (!this.scope) return send(method, params)
     const cardId = typeof params[0] === 'string' ? params[0] : ''
     if (this.working) return this.answerOffline(method, params)
+
+    // A card made offline doesn't exist at home yet: everything about it
+    // is answered here until sync has created it.
+    if (cardId && this.summary(cardId)?.created) {
+      const value = await this.answerOffline(method, params)
+      if (CARD_WRITES.has(method) || method === 'SaveCardAttachmentText') void this.sync()
+      return value
+    }
 
     // A card with unsynced edits keeps taking them locally until sync
     // has taken it home, so edits land in order.
@@ -253,6 +359,9 @@ export class OfflineEngine {
   private async canAnswer(method: string, params: unknown[]): Promise<boolean> {
     const cardId = typeof params[0] === 'string' ? params[0] : ''
     if (cardId && this.isMarked(cardId) && (CARD_WRITES.has(method) || TEXT_ATTACHMENT_CALLS.has(method) || method === 'GetCard')) return true
+    if (method === 'SignAttachmentURL' && cardId && this.isMarked(cardId) && this.scope) {
+      return !!(await this.opts.storage.getFile(fileKey(this.scope, cardId, String(params[1]))))
+    }
     if (!this.opts.reads[method] || !this.scope) return false
     return !!(await this.opts.storage.getResponse(responseKey(this.scope, method, params)))
   }
@@ -267,6 +376,13 @@ export class OfflineEngine {
       }
       if (CARD_WRITES.has(method)) return this.editLocally(cardId, method, params)
       if (TEXT_ATTACHMENT_CALLS.has(method)) return this.attachmentLocally(cardId, method, params)
+      if (method === 'SignAttachmentURL') {
+        const url = await this.fileURL(cardId, String(params[1]))
+        if (url) return url
+      }
+      // A card made offline has nothing at home yet: no pins (it's in the
+      // Inbox), no comments, no agent — every card-keyed read is empty.
+      if (this.opts.reads[method] === 'card' && this.summary(cardId)?.created) return null
     }
     if (this.opts.reads[method]) {
       const hit = await this.opts.storage.getResponse(responseKey(scope, method, params))
@@ -458,6 +574,21 @@ export class OfflineEngine {
     if (!start) return 'synced'
     const cardId = start.cardId
 
+    // Made offline: create it at home under the same id, then carry on as
+    // an ordinary edit of that card. The server may have added fields (the
+    // card type's), so the offline edits are rebased onto what it made.
+    if (start.created) {
+      const made = (await send('CreateCardWithID', [cardId, start.base.type, start.base.title])) as Card
+      await this.withCard(key, async () => {
+        const cur = await this.opts.storage.getCard(key)
+        if (!cur) return
+        if (cur.local) cur.local = mergeCard(cur.base, cur.local, made).card
+        cur.base = made
+        cur.created = false
+        await this.opts.storage.putCard(cur)
+      })
+    }
+
     // Resolved conflicts become an ordinary edit on top of the server copy
     // they were found against.
     if (start.conflicts.length && allResolved(start) && start.conflictServer && start.local) {
@@ -640,7 +771,7 @@ function newRecord(scope: string, card: Card, now: number): OfflineCardRecord {
 }
 
 function isClean(rec: OfflineCardRecord): boolean {
-  return rec.local === null && rec.conflicts.length === 0 && Object.values(rec.attachments).every((a) => a.local === null)
+  return !rec.created && rec.local === null && rec.conflicts.length === 0 && Object.values(rec.attachments).every((a) => a.local === null)
 }
 
 function allResolved(rec: OfflineCardRecord): boolean {
@@ -654,11 +785,12 @@ function summarize(rec: OfflineCardRecord): OfflineCardSummary {
     : !isClean(rec) ? 'pending' : rec.syncError ? 'error' : 'synced'
   let bytes = JSON.stringify(card).length
   for (const a of Object.values(rec.attachments)) bytes += a.base.length + (a.local?.length ?? 0)
+  for (const f of Object.values(rec.files ?? {})) bytes += f.size
   return {
     cardId: rec.cardId, title: card.title, status,
     fetchedAt: rec.fetchedAt, syncedAt: rec.syncedAt,
     conflicts: rec.conflicts.length, syncError: rec.syncError, keptBoth: rec.keptBoth,
-    places: rec.places ?? null, bytes,
+    places: rec.places ?? null, bytes, created: !!rec.created,
   }
 }
 

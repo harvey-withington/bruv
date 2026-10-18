@@ -8,6 +8,7 @@
   import { navigate, replace, cardURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
   import { offlineStatusText, formatBytes, placesText } from '@shared/offline/labels'
+  import NewOfflineCard from '../components/NewOfflineCard.svelte'
 
   const totalBytes = $derived(offline.cards.reduce((n, c) => n + c.bytes, 0))
   const allSynced = $derived(offline.cards.every((c) => c.status === 'synced'))
@@ -48,6 +49,10 @@
       </button>
     {/if}
   </div>
+
+  {#if offline.working}
+    <NewOfflineCard onCreated={(card) => navigate(cardURL(card.id), { fromOffline: true })} />
+  {/if}
 
   {#if offline.cards.length === 0}
     <p class="status">{t('offline.view_empty')}</p>

@@ -13,7 +13,9 @@ export function offlineStatusText(s: OfflineCardSummary, t: TranslateFn, working
   switch (s.status) {
     case 'conflict': return t('offline.status_conflict')
     case 'error': return t('offline.status_error')
-    case 'pending': return workingOffline ? t('offline.status_saved_here') : t('offline.status_pending')
+    case 'pending':
+      if (s.created) return t('offline.status_new')
+      return workingOffline ? t('offline.status_saved_here') : t('offline.status_pending')
     case 'synced': {
       const at = s.syncedAt ?? s.fetchedAt
       return t('offline.status_synced', { when: formatRelativeTime(new Date(at).toISOString(), t) })

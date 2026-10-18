@@ -34,7 +34,20 @@ class FakeServer {
     if (this.down) throw new NetworkDown('fetch failed')
     const id = params[0] as string
     switch (method) {
-      case 'GetCard': return structuredClone(this.cards.get(id)!)
+      case 'GetCard': {
+        const c = this.cards.get(id)
+        if (!c) throw new Error(`card ${id} not found`)
+        return structuredClone(c)
+      }
+      case 'CreateCardWithID': {
+        const [cid, type, title] = params as [string, string, string]
+        if (!this.cards.has(cid)) {
+          // A typed card gets its type's fields at home.
+          const blocks: Block[] = type ? [block('type-field', '')] : []
+          this.cards.set(cid, { id: cid, title, description: '', type, tags: [], due_date: null, created_at: '', rev: 1, blocks, file_attachments: [] })
+        }
+        return structuredClone(this.cards.get(cid)!)
+      }
       case 'ListCardTypes': return [{ id: 'blog', label: 'Blog Article' }]
       case 'GetCardPinBreadcrumbs': return [PIN]
       case 'UpdateCardDescription': return this.save(id, (c) => { c.description = params[1] as string })
@@ -233,6 +246,78 @@ describe('OfflineEngine', () => {
     await old.attach('s|v', server.send)
     await old.refreshAll()
     expect(old.summary('post')?.places).toEqual([{ brand: 'Home', stream: 'Blog', project: 'Writing', category: 'Drafts' }])
+  })
+
+  it('keeps travel documents (non-text attachments) and opens them offline', async () => {
+    let n = 0
+    const urls: string[] = []
+    const createURL = URL.createObjectURL
+    const revokeURL = URL.revokeObjectURL
+    URL.createObjectURL = () => `blob:device/${++n}`
+    URL.revokeObjectURL = (u: string) => { urls.push(u) }
+    try {
+      const card = server.cards.get('post')!
+      card.file_attachments.push(
+        { id: 'pass', name: 'boarding-pass.pdf', path: '', mime: 'application/pdf', size: 3, added_at: '' },
+        { id: 'huge', name: 'video.mp4', path: '', mime: 'video/mp4', size: 400 * 1024 * 1024, added_at: '' },
+      )
+      const fetched: string[] = []
+      const storage = new MemoryStorage()
+      const e = new OfflineEngine({
+        storage, reads: {}, isNetworkError: (err) => err instanceof NetworkDown,
+        fetchFile: async (_c, att) => { fetched.push(att); return new Blob(['pdf'], { type: 'application/pdf' }) },
+      })
+      await e.attach('s|v', server.send)
+      await e.mark('post')
+      expect(fetched).toEqual(['pass']) // text goes via its own path, over-cap stays online-only
+      expect(e.summary('post')!.bytes).toBeGreaterThan(3)
+
+      server.down = true
+      e.setWorking(true)
+      const url = await e.handle('SignAttachmentURL', ['post', 'pass'], server.send)
+      expect(url).toBe('blob:device/1')
+      expect(await e.handle('SignAttachmentURL', ['post', 'pass'], server.send)).toBe('blob:device/1') // reused
+      await expect(e.handle('SignAttachmentURL', ['post', 'huge'], server.send)).rejects.toBeInstanceOf(OfflineUnavailableError)
+
+      // Unchanged files aren't fetched again; removed ones are dropped.
+      server.down = false
+      e.setWorking(false)
+      await e.download('post')
+      expect(fetched).toEqual(['pass'])
+      card.file_attachments = card.file_attachments.filter((a) => a.id !== 'pass')
+      await e.download('post')
+      expect(urls).toContain('blob:device/1')
+      e.setWorking(true)
+      await expect(e.handle('SignAttachmentURL', ['post', 'pass'], server.send)).rejects.toBeInstanceOf(OfflineUnavailableError)
+    } finally {
+      URL.createObjectURL = createURL
+      URL.revokeObjectURL = revokeURL
+    }
+  })
+
+  it('creates a card offline (Inbox) and makes it at home under the same id', async () => {
+    await goOffline()
+    const made = await engine.createOffline('Song idea')
+    expect(engine.summary(made.id)).toMatchObject({ created: true, status: 'pending', places: [] })
+    expect(((await call('GetCard', made.id)) as Card).title).toBe('Song idea')
+    expect(await call('GetCardPinBreadcrumbs', made.id)).toBeNull() // nothing at home yet
+    await call('UpdateCardDescription', made.id, 'verse in D, chorus lifts to G')
+    expect(server.cards.has(made.id)).toBe(false)
+
+    await comeBack()
+    const home = server.cards.get(made.id)!
+    expect(home.title).toBe('Song idea')
+    expect(home.description).toBe('verse in D, chorus lifts to G')
+    expect(engine.summary(made.id)).toMatchObject({ created: false, status: 'synced' })
+    expect(server.calls.filter((c) => c === 'CreateCardWithID')).toHaveLength(1)
+  })
+
+  it('a card made offline stays local even while online until it syncs', async () => {
+    const made = await engine.createOffline('Typed before the sync ran')
+    // Online, but not created at home yet: answered here, not a 404 from the server.
+    expect(((await call('GetCard', made.id)) as Card).id).toBe(made.id)
+    await engine.sync()
+    expect(server.cards.get(made.id)?.title).toBe('Typed before the sync ran')
   })
 
   it('unmarking forgets the card', async () => {

@@ -16,13 +16,35 @@ import (
 
 // CreateCard creates a new Card in the flat cards/ directory.
 func (r *Repository) CreateCard(cardType, title string) (*model.Card, error) {
+	return r.createCard(uuid.New().String(), cardType, title)
+}
+
+// ErrCardExists is CreateCardWithID's answer when the id is already taken.
+var ErrCardExists = errors.New("card already exists")
+
+// CreateCardWithID creates a card under an id the caller chose — a device
+// that made the card offline already links to it by that id. The id must
+// be a UUID; an id already in use is ErrCardExists.
+func (r *Repository) CreateCardWithID(id, cardType, title string) (*model.Card, error) {
+	if _, err := uuid.Parse(id); err != nil {
+		return nil, fmt.Errorf("card id %q is not a UUID", id)
+	}
+	unlock := lockPath(r.cardFilePath(id))
+	defer unlock()
+	if fileExists(r.cardFilePath(id)) {
+		return nil, ErrCardExists
+	}
+	return r.createCard(id, cardType, title)
+}
+
+func (r *Repository) createCard(id, cardType, title string) (*model.Card, error) {
 	if title == "" {
 		return nil, fmt.Errorf("card title cannot be empty")
 	}
 
 	now := time.Now().UTC()
 	card := &model.Card{
-		ID:           uuid.New().String(),
+		ID:           id,
 		Type:         cardType,
 		Title:        title,
 		CreatedAt:    now,

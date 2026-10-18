@@ -1743,5 +1743,9 @@
   "offline.column_mark_failed": "{count} cards couldn't be made available offline",
   "offline.place_inbox": "Inbox (not in a project)",
   "offline.card_place": "Pinned in {place}",
-  "offline.mark_label": "Available offline · {status}"
+  "offline.mark_label": "Available offline · {status}",
+  "offline.new_card": "New card",
+  "offline.new_card_placeholder": "New card title — it goes in your Inbox",
+  "offline.new_card_failed": "Couldn't make the card",
+  "offline.status_new": "New — goes home on the next sync"
 }

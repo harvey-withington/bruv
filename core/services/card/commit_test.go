@@ -158,3 +158,23 @@ func TestSaveAttachmentTextGuardsUnderLock(t *testing.T) {
 		t.Error("saving an unknown attachment must be an error")
 	}
 }
+
+func TestCreateWithIDKeepsTheDevicesID(t *testing.T) {
+	s := newTestService(t)
+	const id = "6f1c2a4e-9b8d-4c3a-a1e2-0f9d8c7b6a5e"
+	c, err := s.CreateWithID(id, "", "Song idea")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ID != id || c.Title != "Song idea" || c.Rev != 1 {
+		t.Fatalf("created %+v", c)
+	}
+	// A retried sync gets the same card back, not an error or a duplicate.
+	again, err := s.CreateWithID(id, "", "Song idea")
+	if err != nil || again.ID != id {
+		t.Fatalf("retry: %+v %v", again, err)
+	}
+	if _, err := s.CreateWithID("../escape", "", "x"); err == nil {
+		t.Error("a non-UUID id must be refused")
+	}
+}

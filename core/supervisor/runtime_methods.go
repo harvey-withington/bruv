@@ -51,6 +51,13 @@ type projectChatScope = tools.ProjectChatScope
 func (r *Runtime) CreateCard(cardType, title string) (*model.Card, error) {
 	return r.Card.Create(cardType, title)
 }
+
+// CreateCardWithID creates a card under a client-chosen UUID — how a card
+// made offline reaches home with the id the device already uses for it.
+// Returns the existing card if that id is already taken (retry-safe).
+func (r *Runtime) CreateCardWithID(id, cardType, title string) (*model.Card, error) {
+	return r.Card.CreateWithID(id, cardType, title)
+}
 func (r *Runtime) GetCard(id string) (*model.Card, error) { return r.Card.Get(id) }
 func (r *Runtime) ListCards() ([]model.Card, error)       { return r.Card.List() }
 

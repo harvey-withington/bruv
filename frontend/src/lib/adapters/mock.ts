@@ -204,6 +204,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     UpdateCategoryIcon: async () => mockCategory(),
 
     CreateCard: async () => mockCard(),
+    CreateCardWithID: async () => mockCard(),
     GetCard: async () => mockCard(),
     ListCards: async () => [],
     DeleteCard: async () => {},

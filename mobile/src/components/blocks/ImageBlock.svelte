@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { Image as ImageIcon, Upload } from 'lucide-svelte'
-  import { repoRPC, readEnrolment } from '../../lib/auth'
+  import { repoRPC } from '../../lib/auth'
+  import { signAttachmentURL } from '../../lib/attachmentURL'
   import { t } from '../../lib/i18n.svelte'
   import type { Block, Card } from '@shared/types'
   import { parseAttachmentRef } from '@shared/attachmentRefs'
@@ -50,13 +51,9 @@
       return
     }
     try {
-      const path = ref
-        ? await repoRPC<string>('SignAttachmentURL', [ref.cardID, ref.attachmentID])
-        : await repoRPC<string>('SignAttachmentURL', [cardId, raw])
-      // The signed URL from the runtime is server-relative; prepend
-      // the enrolled server origin so <img src> can load it.
-      const enrol = readEnrolment()
-      resolvedURL = enrol ? `${enrol.serverURL}${path}` : path
+      resolvedURL = ref
+        ? await signAttachmentURL(ref.cardID, ref.attachmentID)
+        : await signAttachmentURL(cardId, raw)
     } catch {
       resolvedURL = null
     }

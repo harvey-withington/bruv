@@ -790,5 +790,9 @@
   "settings.offline_cards_sub": "{count} cards kept on this phone — mark more from a card's page",
   "offline.bar": "Working offline · {count} cards on this phone",
   "offline.place_inbox": "Inbox (not in a project)",
-  "offline.mark_label": "Available offline · {status}"
+  "offline.mark_label": "Available offline · {status}",
+  "offline.new_card": "New card",
+  "offline.new_card_placeholder": "New card title — it goes in your Inbox",
+  "offline.new_card_failed": "Couldn't make the card",
+  "offline.status_new": "New — goes home on the next sync"
 }

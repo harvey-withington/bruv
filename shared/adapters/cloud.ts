@@ -21,6 +21,7 @@ import type {
 } from '../types'
 import { KNOWN_TOPICS } from './topics'
 import { fetchServerBuild } from '../serverSkew'
+import { absoluteAttachmentURL } from '../download'
 
 // --- Bootstrap: get the HTTP transport addr + token ---
 
@@ -581,10 +582,12 @@ async function getCardProjectContextCached(cardID: string): Promise<string> {
 // the active connection's scheme://host so consumers can drop the
 // result straight into <img src> / <a href>. Keeps the HMAC secret
 // server-side — the client never sees it.
+// Goes through the interceptor: for a card kept offline the answer may be
+// the device copy's blob: URL, which is already absolute.
 async function signAttachmentURLFull(cardID: string, attachmentID: string): Promise<string> {
   const info = await resolveTransportInfo()
-  const path = (await rpcClient!.call('SignAttachmentURL', [cardID, attachmentID])) as string
-  return `${httpBase(info)}${path}`
+  const path = (await callRpc('SignAttachmentURL', [cardID, attachmentID])) as string
+  return absoluteAttachmentURL(httpBase(info), path)
 }
 
 // signPresentURLFull — same URL-completing contract as signAttachmentURLFull,

@@ -19,6 +19,25 @@ export type OfflineAttachment = {
   local: string | null
 }
 
+/** A non-text attachment kept on the device (PDF, image…) — what the
+ *  record lists; the bytes live in their own store (OfflineFile). */
+export type OfflineFileInfo = {
+  id: string
+  name: string
+  mime: string
+  size: number
+}
+
+/** An attachment's bytes, stored apart from the card record so records
+ *  stay small and JSON-shaped. */
+export type OfflineFile = OfflineFileInfo & {
+  /** `${scope}|${cardId}|${attachmentId}` */
+  key: string
+  scope: string
+  cardId: string
+  blob: Blob
+}
+
 /** Where the card is pinned, for showing offline. */
 export type OfflinePlace = {
   /** Absent on places kept before the full path was (refetched online). */
@@ -54,6 +73,11 @@ export type OfflineCardRecord = {
   /** Its pins as last seen online; empty = unfiled (Inbox). Absent on
    *  records stored before places were kept. */
   places?: OfflinePlace[]
+  /** Non-text attachments whose bytes are kept (see OfflineFile). */
+  files?: Record<string, OfflineFileInfo>
+  /** Made on this device while offline and not on the server yet; the
+   *  next sync creates it there under the same id. */
+  created?: boolean
 }
 
 /** A cached read response, keyed by method and arguments. */
@@ -76,10 +100,14 @@ export interface OfflineStorage {
   putResponse(rec: OfflineResponse): Promise<void>
   /** Drop a card's cached reads, or the board-level ones when cardId is undefined. */
   deleteResponses(scope: string, cardId: string | undefined): Promise<void>
+  getFile(key: string): Promise<OfflineFile | undefined>
+  putFile(file: OfflineFile): Promise<void>
+  deleteFile(key: string): Promise<void>
 }
 
 export const cardKey = (scope: string, cardId: string) => `${scope}|${cardId}`
 export const responseKey = (scope: string, method: string, params: unknown[]) => `${scope}|${method}|${JSON.stringify(params)}`
+export const fileKey = (scope: string, cardId: string, attachmentId: string) => `${scope}|${cardId}|${attachmentId}`
 
 // Structured clone keeps stored records independent of the objects the
 // UI goes on mutating (Svelte proxies included — they don't clone).
@@ -90,6 +118,7 @@ function snapshot<T>(v: T): T {
 export class MemoryStorage implements OfflineStorage {
   private cards = new Map<string, OfflineCardRecord>()
   private responses = new Map<string, OfflineResponse>()
+  private files = new Map<string, OfflineFile>()
 
   async getCard(key: string) { const r = this.cards.get(key); return r && snapshot(r) }
   async putCard(rec: OfflineCardRecord) { this.cards.set(rec.key, snapshot(rec)) }
@@ -100,10 +129,15 @@ export class MemoryStorage implements OfflineStorage {
   async deleteResponses(scope: string, cardId: string | undefined) {
     for (const [k, r] of this.responses) if (r.scope === scope && r.cardId === cardId) this.responses.delete(k)
   }
+  // Blobs are immutable — kept as they are, not snapshotted.
+  async getFile(key: string) { return this.files.get(key) }
+  async putFile(file: OfflineFile) { this.files.set(file.key, file) }
+  async deleteFile(key: string) { this.files.delete(key) }
 }
 
 const DB_NAME = 'bruv-offline'
-const DB_VERSION = 1
+// v2 added the files store (attachment bytes).
+const DB_VERSION = 2
 
 export class IdbStorage implements OfflineStorage {
   private db: Promise<IDBDatabase> | null = null
@@ -113,8 +147,9 @@ export class IdbStorage implements OfflineStorage {
       const req = indexedDB.open(DB_NAME, DB_VERSION)
       req.onupgradeneeded = () => {
         const db = req.result
-        db.createObjectStore('cards', { keyPath: 'key' }).createIndex('scope', 'scope')
-        db.createObjectStore('responses', { keyPath: 'key' }).createIndex('scope', 'scope')
+        for (const name of ['cards', 'responses', 'files']) {
+          if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath: 'key' }).createIndex('scope', 'scope')
+        }
       }
       req.onsuccess = () => resolve(req.result)
       req.onerror = () => reject(req.error)
@@ -155,6 +190,10 @@ export class IdbStorage implements OfflineStorage {
       }
     })
   }
+  // Files keep their Blob (IndexedDB stores it natively), so no snapshot.
+  getFile(key: string) { return this.run<OfflineFile | undefined>('files', 'readonly', (s) => s.get(key)) }
+  putFile(file: OfflineFile) { return this.run<void>('files', 'readwrite', (s) => { s.put(file) }) }
+  deleteFile(key: string) { return this.run<void>('files', 'readwrite', (s) => { s.delete(key) }) }
 }
 
 /** IndexedDB when the engine has it, else memory (cache lasts the session). */

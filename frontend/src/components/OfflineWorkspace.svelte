@@ -11,6 +11,7 @@
   import { activeConnectionLabel } from '../lib/connections.svelte'
   import { offlineStatusText, formatBytes, placesText } from '@shared/offline/labels'
   import CardDetail from './CardDetail.svelte'
+  import NewOfflineCard from './NewOfflineCard.svelte'
 
   let openCardId = $state<string | null>(null)
   const server = $derived(activeConnectionLabel())
@@ -51,6 +52,10 @@
       {/if}
     </div>
   </header>
+
+  {#if offline.working}
+    <NewOfflineCard onCreated={(card) => openCardId = card.id} />
+  {/if}
 
   {#if offline.cards.length === 0}
     <p class="ow-empty">{t('offline.view_empty')}</p>

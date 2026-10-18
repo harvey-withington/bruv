@@ -126,6 +126,7 @@ export const UpdateCategoryIcon = (...args: Parameters<ReturnType<typeof getBack
 
 // Card CRUD
 export const CreateCard = (...args: Parameters<ReturnType<typeof getBackend>['CreateCard']>) => getBackend().CreateCard(...args)
+export const CreateCardWithID = (...args: Parameters<ReturnType<typeof getBackend>['CreateCardWithID']>) => getBackend().CreateCardWithID(...args)
 export const GetCard = (...args: Parameters<ReturnType<typeof getBackend>['GetCard']>) => getBackend().GetCard(...args)
 export const ListCards = () => getBackend().ListCards()
 export const DeleteCard = (...args: Parameters<ReturnType<typeof getBackend>['DeleteCard']>) => getBackend().DeleteCard(...args)

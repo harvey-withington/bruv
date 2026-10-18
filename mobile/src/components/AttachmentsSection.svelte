@@ -4,6 +4,8 @@
   import { attachmentDocumentSource, type DocumentSource } from '../lib/documentSource'
   import DocumentSheet from './DocumentSheet.svelte'
   import { repoRPC } from '../lib/auth'
+  import { signAttachmentURL } from '../lib/attachmentURL'
+  import { openAttachmentURL } from '@shared/download'
   import { t } from '../lib/i18n.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import type { Attachment, Card } from '@shared/types'
@@ -86,10 +88,8 @@
       return
     }
     try {
-      const url = await repoRPC<string>('SignAttachmentURL', [cardId, att.id])
-      if (url) {
-        window.open(url, '_blank', 'noopener,noreferrer')
-      }
+      const url = await signAttachmentURL(cardId, att.id)
+      if (url) openAttachmentURL(url, att.name)
     } catch (err) {
       errorMsg = err instanceof Error ? err.message : t('attachment.download_failed')
     }

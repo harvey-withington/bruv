@@ -4,6 +4,7 @@
   import { showConfirm } from '../lib/confirm.svelte'
   import { showToast } from '../lib/toast.svelte'
   import { AddCardAttachment, RemoveCardAttachment, SignAttachmentURL } from '@shared/api'
+  import { openAttachmentURL } from '@shared/download'
   import type { Attachment, Card } from '@shared/types'
   import { isEditableTextAttachment } from '@shared/attachmentText'
   import AttachmentDocumentViewer from './AttachmentDocumentViewer.svelte'
@@ -97,8 +98,7 @@
   // open) and we don't N+1-RPC every list render.
   async function downloadAttachment(att: Attachment) {
     try {
-      const url = await SignAttachmentURL(cardId, att.id)
-      window.open(url, '_blank', 'noopener,noreferrer')
+      openAttachmentURL(await SignAttachmentURL(cardId, att.id), att.name)
     } catch {
       showToast(t('attachment.download_failed'), 'error')
     }

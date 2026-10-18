@@ -5,7 +5,7 @@
 // drop. Every adapter RPC passes through the engine (setRpcInterceptor);
 // with no vault attached it is a straight pass-through.
 
-import { setRpcInterceptor, offlineScope, sendRpc, type TransportInfo } from '@shared/adapters/cloud'
+import { setRpcInterceptor, offlineScope, sendRpc, resolveTransportInfo, httpBase, type TransportInfo } from '@shared/adapters/cloud'
 import { OfflineEngine, OfflineUnavailableError } from '@shared/offline/engine.svelte'
 import { defaultStorage } from '@shared/offline/storage'
 import type { CardPin } from '@shared/types'
@@ -39,6 +39,13 @@ export const offline = new OfflineEngine({
     }
   },
   isNetworkError: (e) => e instanceof TypeError || e instanceof WorkingOfflineError,
+  // Travel documents, scans, photos: the bytes through a fresh signed URL.
+  fetchFile: async (cardId, attachmentId) => {
+    const path = (await sendRpc('SignAttachmentURL', [cardId, attachmentId])) as string
+    const res = await fetch(`${httpBase(await resolveTransportInfo())}${path}`)
+    if (!res.ok) throw new Error(`attachment download failed: HTTP ${res.status}`)
+    return res.blob()
+  },
   onReport: (r) => {
     if (r.synced) showToast(t('offline.sync_report', { count: r.synced }), 'success')
     if (r.conflicts) showToast(t('offline.sync_report_conflicts', { count: r.conflicts }), 'error')

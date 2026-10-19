@@ -209,6 +209,7 @@
   "card.delete_confirm_title": "Delete this card?",
   "card.delete_confirm_body": "\"{title}\" will be removed from every project it's pinned to. This can't be undone.",
   "card.err_load": "Could not load this card.",
+  "card.load_timeout": "The card took too long to load. Check the connection, then retry.",
   "card.err_save": "Could not save the change.",
   "card.err_save_on_leave": "Your last change to the card could not be saved.",
   "card.err_delete": "Could not delete this card.",

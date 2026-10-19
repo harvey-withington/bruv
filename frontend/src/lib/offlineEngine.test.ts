@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { OfflineEngine, OfflineUnavailableError, offlineCopyName, type RpcSend } from '@shared/offline/engine.svelte'
 import { MemoryStorage } from '@shared/offline/storage'
+import { countEffectRuns } from './testEffect.svelte'
 import type { Block, Card, CardEdit } from '@shared/types'
 
 class NetworkDown extends Error {}
@@ -137,6 +138,20 @@ describe('OfflineEngine', () => {
     expect(await call('GetCardPinBreadcrumbs', 'post')).toEqual([PIN])
     expect(engine.summary('post')?.places).toEqual([{ brand: 'Home', stream: 'Blog', project: 'Writing', category: 'Drafts' }])
     expect((await call('OpenCardAttachmentText', 'post', 'a1')) as { content: string }).toMatchObject({ content: '# Draft\nfirst para' })
+  })
+
+  it('a read made inside an effect does not re-run it (the card dialog stuck on loading)', async () => {
+    const effect = countEffectRuns(() => { void call('GetCard', 'post') })
+    for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0))
+    expect(effect.runs()).toBe(1)
+    effect.stop()
+  })
+
+  it('a live read of a marked card leaves its summary alone when nothing changed', async () => {
+    const before = engine.cards
+    await call('GetCard', 'post')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(engine.cards).toBe(before)
   })
 
   it('refuses what it cannot do offline', async () => {

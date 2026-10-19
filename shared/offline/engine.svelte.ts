@@ -13,6 +13,7 @@
 // Design: BRUV card "Offline cards" (08a5bb15) and plan/2026-10-17
 // offline cards.md.
 
+import { untrack } from 'svelte'
 import type { Card, CardCommitResult, CardEdit, CardPin, WorkspaceFileContent, WorkspaceFileStamp, WorkspaceSaveResult } from '../types'
 import { isEditableTextAttachment } from '../attachmentText'
 import { nameWithSuffix, utf8Base64 } from '../documentSource'
@@ -321,8 +322,15 @@ export class OfflineEngine {
 
   // --- the interceptor ---
 
-  /** Route one RPC: to the server, or to the device's copy. */
-  async handle(method: string, params: unknown[], send: RpcSend): Promise<unknown> {
+  /** Route one RPC: to the server, or to the device's copy. Untracked: a
+   *  call made inside an $effect must not come to depend on the engine's
+   *  state — answering a marked card updates `cards`, which would re-run
+   *  that effect, call again, and never settle. */
+  handle(method: string, params: unknown[], send: RpcSend): Promise<unknown> {
+    return untrack(() => this.route(method, params, send))
+  }
+
+  private async route(method: string, params: unknown[], send: RpcSend): Promise<unknown> {
     if (!this.scope) return send(method, params)
     const cardId = typeof params[0] === 'string' ? params[0] : ''
     if (this.working) return this.answerOffline(method, params)
@@ -830,6 +838,10 @@ export class OfflineEngine {
   }
 
   private patchSummary(cardId: string, patch: Partial<OfflineCardSummary>): void {
+    // Every live read of a marked card patches its title: leave `cards`
+    // alone when nothing changed, so readers aren't re-run for nothing.
+    const cur = this.summary(cardId)
+    if (!cur || (Object.keys(patch) as (keyof OfflineCardSummary)[]).every((k) => cur[k] === patch[k])) return
     this.cards = this.cards.map((c) => (c.cardId === cardId ? { ...c, ...patch } : c))
   }
 }

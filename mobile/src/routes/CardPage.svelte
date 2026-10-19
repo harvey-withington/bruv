@@ -6,6 +6,7 @@
   import { navigate, replace, projectURL, cardURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
   import { renderInline } from '@shared/markdown'
+  import { withTimeout, CARD_LOAD_TIMEOUT_MS } from '@shared/timeout'
   import { Trash2, MapPin, Plus, X, RefreshCw, Search, Paperclip, MessageSquare, ChevronsUpDown, ChevronsDownUp, ListCollapse, ListTree, ArrowUpRight, MonitorUp, Sparkles } from 'lucide-svelte'
   import { showToast } from '../lib/toast.svelte'
   import EditableText from '../components/EditableText.svelte'
@@ -369,7 +370,7 @@
     loading = true
     errorMsg = null
     try {
-      card = await repoRPC<Card>('GetCard', [id])
+      card = await withTimeout(repoRPC<Card>('GetCard', [id]), CARD_LOAD_TIMEOUT_MS, t('card.load_timeout'))
       lastSavedBlocks = card?.blocks ?? []
       initBlockCollapse()
       // Resolve the card's primary pin so we can load that project's
@@ -378,9 +379,9 @@
       // failures here just mean grey tags.
       let loc: { brandSlug: string; streamSlug: string; projectSlug: string } | null = null
       try {
-        loc = await repoRPC<{ brandSlug: string; streamSlug: string; projectSlug: string }>(
-          'GetCardLocation',
-          [id],
+        loc = await withTimeout(
+          repoRPC<{ brandSlug: string; streamSlug: string; projectSlug: string }>('GetCardLocation', [id]),
+          CARD_LOAD_TIMEOUT_MS, t('card.load_timeout'),
         )
         if (loc?.brandSlug && loc.streamSlug && loc.projectSlug) {
           projectKey = makeProjectKey(loc.brandSlug, loc.streamSlug, loc.projectSlug)
@@ -393,7 +394,7 @@
       // Pin breadcrumbs power the "Pinned in" section + per-pin unpin.
       // Orphan cards just get an empty array.
       try {
-        pins = (await repoRPC<CardPin[]>('GetCardPinBreadcrumbs', [id])) ?? []
+        pins = (await withTimeout(repoRPC<CardPin[]>('GetCardPinBreadcrumbs', [id]), CARD_LOAD_TIMEOUT_MS, t('card.load_timeout'))) ?? []
       } catch {
         pins = []
       }

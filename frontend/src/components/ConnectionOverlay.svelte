@@ -31,8 +31,11 @@
         <button type="button" class="primary" onclick={handleRetry} disabled={retrying || connectivity.checking}>
           {retrying || connectivity.checking ? t('connection.reconnecting') : t('common.retry')}
         </button>
-        {#if offline.cards.length > 0}
-          <button type="button" class="secondary" onclick={workOffline}>
+        <!-- Always offered on a connection that can work offline — with
+             nothing kept here yet it's disabled and says how to start
+             (UI-CONVENTIONS §12.9), rather than hiding. -->
+        {#if offline.scope}
+          <button type="button" class="secondary" onclick={workOffline} disabled={offline.cards.length === 0}>
             {t('offline.work_offline', { count: offline.cards.length })}
           </button>
         {/if}
@@ -40,6 +43,9 @@
           {t('connection.use_local')}
         </button>
       </div>
+      {#if offline.scope && offline.cards.length === 0}
+        <p class="hint">{t('offline.none_kept_hint')}</p>
+      {/if}
     </div>
   </div>
 {/if}
@@ -105,7 +111,17 @@
     background: transparent;
     color: var(--text-primary);
   }
-  .secondary:hover {
+  .secondary:hover:not(:disabled) {
     background: var(--bg);
+  }
+  .secondary:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+  .hint {
+    margin: 1rem 0 0;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    text-align: center;
   }
 </style>

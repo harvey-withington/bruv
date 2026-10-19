@@ -463,6 +463,19 @@ Bare-verb labels use the shared keys `common.add` / `common.delete` / `common.re
 
 **Corollary — never swap the element under the pointer on toggle.** Expand chevrons are one `<span class="chev">` holding a single `ChevronRight`, rotated 90° with a CSS transition when open, rather than an `{#if}` that replaces `ChevronRight` with `ChevronDown`. Replacing the icon mid-gesture is a second way to lose the click, and a rotation is the better animation anyway.
 
+## 12.9 Inactive Features Stay Visible — Disabled, With How to Start
+
+**Ruling (Harvey, 2026-10-19):** a feature that isn't set up or has nothing to act on yet is **shown, not hidden**. Its control renders disabled (or leads to an empty state), and next to it a line says what's missing and how to enable it. If a feature only appears once it's in use, the user may never find out it exists or how to turn it on. That's a worse failure than the space the control takes, especially on desktop, where space is plentiful.
+
+- **Do:** *Work offline (0 cards)* stays on the connection overlay and the unreachable screen, disabled, with "No cards are kept offline on this device yet. Open a card and choose *Make available offline*…" underneath. The sidebar footer offers *Offline cards* on every remote connection, even when there are none yet, and the empty list gives the same instructions.
+- **Don't:** `{#if count > 0}<button>` with no `{:else}`. That's how *Work offline* first shipped, and on a desktop with nothing marked it simply wasn't there (field report 2026-10-19).
+- **Where hiding is still right:**
+  - when the feature can't apply in this context at all, e.g. offline cards on the Local connection, which never goes offline (the setting that would enable it is elsewhere);
+  - status marks that describe an item, which only appear when the state holds, e.g. `OfflineMark`.
+
+  If in doubt, show it disabled with the reason.
+- The explanatory line is localized like every other string, and it names where the enabling control is ("at the bottom of the card"), not just that one exists.
+
 ---
 
 ## 13. SidePanel, Workspace Panel & WorkspaceFileTree

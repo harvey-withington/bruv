@@ -54,9 +54,16 @@ export const offline = new OfflineEngine({
 
 export { OfflineUnavailableError }
 
-/** The user is in the offline view (it outlives reconnecting, so a sync
- *  never swaps the screen out from under them). */
-export const offlineView = $state({ open: false })
+/** The offline view is up. It outlives reconnecting, so a sync never
+ *  swaps the screen out from under the user. `afterOutage`: it was
+ *  opened by working offline (leaving reloads, so every view starts from
+ *  the server again) rather than from the sidebar (leaving just closes). */
+export const offlineView = $state({ open: false, afterOutage: false })
+
+/** Open the offline cards from the sidebar, online. */
+export function openOfflineCards(): void {
+  offlineView.open = true
+}
 
 /** Route adapter RPCs through the engine. Call once at startup. */
 export function installOffline(): void {
@@ -84,6 +91,7 @@ export async function attachOffline(info: TransportInfo): Promise<void> {
 export function workOffline(): void {
   offline.setWorking(true)
   offlineView.open = true
+  offlineView.afterOutage = true
   if (!connectivity.offline) watchForReconnect()
   abandonParkedCalls()
   // The card dialog reads these stores; offline they come from the cache.

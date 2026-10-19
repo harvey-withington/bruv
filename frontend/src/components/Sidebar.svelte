@@ -2,7 +2,8 @@
   import { onMount } from 'svelte'
   import { nav, board, loadBoard, checklistProgress, type LegacyCard } from '../lib/store.svelte'
   import { CreateBrand, RenameBrand, UpdateBrandDescription, UpdateBrandIcon, CreateStream, RenameStream, UpdateStreamDescription, UpdateStreamIcon, CreateProject, RenameProject, UpdateProjectDescription, UpdateProjectIcon, DeleteBrand, DeleteStream, DeleteProject, ListBrands, ListStreams, ListProjects, GetCard, ListOrphanedCardIDs, ReorderBrands, ReorderStreams, ReorderProjects, MoveStream, MoveProject, CopyBrand, CopyStream, CopyProject, GetUIPreferences, GetRepoDescription, UpdateRepoDescription } from '@shared/api'
-  import { ChevronLeft, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox, Timer, ChevronsUpDown, ChevronsDownUp, Smile, Upload, Info, Server, Monitor, ListCollapse, ListTree } from 'lucide-svelte'
+  import { ChevronLeft, Trash2, Pencil, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, Settings, UserCircle, Inbox, Timer, ChevronsUpDown, ChevronsDownUp, Smile, Upload, Info, Server, Monitor, ListCollapse, ListTree, CloudOff } from 'lucide-svelte'
+  import { offline, openOfflineCards } from '../lib/offline.svelte'
   import { connections, isLocalActive, activeConnectionLabel } from '../lib/connections.svelte'
   import ThemeToggle from './ThemeToggle.svelte'
   import BruvIcon from './BruvIcon.svelte'
@@ -1210,25 +1211,29 @@
       </button>
     </div>
 
-    <div class="sidebar-footer">
-      <button class="footer-btn" onclick={onOpenProfile} title={t('profile.title')}><UserCircle size={16} /></button>
-      <span class="footer-spacer"></span>
-      <ThemeToggle />
-      <button class="footer-btn" onclick={onOpenAbout} title={t('about.title')} aria-label={t('about.title')}><Info size={16} /></button>
-      <button class="footer-btn" onclick={onOpenPrefs} title={t('prefs.title')}><Settings size={16} /></button>
-    </div>
+    {@render footer()}
   {/if}
 
   {#if nav.sidebarCollapsed}
-    <div class="sidebar-footer">
-      <button class="footer-btn" onclick={onOpenProfile} title={t('profile.title')}><UserCircle size={16} /></button>
-      <span class="footer-spacer"></span>
-      <ThemeToggle />
-      <button class="footer-btn" onclick={onOpenAbout} title={t('about.title')} aria-label={t('about.title')}><Info size={16} /></button>
-      <button class="footer-btn" onclick={onOpenPrefs} title={t('prefs.title')}><Settings size={16} /></button>
-    </div>
+    {@render footer()}
   {/if}
 </aside>
+
+<!-- One footer for both the open and the collapsed sidebar. -->
+{#snippet footer()}
+  <div class="sidebar-footer">
+    <button class="footer-btn" onclick={onOpenProfile} title={t('profile.title')}><UserCircle size={16} /></button>
+    <span class="footer-spacer"></span>
+    <!-- Offline cards are offered on every remote connection, even with
+         none kept yet — the view says how to start (UI-CONVENTIONS §12.9). -->
+    {#if offline.scope}
+      <button class="footer-btn" onclick={openOfflineCards} title={t('offline.sidebar_open', { count: offline.cards.length })} aria-label={t('offline.sidebar_open', { count: offline.cards.length })}><CloudOff size={16} /></button>
+    {/if}
+    <ThemeToggle />
+    <button class="footer-btn" onclick={onOpenAbout} title={t('about.title')} aria-label={t('about.title')}><Info size={16} /></button>
+    <button class="footer-btn" onclick={onOpenPrefs} title={t('prefs.title')}><Settings size={16} /></button>
+  </div>
+{/snippet}
 
 {#if iconPickerTarget}
   <IconPicker

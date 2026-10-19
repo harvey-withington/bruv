@@ -17,8 +17,11 @@
     onProbeOk?: () => void
     /** Cards kept on this device for this vault. */
     offlineCount?: number
+    /** Present when this connection can work offline. The button shows
+     *  even with nothing kept yet — disabled, with how to start. */
     onWorkOffline?: () => void
   } = $props()
+  const canWorkOffline = $derived(!!onWorkOffline && offlineCount > 0)
 
   let testing = $state(false)
   let lastResult = $state<'idle' | 'fail' | 'ok'>('idle')
@@ -68,12 +71,12 @@
     </div>
 
     <div class="actions">
-      {#if offlineCount > 0 && onWorkOffline}
-        <button class="btn-primary" onclick={onWorkOffline}>
+      {#if onWorkOffline}
+        <button class={canWorkOffline ? 'btn-primary' : 'btn-secondary'} onclick={onWorkOffline} disabled={!canWorkOffline}>
           <CloudOff size={14} /> {t('offline.work_offline', { count: offlineCount })}
         </button>
       {/if}
-      <button class={offlineCount > 0 && onWorkOffline ? 'btn-secondary' : 'btn-primary'} onclick={testAgain} disabled={testing}>
+      <button class={canWorkOffline ? 'btn-secondary' : 'btn-primary'} onclick={testAgain} disabled={testing}>
         <RefreshCw size={14} />
         {testing ? t('common.loading') : t('remote.test_again')}
       </button>
@@ -86,6 +89,9 @@
         </button>
       {/if}
     </div>
+    {#if onWorkOffline && offlineCount === 0}
+      <p class="offline-hint">{t('offline.none_kept_hint')}</p>
+    {/if}
   </div>
 </div>
 
@@ -153,5 +159,7 @@
     color: var(--text-secondary);
     border-color: var(--border);
   }
-  .btn-secondary:hover { color: var(--text-strong); background: var(--bg-elevated); }
+  .btn-secondary:hover:not(:disabled) { color: var(--text-strong); background: var(--bg-elevated); }
+  .btn-secondary:disabled { opacity: 0.55; cursor: not-allowed; }
+  .offline-hint { margin: 1rem 0 0; font-size: 0.8rem; color: var(--text-muted); text-align: center; }
 </style>

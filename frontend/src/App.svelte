@@ -435,7 +435,7 @@
     onOpenConnections={() => showConnections = true}
     onProbeOk={() => bootApp()}
     offlineCount={offline.cards.length}
-    onWorkOffline={workOffline}
+    onWorkOffline={offline.scope ? workOffline : undefined}
   />
 {:else if !nav.repoOpen}
   <!-- bootPhase is 'ready' but no repo is open — first-launch

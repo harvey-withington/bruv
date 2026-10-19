@@ -55,7 +55,7 @@
   {/if}
 
   {#if offline.cards.length === 0}
-    <p class="status">{t('offline.view_empty')}</p>
+    <p class="status">{t('offline.none_kept_hint')}</p>
   {:else}
     <ul class="cards">
       {#each offline.cards as c (c.cardId)}

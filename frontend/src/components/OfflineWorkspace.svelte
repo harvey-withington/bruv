@@ -6,7 +6,7 @@
   // the server again.
   import { CloudOff, RefreshCw, ArrowLeft } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
-  import { offline } from '../lib/offline.svelte'
+  import { offline, offlineView } from '../lib/offline.svelte'
   import { connectivity, retryNow } from '../lib/connectivity.svelte'
   import { activeConnectionLabel } from '../lib/connections.svelte'
   import { offlineStatusText, formatBytes, placesText } from '@shared/offline/labels'
@@ -19,7 +19,8 @@
   const allSynced = $derived(offline.cards.every((c) => c.status === 'synced'))
 
   function backToBoard() {
-    window.location.reload()
+    if (offlineView.afterOutage) window.location.reload()
+    else offlineView.open = false
   }
 </script>
 
@@ -58,7 +59,7 @@
   {/if}
 
   {#if offline.cards.length === 0}
-    <p class="ow-empty">{t('offline.view_empty')}</p>
+    <p class="ow-empty">{t('offline.none_kept_hint')}</p>
   {:else}
     <ul class="ow-list">
       {#each offline.cards as c (c.cardId)}

@@ -1732,7 +1732,6 @@
   "offline.view_syncing": "Back online — syncing with {server}…",
   "offline.view_synced": "Back online — everything is synced with {server}.",
   "offline.view_needs_attention": "Back online — some cards need your attention.",
-  "offline.view_empty": "No cards are kept on this device.",
   "offline.try_connection": "Try to reconnect",
   "offline.back_to_projects": "Back to your projects",
   "offline.sync_report": "Synced changes made offline on {count} cards",
@@ -1752,5 +1751,7 @@
   "document.save_as_label": "Save as",
   "document.save_as_confirm": "Save copy",
   "document.save_as_hint": "Your edits go into the new attachment, and this one goes back to how it was when you opened it.",
-  "document.save_as_failed": "Couldn't save the copy"
+  "document.save_as_failed": "Couldn't save the copy",
+  "offline.none_kept_hint": "No cards are kept offline on this device yet. Open a card and choose “Make available offline” (at the bottom of the card) to keep it here — then you can work on it without a connection.",
+  "offline.sidebar_open": "Offline cards ({count} on this device)"
 }

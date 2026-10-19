@@ -13,10 +13,15 @@
   <div class="connection-overlay" role="alertdialog" aria-modal="true" aria-label={t('error.offline')}>
     <div class="panel">
       <ErrorState message={t('error.offline')} onRetry={retryNow} />
-      {#if offline.cards.length > 0}
-        <button type="button" class="work-offline" onclick={workOffline}>
+      <!-- Always offered once a vault is set up for offline — with nothing
+           kept yet it's disabled and says how to start (UI-CONVENTIONS §12.9). -->
+      {#if offline.scope}
+        <button type="button" class="work-offline" onclick={workOffline} disabled={offline.cards.length === 0}>
           {t('offline.work_offline', { count: offline.cards.length })}
         </button>
+        {#if offline.cards.length === 0}
+          <p class="hint">{t('offline.none_kept_hint')}</p>
+        {/if}
       {/if}
     </div>
   </div>
@@ -55,5 +60,16 @@
     font: inherit;
     font-weight: 600;
     cursor: pointer;
+  }
+  .work-offline:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .hint {
+    margin: 0 1rem 1rem;
+    font-size: 0.82rem;
+    line-height: 1.4;
+    color: var(--text-muted);
+    text-align: center;
   }
 </style>

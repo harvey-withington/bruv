@@ -77,7 +77,7 @@ func (s *Service) TestModel(modelID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	provider, err := llm.NewProvider(acct.Provider, acct.APIKey, acct.BaseURL)
+	provider, err := llm.NewProvider(acct.Provider, acct.APIKey, acct.BaseURL, llm.Options{})
 	if err != nil {
 		return "", err
 	}

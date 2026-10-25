@@ -625,6 +625,18 @@ export type TrelloImportResult = {
   skipped_closed: number
 }
 
+/** Result of importing one Trello card export (ImportTrelloCardFromJSON). */
+export type TrelloCardImportResult = {
+  card_id: string
+  title: string
+  tags: string[] | null
+  checklists: number
+  attachments: number
+  /** Uploads that couldn't be downloaded and were kept as links. */
+  linked_attachments: string[] | null
+  comments: number
+}
+
 export type Attachment = {
   id: string
   name: string
@@ -1075,9 +1087,13 @@ export type LLMConfig = {
   chat_budget_mode?: ChatBudgetMode | ''
   /** Output-token budget per chat turn; 0 / absent = the default (16,000). */
   chat_budget_tokens?: number
+  /** How long a chat's prompt stays cached after its last use; '' = '5m'.
+   *  The hour costs more to write (2x input price instead of 1.25x). */
+  prompt_cache?: PromptCacheDuration | ''
 }
 
 export type ChatBudgetMode = 'warn' | 'hard' | 'off'
+export type PromptCacheDuration = '5m' | '1h'
 
 // --- Backend capabilities ---
 export type BackendCapabilities = {
@@ -1681,6 +1697,8 @@ export interface BackendAdapter {
   // Import / Export
   ImportTrelloBoard(brandSlug: string, streamSlug: string, filePath: string, archiveMode: TrelloArchiveMode, apiKey?: string, apiToken?: string): Promise<TrelloImportResult>
   ImportTrelloBoardFromJSON(brandSlug: string, streamSlug: string, jsonContent: string, archiveMode: TrelloArchiveMode, apiKey?: string, apiToken?: string): Promise<TrelloImportResult>
+  /** Imports a Trello single-card export at the end of a category. Uses the server's saved Trello key + token. */
+  ImportTrelloCardFromJSON(categoryId: string, jsonContent: string): Promise<TrelloCardImportResult>
   ExportProjectToFile(brandSlug: string, streamSlug: string, projectSlug: string, filePath: string): Promise<number>
 
   // Due-date notifications

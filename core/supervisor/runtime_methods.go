@@ -845,6 +845,28 @@ func (r *Runtime) ImportTrelloBoardFromJSON(brandSlug, streamSlug, jsonContent, 
 	return r.Repository.ImportTrelloBoardFromJSON(brandSlug, streamSlug, jsonContent, archiveMode, apiKey, apiToken)
 }
 
+// ImportTrelloCardFromJSON imports a Trello single-card export into
+// categoryID. The Trello key + token come from this server's preferences
+// (the import runs here, whichever surface asked). Tags are then set
+// through the card service so they join the project's tag list, like
+// any tag edit.
+func (r *Runtime) ImportTrelloCardFromJSON(categoryID, jsonContent string) (*importer.CardResult, error) {
+	prefs, err := r.Settings.GetPreferences()
+	if err != nil {
+		slog.Warn("trello card import: preferences unreadable, importing without credentials", "err", err)
+	}
+	result, err := r.Repository.ImportTrelloCardFromJSON(categoryID, jsonContent, prefs.TrelloAPIKey, prefs.TrelloAPIToken)
+	if err != nil {
+		return nil, err
+	}
+	if len(result.Tags) > 0 {
+		if _, err := r.Card.UpdateTags(result.CardID, result.Tags); err != nil {
+			return nil, fmt.Errorf("set imported tags: %w", err)
+		}
+	}
+	return result, nil
+}
+
 // ExportProjectToFile writes a project export to the given absolute path.
 // Returns the byte count written. Distinct from ExportCardTypesToFile
 // which lives on the catalog service.

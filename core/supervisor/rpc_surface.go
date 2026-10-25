@@ -99,7 +99,7 @@ var repoRPCMethods = []string{
 
 	// Repo, index, import/export
 	"ExportProjectToFile", "GetCurrentRepo", "GetRepoDescription",
-	"ImportTrelloBoard", "ImportTrelloBoardFromJSON", "RebuildIndex",
+	"ImportTrelloBoard", "ImportTrelloBoardFromJSON", "ImportTrelloCardFromJSON", "RebuildIndex",
 	"RefreshIndex", "UpdateRepoDescription",
 
 	// Workspaces

@@ -102,11 +102,15 @@ const (
 	StopRefusal   StopReason = "refusal"    // declined by the provider's safety systems
 )
 
-// Usage reports token consumption for a single LLM call.
+// Usage reports token consumption for a single LLM call. PromptTokens is
+// the whole prompt, cached or not; the cache fields say how much of it was
+// read from or written to the provider's prompt cache.
 type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+	CacheReadTokens  int `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
 }
 
 // ChatResponse is returned from the provider.
@@ -126,13 +130,21 @@ type Provider interface {
 	Name() string
 }
 
+// Options tune a provider beyond its account's key and endpoint. Providers
+// ignore the options they have no use for.
+type Options struct {
+	// PromptCacheTTL is how long a prompt-caching provider keeps a prompt
+	// after its last use: "5m" or "1h". "" = the provider's default.
+	PromptCacheTTL string
+}
+
 // NewProvider creates a provider by name.
-func NewProvider(provider, apiKey, baseURL string) (Provider, error) {
+func NewProvider(provider, apiKey, baseURL string, opts Options) (Provider, error) {
 	switch provider {
 	case "openai", ProviderOpenAICompatible:
 		return NewOpenAI(apiKey, baseURL), nil
 	case "anthropic":
-		return NewAnthropic(apiKey, baseURL), nil
+		return NewAnthropic(apiKey, baseURL, opts), nil
 	case "ollama":
 		return NewOllama(baseURL), nil
 	default:

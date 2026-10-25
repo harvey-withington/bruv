@@ -10,7 +10,7 @@ import {
 } from '@shared/cardTransfer'
 import type { BruvCardExport } from '@shared/cardJson'
 import type { CardMarkdownLabels } from '@shared/cardMarkdown'
-import type { Card, CardComment, CardTypeInfo } from '@shared/types'
+import type { Card, CardComment, CardTypeInfo, TrelloCardImportResult } from '@shared/types'
 import { t } from './i18n.svelte'
 import { signAttachmentURL } from './attachmentURL'
 
@@ -34,6 +34,7 @@ const api: CardTransferApi = {
   addCardComment: (cardId, author, text) => repoRPC('AddCardComment', [cardId, author, text]),
   listCardComments: async (cardId) => (await repoRPC<CardComment[]>('ListCardComments', [cardId])) ?? [],
   signAttachmentURL,
+  importTrelloCard: (categoryId, json) => repoRPC<TrelloCardImportResult>('ImportTrelloCardFromJSON', [categoryId, json]),
 }
 
 export function buildCardExportPayload(card: Card): Promise<BruvCardExport> {
@@ -68,5 +69,5 @@ export function cardMarkdownLabels(): CardMarkdownLabels {
   }
 }
 
-export { ImportError } from '@shared/cardTransfer'
+export { ImportError, importNotice } from '@shared/cardTransfer'
 export type { ImportOutcome, MergeOutcome, TypeConflictReason, TypeConflictResolution } from '@shared/cardTransfer'

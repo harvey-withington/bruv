@@ -371,4 +371,5 @@ export const DeleteCardComment = (...args: Parameters<ReturnType<typeof getBacke
 // Import / Export
 export const ImportTrelloBoard = (...args: Parameters<ReturnType<typeof getBackend>['ImportTrelloBoard']>) => getBackend().ImportTrelloBoard(...args)
 export const ImportTrelloBoardFromJSON = (...args: Parameters<ReturnType<typeof getBackend>['ImportTrelloBoardFromJSON']>) => getBackend().ImportTrelloBoardFromJSON(...args)
+export const ImportTrelloCardFromJSON = (...args: Parameters<ReturnType<typeof getBackend>['ImportTrelloCardFromJSON']>) => getBackend().ImportTrelloCardFromJSON(...args)
 export const ExportProjectToFile = (...args: Parameters<ReturnType<typeof getBackend>['ExportProjectToFile']>) => getBackend().ExportProjectToFile(...args)

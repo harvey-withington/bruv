@@ -68,6 +68,29 @@ func (s *Service) ImportTrelloBoardFromJSON(brandSlug, streamSlug, jsonContent, 
 	return s.importTrelloBytes(brandSlug, streamSlug, []byte(jsonContent), archiveMode, apiKey, apiToken)
 }
 
+// ImportTrelloCardFromJSON imports a Trello single-card export as a new
+// card at the end of categoryID.
+func (s *Service) ImportTrelloCardFromJSON(categoryID, jsonContent, apiKey, apiToken string) (*importer.CardResult, error) {
+	r := s.deps.Repo()
+	if r == nil {
+		return nil, fmt.Errorf("no repository open")
+	}
+	parsed, err := importer.ParseTrelloCardJSON([]byte(jsonContent))
+	if err != nil {
+		return nil, err
+	}
+	result, err := importer.ImportTrelloCard(r, categoryID, parsed, importer.Options{APIKey: apiKey, APIToken: apiToken})
+	if err != nil {
+		return nil, err
+	}
+	if idx := s.deps.Index(); idx != nil {
+		if _, err := idx.IncrementalRefresh(r.Root); err != nil {
+			slog.Warn("index refresh after card import failed", "err", err)
+		}
+	}
+	return result, nil
+}
+
 func (s *Service) importTrelloBytes(brandSlug, streamSlug string, data []byte, archiveMode, apiKey, apiToken string) (*importer.Result, error) {
 	parsed, err := importer.ParseTrelloJSON(data)
 	if err != nil {

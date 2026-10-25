@@ -8,7 +8,7 @@
 // saved, so they can't overwrite real settings.
 
 import { GetPreferences, SetPreferences, GetUIPreferences, SetUIPreferences, GetLLMConfig, SetLLMConfig, GetNotifyConfig, SetNotifyConfig, GetLLMAccounts, SaveLLMAccounts, GetLLMRouting, SaveLLMRouting, GetDueDateSettings, SaveDueDateSettings, GetCapturePrefs, SetCapturePrefs } from '@shared/api'
-import type { CapturePrefs, LLMAccount, LLMRouting, ChatBudgetMode } from '@shared/types'
+import type { CapturePrefs, LLMAccount, LLMRouting, ChatBudgetMode, PromptCacheDuration } from '@shared/types'
 import { CHAT_BUDGET_DEFAULT, clampChatBudget } from '@shared/chatTurn.svelte'
 import { normalizeRouting } from '@shared/modelRefs'
 import { t, setLocale } from './i18n.svelte'
@@ -48,6 +48,7 @@ export class SettingsForm {
     min_confidence: '',
     chat_budget_mode: 'warn' as ChatBudgetMode,
     chat_budget_tokens: CHAT_BUDGET_DEFAULT,
+    prompt_cache: '5m' as PromptCacheDuration,
   })
 
   llmAccounts = $state<LLMAccount[]>([])
@@ -142,6 +143,7 @@ export class SettingsForm {
           min_confidence: c.min_confidence || '',
           chat_budget_mode: c.chat_budget_mode || 'warn',
           chat_budget_tokens: c.chat_budget_tokens || CHAT_BUDGET_DEFAULT,
+          prompt_cache: c.prompt_cache || '5m',
         })
       },
       save: () => SetLLMConfig({ ...this.llm, chat_budget_tokens: clampChatBudget(this.llm.chat_budget_tokens) }),

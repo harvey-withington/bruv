@@ -1,11 +1,12 @@
 import {
   buildCardExport,
+  isTrelloCardExport,
   parseCardImport,
   type BruvCardExport,
   type CardImportError,
   type EmbeddedAttachment,
 } from './cardJson'
-import type { Card, CardComment } from './types'
+import type { Card, CardComment, TrelloCardImportResult } from './types'
 import { planCardMerge, type MergeLabels, type MergeSummary } from './cardMerge'
 import { collectAttachmentRefs, remapAttachmentRefs, type AttachmentRefRemap } from './attachmentRefs'
 
@@ -44,9 +45,12 @@ export interface CardTransferApi {
   addCardComment(cardId: string, author: string, text: string): Promise<unknown>
   listCardComments(cardId: string): Promise<CardComment[]>
   signAttachmentURL(cardId: string, attachmentId: string): Promise<string>
+  /** Server-side import of a Trello single-card export (labels, checklists,
+   *  attachments, comments) at the end of the category. */
+  importTrelloCard(categoryId: string, json: string): Promise<TrelloCardImportResult>
 }
 
-export type CardTransferError = CardImportError | 'pin_failed'
+export type CardTransferError = CardImportError | 'pin_failed' | 'trello_card_merge'
 
 export class ImportError extends Error {
   constructor(public readonly code: CardTransferError) {
@@ -176,6 +180,26 @@ export type ImportOutcome = {
   failedAttachments: string[]
   /** Authors of comments we couldn't restore. */
   failedComments: string[]
+  /** Trello uploads that couldn't be downloaded and were kept as links
+   *  (usually: no Trello key + token saved on the server). */
+  linkedAttachments: string[]
+}
+
+/** The toast an import outcome warrants, for the surface to localize. */
+export type ImportNotice = {
+  kind: 'success' | 'warning'
+  key: 'card.import_done' | 'card.import_partial' | 'card.import_trello_linked'
+  params?: Record<string, number>
+}
+
+export function importNotice(outcome: ImportOutcome): ImportNotice {
+  if (outcome.failedAttachments.length || outcome.failedComments.length) {
+    return { kind: 'warning', key: 'card.import_partial' }
+  }
+  if (outcome.linkedAttachments.length) {
+    return { kind: 'warning', key: 'card.import_trello_linked', params: { count: outcome.linkedAttachments.length } }
+  }
+  return { kind: 'success', key: 'card.import_done' }
 }
 
 /**
@@ -245,6 +269,19 @@ export async function importCardFromJson(
   categoryId: string,
   opts: ImportOptions,
 ): Promise<ImportOutcome | null> {
+  // A Trello card is imported whole by the server: it's typeless (so no
+  // type-conflict pre-flight), and its attachments are fetched from
+  // Trello there, with the server's saved credentials.
+  if (isTrelloCardExport(text)) {
+    const res = await api.importTrelloCard(categoryId, text)
+    return {
+      cardId: res.card_id,
+      failedAttachments: [],
+      failedComments: [],
+      linkedAttachments: res.linked_attachments ?? [],
+    }
+  }
+
   const parsed = parseCardImport(text)
   if (!parsed.ok) throw new ImportError(parsed.error)
   const env = parsed.value
@@ -349,7 +386,7 @@ export async function importCardFromJson(
     catch { failedComments.push(c.author || 'unknown') }
   }
 
-  return { cardId: created.id, failedAttachments, failedComments }
+  return { cardId: created.id, failedAttachments, failedComments, linkedAttachments: [] }
 }
 
 // --- Merge into an existing card ---
@@ -382,6 +419,7 @@ export async function mergeCardFromJson(
   targetCardId: string,
   opts: MergeCardOptions,
 ): Promise<MergeOutcome> {
+  if (isTrelloCardExport(text)) throw new ImportError('trello_card_merge')
   const parsed = parseCardImport(text)
   if (!parsed.ok) throw new ImportError(parsed.error)
   const env = parsed.value

@@ -13,19 +13,26 @@ import (
 const defaultAnthropicURL = "https://api.anthropic.com"
 
 type anthropicProvider struct {
-	apiKey  string
-	baseURL string
-	client  *http.Client
+	apiKey       string
+	baseURL      string
+	cacheControl map[string]any
+	client       *http.Client
 }
 
-func NewAnthropic(apiKey, baseURL string) Provider {
+func NewAnthropic(apiKey, baseURL string, opts Options) Provider {
 	if baseURL == "" {
 		baseURL = defaultAnthropicURL
 	}
+	// 5 minutes is the API default, so only the hour is sent.
+	cacheControl := map[string]any{"type": "ephemeral"}
+	if opts.PromptCacheTTL == "1h" {
+		cacheControl["ttl"] = "1h"
+	}
 	return &anthropicProvider{
-		apiKey:  apiKey,
-		baseURL: baseURL,
-		client:  &http.Client{},
+		apiKey:       apiKey,
+		baseURL:      baseURL,
+		cacheControl: cacheControl,
+		client:       &http.Client{},
 	}
 }
 
@@ -41,9 +48,18 @@ type anthropicBlock struct {
 }
 
 // anthropicUsage is the usage object of a response or a stream event.
+// input_tokens counts only the uncached part of the prompt; cached input
+// is reported separately.
 type anthropicUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+}
+
+// promptTokens is the whole prompt: uncached, written to and read from cache.
+func (u anthropicUsage) promptTokens() int {
+	return u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
 }
 
 // anthropicMessage is a whole response, whether it arrived as one JSON
@@ -98,6 +114,12 @@ func (p *anthropicProvider) ChatCompletion(ctx context.Context, req ChatRequest)
 		"messages":   msgs,
 		"max_tokens": maxTokensOrDefault(req.MaxTokens),
 		"stream":     true,
+		// Automatic prompt caching: the breakpoint sits on the last block,
+		// so each call reads the tools, system prompt and history the
+		// previous call cached (~0.1x input price) and caches the new tail.
+		// Chats and tool loops resend everything every call, so without it
+		// the whole conversation is billed at full price on every turn.
+		"cache_control": p.cacheControl,
 	}
 	if req.SystemPrompt != "" {
 		body["system"] = req.SystemPrompt
@@ -170,12 +192,13 @@ func (p *anthropicProvider) ChatCompletion(ctx context.Context, req ChatRequest)
 	}
 
 	cr := &ChatResponse{Model: result.Model, StopReason: anthropicStopReason(result.StopReason)}
-	if result.Usage.InputTokens > 0 || result.Usage.OutputTokens > 0 {
-		total := result.Usage.InputTokens + result.Usage.OutputTokens
+	if u := result.Usage; u.promptTokens() > 0 || u.OutputTokens > 0 {
 		cr.Usage = &Usage{
-			PromptTokens:     result.Usage.InputTokens,
-			CompletionTokens: result.Usage.OutputTokens,
-			TotalTokens:      total,
+			PromptTokens:     u.promptTokens(),
+			CompletionTokens: u.OutputTokens,
+			TotalTokens:      u.promptTokens() + u.OutputTokens,
+			CacheReadTokens:  u.CacheReadInputTokens,
+			CacheWriteTokens: u.CacheCreationInputTokens,
 		}
 	}
 	// Thinking blocks are dropped: Claude's thinking is hidden (empty

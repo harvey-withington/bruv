@@ -31,6 +31,7 @@ const FIELDS: SettingsField[] = [
   { tab: 'ai', key: 'ai_mode', label: 'ai mode chat edit card fields' },
   { tab: 'ai', key: 'min_confidence', label: 'minimum confidence ai suggestion pin threshold' },
   { tab: 'ai', key: 'chat_budget', label: 'response budget tokens output limit cost warn stop chat reply' },
+  { tab: 'ai', key: 'prompt_cache', label: 'conversation prompt cache caching duration ttl hour minutes cost price claude anthropic' },
   { tab: 'ai', key: 'context', label: 'ai context additional' },
   { tab: 'notifications', key: 'system_enabled', label: 'desktop system notifications test' },
   { tab: 'notifications', key: 'smtp', label: 'email smtp host server port username password recipient to from address tls' },

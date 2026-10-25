@@ -12,7 +12,7 @@
   import { focusTrap } from '../lib/actions'
   import { showToast } from '../lib/toast.svelte'
   import { showConfirm } from '../lib/confirm.svelte'
-  import { importCardFromJson, ImportError, type TypeConflictReason, type TypeConflictResolution } from '../lib/cardExport'
+  import { importCardFromJson, importNotice, ImportError, type TypeConflictReason, type TypeConflictResolution } from '../lib/cardExport'
   import ImportConfirmDialog from './ImportConfirmDialog.svelte'
 
   let renamingCategorySlug = $state<string | null>(null)
@@ -112,11 +112,8 @@
       selectedCategoryId = categoryId
       selectedCategoryName = cat?.name || null
 
-      if (result.failedAttachments.length || result.failedComments.length) {
-        showToast(t('card.import_partial'), 'warning')
-      } else {
-        showToast(t('card.import_done'), 'success')
-      }
+      const notice = importNotice(result)
+      showToast(t(notice.key, notice.params), notice.kind)
     } catch (e) {
       const key = e instanceof ImportError
         ? `card.import_err_${e.code}`

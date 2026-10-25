@@ -37,13 +37,13 @@ func streamStub(t *testing.T, body string) *stub {
 }
 
 const (
-	evStart = `{"type":"message_start","message":{"model":"claude-opus-5-5","content":[],"usage":{"input_tokens":10,"output_tokens":1}}}`
+	evStart = `{"type":"message_start","message":{"model":"claude-opus-5-5","content":[],"usage":{"input_tokens":10,"output_tokens":1,"cache_creation_input_tokens":200,"cache_read_input_tokens":3000}}}`
 	evStop  = `{"type":"message_stop"}`
 )
 
 func streamCall(t *testing.T, s *stub, onOutput func(int)) (*ChatResponse, error) {
 	t.Helper()
-	return NewAnthropic("k", s.URL).ChatCompletion(context.Background(), ChatRequest{
+	return NewAnthropic("k", s.URL, Options{}).ChatCompletion(context.Background(), ChatRequest{
 		Model:    "claude-opus-5-5",
 		Messages: []Message{{Role: "user", Content: "hi"}},
 		OnOutput: onOutput,
@@ -81,9 +81,13 @@ func TestAnthropicStreamText(t *testing.T) {
 		t.Errorf("StopReason = %q, Model = %q", resp.StopReason, resp.Model)
 	}
 	// Output tokens come from the final message_delta (cumulative, and the
-	// only count that includes thinking); input from message_start.
-	if resp.Usage == nil || resp.Usage.PromptTokens != 10 || resp.Usage.CompletionTokens != 812 || resp.Usage.TotalTokens != 822 {
-		t.Errorf("Usage = %+v, want 10 + 812", resp.Usage)
+	// only count that includes thinking); input, cached and uncached, from
+	// message_start.
+	if resp.Usage == nil || resp.Usage.PromptTokens != 3210 || resp.Usage.CompletionTokens != 812 || resp.Usage.TotalTokens != 4022 {
+		t.Errorf("Usage = %+v, want 3210 + 812", resp.Usage)
+	}
+	if resp.Usage != nil && (resp.Usage.CacheReadTokens != 3000 || resp.Usage.CacheWriteTokens != 200) {
+		t.Errorf("cache read/write = %d/%d, want 3000/200", resp.Usage.CacheReadTokens, resp.Usage.CacheWriteTokens)
 	}
 	// One estimate per visible delta, ~4 characters a token; thinking
 	// deltas are hidden and must not count.
@@ -216,7 +220,7 @@ func TestAnthropicStopReasons(t *testing.T) {
 		"refusal":                       StopRefusal,
 	} {
 		body := strings.Replace(fixture(t, "anthropic_text.json"), `"stop_reason": "end_turn"`, `"stop_reason": "`+raw+`"`, 1)
-		resp, err := NewAnthropic("k", newStub(t, http.StatusOK, body, nil).URL).ChatCompletion(context.Background(), ChatRequest{
+		resp, err := NewAnthropic("k", newStub(t, http.StatusOK, body, nil).URL, Options{}).ChatCompletion(context.Background(), ChatRequest{
 			Model:    "claude-opus-5-5",
 			Messages: []Message{{Role: "user", Content: "hi"}},
 		})

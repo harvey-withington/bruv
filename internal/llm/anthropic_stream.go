@@ -93,6 +93,12 @@ func readAnthropicStream(r io.Reader, onOutput func(int)) (*anthropicMessage, er
 			if ev.Usage.InputTokens > 0 {
 				msg.Usage.InputTokens = ev.Usage.InputTokens
 			}
+			if ev.Usage.CacheCreationInputTokens > 0 {
+				msg.Usage.CacheCreationInputTokens = ev.Usage.CacheCreationInputTokens
+			}
+			if ev.Usage.CacheReadInputTokens > 0 {
+				msg.Usage.CacheReadInputTokens = ev.Usage.CacheReadInputTokens
+			}
 		case "message_stop":
 			finished = true
 		case "error":

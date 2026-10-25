@@ -7,8 +7,10 @@ import (
 	"bruv/internal/model"
 	"bruv/internal/repo"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -94,8 +96,9 @@ type TrelloCard struct {
 	Attachments  []TrelloAttachment `json:"attachments"`
 }
 
-// TrelloAction carries comment history and member-add actions. We only read
-// comments (type="commentCard") here.
+// TrelloAction carries a card's history. We read comments
+// (type="commentCard") and, for a single-card export that has no
+// attachment list, the attachment adds and deletes.
 type TrelloAction struct {
 	ID            string    `json:"id"`
 	Type          string    `json:"type"`
@@ -109,6 +112,11 @@ type TrelloAction struct {
 		Card struct {
 			ID string `json:"id"`
 		} `json:"card"`
+		Attachment struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		} `json:"attachment"`
 	} `json:"data"`
 }
 
@@ -117,7 +125,13 @@ type TrelloAction struct {
 type boardFile struct {
 	TrelloBoard
 	Checklists []TrelloChecklist `json:"checklists"`
+	// IDList is set only on a single-card export, which has no lists.
+	IDList string `json:"idList"`
 }
+
+// ErrTrelloCardExport is returned when a single card's export is given to
+// the board importer.
+var ErrTrelloCardExport = errors.New("this is a single Trello card export, not a board — import it into a category with Import card")
 
 // ParsedBoard bundles a parsed Trello board with its resolved checklists,
 // keyed by ID for the importer's convenience.
@@ -131,6 +145,9 @@ func ParseTrelloJSON(data []byte) (*ParsedBoard, error) {
 	var bf boardFile
 	if err := json.Unmarshal(data, &bf); err != nil {
 		return nil, fmt.Errorf("parse trello JSON: %w", err)
+	}
+	if bf.IDList != "" && len(bf.Lists) == 0 {
+		return nil, ErrTrelloCardExport
 	}
 	if bf.Name == "" {
 		return nil, fmt.Errorf("not a Trello board export: missing board name")
@@ -264,12 +281,9 @@ func ImportTrello(r *repo.Repository, brandSlug, streamSlug string, parsed *Pars
 	trelloLabelToBRUV := make(map[string]string, len(board.Labels))
 	trelloLabelIDToName := make(map[string]string, len(board.Labels))
 	for _, tl := range board.Labels {
-		name := tl.Name
+		name := trelloLabelName(tl)
 		if name == "" {
-			if tl.Color == "" {
-				continue
-			}
-			name = tl.Color
+			continue
 		}
 		updated, err := r.AddProjectLabel(brandSlug, streamSlug, project.Slug, name, trelloColorToBRUV(tl.Color))
 		if err != nil {
@@ -419,46 +433,6 @@ func ImportTrello(r *repo.Repository, brandSlug, streamSlug string, parsed *Pars
 			continue
 		}
 
-		title := strings.TrimSpace(tc.Name)
-		if title == "" {
-			title = "(untitled)"
-		}
-
-		// Empty type — Trello has no notion of BRUV card types, and forcing one
-		// (e.g. "note") would misclassify everything. The user can set types
-		// post-import or let an agent suggest them.
-		card, err := r.CreateCard("", title)
-		if err != nil {
-			return nil, fmt.Errorf("create card %q: %w", title, err)
-		}
-
-		// Download upload-type attachments into the repo's attachments
-		// store; link-type attachments become URL/image blocks below.
-		var fileAttachments []model.FileAttachment
-		for _, att := range tc.Attachments {
-			if att.URL == "" {
-				continue
-			}
-			if !att.IsUpload {
-				continue
-			}
-			fa, err := downloadAndSaveAttachment(r, card.ID, tc.ID, att, opts.APIKey, opts.APIToken)
-			if err != nil {
-				// Non-fatal: log warning and continue so the import succeeds.
-				fmt.Printf("Warning: failed to download attachment %s: %v\n", att.Name, err)
-				continue
-			}
-			fileAttachments = append(fileAttachments, *fa)
-		}
-
-		blocks := buildCardBlocks(tc, parsed.Checklists)
-
-		// Due date
-		var dueDate *time.Time
-		if tc.Due != nil && !tc.Due.IsZero() {
-			dueDate = tc.Due
-		}
-
 		// Labels: set BOTH
 		//   - card.Tags[]   — the string slice that the UI renders as tag chips
 		//   - card.Labels[] — internal per-project label IDs, kept in sync
@@ -475,51 +449,149 @@ func ImportTrello(r *repo.Repository, brandSlug, streamSlug string, parsed *Pars
 			}
 		}
 
-		// Update card details directly, overriding timestamps
-		card.Blocks = blocks
-		card.DueDate = dueDate
-		card.Labels = labelIDs
-		card.Tags = tagNames
-		card.Description = strings.TrimSpace(tc.Desc)
-		card.Members = tc.IDMembers
-		card.FileAttachments = fileAttachments
-
-		// Extract creation and update dates
-		card.CreatedAt = extractTimeFromObjectID(tc.ID)
-		card.UpdatedAt = findLatestActionDate(board.Actions, tc.ID, card.CreatedAt)
-
-		if err := r.UpdateCardDirect(card.ID, card); err != nil {
-			return nil, fmt.Errorf("update imported card %q: %w", title, err)
-		}
-
-		// Pin to the target category.
 		pos := catPositions[targetCatID]
-		if err := r.PinCardAt(card.ID, targetCatID, pos); err != nil {
-			return nil, fmt.Errorf("pin imported card %q: %w", title, err)
+		written, err := writeTrelloCard(r, trelloCardWrite{
+			Card:       tc,
+			Checklists: parsed.Checklists,
+			Comments:   commentsByCard[tc.ID],
+			Actions:    board.Actions,
+			Tags:       tagNames,
+			LabelIDs:   labelIDs,
+			Members:    tc.IDMembers,
+			CategoryID: targetCatID,
+			Position:   pos,
+		}, opts)
+		if err != nil {
+			return nil, err
 		}
 		catPositions[targetCatID] = pos + 1
 		result.Cards++
+		result.Comments += written.Comments
 		if isArchived {
 			result.Archived++
-		}
-
-		// Comments → first-class comments on the card, preserving original timestamps.
-		for _, act := range commentsByCard[tc.ID] {
-			author := act.MemberCreator.FullName
-			if author == "" {
-				author = act.MemberCreator.Username
-			}
-			if author == "" {
-				author = "Trello"
-			}
-			if _, err := r.AddCardComment(card.ID, author, act.Data.Text, act.Date); err != nil {
-				return nil, fmt.Errorf("add imported comment: %w", err)
-			}
-			result.Comments++
 		}
 	}
 
 	return result, nil
+}
+
+// trelloLabelName is the tag name a Trello label imports as: its name, or
+// its colour when it has none, so a colour-only label stays visible.
+func trelloLabelName(l TrelloLabel) string {
+	if l.Name != "" {
+		return l.Name
+	}
+	return l.Color
+}
+
+// trelloCardWrite is one Trello card ready to be written, plus what the
+// board or single-card path resolved around it.
+type trelloCardWrite struct {
+	Card       TrelloCard
+	Checklists map[string]TrelloChecklist
+	// Comments are the card's commentCard actions.
+	Comments []TrelloAction
+	// Actions date the card's last update.
+	Actions    []TrelloAction
+	Tags       []string
+	LabelIDs   []string
+	Members    []string
+	CategoryID string
+	// Position pins the card at an explicit slot; -1 appends it.
+	Position int
+}
+
+// trelloCardWritten reports what writeTrelloCard did for one card.
+type trelloCardWritten struct {
+	CardID      string
+	Comments    int
+	Attachments int
+	// LinkedAttachments names the uploads that couldn't be downloaded and
+	// were kept as link blocks instead.
+	LinkedAttachments []string
+}
+
+// writeTrelloCard creates one BRUV card from a Trello card and pins it.
+// The card is pinned straight after it's created, so a failed pin leaves
+// nothing behind; uploads that can't be downloaded become link blocks
+// rather than being dropped.
+func writeTrelloCard(r *repo.Repository, w trelloCardWrite, opts Options) (*trelloCardWritten, error) {
+	tc := w.Card
+	title := strings.TrimSpace(tc.Name)
+	if title == "" {
+		title = "(untitled)"
+	}
+
+	// Empty type — Trello has no notion of BRUV card types, and forcing one
+	// (e.g. "note") would misclassify everything. The user can set types
+	// post-import or let an agent suggest them.
+	card, err := r.CreateCard("", title)
+	if err != nil {
+		return nil, fmt.Errorf("create card %q: %w", title, err)
+	}
+	if w.Position < 0 {
+		err = r.PinCard(card.ID, w.CategoryID)
+	} else {
+		err = r.PinCardAt(card.ID, w.CategoryID, w.Position)
+	}
+	if err != nil {
+		_ = r.DeleteCard(card.ID)
+		return nil, fmt.Errorf("pin imported card %q: %w", title, err)
+	}
+	out := &trelloCardWritten{CardID: card.ID}
+
+	// Download upload-type attachments into the repo's attachments store;
+	// link-type attachments become URL/image blocks in buildCardBlocks.
+	var fileAttachments []model.FileAttachment
+	var linked []TrelloAttachment
+	for _, att := range tc.Attachments {
+		if att.URL == "" || !att.IsUpload {
+			continue
+		}
+		fa, err := downloadAndSaveAttachment(r, card.ID, tc.ID, att, opts.APIKey, opts.APIToken)
+		if err != nil {
+			slog.Warn("trello attachment download failed; kept as a link", "name", att.Name, "err", err)
+			linked = append(linked, att)
+			out.LinkedAttachments = append(out.LinkedAttachments, fallbackAttachmentName(att))
+			continue
+		}
+		fileAttachments = append(fileAttachments, *fa)
+	}
+	out.Attachments = len(fileAttachments)
+
+	card.Blocks = buildCardBlocks(tc, w.Checklists)
+	for _, att := range linked {
+		card.Blocks = append(card.Blocks, urlBlock(att))
+	}
+	if tc.Due != nil && !tc.Due.IsZero() {
+		card.DueDate = tc.Due
+	}
+	card.Labels = w.LabelIDs
+	card.Tags = w.Tags
+	card.Description = strings.TrimSpace(tc.Desc)
+	card.Members = w.Members
+	card.FileAttachments = fileAttachments
+	card.CreatedAt = extractTimeFromObjectID(tc.ID)
+	card.UpdatedAt = findLatestActionDate(w.Actions, tc.ID, card.CreatedAt)
+	if err := r.UpdateCardDirect(card.ID, card); err != nil {
+		return nil, fmt.Errorf("update imported card %q: %w", title, err)
+	}
+
+	// Comments → first-class comments on the card, preserving original timestamps.
+	for _, act := range w.Comments {
+		author := act.MemberCreator.FullName
+		if author == "" {
+			author = act.MemberCreator.Username
+		}
+		if author == "" {
+			author = "Trello"
+		}
+		if _, err := r.AddCardComment(card.ID, author, act.Data.Text, act.Date); err != nil {
+			return nil, fmt.Errorf("add imported comment: %w", err)
+		}
+		out.Comments++
+	}
+	return out, nil
 }
 
 func findListActive(lists []TrelloList, id string) (TrelloList, bool) {
@@ -538,12 +610,16 @@ func findListActive(lists []TrelloList, id string) (TrelloList, bool) {
 func buildCardBlocks(tc TrelloCard, checklists map[string]TrelloChecklist) []model.Block {
 	blocks := make([]model.Block, 0, 3)
 
-	// Checklists → one checklist block each
+	// Checklists → one checklist block each, in the order Trello shows
+	// them (idChecklists is creation order, not display order).
+	cardChecklists := make([]TrelloChecklist, 0, len(tc.IDChecklists))
 	for _, clID := range tc.IDChecklists {
-		cl, ok := checklists[clID]
-		if !ok {
-			continue
+		if cl, ok := checklists[clID]; ok {
+			cardChecklists = append(cardChecklists, cl)
 		}
+	}
+	sort.SliceStable(cardChecklists, func(i, j int) bool { return cardChecklists[i].Pos < cardChecklists[j].Pos })
+	for _, cl := range cardChecklists {
 		items := make([]map[string]any, 0, len(cl.CheckItems))
 		sortedItems := make([]TrelloCheckItem, len(cl.CheckItems))
 		copy(sortedItems, cl.CheckItems)
@@ -587,16 +663,21 @@ func buildCardBlocks(tc TrelloCard, checklists map[string]TrelloChecklist) []mod
 			})
 			continue
 		}
-		blocks = append(blocks, model.Block{
-			ID:    newBlockID(),
-			Type:  model.BlockURL,
-			Label: fallbackAttachmentName(att),
-			Key:   "url",
-			Value: att.URL,
-		})
+		blocks = append(blocks, urlBlock(att))
 	}
 
 	return blocks
+}
+
+// urlBlock keeps an attachment as a link to where it lives.
+func urlBlock(att TrelloAttachment) model.Block {
+	return model.Block{
+		ID:    newBlockID(),
+		Type:  model.BlockURL,
+		Label: fallbackAttachmentName(att),
+		Key:   "url",
+		Value: att.URL,
+	}
 }
 
 func fallbackAttachmentName(att TrelloAttachment) string {
@@ -666,14 +747,31 @@ func isTrelloAPIHost(rawURL string) bool {
 	return strings.EqualFold(u.Hostname(), "api.trello.com")
 }
 
+// trelloDownloadURL is where an upload is fetched from when the user has
+// Trello credentials: Trello's API download endpoint, which redirects to a
+// fresh S3 URL. Appending key/token directly to an expired S3 URL fails
+// S3's signature check, and trello.com download links answer only to a
+// signed-in browser.
+func trelloDownloadURL(att TrelloAttachment, trelloCardID string) string {
+	u, err := url.Parse(att.URL)
+	if err != nil {
+		return att.URL
+	}
+	host := strings.ToLower(u.Hostname())
+	switch {
+	case host == "trello.com" && strings.HasPrefix(u.Path, "/1/cards/"):
+		u.Scheme, u.Host = "https", "api.trello.com"
+		return u.String()
+	case host == "trello-attachments.s3.amazonaws.com" || host == "api.trello.com":
+		return fmt.Sprintf("https://api.trello.com/1/cards/%s/attachments/%s/download/%s", trelloCardID, att.ID, url.PathEscape(att.Name))
+	}
+	return att.URL
+}
+
 func downloadAndSaveAttachment(r *repo.Repository, bruvCardID, trelloCardID string, att TrelloAttachment, apiKey, apiToken string) (*model.FileAttachment, error) {
 	targetURL := att.URL
 	if apiKey != "" && apiToken != "" {
-		// If it's a Trello attachment, download it via the Trello API endpoint which redirects to a fresh S3 URL.
-		// Appending key/token directly to an expired S3 URL will fail signature checks on Amazon S3.
-		if strings.Contains(targetURL, "trello-attachments.s3.amazonaws.com") || strings.Contains(targetURL, "api.trello.com") {
-			targetURL = fmt.Sprintf("https://api.trello.com/1/cards/%s/attachments/%s/download/%s", trelloCardID, att.ID, url.PathEscape(att.Name))
-		}
+		targetURL = trelloDownloadURL(att, trelloCardID)
 	}
 
 	req, err := http.NewRequest("GET", targetURL, nil)

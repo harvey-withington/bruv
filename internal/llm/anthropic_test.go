@@ -19,7 +19,7 @@ import (
 
 func TestAnthropicRequestShape(t *testing.T) {
 	s := okStub(t, "anthropic_text.json")
-	p := NewAnthropic("sk-ant-test-key", s.URL)
+	p := NewAnthropic("sk-ant-test-key", s.URL, Options{})
 
 	_, err := p.ChatCompletion(context.Background(), ChatRequest{
 		SystemPrompt: "You are a card assistant.",
@@ -111,13 +111,35 @@ func TestAnthropicRequestShape(t *testing.T) {
 	if body["stream"] != true {
 		t.Errorf("stream = %v, want true", body["stream"])
 	}
+	// Automatic prompt caching: without it every call of a chat pays full
+	// price for the whole resent conversation.
+	if got := digStr(t, body, "cache_control", "type"); got != "ephemeral" {
+		t.Errorf("cache_control.type = %q, want ephemeral", got)
+	}
+	// 5 minutes is the API default: no ttl sent.
+	wantAbsent(t, digMap(t, body, "cache_control"), "ttl")
+}
+
+// The long cache (Settings › AI) asks for an hour.
+func TestAnthropicLongPromptCache(t *testing.T) {
+	s := okStub(t, "anthropic_text.json")
+	_, err := NewAnthropic("k", s.URL, Options{PromptCacheTTL: "1h"}).ChatCompletion(context.Background(), ChatRequest{
+		Model:    "claude-opus-5-5",
+		Messages: []Message{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := digStr(t, s.lastBody(t), "cache_control", "ttl"); got != "1h" {
+		t.Errorf("cache_control.ttl = %q, want 1h", got)
+	}
 }
 
 func TestAnthropicDefaultMaxTokens(t *testing.T) {
 	s := okStub(t, "anthropic_text.json")
 	// Anthropic REQUIRES max_tokens; omitting it is a 400. MaxTokens=0 must
 	// therefore become a concrete default, not be dropped.
-	_, err := NewAnthropic("k", s.URL).ChatCompletion(context.Background(), ChatRequest{
+	_, err := NewAnthropic("k", s.URL, Options{}).ChatCompletion(context.Background(), ChatRequest{
 		Model:    "claude-sonnet-4-5-20250929",
 		Messages: []Message{{Role: "user", Content: "hi"}},
 	})
@@ -133,7 +155,7 @@ func TestAnthropicDefaultMaxTokens(t *testing.T) {
 
 func TestAnthropicOmitsEmptyOptionals(t *testing.T) {
 	s := okStub(t, "anthropic_text.json")
-	_, err := NewAnthropic("k", s.URL).ChatCompletion(context.Background(), ChatRequest{
+	_, err := NewAnthropic("k", s.URL, Options{}).ChatCompletion(context.Background(), ChatRequest{
 		Model:    "claude-sonnet-4-5-20250929",
 		Messages: []Message{{Role: "user", Content: "hi"}},
 	})
@@ -149,7 +171,7 @@ func TestAnthropicOmitsEmptyOptionals(t *testing.T) {
 // The round trip RunLoop actually performs: assistant tool call, then result.
 func TestAnthropicToolResultRoundTrip(t *testing.T) {
 	s := okStub(t, "anthropic_text.json")
-	_, err := NewAnthropic("k", s.URL).ChatCompletion(context.Background(), ChatRequest{
+	_, err := NewAnthropic("k", s.URL, Options{}).ChatCompletion(context.Background(), ChatRequest{
 		Model:    "claude-sonnet-4-5-20250929",
 		Messages: toolRoundTripMessages(),
 	})
@@ -214,7 +236,7 @@ func TestAnthropicToolResultRoundTrip(t *testing.T) {
 // text block — Anthropic rejects `{"type":"text","text":""}`.
 func TestAnthropicToolCallWithoutTextEmitsNoTextBlock(t *testing.T) {
 	s := okStub(t, "anthropic_text.json")
-	_, err := NewAnthropic("k", s.URL).ChatCompletion(context.Background(), ChatRequest{
+	_, err := NewAnthropic("k", s.URL, Options{}).ChatCompletion(context.Background(), ChatRequest{
 		Model: "claude-sonnet-4-5-20250929",
 		Messages: []Message{
 			{Role: "user", Content: "Retitle."},
@@ -237,7 +259,7 @@ func TestAnthropicToolCallWithoutTextEmitsNoTextBlock(t *testing.T) {
 
 func TestAnthropicParseTextResponse(t *testing.T) {
 	s := okStub(t, "anthropic_text.json")
-	resp, err := NewAnthropic("k", s.URL).ChatCompletion(context.Background(), ChatRequest{
+	resp, err := NewAnthropic("k", s.URL, Options{}).ChatCompletion(context.Background(), ChatRequest{
 		Model:    "claude-sonnet-4-5-20250929",
 		Messages: []Message{{Role: "user", Content: "hi"}},
 	})
@@ -262,26 +284,27 @@ func TestAnthropicParseTextResponse(t *testing.T) {
 	if resp.Usage == nil {
 		t.Fatal("Usage is nil — cost tracking depends on it")
 	}
-	// FINDING (anthropic.go:149-155): usage.cache_read_input_tokens (18432 in
-	// the fixture) and cache_creation_input_tokens are ignored. Anthropic
-	// reports cached input SEPARATELY from input_tokens, so with prompt
-	// caching enabled the recorded prompt cost is only the uncached slice.
-	// Locked as-is; it under-reports, it does not crash.
-	if resp.Usage.PromptTokens != 2095 {
-		t.Errorf("PromptTokens = %d, want 2095", resp.Usage.PromptTokens)
+	// Anthropic reports cached input SEPARATELY from input_tokens (2095
+	// uncached + 18432 read from cache in the fixture); PromptTokens is the
+	// whole prompt, as OpenAI reports it.
+	if resp.Usage.PromptTokens != 20527 {
+		t.Errorf("PromptTokens = %d, want 20527 (2095 uncached + 18432 cached)", resp.Usage.PromptTokens)
+	}
+	if resp.Usage.CacheReadTokens != 18432 || resp.Usage.CacheWriteTokens != 0 {
+		t.Errorf("cache read/write = %d/%d, want 18432/0", resp.Usage.CacheReadTokens, resp.Usage.CacheWriteTokens)
 	}
 	if resp.Usage.CompletionTokens != 503 {
 		t.Errorf("CompletionTokens = %d, want 503", resp.Usage.CompletionTokens)
 	}
 	// Anthropic sends no total — the adapter must synthesise it.
-	if resp.Usage.TotalTokens != 2598 {
-		t.Errorf("TotalTokens = %d, want 2598 (input+output)", resp.Usage.TotalTokens)
+	if resp.Usage.TotalTokens != 21030 {
+		t.Errorf("TotalTokens = %d, want 21030 (prompt+output)", resp.Usage.TotalTokens)
 	}
 }
 
 func TestAnthropicParseToolUseResponse(t *testing.T) {
 	s := okStub(t, "anthropic_tool_use.json")
-	resp, err := NewAnthropic("k", s.URL).ChatCompletion(context.Background(), ChatRequest{
+	resp, err := NewAnthropic("k", s.URL, Options{}).ChatCompletion(context.Background(), ChatRequest{
 		Model:    "claude-sonnet-4-5-20250929",
 		Messages: []Message{{Role: "user", Content: "hi"}},
 		Tools:    []ToolDef{sampleTool()},
@@ -341,7 +364,7 @@ func TestAnthropicParseToolUseResponse(t *testing.T) {
 // RunLoop's job: it posts an "empty reply" notice, never a blank bubble.
 func TestAnthropicEmptyContentIsSilentSuccess(t *testing.T) {
 	s := okStub(t, "anthropic_empty_content.json")
-	resp, err := NewAnthropic("k", s.URL).ChatCompletion(context.Background(), ChatRequest{
+	resp, err := NewAnthropic("k", s.URL, Options{}).ChatCompletion(context.Background(), ChatRequest{
 		Model:    "claude-sonnet-4-5-20250929",
 		Messages: []Message{{Role: "user", Content: "hi"}},
 	})
@@ -385,7 +408,7 @@ func TestAnthropicErrorStatuses(t *testing.T) {
 				body = fixture(t, c.fixture)
 			}
 			s := newStub(t, c.status, body, nil)
-			resp, err := NewAnthropic("bad-key", s.URL).ChatCompletion(context.Background(), ChatRequest{
+			resp, err := NewAnthropic("bad-key", s.URL, Options{}).ChatCompletion(context.Background(), ChatRequest{
 				Model:    "claude-sonnet-4-5-20250929",
 				Messages: []Message{{Role: "user", Content: "hi"}},
 			})
@@ -430,7 +453,7 @@ func TestAnthropicRateLimitErrors(t *testing.T) {
 				hdr["Retry-After"] = c.retryAfter
 			}
 			s := newStub(t, c.status, fixture(t, "anthropic_error_429.json"), hdr)
-			_, err := NewAnthropic("k", s.URL).ChatCompletion(context.Background(), ChatRequest{
+			_, err := NewAnthropic("k", s.URL, Options{}).ChatCompletion(context.Background(), ChatRequest{
 				Model:    "claude-sonnet-4-5-20250929",
 				Messages: []Message{{Role: "user", Content: "hi"}},
 			})
@@ -463,7 +486,7 @@ func TestAnthropicRateLimitErrors(t *testing.T) {
 func TestAnthropicErrorBodyTruncated(t *testing.T) {
 	huge := `{"error":"` + strings.Repeat("x", 5000) + `"}`
 	s := newStub(t, http.StatusInternalServerError, huge, nil)
-	_, err := NewAnthropic("k", s.URL).ChatCompletion(context.Background(), ChatRequest{
+	_, err := NewAnthropic("k", s.URL, Options{}).ChatCompletion(context.Background(), ChatRequest{
 		Model:    "claude-sonnet-4-5-20250929",
 		Messages: []Message{{Role: "user", Content: "hi"}},
 	})
@@ -480,7 +503,7 @@ func TestAnthropicErrorBodyTruncated(t *testing.T) {
 
 func TestAnthropicMalformedJSONBody(t *testing.T) {
 	s := newStub(t, http.StatusOK, `{"content":[{"type":"text","text":"hel`, nil)
-	_, err := NewAnthropic("k", s.URL).ChatCompletion(context.Background(), ChatRequest{
+	_, err := NewAnthropic("k", s.URL, Options{}).ChatCompletion(context.Background(), ChatRequest{
 		Model:    "claude-sonnet-4-5-20250929",
 		Messages: []Message{{Role: "user", Content: "hi"}},
 	})
@@ -496,7 +519,7 @@ func TestAnthropicMalformedJSONBody(t *testing.T) {
 // a transport error, not a panic.
 func TestAnthropicUnreachableHost(t *testing.T) {
 	// Port 0 on the loopback is never listening.
-	_, err := NewAnthropic("k", "http://127.0.0.1:0").ChatCompletion(context.Background(), ChatRequest{
+	_, err := NewAnthropic("k", "http://127.0.0.1:0", Options{}).ChatCompletion(context.Background(), ChatRequest{
 		Model:    "claude-sonnet-4-5-20250929",
 		Messages: []Message{{Role: "user", Content: "hi"}},
 	})

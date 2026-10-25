@@ -18,6 +18,23 @@ type LLMConfig struct {
 	MinConfidence    string `json:"min_confidence,omitempty"`     // "high", "medium", "low", "" (any)
 	ChatBudgetMode   string `json:"chat_budget_mode,omitempty"`   // ChatBudgetWarn (default), ChatBudgetHard, ChatBudgetOff
 	ChatBudgetTokens int    `json:"chat_budget_tokens,omitempty"` // 0 = DefaultChatBudgetTokens
+	PromptCache      string `json:"prompt_cache,omitempty"`       // PromptCacheShort (default) or PromptCacheLong
+}
+
+// Prompt cache durations: how long a provider keeps a chat's prompt cached
+// after its last use. The long one survives long pauses but costs more to
+// write (Anthropic: 2x input price instead of 1.25x; reads are 0.1x either way).
+const (
+	PromptCacheShort = "5m"
+	PromptCacheLong  = "1h"
+)
+
+// PromptCacheTTL resolves the configured cache duration, default filled in.
+func (c LLMConfig) PromptCacheTTL() string {
+	if c.PromptCache == PromptCacheLong {
+		return PromptCacheLong
+	}
+	return PromptCacheShort
 }
 
 // Chat budget modes: what happens when a chat turn's output passes the

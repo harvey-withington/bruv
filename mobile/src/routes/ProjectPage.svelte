@@ -26,7 +26,7 @@
     uniqueName,
   } from '../lib/browse.svelte'
   import type { Category, CardSummary } from '../lib/model'
-  import { importCardFromJson, ImportError, type TypeConflictReason, type TypeConflictResolution } from '../lib/cardExport'
+  import { importCardFromJson, importNotice, ImportError, type TypeConflictReason, type TypeConflictResolution } from '../lib/cardExport'
   import { showToast } from '../lib/toast.svelte'
   import ImportConfirmSheet from '../components/ImportConfirmSheet.svelte'
   import CategoryTypesSheet from '../components/CategoryTypesSheet.svelte'
@@ -539,8 +539,9 @@
       if (result === null) return // user cancelled the type-conflict sheet — nothing created
       // Toasts survive navigation, so we can open the imported card
       // immediately and still show the partial-restore warning.
-      if (result.failedAttachments.length || result.failedComments.length) {
-        showToast(t('card.import_partial'), 'warning')
+      const notice = importNotice(result)
+      if (notice.kind === 'warning') {
+        showToast(t(notice.key, notice.params), 'warning')
       }
       navigate(cardURL(result.cardId), { fromProject: pkey })
     } catch (err) {

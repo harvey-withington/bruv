@@ -195,6 +195,22 @@ type Tool struct {
 	Title       string                 `json:"title,omitempty"`
 	Description string                 `json:"description"`
 	InputSchema map[string]interface{} `json:"inputSchema"`
+	Annotations *ToolAnnotations       `json:"annotations,omitempty"`
+}
+
+// ToolAnnotations are a tool's behaviour hints (spec 2025-03-26) — hints
+// from the server, not guarantees. The flags are pointers because absent
+// is not false: an omitted hint takes the spec's default (readOnly false,
+// destructive true, idempotent false, openWorld true). Destructive and
+// idempotent only mean something when readOnly is false. BRUV's board
+// tools send them; servers BRUV connects to may too, but nothing acts on
+// theirs yet.
+type ToolAnnotations struct {
+	Title           string `json:"title,omitempty"`
+	ReadOnlyHint    *bool  `json:"readOnlyHint,omitempty"`
+	DestructiveHint *bool  `json:"destructiveHint,omitempty"`
+	IdempotentHint  *bool  `json:"idempotentHint,omitempty"`
+	OpenWorldHint   *bool  `json:"openWorldHint,omitempty"`
 }
 
 // CallToolParams is the params for tools/call. Arguments is a free-form

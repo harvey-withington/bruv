@@ -10,6 +10,8 @@ package boardtools
 //     elsewhere, search results are filtered to it, and tools that only
 //     make sense board-wide (creating brands/streams/projects) are not
 //     offered at all.
+//
+// The per-tool classification behind both lives in meta.go.
 
 import (
 	"encoding/json"
@@ -22,64 +24,6 @@ import (
 	"bruv/internal/llm"
 	"bruv/internal/mcp"
 )
-
-// scopeRule says how a tool's arguments relate to a project scope.
-type scopeRule int
-
-const (
-	scopeNone            scopeRule = iota // no card or location (list_card_types)
-	scopeCard                             // card_id must be in scope
-	scopeLocation                         // brand/stream/project[/category] default to, and must match, scope
-	scopeCardAndLocation                  // both (pin_card, unpin_card)
-	scopeResults                          // results filtered to in-scope cards (search_cards, recent_cards)
-	scopeBoardOnly                        // board-level; not offered in a scoped session
-)
-
-type toolMeta struct {
-	write bool
-	scope scopeRule
-}
-
-// meta classifies every registered tool. The sync test fails if a tool is
-// registered without an entry here.
-var meta = map[string]toolMeta{
-	"list_brands":          {scope: scopeBoardOnly},
-	"list_streams":         {scope: scopeBoardOnly},
-	"list_projects":        {scope: scopeBoardOnly},
-	"list_categories":      {scope: scopeLocation},
-	"list_card_types":      {scope: scopeNone},
-	"get_card":             {scope: scopeCard},
-	"search_cards":         {scope: scopeResults},
-	"create_brand":         {write: true, scope: scopeBoardOnly},
-	"create_stream":        {write: true, scope: scopeBoardOnly},
-	"create_project":       {write: true, scope: scopeBoardOnly},
-	"create_category":      {write: true, scope: scopeLocation},
-	"create_card":          {write: true, scope: scopeLocation},
-	"create_card_type":     {write: true, scope: scopeNone},
-	"add_card_blocks":      {write: true, scope: scopeCard},
-	"set_card_fields":      {write: true, scope: scopeCard},
-	"add_card_tags":        {write: true, scope: scopeCard},
-	"remove_card_tags":     {write: true, scope: scopeCard},
-	"set_card_title":       {write: true, scope: scopeCard},
-	"set_card_description": {write: true, scope: scopeCard},
-	"set_card_type":        {write: true, scope: scopeCard},
-	"set_card_due_date":    {write: true, scope: scopeCard},
-	"update_card":          {write: true, scope: scopeCard},
-	"add_card_attachment":  {write: true, scope: scopeCard},
-	"get_card_attachment":  {scope: scopeCard},
-	"add_card_comment":     {write: true, scope: scopeCard},
-	"list_card_comments":   {scope: scopeCard},
-	"pin_card":             {write: true, scope: scopeCardAndLocation},
-	"unpin_card":           {write: true, scope: scopeCardAndLocation},
-	"list_cards":           {scope: scopeLocation},
-	"recent_cards":         {scope: scopeResults},
-	"get_card_agent":       {scope: scopeCard},
-	"configure_card_agent": {write: true, scope: scopeCard},
-	"run_card_agent":       {write: true, scope: scopeCard},
-}
-
-// IsWrite reports whether a tool changes the board (staged in Suggest mode).
-func IsWrite(name string) bool { return meta[name].write }
 
 // LLMDefs returns the tool definitions for an in-process surface. scoped
 // drops the board-only tools; include (optional) filters by name.

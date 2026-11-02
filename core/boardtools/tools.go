@@ -184,7 +184,7 @@ func Defs(rt Board, repoName string) []mcp.Tool {
 	}
 	cardTypeDesc := typeDesc + " Omit for the built-in default '" + catalog.DefaultCardType + "'."
 
-	return []mcp.Tool{
+	tools := []mcp.Tool{
 		// --- Discovery / read ---
 		{
 			Name:        "list_brands",
@@ -495,6 +495,12 @@ func Defs(rt Board, repoName string) []mcp.Tool {
 			}, "card_id"),
 		},
 	}
+	// Behaviour hints come from the one classification table (meta.go),
+	// so they can't drift from what Suggest mode treats as a write.
+	for i := range tools {
+		tools[i].Annotations = annotations(tools[i].Name)
+	}
+	return tools
 }
 
 // mentionNote teaches assistants the one markup for cross-card links, so

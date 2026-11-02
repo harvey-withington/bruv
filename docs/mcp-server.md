@@ -56,6 +56,24 @@ comment, attach files, and set up and run card agents.
 | `configure_card_agent` | Set up or change a card's agent — only the fields passed change; `goal` replaces the whole goal. Can grant tools, set the schedule, model and budgets, and enable it. |
 | `run_card_agent` | Run a card's agent now, ignoring its schedule (the card must have a goal). Asynchronous — read the result with `get_card_agent`. |
 
+### Tool annotations
+
+Every tool in `tools/list` carries MCP tool annotations (spec 2025-03-26), with
+all four hints set explicitly, so a client can gate them — for example run reads
+freely and ask before writes. They are hints, not guarantees.
+
+| Kind | Tools | `readOnly` | `destructive` | `idempotent` | `openWorld` |
+|---|---|---|---|---|---|
+| Read | `list_*`, `get_card`, `get_card_attachment`, `get_card_agent`, `search_cards`, `recent_cards` | true | false | true | false |
+| Add | `create_*`, `add_card_attachment`, `add_card_blocks`, `add_card_comment` | false | false | false | false |
+| Add once | `add_card_tags`, `pin_card` | false | false | true | false |
+| Replace or remove | `update_card`, `set_card_*`, `configure_card_agent`, `remove_card_tags`, `unpin_card` | false | true | true | false |
+| Run an agent | `run_card_agent` | false | true | false | true |
+
+Overwriting a value counts as destructive, following the spec, even though
+nothing is deleted outright. `run_card_agent` is open-world because the agent
+can use its own granted tools beyond the board.
+
 ## Connecting Claude Desktop
 
 You add **one connector per repo** you want the assistant to reach.

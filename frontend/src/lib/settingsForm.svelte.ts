@@ -107,7 +107,7 @@ export class SettingsForm {
         if (!ui) return
         const p = this.prefs
         p.reopen_last_repo = ui.reopen_last_repo ?? false
-        p.theme = ui.theme || 'dark'
+        p.theme = ui.theme || theme.choice
         p.locale = ui.locale || 'en'
         p.confirm_before_delete = ui.confirm_before_delete ?? true
         p.sidebar_width = nav.sidebarWidth
@@ -120,7 +120,7 @@ export class SettingsForm {
       save: () => {
         // The theme dropdown applies live via setTheme; sync whatever is
         // current (it may also have changed from the sidebar toggle).
-        this.prefs.theme = theme.mode
+        this.prefs.theme = theme.choice
         const { default_category_name: _serverOwned, ...uiPrefs } = this.prefs
         // sidebar_width is an int server-side; the splitter can leave a
         // fractional px value.

@@ -3,13 +3,17 @@
   "private": true,
   "version": "0.0.0",
   "description": "Root package only carries deps that shared/ needs to resolve. Both frontend/ and mobile/ install their own copies for runtime; this top-level entry exists so svelte-check / TypeScript can resolve imports from inside shared/*.ts without parent-walking past the repo root.",
+  "// scripts": "check and test are the one command surface for every stack: what CI runs, what Claude runs, what to run before a commit.",
   "scripts": {
+    "check": "go vet ./... && npm run check --prefix frontend && npm run check --prefix mobile",
+    "test": "go test ./... -count=1 && cd foldertemplate && go test ./... -count=1 && cd .. && npm run test:run --prefix frontend && npm run test:run --prefix mobile",
     "build:all": "npm run build --prefix frontend && npm run build --prefix mobile",
     "// postinstall": "Skips in CI (process.env.CI is set by every major CI runner). CI runs explicit npm installs in each workspace already, and chaining nested installs through postinstall causes EPERM file-lock failures on Windows when CI cleanup races the wails-build-triggered re-install.",
     "postinstall": "node -e \"if (process.env.CI) { process.exit(0) } require('child_process').execSync('npm install --prefix frontend && npm install --prefix mobile', { stdio: 'inherit' })\""
   },
   "dependencies": {
     "bruv-frontend": "file:frontend",
+    "dompurify": "^3.4.17",
     "lucide-svelte": "^0.577.0",
     "marked": "^17.0.4"
   }

@@ -33,6 +33,9 @@ const STORAGE_ACTIVE_REPO = 'bruv:active_repo'
 // The active vault's display name, cached so the Browse header shows it
 // straight away — offline start included — before /repos answers.
 const STORAGE_ACTIVE_REPO_NAME = 'bruv:active_repo_name'
+// A name for the paired server, shown instead of its address so a
+// Tailscale address stays out of screenshots and streams.
+const STORAGE_SERVER_NICKNAME = 'bruv:server_nickname'
 
 export type EnrolmentResult = {
   serverURL: string
@@ -76,9 +79,22 @@ export function clearEnrolment(): void {
   localStorage.removeItem(STORAGE_DEVICE_TOKEN)
   localStorage.removeItem(STORAGE_DEVICE_ID)
   localStorage.removeItem(STORAGE_DEVICE_NAME)
-  // Repo selection is meaningless without enrolment — wipe it too.
+  // Repo selection and the server's nickname are meaningless without
+  // enrolment — wipe them too.
   localStorage.removeItem(STORAGE_ACTIVE_REPO)
   localStorage.removeItem(STORAGE_ACTIVE_REPO_NAME)
+  localStorage.removeItem(STORAGE_SERVER_NICKNAME)
+}
+
+/** The nickname given to the paired server; empty when none. */
+export function readServerNickname(): string {
+  return localStorage.getItem(STORAGE_SERVER_NICKNAME) ?? ''
+}
+
+export function saveServerNickname(nickname: string): void {
+  const trimmed = nickname.trim()
+  if (trimmed) localStorage.setItem(STORAGE_SERVER_NICKNAME, trimmed)
+  else localStorage.removeItem(STORAGE_SERVER_NICKNAME)
 }
 
 // --- Active repo selection -------------------------------------------------

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { X, Github, Globe, Bug, FolderOpen, FileText, Heart, RefreshCw, CircleCheck, CircleAlert, Download, DatabaseBackup } from 'lucide-svelte'
+  import { X, Github, Globe, Bug, FolderOpen, FileText, Heart, RefreshCw, CircleCheck, CircleAlert, Download, DatabaseBackup, Info } from 'lucide-svelte'
   import { onMount } from 'svelte'
   import { fade } from 'svelte/transition'
   import { t } from '../lib/i18n.svelte'
@@ -194,6 +194,12 @@
                 <Download size={14} />
                 <span>{t('about.update_download')}</span>
               </button>
+            </div>
+          {:else if updateResult.status === 'dev_build'}
+            <Info size={16} />
+            <div class="update-body">
+              <p class="update-headline">{t('about.update_dev_build')}</p>
+              <p class="update-sub">{t('about.update_dev_build_sub', { version: updateResult.current_version })}</p>
             </div>
           {:else}
             <CircleAlert size={16} />

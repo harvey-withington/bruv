@@ -15,7 +15,7 @@ type SettingsField = { tab: SettingsTabId; key: string; label: string }
 
 const FIELDS: SettingsField[] = [
   { tab: 'general', key: 'reopen_last_repo', label: 'reopen last repository launch' },
-  { tab: 'general', key: 'theme', label: 'theme dark light' },
+  { tab: 'general', key: 'theme', label: 'theme dark light system' },
   { tab: 'general', key: 'locale', label: 'language locale' },
   { tab: 'general', key: 'confirm_before_delete', label: 'confirm before deleting' },
   { tab: 'general', key: 'sidebar_width', label: 'sidebar width' },

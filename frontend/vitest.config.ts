@@ -19,9 +19,11 @@ export default defineConfig({
   define: {
     'import.meta.env.VITE_BACKEND': JSON.stringify('mock'),
   },
+  // shared/ tests live outside this package root.
+  server: { fs: { allow: [resolve(__dirname, '..')] } },
   test: {
     environment: 'jsdom',
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', '../shared/**/*.test.ts'],
     setupFiles: ['src/test-setup.ts'],
   },
 })

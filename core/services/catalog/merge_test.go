@@ -72,7 +72,7 @@ func TestMergeTemplateBlocksClaimsFreeformByLabel(t *testing.T) {
 // Value-fill semantics for MATCHED blocks (ruled by Harvey 2026-07-11):
 // an existing block with content always wins; an EMPTY existing block
 // takes a pre-populated template value (e.g. a kept-value checklist from
-// "Create Type from Card"). Note "empty" includes ''/0/false/[] — an
+// "Create Type from Card"). Note "empty" includes ""/0/false/[] — an
 // untouched block is indistinguishable from a deliberately-zeroed one,
 // and applying a type is a request for its defaults (deliberately the
 // opposite call from the Markdown-export zero-is-not-nothing rule).

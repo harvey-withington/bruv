@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -29,7 +28,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Result is the shape returned to the frontend. Status indicates which
 // branch the UI should render; the other fields are populated selectively.
 type Result struct {
-	// Status is one of: "up_to_date", "update_available", "error".
+	// Status is one of: "up_to_date", "update_available", "dev_build",
+	// "error". "dev_build": this build isn't a release version, so there is
+	// nothing to compare (the UI says update checks need a release build).
 	Status string `json:"status"`
 
 	// CurrentVersion is the version the app was built as (always populated).
@@ -67,10 +68,19 @@ type githubRelease struct {
 }
 
 // Check queries the configured releases URL and compares its tag against
-// currentVersion. The current version string may carry a leading "v" and
-// a "-dev"/"-beta" suffix — both are normalised before comparison.
+// currentVersion. Both may carry a leading "v"; build metadata is ignored.
+//
+// A current version that isn't a release version (a deploy build's
+// "dev-<sha>", the unstamped "v1.0a-dev") can't be ordered against a
+// release, so it is reported as "dev_build" without contacting GitHub —
+// never as an available update.
 func Check(currentVersion string) Result {
 	result := Result{CurrentVersion: currentVersion}
+
+	if !Valid(currentVersion) {
+		result.Status = "dev_build"
+		return result
+	}
 
 	req, err := http.NewRequest("GET", ReleasesURL, nil)
 	if err != nil {
@@ -126,7 +136,7 @@ func Check(currentVersion string) Result {
 	result.ReleaseNotes = truncate(rel.Body, 2000)
 	result.PublishedAt = rel.PublishedAt
 
-	if compareVersions(currentVersion, rel.TagName) < 0 {
+	if Compare(currentVersion, rel.TagName) < 0 {
 		result.Status = "update_available"
 	} else {
 		result.Status = "up_to_date"
@@ -143,98 +153,95 @@ func truncate(s string, n int) string {
 	return s[:n] + "…"
 }
 
-// versionPart captures the major/minor/patch and optional suffix stage
-// of a semver-ish version tag.
-var versionRegex = regexp.MustCompile(`^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(.*)$`)
-
-// compareVersions returns -1, 0, or 1 depending on whether a is less than,
-// equal to, or greater than b. Designed to handle BRUV's "v1.0b",
-// "v1.0b-dev", and "v1.0.1" style tags without importing a full semver
-// library — good enough for a linear release history.
-//
-// Rules:
-//   - Leading "v" is optional and ignored.
-//   - Numeric major/minor/patch segments are compared as integers.
-//   - A "-dev" or "-beta" suffix on a is considered LESS than the same
-//     version without the suffix (so v1.0b-dev < v1.0b).
-//   - Non-numeric trailing segments (like "b" in "v1.0b") are compared
-//     lexically as a tiebreaker.
-func compareVersions(a, b string) int {
-	am, an, ap, asuf := parseVersion(a)
-	bm, bn, bp, bsuf := parseVersion(b)
-
-	if c := intCmp(am, bm); c != 0 {
-		return c
+// Valid says v is a version BRUV releases use: 1.2.3, or 1.2.3 with a
+// pre-release part (1.2.3-alpha, 1.2.3-rc.1), and perhaps build metadata
+// (a test build's +dev.66). A leading "v" is allowed. Dev builds stamped
+// "dev-<sha>" or the unstamped default "v1.0a-dev" are not valid.
+func Valid(v string) bool {
+	core, _, _ := strings.Cut(bare(v), "-")
+	parts := strings.Split(core, ".")
+	if len(parts) != 3 {
+		return false
 	}
-	if c := intCmp(an, bn); c != 0 {
-		return c
+	for _, p := range parts {
+		if _, err := strconv.Atoi(p); err != nil || p == "" {
+			return false
+		}
 	}
-	if c := intCmp(ap, bp); c != 0 {
-		return c
-	}
-	return suffixCmp(asuf, bsuf)
+	return true
 }
 
-func parseVersion(v string) (major, minor, patch int, suffix string) {
-	m := versionRegex.FindStringSubmatch(strings.TrimSpace(v))
-	if m == nil {
-		return 0, 0, 0, v
+// Compare orders versions as semantic versioning does: by the numbers, then
+// a release before any of its pre-releases (1.0.0 > 1.0.0-rc.1), whose
+// parts compare as numbers when both are, else as text. Build metadata
+// counts for nothing, so a test build (0.3.0-alpha+dev.66) is the release
+// it was built after. A leading "v" is ignored. -1, 0 or 1.
+func Compare(a, b string) int {
+	ac, ap, _ := strings.Cut(bare(a), "-")
+	bc, bp, _ := strings.Cut(bare(b), "-")
+	an, bn := strings.Split(ac, "."), strings.Split(bc, ".")
+	for i := 0; i < 3; i++ {
+		if c := cmpInt(at(an, i), at(bn, i)); c != 0 {
+			return c
+		}
 	}
-	major, _ = strconv.Atoi(m[1])
-	minor, _ = strconv.Atoi(m[2])
-	patch, _ = strconv.Atoi(m[3])
-	suffix = m[4]
-	return
+	switch {
+	case ap == bp:
+		return 0
+	case ap == "":
+		return 1
+	case bp == "":
+		return -1
+	}
+	ai, bi := strings.Split(ap, "."), strings.Split(bp, ".")
+	for i := 0; i < len(ai) && i < len(bi); i++ {
+		x, xerr := strconv.Atoi(ai[i])
+		y, yerr := strconv.Atoi(bi[i])
+		var c int
+		switch {
+		case xerr == nil && yerr == nil:
+			c = cmp(x, y)
+		case xerr == nil:
+			c = -1 // numbers come before words
+		case yerr == nil:
+			c = 1
+		default:
+			c = strings.Compare(ai[i], bi[i])
+		}
+		if c != 0 {
+			return c
+		}
+	}
+	return cmp(len(ai), len(bi))
 }
 
-func intCmp(a, b int) int {
+// bare is a version without surrounding space, its leading "v" or its build
+// metadata (+...).
+func bare(v string) string {
+	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+	v, _, _ = strings.Cut(v, "+")
+	return v
+}
+
+func at(s []string, i int) string {
+	if i < len(s) {
+		return s[i]
+	}
+	return "0"
+}
+
+func cmpInt(a, b string) int {
+	x, _ := strconv.Atoi(a)
+	y, _ := strconv.Atoi(b)
+	return cmp(x, y)
+}
+
+func cmp(a, b int) int {
 	switch {
 	case a < b:
 		return -1
 	case a > b:
 		return 1
-	default:
-		return 0
-	}
-}
-
-// suffixCmp treats "-dev" and "-beta" as earlier than no suffix, and
-// otherwise falls back to lexical comparison. This matches how you'd
-// want "v1.0b-dev" to sort before "v1.0b".
-func suffixCmp(a, b string) int {
-	// Split "b-dev" into ("b", "dev") so the character portion dominates
-	// and the pre-release tag is only a tiebreaker on matching characters.
-	aChar, aPre := splitSuffix(a)
-	bChar, bPre := splitSuffix(b)
-
-	if aChar != bChar {
-		if aChar < bChar {
-			return -1
-		}
-		return 1
-	}
-	// Equal character portion — a missing pre-release is greater than a
-	// present one (v1.0b > v1.0b-dev).
-	if aPre == "" && bPre != "" {
-		return 1
-	}
-	if aPre != "" && bPre == "" {
-		return -1
-	}
-	if aPre < bPre {
-		return -1
-	}
-	if aPre > bPre {
-		return 1
 	}
 	return 0
-}
-
-// splitSuffix separates a trailing "-something" pre-release tag from the
-// leading character portion of the version suffix.
-func splitSuffix(s string) (char, pre string) {
-	if i := strings.Index(s, "-"); i >= 0 {
-		return s[:i], s[i+1:]
-	}
-	return s, ""
 }

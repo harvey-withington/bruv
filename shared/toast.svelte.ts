@@ -22,9 +22,13 @@ function animateOut(id: string) {
   }, DISMISS_DURATION)
 }
 
+// A thrown error's type name ("Error:", "TypeError:", "RPCError:") means
+// nothing to the user; callers often pass String(e), which carries it.
+const ERROR_TYPE_PREFIX = /^(?:[A-Z]\w*)?Error:\s*/
+
 export function showToast(message: string, type: ToastType = 'info', durationMs = 4000) {
   const id = crypto.randomUUID()
-  toasts.list = [...toasts.list, { id, message, type }]
+  toasts.list = [...toasts.list, { id, message: message.replace(ERROR_TYPE_PREFIX, ''), type }]
   setTimeout(() => animateOut(id), durationMs)
 }
 

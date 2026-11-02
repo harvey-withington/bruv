@@ -1,14 +1,17 @@
 <script lang="ts">
   import { toasts, dismissToast } from '../lib/toast.svelte'
+  import { t } from '../lib/i18n.svelte'
   import { X } from 'lucide-svelte'
 </script>
 
+<!-- Announced to screen readers: errors interrupt (alert), everything
+     else waits its turn (status). -->
 {#if toasts.list.length > 0}
-  <div class="toast-container">
+  <div class="toast-container" aria-live="polite">
     {#each toasts.list as toast (toast.id)}
-      <div class="toast toast--{toast.type}" class:dismissing={toast.dismissing}>
+      <div class="toast toast--{toast.type}" class:dismissing={toast.dismissing} role={toast.type === 'error' ? 'alert' : 'status'}>
         <span class="toast-message">{toast.message}</span>
-        <button class="toast-dismiss" onclick={() => dismissToast(toast.id)}><X size={14} /></button>
+        <button class="toast-dismiss" onclick={() => dismissToast(toast.id)} aria-label={t('toast.dismiss')}><X size={14} /></button>
       </div>
     {/each}
   </div>

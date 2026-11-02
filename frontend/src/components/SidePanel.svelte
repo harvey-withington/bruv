@@ -2,6 +2,7 @@
   import type { ComponentType, Snippet } from 'svelte'
   import { X, type Icon } from 'lucide-svelte'
   import { t } from '../lib/i18n.svelte'
+  import { keyboardResize } from '../lib/actions'
 
   // Generic right-hand side panel: one resizable, slide-animated container
   // hosting N tabs (VS Code-style bottom tab bar). Owns ALL geometry —
@@ -45,6 +46,9 @@
   )
   let resizing = $state(false)
 
+  const clampWidth = (w: number) => Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, w))
+  const saveWidth = () => localStorage.setItem(WIDTH_KEY, String(width))
+
   function onSplitterDown(e: MouseEvent) {
     e.preventDefault()
     resizing = true
@@ -56,12 +60,11 @@
     target?.setPointerCapture?.(pointerId)
 
     function onMove(ev: PointerEvent) {
-      const next = startW - (ev.clientX - startX)
-      width = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, next))
+      width = clampWidth(startW - (ev.clientX - startX))
     }
     function onUp() {
       resizing = false
-      localStorage.setItem(WIDTH_KEY, String(width))
+      saveWidth()
       try { target?.releasePointerCapture?.(pointerId) } catch { /* already released */ }
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
@@ -87,7 +90,18 @@
 {#if visible}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div class="side-panel" class:resizing style="width: {width}px; --sp-width: {width}px;" out:slideOutWidth={{ duration: 220 }}>
-    <div class="sp-resize-handle" class:active={resizing} role="separator" tabindex="-1" onpointerdown={onSplitterDown}></div>
+    <div
+      class="sp-resize-handle"
+      class:active={resizing}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={t('splitter.side_panel')}
+      aria-valuenow={Math.round(width)}
+      aria-valuemin={MIN_WIDTH}
+      aria-valuemax={MAX_WIDTH}
+      onpointerdown={onSplitterDown}
+      use:keyboardResize={{ axis: 'x', onMove: (d) => { width = clampWidth(width - d) }, onCommit: saveWidth }}
+    ></div>
     <!-- Inner pinned to final width so content doesn't reflow during the
          width animation — same trick as .chat-panel-inner. -->
     <div class="side-panel-inner" style="width: {width}px;">

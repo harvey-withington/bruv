@@ -16,12 +16,14 @@ export function countWords(text: string): number {
   return n
 }
 
+/** Escape text for an HTML text node or a quoted attribute value. */
 export function escapeHtml(text: string): string {
   return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
 /**

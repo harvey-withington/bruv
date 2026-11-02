@@ -8,9 +8,9 @@
      above the home-indicator via safe-area inset. Same shared store
      as desktop; only the presentation differs. -->
 {#if toasts.list.length > 0}
-  <div class="toast-container" role="status" aria-live="polite">
+  <div class="toast-container" aria-live="polite">
     {#each toasts.list as toast (toast.id)}
-      <div class="toast toast--{toast.type}" class:dismissing={toast.dismissing}>
+      <div class="toast toast--{toast.type}" class:dismissing={toast.dismissing} role={toast.type === 'error' ? 'alert' : 'status'}>
         <span class="toast-message">{toast.message}</span>
         <button class="toast-dismiss" onclick={() => dismissToast(toast.id)} aria-label={t('toast.dismiss')}><X size={16} /></button>
       </div>

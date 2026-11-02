@@ -257,6 +257,36 @@ Section /o "Server (run in background, auto-start on boot)" SecServer
     ${EndIf}
 SectionEnd
 
+# Hidden (the "-" prefix), so it always runs, after both sections above.
+# StopRunningBruv stops BRUV-Server in either section, but only SecServer
+# (opt-in, unticked by default) registers and starts it — so a silent /S
+# install, or an upgrade that leaves Server unticked, would otherwise
+# leave an existing service stopped until the next reboot. Start it again
+# if it is registered. When SecServer ran, `service install` has already
+# started it and sc reports 1056 (already running), which is fine.
+Section "-Restart Server"
+    # nsExec::ExecToStack pushes the exit code, then the output. sc query
+    # exits 1060 when no such service exists.
+    nsExec::ExecToStack 'sc query BRUV-Server'
+    Pop $0
+    Pop $1
+    ${If} $0 == "0"
+        DetailPrint "Starting BRUV Server..."
+        nsExec::ExecToStack 'sc start BRUV-Server'
+        Pop $0
+        Pop $1
+        ${If} $0 != "0"
+        ${AndIf} $0 != "1056"
+            DetailPrint "BRUV Server did not start (sc start returned $0): $1"
+        ${EndIf}
+    ${EndIf}
+
+    # bruv.exe changes in place, so Explorer would keep showing its cached
+    # icon on the shortcuts after an update that changes it: tell it that
+    # icons changed (SHCNE_ASSOCCHANGED), as restarting Explorer would.
+    System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
+SectionEnd
+
 # Tooltip text on the components page.
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
     !insertmacro MUI_DESCRIPTION_TEXT ${SecDesktop} $(DESC_SecDesktop)

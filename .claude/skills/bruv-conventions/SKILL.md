@@ -41,16 +41,16 @@ BRUV is a polished Kanban surface that **augments an AI-first capture ethos** â€
 
 ## Pre-commit verification
 
-Run from the repo root (PowerShell):
+Run from the repo root. These are the same commands CI runs:
 
 ```powershell
-cd frontend; npm run check; npx vitest run   # desktop: types + tests
-cd ../mobile; npm run check                  # CI runs this with --fail-on-warnings: ANY warning breaks the build
+npm run check   # go vet + svelte-check --fail-on-warnings on both surfaces (ANY warning fails)
+npm test        # go test (root + foldertemplate module) + vitest on both surfaces
 ```
 
-If Go code was touched: `go test ./... -count=1` and `go vet ./...`.
+CI also fails on unformatted Go: `gofmt -l $(git ls-files '*.go')` must print nothing. `.gitattributes` keeps the working tree LF, so a non-empty list is a real formatting change, not CRLF noise.
 
-**svelte-check alone is NOT what CI runs.** Before any push that touched shared/, adapters, the Go App/ShellAPI surface, or vite configs, mirror the full CI sequence â€” these have all caught real breaks that check+tests missed:
+**check + test is not everything CI does.** Before any push that touched shared/, adapters, the Go App/ShellAPI surface, or vite configs, also mirror the build steps. These have caught real breaks that check and test missed:
 
 ```powershell
 wails generate module                        # CI regenerates bindings from the Go struct; stale local wailsjs can mask mismatches

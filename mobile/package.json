@@ -10,7 +10,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
     "test": "vitest",
     "test:run": "vitest run"
   },
@@ -28,6 +28,7 @@
     "vitest": "^3.2.7"
   },
   "dependencies": {
+    "dompurify": "^3.4.17",
     "lucide-svelte": "^0.577.0",
     "marked": "^17.0.6"
   }

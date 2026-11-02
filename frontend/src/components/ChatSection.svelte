@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { tick } from 'svelte'
+  import { tick, untrack } from 'svelte'
   import { Send, MapPin, Check, X, Wrench, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Bookmark, MessageCircle, PencilLine, ListChecks, Trash2, BotMessageSquare } from 'lucide-svelte'
   import { LoadChatHistory, SendChatMessage, StopChatMessage, IsLLMConfigured, AcceptPinSuggestion, RejectPinSuggestion, GetLLMConfig, SetLLMConfig, ApplyPendingEdits, ClearCardChatHistory, ToggleChatBookmark, GetCardChatModel, SetCardChatModel } from '@shared/api'
   import type { ChatHistory, ChatMessage, ChatProgress, ModelRef, PendingEdit, ToolAction } from '@shared/types'
   import { decisionLabel, describeDecision } from '@shared/modelRefs'
   import { toolActionLabel } from '@shared/chatActionLabels'
   import { ChatTurn } from '@shared/chatTurn.svelte'
+  import { cardDraftScope, loadDraft, projectDraftScope, saveDraft } from '@shared/drafts'
   import { onEvent } from '../lib/events'
   import ChatModelChip from './ChatModelChip.svelte'
   import ChatTurnStatus from './ChatTurnStatus.svelte'
@@ -14,6 +15,7 @@
   import { renderMarkdown } from '@shared/markdown'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
+  import { keyboardResize } from '../lib/actions'
 
   // Custom Svelte transition: slide the chat-panel's width out to 0 on
   // unmount, mirroring the CSS `chat-panel-in` keyframe used on mount.
@@ -119,6 +121,19 @@
   let chatWidth = $state(Number(localStorage.getItem(CHAT_WIDTH_KEY)) || 380)
   let resizing = $state(false)
 
+  /** Moves the main|chat boundary by `delta` px from the given widths,
+   *  unless that would squeeze either side below MIN_PANEL. */
+  function moveSplitter(fromMain: number, fromChat: number, delta: number) {
+    if (fromMain + delta >= MIN_PANEL && fromChat - delta >= MIN_PANEL) {
+      mainWidth = fromMain + delta
+      chatWidth = fromChat - delta
+    }
+  }
+  function saveSplit() {
+    localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth))
+    localStorage.setItem('bruv:mainPanelWidth', String(mainWidth))
+  }
+
   /** Splitter: redistributes space between main and chat, outer edges stay fixed.
    * Typed as MouseEvent because Svelte 5's `onpointerdown` attribute type
    * is MouseEventHandler; PointerEvent extends MouseEvent at runtime so
@@ -137,19 +152,12 @@
     target?.setPointerCapture?.(pointerId)
 
     function onMove(ev: PointerEvent) {
-      const delta = ev.clientX - startX
-      const newMain = startMain + delta
-      const newChat = startChat - delta
-      if (newMain >= MIN_PANEL && newChat >= MIN_PANEL) {
-        mainWidth = newMain
-        chatWidth = newChat
-      }
+      moveSplitter(startMain, startChat, ev.clientX - startX)
     }
     function onUp() {
       resizing = false
       splitterDragging = false
-      localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth))
-      localStorage.setItem('bruv:mainPanelWidth', String(mainWidth))
+      saveSplit()
       try { target?.releasePointerCapture?.(pointerId) } catch { /* already released */ }
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
@@ -292,6 +300,14 @@
 
   let messages = $state<ChatMessage[]>([])
   let inputText = $state('')
+  // The half-typed message survives switching chats and restarts: each
+  // chat's draft is loaded when it opens and saved as it changes.
+  const draftScope = $derived(projectMode ? projectDraftScope(projectPath) : cardDraftScope(cardId))
+  $effect(() => {
+    const scope = draftScope
+    untrack(() => { inputText = loadDraft(scope) })
+  })
+  $effect(() => saveDraft(draftScope, inputText))
   let loading = $state(true)
   // The turn in flight: elapsed time, live progress, Stop.
   const turn = new ChatTurn(() => projectMode ? { projectPath } : { cardId })
@@ -675,7 +691,17 @@
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div class="chat-panel" class:resizing class:hosted style={hosted ? undefined : `width: ${chatWidth}px; --chat-width: ${chatWidth}px;`} out:slideOutWidth={{ duration: 220 }}>
     {#if !hosted}
-      <div class="chat-resize-handle left" class:active={resizing} role="separator" tabindex="-1" onpointerdown={onSplitterDown}></div>
+      <div
+        class="chat-resize-handle left"
+        class:active={resizing}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t('splitter.card_chat')}
+        aria-valuenow={Math.round(chatWidth)}
+        aria-valuemin={MIN_PANEL}
+        onpointerdown={onSplitterDown}
+        use:keyboardResize={{ axis: 'x', onMove: (d) => moveSplitter(mainWidth, chatWidth, d), onCommit: saveSplit }}
+      ></div>
     {/if}
     <!-- Inner wrapper is pinned to the final width, so children don't
          reflow while the outer .chat-panel animates from 0 → chatWidth.

@@ -4,6 +4,7 @@
   import { formatRelativeTime } from '@shared/relativeTime'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
+  import { keyboardResize } from '../lib/actions'
   import { Timer, Play, Square, Pause, CirclePlay, CircleCheck, CircleX, TriangleAlert, Clock } from 'lucide-svelte'
   import { onMount, onDestroy } from 'svelte'
   import { onEvent } from '../lib/events'
@@ -24,6 +25,7 @@
   const MIN_PANE = 120
   let analyticsHeight = $state(Number(localStorage.getItem(ANALYTICS_HEIGHT_KEY)) || 260)
   let splitterDragging = $state(false)
+  const saveAnalyticsHeight = () => localStorage.setItem(ANALYTICS_HEIGHT_KEY, String(analyticsHeight))
 
   // Typed as MouseEvent because Svelte 5's `onpointerdown` on HTMLElement
   // is typed as MouseEventHandler; PointerEvent extends MouseEvent so
@@ -40,12 +42,11 @@
     target?.setPointerCapture?.(pointerId)
 
     function onMove(ev: PointerEvent) {
-      const delta = startY - ev.clientY
-      analyticsHeight = Math.max(MIN_PANE, startH + delta)
+      analyticsHeight = Math.max(MIN_PANE, startH - (ev.clientY - startY))
     }
     function onUp() {
       splitterDragging = false
-      localStorage.setItem(ANALYTICS_HEIGHT_KEY, String(analyticsHeight))
+      saveAnalyticsHeight()
       try { target?.releasePointerCapture?.(pointerId) } catch { /* already released */ }
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
@@ -346,7 +347,16 @@
 
         <!-- Horizontal splitter -->
         <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-        <div class="h-splitter" role="separator" tabindex="-1" onpointerdown={onAnalyticsSplitterDown}></div>
+        <div
+          class="h-splitter"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label={t('splitter.agent_analytics')}
+          aria-valuenow={Math.round(analyticsHeight)}
+          aria-valuemin={MIN_PANE}
+          onpointerdown={onAnalyticsSplitterDown}
+          use:keyboardResize={{ axis: 'y', onMove: (d) => { analyticsHeight = Math.max(MIN_PANE, analyticsHeight - d) }, onCommit: saveAnalyticsHeight }}
+        ></div>
 
         <!-- Bottom pane: Analytics -->
         <div class="split-bottom" style="height: {analyticsHeight}px;">

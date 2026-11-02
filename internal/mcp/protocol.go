@@ -236,15 +236,14 @@ type CallToolResult struct {
 // discriminator; the other fields are populated per-type.
 //
 // Flattening for LLM consumption:
-//   - text:          Text is appended verbatim.
-//   - image/audio:   a placeholder "[image: type, N bytes]" is appended
-//                    rather than embedding megabytes of base64 into the
-//                    LLM context (which would blow up token budgets and
-//                    accomplish nothing — current LLMs don't see the
-//                    image through this channel anyway).
+//   - text: Text is appended verbatim.
+//   - image/audio: a placeholder "[image: type, N bytes]" is appended
+//     rather than embedding megabytes of base64 into the LLM context
+//     (which would blow up token budgets and accomplish nothing —
+//     current LLMs don't see the image through this channel anyway).
 //   - resource_link: "[resource: uri]" placeholder.
-//   - resource:      the embedded resource's Text is appended if
-//                    present, otherwise a blob placeholder.
+//   - resource: the embedded resource's Text is appended if present,
+//     otherwise a blob placeholder.
 //
 // See Content.Flatten.
 type Content struct {

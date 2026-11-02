@@ -40,6 +40,18 @@ describe('toast state machine', () => {
     expect(toasts.list).toHaveLength(0)
   })
 
+  it("drops a thrown error's type name", () => {
+    showToast('TypeError: Failed to fetch', 'error')
+    showToast('Error: disk full', 'error')
+    showToast('RPCError: method not found', 'error')
+    expect(toasts.list.map(t => t.message)).toEqual(['Failed to fetch', 'disk full', 'method not found'])
+  })
+
+  it('keeps messages that only mention an error', () => {
+    showToast("Couldn't save: Error code 5", 'error')
+    expect(toasts.list[0].message).toBe("Couldn't save: Error code 5")
+  })
+
   it('dismissing an unknown id is a no-op', () => {
     showToast('keep me')
     const before = toasts.list.length

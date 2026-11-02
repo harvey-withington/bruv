@@ -20,23 +20,24 @@ import (
 //
 // All hosts run the multi-repo transport since the 2026-04-26
 // "local-as-remote" pivot — Repos is required. Routes:
-//   GET    /repos                        list of {id,name,disabled}
-//   POST   /repos                        init-or-open (body: {path,name?})
-//   POST   /repos/inspect                inspect path (body: {path})
-//   PATCH  /repos/<id>                   rename (body: {name})
-//   DELETE /repos/<id>                   remove from registry
-//   POST   /repos/<id>/(enable|disable)  toggle
-//   POST   /repos/<id>/rpc               per-repo dispatcher
-//   GET    /repos/<id>/events            per-repo SSE
-//   GET    /repos/<id>/attachments/...   signed-URL handler
-//   POST   /server/rpc                   per-machine dispatcher
-//                                        (when MachineTarget is set)
-//   GET    /pair?token=<bootstrap>        operator-facing pairing page
-//                                        (renders QR for /m/enrol)
-//   GET    /app/                          desktop Svelte bundle
-//                                        (when StaticAssets is set)
-//   GET    /m/                            mobile PWA bundle
-//                                        (when MobileAssets is set)
+//
+//	GET    /repos                        list of {id,name,disabled}
+//	POST   /repos                        init-or-open (body: {path,name?})
+//	POST   /repos/inspect                inspect path (body: {path})
+//	PATCH  /repos/<id>                   rename (body: {name})
+//	DELETE /repos/<id>                   remove from registry
+//	POST   /repos/<id>/(enable|disable)  toggle
+//	POST   /repos/<id>/rpc               per-repo dispatcher
+//	GET    /repos/<id>/events            per-repo SSE
+//	GET    /repos/<id>/attachments/...   signed-URL handler
+//	POST   /server/rpc                   per-machine dispatcher
+//	                                     (when MachineTarget is set)
+//	GET    /pair?token=<bootstrap>        operator-facing pairing page
+//	                                     (renders QR for /m/enrol)
+//	GET    /app/                          desktop Svelte bundle
+//	                                     (when StaticAssets is set)
+//	GET    /m/                            mobile PWA bundle
+//	                                     (when MobileAssets is set)
 type Config struct {
 	Addr      string
 	ConfigDir string

@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte'
+  import { onMount, tick, untrack } from 'svelte'
   import { Send, X, Trash2, MessageCircle, PencilLine, ListChecks } from 'lucide-svelte'
   import { repoRPC, machineRPC } from '../../lib/auth'
   import { onReconnect } from '../../lib/connectivity.svelte'
   import { onEvent } from '../../lib/events.svelte'
   import { ChatTurn } from '@shared/chatTurn.svelte'
+  import { cardDraftScope, loadDraft, projectDraftScope, saveDraft } from '@shared/drafts'
   import type { ChatProgress } from '@shared/types'
   import { inlineEdit } from '@shared/inlineEdit'
   import { EditScope } from '@shared/editScope'
@@ -58,6 +59,16 @@
 
   let messages = $state<ChatMsg[]>([])
   let inputText = $state('')
+  // The half-typed message survives closing the sheet and reloads: each
+  // chat's draft is loaded when it opens and saved as it changes.
+  const draftScope = $derived(
+    scope.kind === 'card' ? cardDraftScope(scope.cardID) : projectDraftScope(`${scope.brand}/${scope.stream}/${scope.project}`),
+  )
+  $effect(() => {
+    const key = draftScope
+    untrack(() => { inputText = loadDraft(key) })
+  })
+  $effect(() => saveDraft(draftScope, inputText))
   let loading = $state(true)
   // The turn in flight: elapsed time, live progress, Stop.
   const turn = new ChatTurn(() =>
@@ -187,8 +198,10 @@
       messages = result?.messages ?? []
     } catch (err) {
       saveError = err instanceof Error ? err.message : t('chat.err_send')
-      // Drop the optimistic bubble so the user can retry.
+      // Drop the optimistic bubble and give the text back so the user can
+      // retry — losing a typed message to a failed send is data loss.
       messages = messages.filter((m) => m.id !== tempID)
+      if (!inputText.trim()) inputText = text
     } finally {
       turn.finish()
     }

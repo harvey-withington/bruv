@@ -1,6 +1,8 @@
 <script lang="ts">
   import { Paperclip, Trash2, FileText, FileImage, FileVideo, File as FileIcon, Eye, PencilLine } from 'lucide-svelte'
   import { isEditableTextAttachment } from '@shared/attachmentText'
+  import { fileToBase64, shrinkPhoto } from '@shared/attachmentUpload'
+  import { errorDetail } from '@shared/errors'
   import { attachmentDocumentSource, type DocumentSource } from '../lib/documentSource'
   import DocumentSheet from './DocumentSheet.svelte'
   import { repoRPC } from '../lib/auth'
@@ -54,29 +56,21 @@
   async function handleFiles(files: FileList | File[]) {
     uploading = true
     errorMsg = null
-    for (const file of files) {
+    for (const picked of files) {
+      // Phone photos are large; send them at most PHOTO_MAX px on a side.
+      const file = await shrinkPhoto(picked)
       try {
         const data = await fileToBase64(file)
         const updated = await repoRPC<Card>('AddCardAttachment', [cardId, file.name, data])
         if (updated) onCardUpdated(updated)
       } catch (err) {
-        errorMsg = err instanceof Error ? err.message : t('attachment.upload_failed')
+        const reason = errorDetail(err)
+        errorMsg = reason
+          ? t('attachment.upload_failed_named_reason', { name: picked.name, reason })
+          : t('attachment.upload_failed_named', { name: picked.name })
       }
     }
     uploading = false
-  }
-
-  function fileToBase64(file: globalThis.File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => {
-        const result = reader.result as string
-        const base64 = result.includes(',') ? result.split(',')[1] : result
-        resolve(base64)
-      }
-      reader.onerror = reject
-      reader.readAsDataURL(file)
-    })
   }
 
   async function previewAttachment(att: Attachment) {

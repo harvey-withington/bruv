@@ -5,6 +5,7 @@
 // server, GetBuildInfo for the desktop binary); comparing the two catches
 // a stale deploy up front. build_date can't: an old checkout built today
 // gets today's build_date.
+import { fetchWithin, PROBE_TIMEOUT_MS } from './fetchWithin'
 
 /** What the unauthenticated GET /version reports. */
 export interface ServerBuild {
@@ -25,10 +26,11 @@ export function serverIsOlder(appCommitDate: string | undefined, serverCommitDat
   return server < app
 }
 
-/** Fetch a server's /version. Null when unreachable or not a BRUV server. */
+/** Fetch a server's /version. Null when unreachable (or too slow to
+ *  answer) or not a BRUV server. */
 export async function fetchServerBuild(baseURL: string): Promise<ServerBuild | null> {
   try {
-    const res = await fetch(`${baseURL.replace(/\/+$/, '')}/version`, { cache: 'no-store' })
+    const res = await fetchWithin(`${baseURL.replace(/\/+$/, '')}/version`, PROBE_TIMEOUT_MS, { cache: 'no-store' })
     if (!res.ok) return null
     const body: unknown = await res.json()
     if (!body || typeof body !== 'object') return null

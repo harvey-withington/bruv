@@ -35,8 +35,10 @@ type RepoInspect struct {
 }
 
 // reposCollectionHandler dispatches the /repos top-level resource:
-//   GET  → list
-//   POST → init-or-open at the body's path
+//
+//	GET  → list
+//	POST → init-or-open at the body's path
+//
 // Anything else → 405.
 //
 // POST /repos with {path, name?} routes through InitOrOpen on the

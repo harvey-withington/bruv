@@ -6,6 +6,8 @@
   import { AddCardAttachment, RemoveCardAttachment, SignAttachmentURL } from '@shared/api'
   import type { Attachment, Card } from '@shared/types'
   import { isEditableTextAttachment } from '@shared/attachmentText'
+  import { fileToBase64 } from '@shared/attachmentUpload'
+  import { errorDetail } from '@shared/errors'
   import AttachmentDocumentViewer from './AttachmentDocumentViewer.svelte'
   import { keyLayer } from '../lib/keyLayer'
 
@@ -40,24 +42,13 @@
         const data = await fileToBase64(file)
         const updated = await AddCardAttachment(cardId, file.name, data)
         onCardUpdated(updated)
-      } catch {
-        showToast(t('attachment.upload_failed'), 'error')
+      } catch (e) {
+        const reason = errorDetail(e)
+        showToast(reason
+          ? t('attachment.upload_failed_named_reason', { name: file.name, reason })
+          : t('attachment.upload_failed_named', { name: file.name }), 'error')
       }
     }
-  }
-
-  function fileToBase64(file: globalThis.File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => {
-        const result = reader.result as string
-        // Strip data URL prefix
-        const base64 = result.includes(',') ? result.split(',')[1] : result
-        resolve(base64)
-      }
-      reader.onerror = reject
-      reader.readAsDataURL(file)
-    })
   }
 
   function handleDrop(e: DragEvent) {

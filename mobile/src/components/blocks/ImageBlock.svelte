@@ -5,6 +5,7 @@
   import { t } from '../../lib/i18n.svelte'
   import type { Block, Card } from '@shared/types'
   import { parseAttachmentRef } from '@shared/attachmentRefs'
+  import { fileToBase64, shrinkPhoto } from '@shared/attachmentUpload'
   import { asString, withValue } from './narrow'
 
   let {
@@ -78,10 +79,11 @@
       // Upload via the existing AddCardAttachment RPC. The desktop
       // pipeline encodes file bytes as base64 in JSON; mobile mirrors
       // that — the bytes don't go on the wire as multipart because
-      // the RPC dispatcher only speaks JSON-RPC. Acceptable on phone
-      // too — image sizes are small and the cost is minor.
-      const dataB64 = await fileToBase64(file)
-      const updated = await repoRPC<Card>('AddCardAttachment', [cardId, file.name, dataB64])
+      // the RPC dispatcher only speaks JSON-RPC. Photos are shrunk to
+      // PHOTO_MAX px first, which keeps that affordable on a phone.
+      const photo = await shrinkPhoto(file)
+      const dataB64 = await fileToBase64(photo)
+      const updated = await repoRPC<Card>('AddCardAttachment', [cardId, photo.name, dataB64])
       // The card's attachments list now has a new entry; the new
       // attachment is the last one. Find it and write the ID into
       // this block.
@@ -96,20 +98,6 @@
       uploading = false
       input.value = ''
     }
-  }
-
-  function fileToBase64(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => {
-        const result = reader.result as string
-        // dataURL → strip "data:<mime>;base64," prefix.
-        const idx = result.indexOf(',')
-        resolve(idx >= 0 ? result.slice(idx + 1) : result)
-      }
-      reader.onerror = () => reject(reader.error)
-      reader.readAsDataURL(file)
-    })
   }
 </script>
 

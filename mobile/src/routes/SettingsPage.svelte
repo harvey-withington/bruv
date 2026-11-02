@@ -2,7 +2,8 @@
   import { onMount } from 'svelte'
   import { ChevronLeft, Bell, BellOff, Sun, Moon, Smartphone, LogOut, Database, Activity } from 'lucide-svelte'
   import { navigate } from '../lib/router.svelte'
-  import { clearEnrolment, readEnrolment } from '../lib/auth'
+  import { clearEnrolment, readEnrolment, readServerNickname, saveServerNickname } from '../lib/auth'
+  import { inlineEdit } from '@shared/inlineEdit'
   import { stopEvents } from '../lib/events.svelte'
   import { theme, setTheme, type Theme } from '../lib/theme.svelte'
   import * as push from '../lib/push.svelte'
@@ -19,10 +20,14 @@
   let pushError = $state<string | null>(null)
   let confirmingUnpair = $state(false)
   let serverURL = $state<string>('')
+  // The saved nickname, and the field's text while it's being edited.
+  let nickname = $state('')
+  let nicknameDraft = $state('')
 
   onMount(async () => {
     const enrol = readEnrolment()
     serverURL = enrol?.serverURL ?? ''
+    nickname = nicknameDraft = readServerNickname()
     pushStatus = await push.getStatus()
   })
 
@@ -50,6 +55,15 @@
     } finally {
       pushBusy = false
     }
+  }
+
+  function commitNickname() {
+    saveServerNickname(nicknameDraft)
+    nickname = nicknameDraft = readServerNickname()
+  }
+
+  function cancelNickname() {
+    nicknameDraft = nickname
   }
 
   function performUnpair() {
@@ -165,9 +179,22 @@
       <span class="row-icon"><LogOut size={18} /></span>
       <div class="row-text">
         <span class="row-title">{t('settings.unpair')}</span>
-        <span class="row-sub">{serverURL || t('settings.unpair_sub')}</span>
+        <span class="row-sub">{nickname || serverURL || t('settings.unpair_sub')}</span>
       </div>
     </button>
+    <label class="row nickname-row">
+      <span class="row-text">
+        <span class="row-title">{t('settings.server_nickname')}</span>
+        <input
+          type="text"
+          class="nickname-input"
+          bind:value={nicknameDraft}
+          placeholder={t('settings.server_nickname_placeholder')}
+          use:inlineEdit={{ onCommit: commitNickname, onCancel: cancelNickname }}
+        />
+        <span class="row-sub">{t('settings.server_nickname_hint')}</span>
+      </span>
+    </label>
   </section>
 </main>
 
@@ -330,6 +357,26 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .nickname-row {
+    cursor: default;
+  }
+  .nickname-row .row-sub {
+    white-space: normal;
+  }
+  .nickname-input {
+    margin: 0.35rem 0 0.2rem;
+    padding: 0.55rem 0.7rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font: inherit;
+    font-size: 16px; /* below 16px iOS zooms the page on focus */
+  }
+  .nickname-input:focus {
+    border-color: var(--accent);
+    outline: none;
   }
   .row-arrow {
     color: var(--text-faint);

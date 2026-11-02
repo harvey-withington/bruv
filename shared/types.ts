@@ -1092,7 +1092,7 @@ export interface BuildInfo {
 }
 
 export interface UpdateCheckResult {
-  status: 'up_to_date' | 'update_available' | 'error'
+  status: 'up_to_date' | 'update_available' | 'dev_build' | 'error'
   current_version: string
   latest_version?: string
   release_url?: string

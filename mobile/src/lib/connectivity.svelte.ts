@@ -14,6 +14,7 @@
 // Pages register a handler via onReconnect(); only the mounted page has
 // one, so we refresh exactly what the user is looking at.
 import { readEnrolment } from './auth'
+import { fetchWithin, PROBE_TIMEOUT_MS } from '@shared/fetchWithin'
 
 export const connectivity = $state({
   /** True while the server is unreachable — the overlay is shown. */
@@ -39,13 +40,15 @@ export function onReconnect(handler: () => void): () => void {
 }
 
 /** Hit the unauthenticated /version endpoint. Resolves true iff the
- *  server answered — a clean reachability signal that needs no enrolment
- *  token and no repo context. */
+ *  server answered within PROBE_TIMEOUT_MS — a clean reachability signal
+ *  that needs no enrolment token and no repo context. Without the
+ *  deadline a dead tunnel hangs the probe for minutes and the overlay
+ *  never shows. */
 async function pingServer(): Promise<boolean> {
   const enrolment = readEnrolment()
   if (!enrolment) return false
   try {
-    const res = await fetch(`${enrolment.serverURL}/version`, { cache: 'no-store' })
+    const res = await fetchWithin(`${enrolment.serverURL}/version`, PROBE_TIMEOUT_MS, { cache: 'no-store' })
     return res.ok
   } catch {
     return false

@@ -124,7 +124,56 @@ export function clickOutside(
   }
 }
 
+/**
+ * Keyboard resizing for a splitter (`role="separator"` with aria-value*),
+ * the twin of dragging it: arrows move it 16 px, Shift+arrows 48 px.
+ * `axis` 'x' listens to ←/→, 'y' to ↑/↓. `onMove(delta)` gets the
+ * handle's movement in px (+ = right/down), exactly like a drag's pointer
+ * delta, so each splitter keeps its own sizing rule; `onCommit` saves, as
+ * at the end of a drag.
+ *
+ * The action makes the handle focusable itself: ARIA treats a focusable
+ * separator as a widget, but svelte-check's a11y rule doesn't know that and
+ * flags `tabindex="0"` on it in markup.
+ */
+export function keyboardResize(
+  node: HTMLElement,
+  params: { axis: 'x' | 'y'; onMove: (delta: number) => void; onCommit: () => void },
+) {
+  let p = params
+  node.tabIndex = 0
+  function onKeydown(e: KeyboardEvent) {
+    const [back, forward] = p.axis === 'x' ? ['ArrowLeft', 'ArrowRight'] : ['ArrowUp', 'ArrowDown']
+    if (e.key !== back && e.key !== forward) return
+    e.preventDefault()
+    const step = e.shiftKey ? 48 : 16
+    p.onMove(e.key === forward ? step : -step)
+    p.onCommit()
+  }
+  node.addEventListener('keydown', onKeydown)
+  return {
+    update(next: typeof params) { p = next },
+    destroy() { node.removeEventListener('keydown', onKeydown) },
+  }
+}
+
+/**
+ * Keeps Tab inside a dialog, moves focus into it on open and gives it back
+ * on close. On open (after children mount, so their own focusOnMount wins):
+ * if focus is already inside, nothing changes; otherwise `[data-autofocus]`
+ * is focused, or else the dialog itself when it is focusable (tabindex), so
+ * keyboard and screen-reader users land in the dialog without a button
+ * being pre-selected. On close, focus returns to what had it before, unless
+ * something else has taken it meanwhile.
+ */
 export function focusTrap(node: HTMLElement) {
+  const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  queueMicrotask(() => {
+    if (!node.isConnected || node.contains(document.activeElement)) return
+    const target = node.querySelector<HTMLElement>('[data-autofocus]') ?? (node.hasAttribute('tabindex') ? node : null)
+    target?.focus({ preventScroll: true })
+  })
+
   function handleKeydown(e: KeyboardEvent) {
     if (e.key !== 'Tab') return
     const focusable = Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(el => el.offsetParent !== null)
@@ -140,5 +189,14 @@ export function focusTrap(node: HTMLElement) {
     }
   }
   node.addEventListener('keydown', handleKeydown)
-  return { destroy() { node.removeEventListener('keydown', handleKeydown) } }
+  return {
+    destroy() {
+      node.removeEventListener('keydown', handleKeydown)
+      // Only when focus was inside (or fell to <body> as the dialog left):
+      // a dialog that closed because the user clicked elsewhere keeps that.
+      const active = document.activeElement
+      const lost = !active || active === document.body || node.contains(active)
+      if (lost && previous?.isConnected) previous.focus({ preventScroll: true })
+    },
+  }
 }

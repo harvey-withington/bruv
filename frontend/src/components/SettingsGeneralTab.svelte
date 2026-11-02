@@ -2,7 +2,7 @@
   // Settings → General: display and behaviour preferences (per device)
   // plus the vault's default category name.
   import { t, availableLocales } from '../lib/i18n.svelte'
-  import { theme, setTheme } from '../lib/theme.svelte'
+  import { theme, setTheme, type ThemeChoice } from '../lib/theme.svelte'
   import type { SettingsForm } from '../lib/settingsForm.svelte'
   import type { FieldVisible } from '../lib/settingsSearch'
 
@@ -23,8 +23,9 @@
     <!-- Bound to the live theme store rather than prefs.theme so the
          dropdown reflects the current theme even when the sidebar toggle
          changed it after this dialog opened. setTheme applies + persists
-         locally at once; Save syncs theme.mode into the prefs on disk. -->
-    <select value={theme.mode} onchange={(e) => setTheme((e.currentTarget as HTMLSelectElement).value as 'dark' | 'light')}>
+         locally at once; Save syncs theme.choice into the prefs on disk. -->
+    <select value={theme.choice} onchange={(e) => setTheme((e.currentTarget as HTMLSelectElement).value as ThemeChoice)}>
+      <option value="system">{t('prefs.theme_system')}</option>
       <option value="dark">{t('prefs.theme_dark')}</option>
       <option value="light">{t('prefs.theme_light')}</option>
     </select>

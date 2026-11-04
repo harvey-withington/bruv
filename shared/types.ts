@@ -1636,6 +1636,9 @@ export interface BackendAdapter {
   // Per-chat model choice
   GetCardChatModel(cardID: string): Promise<ModelRef>
   SetCardChatModel(cardID: string, ref: ModelRef): Promise<void>
+  /** The card chat's UNCLI session (the opt-in chat engine); '' before its first. */
+  GetCardUncliSession(cardID: string): Promise<string>
+  SetCardUncliSession(cardID: string, sessionID: string): Promise<void>
   GetProjectChatModel(brandSlug: string, streamSlug: string, projectSlug: string): Promise<ModelRef>
   SetProjectChatModel(brandSlug: string, streamSlug: string, projectSlug: string, ref: ModelRef): Promise<void>
 

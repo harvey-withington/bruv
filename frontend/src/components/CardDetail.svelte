@@ -11,6 +11,8 @@
   import PendingClipBanner from './PendingClipBanner.svelte'
   import DescriptionSection from './DescriptionSection.svelte'
   import ChatSection from './ChatSection.svelte'
+  import UncliCardChat from './UncliCardChat.svelte'
+  import { chatEngine, ensureChatEngine } from '../lib/chatEngine.svelte'
   import AgentTab from './AgentTab.svelte'
   import AgentRunsTab from './AgentRunsTab.svelte'
   import CardShareMenu from './CardShareMenu.svelte'
@@ -101,6 +103,8 @@
   // svelte-ignore state_referenced_locally
   let activeTab = $state<'details' | 'agent' | 'runs'>(initialTab ?? readStoredTab() ?? 'details')
   $effect(() => { localStorage.setItem(CHAT_VISIBLE_KEY, String(showChat)) })
+  // Which engine the chat panel runs (built-in, or the opt-in UNCLI).
+  ensureChatEngine()
   $effect(() => { localStorage.setItem(ACTIVE_TAB_KEY, activeTab) })
 
   // Splitter: redistributes space between main and chat when chat is open.
@@ -780,7 +784,12 @@
            true, the outer {#if !loading && card} tears ChatSection
            out of the DOM, and its slide-in animation replays every
            time the assistant responds. -->
-      <ChatSection {cardId} bind:visible={showChat} bind:mainWidth bind:splitterDragging onCardChanged={() => { requestSilentReload(); onUpdated?.() }} />
+      {#if chatEngine.current.engine === 'uncli'}
+        <UncliCardChat {cardId} {card} bind:visible={showChat} bind:mainWidth bind:splitterDragging />
+      {:else}
+        <ChatSection {cardId} bind:visible={showChat} bind:mainWidth bind:splitterDragging onCardChanged={() => { requestSilentReload(); onUpdated?.() }}
+          engineFallback={chatEngine.current.fallback ? t(chatEngine.current.fallback.key, chatEngine.current.fallback.params) : ''} />
+      {/if}
     {/if}
 
     <div class="modal-actions">

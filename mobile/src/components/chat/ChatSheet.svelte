@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte'
-  import { Send, X, Trash2, MessageCircle, PencilLine, ListChecks } from 'lucide-svelte'
+  import { Send, Trash2, MessageCircle, PencilLine, ListChecks } from 'lucide-svelte'
   import { repoRPC, machineRPC } from '../../lib/auth'
   import { onReconnect } from '../../lib/connectivity.svelte'
   import { onEvent } from '../../lib/events.svelte'
@@ -14,6 +14,7 @@
   import ChatMessage from './ChatMessage.svelte'
   import ChatModelChip from './ChatModelChip.svelte'
   import ChatTurnStatus from './ChatTurnStatus.svelte'
+  import ChatSheetShell from './ChatSheetShell.svelte'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import type { ChatScope } from './scope'
   import type {
@@ -24,7 +25,17 @@
     ProjectContextLevel,
   } from './types'
 
-  let { scope, onClose }: { scope: ChatScope; onClose: () => void } = $props()
+  let {
+    scope,
+    onClose,
+    engineFallback = '',
+  }: {
+    scope: ChatScope
+    onClose: () => void
+    /** Why this chat runs here although the user chose the UNCLI engine
+     *  (shared/uncliChat.cardChatEngine); '' when they didn't. */
+    engineFallback?: string
+  } = $props()
 
   // Keyboard entry contract. The composer registers while focused;
   // Escape closes the sheet only when it isn't mid-entry. Named
@@ -93,14 +104,6 @@
 
   let messagesEl = $state<HTMLDivElement | null>(null)
   let textareaEl = $state<HTMLTextAreaElement | null>(null)
-  let sheetEl = $state<HTMLElement | null>(null)
-
-  // Close-by-swipe: pointer drag from the header that exceeds 40% of
-  // viewport height OR a fast downward velocity dismisses the sheet.
-  let dragStartY = 0
-  let dragCurrentY = 0
-  let dragging = $state(false)
-  let translateY = $state(0)
 
   async function load() {
     loading = true
@@ -317,42 +320,6 @@
     textareaEl?.blur()
   }
 
-  // --- Swipe-to-dismiss on the header ---
-  function onHeaderPointerDown(e: PointerEvent) {
-    // Skip drag setup when the pointerdown lands on a button inside the
-    // header. Capturing the pointer here re-targets the resulting click
-    // event to the header itself, so the X / clear button's onclick
-    // would never fire — leaving the user with no way to close the sheet.
-    if ((e.target as HTMLElement | null)?.closest('button')) return
-    dragStartY = e.clientY
-    dragCurrentY = e.clientY
-    dragging = true
-    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-  }
-
-  function onHeaderPointerMove(e: PointerEvent) {
-    if (!dragging) return
-    dragCurrentY = e.clientY
-    const dy = Math.max(0, dragCurrentY - dragStartY) // only positive (down)
-    translateY = dy
-  }
-
-  function onHeaderPointerUp() {
-    if (!dragging) return
-    dragging = false
-    const dy = dragCurrentY - dragStartY
-    const vh = window.innerHeight
-    if (dy > vh * 0.4) {
-      // Snap closed.
-      translateY = vh
-      // Match the slide-out animation length so the close happens
-      // after the visual settles.
-      setTimeout(onClose, 180)
-    } else {
-      translateY = 0
-    }
-  }
-
   onMount(() => {
     void load()
     autoGrow()
@@ -365,28 +332,15 @@
     const offProgress = onEvent((ev) => {
       if (ev.topic === 'chat:progress') turn.progress(ev.payload as ChatProgress)
     })
-    // Push a synthetic history entry so hardware Back closes the sheet
-    // without leaving the underlying route. The cleanup pops it on any
-    // other close path.
-    history.pushState({ chat: true }, '')
-    const onPop = () => onClose()
-    window.addEventListener('popstate', onPop)
-    window.addEventListener('keydown', onWindowKeydownCapture, true)
     return () => {
       offReconnect()
       offProgress()
       turn.finish()
-      window.removeEventListener('popstate', onPop)
-      window.removeEventListener('keydown', onWindowKeydownCapture, true)
-      if (!navigatedAway && history.state?.chat) history.back()
     }
   })
 
-  // Set when a card link navigates: the unmount cleanup must NOT
-  // history.back() then — replace() consumes the sheet's synthetic
-  // entry instead, so a queued back-traversal can't race the navigation
-  // and bounce the user to the underlying page (navigatedAway pattern
-  // from PromoteCardSheet).
+  // Set when a card link navigates: replace() consumes the sheet's
+  // history entry, so the shell mustn't go back as well.
   let navigatedAway = false
 
   function openCard(id: string) {
@@ -396,40 +350,20 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="backdrop" onclick={onClose}></div>
-
-<div
-  class="sheet"
-  bind:this={sheetEl}
-  role="dialog"
-  aria-label={scope.kind === 'card' ? t('chat.title') : t('chat.project_title')}
-  style:transform={translateY > 0 ? `translateY(${translateY}px)` : undefined}
-  style:transition={dragging ? 'none' : undefined}
+<ChatSheetShell
+  title={scope.kind === 'card' ? t('chat.title') : t('chat.project_title')}
+  note={messages.length > 0 ? `(${messages.length})` : ''}
+  {onClose}
+  onKeydown={onWindowKeydownCapture}
+  navigatingAway={() => navigatedAway}
 >
-  <div
-    class="header"
-    role="presentation"
-    onpointerdown={onHeaderPointerDown}
-    onpointermove={onHeaderPointerMove}
-    onpointerup={onHeaderPointerUp}
-    onpointercancel={onHeaderPointerUp}
-  >
-    <span class="grabber" aria-hidden="true"></span>
-    <span class="title">
-      {scope.kind === 'card' ? t('chat.title') : t('chat.project_title')}
-      {#if messages.length > 0}<span class="count"> ({messages.length})</span>{/if}
-    </span>
+  {#snippet actions()}
     {#if messages.length > 0}
       <button type="button" class="icon-btn" onclick={() => (confirmingClear = true)} aria-label={t('chat.clear')}>
         <Trash2 size={16} />
       </button>
     {/if}
-    <button type="button" class="icon-btn" onclick={onClose} aria-label={t('chat.dismiss')}>
-      <X size={18} />
-    </button>
-  </div>
+  {/snippet}
 
   <ChatModelChip {scope} onerror={(message) => (saveError = message)} />
 
@@ -462,6 +396,9 @@
     </div>
   {/if}
 
+  {#if engineFallback}
+    <div class="banner" role="status">{engineFallback}</div>
+  {/if}
   {#if !configured}
     <div class="banner">{t('chat.not_configured')}</div>
   {/if}
@@ -543,7 +480,7 @@
       </button>
     </div>
   </footer>
-</div>
+</ChatSheetShell>
 
 {#if confirmingClear}
   <ConfirmDialog
@@ -557,84 +494,6 @@
 {/if}
 
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    z-index: 60;
-    animation: fade-in 200ms ease forwards;
-  }
-
-  .sheet {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 90vh;
-    background: var(--bg);
-    border-top-left-radius: 16px;
-    border-top-right-radius: 16px;
-    border-top: 1px solid var(--border);
-    box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.35);
-    z-index: 61;
-    display: flex;
-    flex-direction: column;
-    animation: slide-up 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
-    padding-bottom: env(safe-area-inset-bottom);
-    transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
-  }
-
-  .header {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.75rem 0.85rem 0.6rem;
-    border-bottom: 1px solid var(--border);
-    cursor: grab;
-    touch-action: none;
-  }
-  .header:active { cursor: grabbing; }
-  .grabber {
-    position: absolute;
-    top: 6px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 36px;
-    height: 4px;
-    border-radius: 2px;
-    background: var(--text-faint);
-    opacity: 0.5;
-  }
-  .title {
-    flex: 1;
-    margin-top: 0.4rem;
-    font-weight: 600;
-    color: var(--text);
-    font-size: 0.95rem;
-  }
-  .count { color: var(--text-faint); font-weight: 400; }
-  .icon-btn {
-    margin-top: 0.4rem;
-    background: transparent;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    padding: 0.4rem;
-    border-radius: 6px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 36px;
-    min-height: 36px;
-  }
-  .icon-btn:hover,
-  .icon-btn:focus-visible {
-    color: var(--text);
-    background: var(--bg-elev-1);
-    outline: none;
-  }
-
   .ctx {
     display: flex;
     align-items: center;
@@ -769,21 +628,4 @@
     justify-content: center;
   }
   .send-btn:disabled { opacity: 0.4; cursor: default; }
-
-  @keyframes fade-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-  @keyframes slide-up {
-    from { transform: translateY(100%); }
-    to { transform: translateY(0); }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .backdrop,
-    .sheet {
-      animation: fade-in 120ms ease forwards;
-    }
-    .sheet { transition: none; }
-  }
 </style>

@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/url"
 	"os"
 	"os/signal"
@@ -173,7 +174,7 @@ func Run(opts Options) error {
 	// The opt-in UNCLI card chat engine. Started whatever the setting, so
 	// switching to it needs no restart; one that can't run says why in
 	// GetUncliStatus. Closed after the HTTP listener stops (deferred).
-	chatEngine := uncliengine.Start(opts.ConfigDir)
+	chatEngine := uncliengine.Start(opts.ConfigDir, transporthttp.UncliOriginAllowed)
 	defer chatEngine.Close()
 
 	machineSvc := supervisor.NewMachineService().WithUncli(chatEngine)
@@ -231,6 +232,9 @@ func Run(opts Options) error {
 		}
 		return fmt.Errorf("http transport start: %w", err)
 	}
+	if chatEngine.Status().Ready {
+		serveBoardTools(chatEngine, srv, opts.ConfigDir)
+	}
 	slog.Info("bruv-server listening",
 		"addr", srv.Addr(),
 		"repos", len(store.Repos),
@@ -272,6 +276,24 @@ func Run(opts Options) error {
 		slog.Warn("http transport stop", "err", err)
 	}
 	return nil
+}
+
+// serveBoardTools gives the UNCLI chat engine's sessions the board tools:
+// BRUV's own MCP endpoint on loopback, with a device token of the
+// engine's own (listed among the paired devices, so it can be revoked).
+// Without one, chats still work, just without the board.
+func serveBoardTools(e *uncliengine.Engine, srv *transporthttp.Server, configDir string) {
+	token, err := srv.Devices().SelfEnrol(filepath.Join(configDir, "uncli-device-token.txt"), configDir, "UNCLI chat (board tools)")
+	if err != nil {
+		slog.Warn("uncli: no device token, so chats get no board tools", "err", err)
+		return
+	}
+	_, port, err := net.SplitHostPort(srv.Addr())
+	if err != nil {
+		slog.Warn("uncli: no listening port, so chats get no board tools", "addr", srv.Addr(), "err", err)
+		return
+	}
+	e.ServeBoard(uncliengine.Board{Base: "http://" + net.JoinHostPort("127.0.0.1", port), Token: token})
 }
 
 // isAddrInUse reports whether err is a "TCP address already bound" error

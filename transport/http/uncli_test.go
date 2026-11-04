@@ -10,9 +10,8 @@ import (
 )
 
 // TestUncliGuard: who reaches the server's UNCLI, which can run tools on
-// the machine. Only a device token in the cookie or a bearer header gets
-// through (never ?token=), from this server's own origin; UNCLI's signed
-// links pass without one; BRUV's cookie and the Origin aren't forwarded.
+// the machine. Only a device token in a bearer header gets through
+// (never ?token=); UNCLI's signed links pass without one.
 func TestUncliGuard(t *testing.T) {
 	dir := t.TempDir()
 	store, token := enrolHelper(t, dir)
@@ -24,81 +23,94 @@ func TestUncliGuard(t *testing.T) {
 	cases := []struct {
 		name   string
 		path   string
-		cookie string
 		bearer string
-		origin string
-		remote string
 		want   int
 	}{
-		{name: "no credentials", path: "/uncli/rpc", want: 401},
+		{name: "no token", path: "/uncli/rpc", want: 401},
 		{name: "token in the query", path: "/uncli/rpc?token=" + token, want: 401},
-		{name: "cookie", path: "/uncli/rpc", cookie: token, want: 200},
 		{name: "bearer", path: "/uncli/rpc", bearer: token, want: 200},
-		{name: "bootstrap token", path: "/uncli/rpc", cookie: strings.TrimSpace(string(bootstrap)), want: 401},
-		{name: "unknown token", path: "/uncli/rpc", cookie: "nope", want: 401},
+		{name: "bootstrap token", path: "/uncli/rpc", bearer: strings.TrimSpace(string(bootstrap)), want: 401},
+		{name: "unknown token", path: "/uncli/rpc", bearer: "nope", want: 401},
 		{name: "signed link", path: "/uncli/l/artifact?sig=x", want: 200},
-		{name: "same origin", path: "/uncli/rpc", cookie: token, origin: "https://bruv.example", want: 200},
-		{name: "other origin", path: "/uncli/rpc", cookie: token, origin: "https://evil.example", want: 403},
-		{name: "other origin, signed link", path: "/uncli/l/artifact", origin: "https://evil.example", want: 403},
-		{name: "dev server via loopback", path: "/uncli/rpc", cookie: token, origin: "http://localhost:5174", remote: "127.0.0.1:50000", want: 200},
-		{name: "loopback origin from afar", path: "/uncli/rpc", cookie: token, origin: "http://localhost:5174", remote: "100.64.0.9:50000", want: 403},
+		{name: "not quite a signed link", path: "/uncli/rpc/l/x", want: 401},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			var forwarded *nethttp.Request
-			h := uncliGuard(store, nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
-				forwarded = r
-			}))
-			req := httptest.NewRequest(nethttp.MethodPost, "https://bruv.example"+tc.path, nil)
-			if tc.cookie != "" {
-				req.AddCookie(&nethttp.Cookie{Name: uncliCookie, Value: tc.cookie})
-			}
+			h := uncliGuard(store, nethttp.HandlerFunc(func(nethttp.ResponseWriter, *nethttp.Request) {}))
+			req := httptest.NewRequest(nethttp.MethodPost, tc.path, nil)
 			if tc.bearer != "" {
 				req.Header.Set("Authorization", "Bearer "+tc.bearer)
-			}
-			if tc.origin != "" {
-				req.Header.Set("Origin", tc.origin)
-			}
-			if tc.remote != "" {
-				req.RemoteAddr = tc.remote
 			}
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, req)
 			if rec.Code != tc.want {
 				t.Fatalf("status = %d, want %d (%s)", rec.Code, tc.want, rec.Body.String())
 			}
-			if tc.want != 200 {
-				return
+		})
+	}
+}
+
+// TestUncliOriginAllowed: the pages that may call the server's UNCLI.
+func TestUncliOriginAllowed(t *testing.T) {
+	cases := []struct {
+		name      string
+		origin    string
+		remote    string
+		forwarded string
+		want      bool
+	}{
+		{name: "same host", origin: "https://bruv.example", want: true},
+		{name: "another site", origin: "https://evil.example", want: false},
+		{name: "desktop webview", origin: "http://wails.localhost", remote: "100.64.0.9:50000", want: true},
+		{name: "dev server via loopback", origin: "http://localhost:5174", remote: "127.0.0.1:50000", want: true},
+		{name: "loopback page from afar", origin: "http://localhost:5174", remote: "100.64.0.9:50000", want: false},
+		{name: "loopback proxy forwarding the name", origin: "https://box.tail.ts.net", remote: "127.0.0.1:50000", forwarded: "box.tail.ts.net", want: true},
+		{name: "forwarded name from afar", origin: "https://box.tail.ts.net", remote: "100.64.0.9:50000", forwarded: "box.tail.ts.net", want: false},
+		{name: "not an origin", origin: "null", want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(nethttp.MethodPost, "https://bruv.example/uncli/rpc", nil)
+			if tc.remote != "" {
+				r.RemoteAddr = tc.remote
+			} else {
+				r.RemoteAddr = "100.64.0.9:50000"
 			}
-			if forwarded.Header.Get("Origin") != "" || forwarded.Header.Get("Cookie") != "" {
-				t.Errorf("forwarded Origin %q / Cookie %q to the core", forwarded.Header.Get("Origin"), forwarded.Header.Get("Cookie"))
+			if tc.forwarded != "" {
+				r.Header.Set("X-Forwarded-Host", tc.forwarded)
+			}
+			if got := UncliOriginAllowed(tc.origin, r); got != tc.want {
+				t.Errorf("UncliOriginAllowed(%q) = %v, want %v", tc.origin, got, tc.want)
 			}
 		})
 	}
 }
 
-// The cookie the page swaps its token for: the device token, HttpOnly,
-// SameSite=Strict, and only sent to /uncli.
-func TestUncliCookieHandler(t *testing.T) {
-	req := httptest.NewRequest(nethttp.MethodPost, "/auth/uncli-cookie", nil)
-	req.Header.Set("Authorization", "Bearer tok")
-	rec := httptest.NewRecorder()
-	uncliCookieHandler().ServeHTTP(rec, req)
-	if rec.Code != nethttp.StatusNoContent {
-		t.Fatalf("status = %d", rec.Code)
+// SelfEnrol enrols once and reuses the cached token after, re-enrolling
+// when the cached one stops working.
+func TestSelfEnrol(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewDeviceStore(dir)
+	if err != nil {
+		t.Fatal(err)
 	}
-	cookies := rec.Result().Cookies()
-	if len(cookies) != 1 {
-		t.Fatalf("cookies = %v", cookies)
+	cache := filepath.Join(dir, "own-token.txt")
+	first, err := store.SelfEnrol(cache, dir, "own client")
+	if err != nil {
+		t.Fatal(err)
 	}
-	c := cookies[0]
-	if c.Name != uncliCookie || c.Value != "tok" || c.Path != "/uncli" || !c.HttpOnly || c.SameSite != nethttp.SameSiteStrictMode {
-		t.Errorf("cookie = %+v", c)
+	if dev := store.LookupDevice(first); dev == nil || dev.Scope != "device" || dev.Name != "own client" {
+		t.Fatalf("device = %+v", dev)
 	}
-
-	get := httptest.NewRecorder()
-	uncliCookieHandler().ServeHTTP(get, httptest.NewRequest(nethttp.MethodGet, "/auth/uncli-cookie", nil))
-	if get.Code != nethttp.StatusMethodNotAllowed {
-		t.Errorf("GET status = %d, want 405", get.Code)
+	again, err := store.SelfEnrol(cache, dir, "own client")
+	if err != nil || again != first {
+		t.Errorf("second call = %q, %v; want the cached token", again, err)
+	}
+	if err := os.WriteFile(cache, []byte("stale\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := store.SelfEnrol(cache, dir, "own client")
+	if err != nil || fresh == "stale" || store.LookupDevice(fresh) == nil {
+		t.Errorf("after a stale cache = %q, %v", fresh, err)
 	}
 }

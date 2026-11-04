@@ -16,6 +16,7 @@ import { t, setLocale } from './i18n.svelte'
 import { theme } from './theme.svelte'
 import { nav, prefs as prefsStore } from './store.svelte'
 import { loadLLMRegistry } from './llmRegistry'
+import { loadChatEngine } from './chatEngine.svelte'
 import { SettingsSections } from './settingsSections.svelte'
 
 export type SettingsSectionId = 'prefs' | 'ui' | 'llmConfig' | 'llmProviders' | 'notify' | 'dueDate' | 'capture'
@@ -255,6 +256,8 @@ export class SettingsForm {
     }
     // Open chats' model chips re-read the registry.
     if (saved.includes('llmProviders')) void loadLLMRegistry(true).catch(() => {})
+    // Card chats switch engine at once.
+    if (saved.includes('llmConfig')) void loadChatEngine()
     return failed.map(id => this.labels[id])
   }
 }

@@ -340,6 +340,34 @@ func (s *DeviceStore) Enrol(bootstrapToken, deviceName string) (string, *Device,
 	return plaintext, &dc, nil
 }
 
+// SelfEnrol returns a device token for one of this process's own clients
+// (the desktop app, the server's UNCLI calling the board tools): the one
+// cached at tokenPath while it's still valid, else a fresh one enrolled
+// under name with the bootstrap token in configDir and cached there, so
+// restarts don't pile up devices. A failed cache write still returns the
+// token, for this run.
+func (s *DeviceStore) SelfEnrol(tokenPath, configDir, name string) (string, error) {
+	if data, err := os.ReadFile(tokenPath); err == nil {
+		cached := strings.TrimSpace(string(data))
+		if dev := s.LookupDevice(cached); dev != nil && dev.Scope == "device" {
+			return cached, nil
+		}
+		// Stale (devices.json wiped, or the device revoked): enrol again.
+	}
+	bootstrap, err := os.ReadFile(filepath.Join(configDir, "bootstrap-token.txt"))
+	if err != nil {
+		return "", fmt.Errorf("read bootstrap token: %w", err)
+	}
+	token, _, err := s.Enrol(strings.TrimSpace(string(bootstrap)), name)
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(tokenPath, []byte(token+"\n"), 0o600); err != nil {
+		slog.Warn("self-enrol: cache device token failed", "name", name, "err", err)
+	}
+	return token, nil
+}
+
 // hashToken returns the hex-encoded SHA-256 of a plaintext token.
 func hashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))

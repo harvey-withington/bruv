@@ -35,6 +35,9 @@ export default defineConfig({
       '/auth':    { target: backendTarget, changeOrigin: true },
       '/repos':   { target: backendTarget, changeOrigin: true, ws: true },
       '/server':  { target: backendTarget, changeOrigin: true },
+      // The server's UNCLI (the opt-in card chat engine). Its event stream
+      // passes through unbuffered, as Vite's proxy does by default.
+      '/uncli':   { target: backendTarget, changeOrigin: true },
       '/pair':    { target: backendTarget, changeOrigin: true },
       '/healthz': { target: backendTarget, changeOrigin: true },
       '/version': { target: backendTarget, changeOrigin: true },

@@ -38,7 +38,9 @@ func withCORS(next nethttp.Handler) nethttp.Handler {
 			w.Header().Set("Vary", "Origin")
 		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		// Last-Event-ID: the UNCLI chat's event stream resumes with it
+		// (/uncli/events, from the desktop webview's origin).
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Last-Event-ID")
 		// Browsers cache a successful preflight for this many seconds
 		// so we're not preflighting every single RPC call.
 		w.Header().Set("Access-Control-Max-Age", "600")

@@ -3,6 +3,7 @@ import { mount } from 'svelte'
 import { initBackend } from '@shared/adapters'
 import { NeedsEnrolmentError } from '@shared/adapters/cloud'
 import { installMentionLabelRefresh } from './lib/mentionLabels'
+import { followBruv } from './lib/bruvLinks'
 import type { WailsWindow } from '@shared/types'
 import App from './App.svelte'
 import EnrolmentScreen from './components/EnrolmentScreen.svelte'
@@ -17,13 +18,7 @@ document.addEventListener('click', (e) => {
   if (bruv) {
     e.preventDefault()
     e.stopPropagation()
-    if (bruv.startsWith('card:')) {
-      const id = bruv.slice(5)
-      document.dispatchEvent(new CustomEvent('bruv:navigate', { detail: { type: 'card', id } }))
-    } else if (bruv.startsWith('project:')) {
-      const id = bruv.slice(8)
-      document.dispatchEvent(new CustomEvent('bruv:navigate', { detail: { type: 'project', id } }))
-    }
+    followBruv(bruv)
     return
   }
 

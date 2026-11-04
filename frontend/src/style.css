@@ -101,6 +101,27 @@ input[type="checkbox"] {
     --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1); /* subtle overshoot */
 }
 
+/* The UNCLI card chat (UncliCardChat) themed from BRUV's tokens, through
+   UNCLI's public --uncli-* properties (its docs/UI-CONVENTIONS.md). They
+   reference the tokens above, so light and dark follow by themselves. */
+uncli-chat {
+    --uncli-bg: var(--bg-surface);
+    --uncli-surface: var(--bg-base);
+    --uncli-surface-2: var(--bg-elevated);
+    --uncli-surface-3: var(--bg-hover);
+    --uncli-text: var(--text-body);
+    --uncli-text-muted: var(--text-secondary);
+    --uncli-text-faint: var(--text-muted);
+    --uncli-border: var(--border-muted);
+    --uncli-border-strong: var(--border);
+    --uncli-accent: var(--accent);
+    --uncli-accent-hover: var(--accent-hover);
+    --uncli-accent-text: var(--on-color);
+    --uncli-danger: var(--danger);
+    --uncli-warning: var(--warning);
+    --uncli-success: var(--success);
+}
+
 [data-theme="light"] {
     color-scheme: light;
     /* Surface */

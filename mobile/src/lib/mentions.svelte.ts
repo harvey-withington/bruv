@@ -93,15 +93,24 @@ export function mentionable(node: MentionField) {
 export function followMention(target: EventTarget | null): boolean {
   const anchor = (target as HTMLElement | null)?.closest?.('a[data-bruv]')
   if (!anchor) return false
-  const bruv = anchor.getAttribute('data-bruv') ?? ''
+  return followBruv(anchor.getAttribute('data-bruv') ?? '')
+}
+
+/**
+ * Follow a bruv: link by its data-bruv form ("card:<id>", "project:<id>").
+ * `go` navigates: a sheet holding its own history entry passes replace,
+ * so the navigation consumes that entry (ChatSheetShell.navigatingAway).
+ * Returns false for anything else.
+ */
+export function followBruv(bruv: string, go: (url: string) => void = navigate): boolean {
   if (bruv.startsWith('card:')) {
-    navigate(cardURL(bruv.slice(5)))
+    go(cardURL(bruv.slice(5)))
     return true
   }
   if (bruv.startsWith('project:')) {
     const id = bruv.slice(8)
     void repoRPC<{ brandSlug: string; streamSlug: string; projectSlug: string }>('GetProjectLocation', [id])
-      .then((loc) => { if (loc) navigate(projectURL(loc.brandSlug, loc.streamSlug, loc.projectSlug)) })
+      .then((loc) => { if (loc) go(projectURL(loc.brandSlug, loc.streamSlug, loc.projectSlug)) })
       .catch(() => { /* a dead project link just stays put */ })
     return true
   }

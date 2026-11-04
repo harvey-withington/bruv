@@ -807,3 +807,34 @@ Builds stamp their commit's time (`-X main.CommitDate=…`, set by `scripts/depl
 - Unstamped builds (`wails dev`, plain `go build`) and servers predating `commit_date` never warn — no false alarms.
 - Dismissing stores `<app version>|<server version>`, so it comes back only when either build changes.
 - Local connections run the same binary, so they never trip it. Mobile is served by the server it talks to, so it can't be newer than the server — desktop only by design.
+
+---
+
+## 26. Card chat engines — `ChatPanelShell` / `ChatSheetShell`, `UncliCardChat` / `UncliChatSheet`, `shared/uncliChat.ts`
+
+**Contract (2026-11-04):** a card's chat runs on BRUV's built-in engine or, opted into in Settings → AI (*Card chat engine*, `chat_engine` in `LLMConfig`), on the server's own UNCLI (`internal/uncliengine`, Claude Code through UNCLI's `<uncli-chat>` element). It's opt-in while it's tried out: switching back keeps both chats' history.
+
+- **The shell is shared, the body is the engine.** Desktop's docked panel (width, splitter, slide in/out) is `ChatPanelShell`; mobile's bottom sheet (backdrop, swipe-to-close header, hardware Back, capture-phase keys) is `ChatSheetShell`. `ChatSection` / `ChatSheet` (built-in) and `UncliCardChat` / `UncliChatSheet` (UNCLI) render inside them. A new chat body goes in a shell; don't copy the chrome.
+- **Choosing the engine:** `shared/uncliChat.readCardChatEngine` — UNCLI only when the user opted in *and* `GetUncliStatus` says the server can run it. Otherwise the built-in chat, and when the user did opt in, its `engineFallback` banner says why (`shared/uncliStatus.uncliUnavailable` → `uncli.unavailable_*`: a service account, a failed start, a host without UNCLI). Desktop keeps the choice in `lib/chatEngine.svelte.ts`, re-read when Settings saves the AI section; mobile reads it as the chat opens.
+- **The element's host** comes from `cardChatHost`: BRUV's device token as a bearer header (the server's `/uncli/` sign-in, `transport/http/uncli.go`), card search for `@` mentions, `bruv:` links followed through each surface's own navigation (desktop `lib/bruvLinks.followBruv`, mobile `followBruv(target, replace)` from the sheet), and the open card as each turn's context. **Set `host` before `src`**: the element connects as soon as it has a `src`.
+- **A card's session** is opened by `openCardSession`: the session recorded for the card (`GetCardUncliSession`), or a new chat recorded as the card's (`SetCardUncliSession`), which is how the server gives it that repo's board tools.
+- **Theming:** each surface's central stylesheet maps BRUV's tokens onto UNCLI's `--uncli-*` properties (`uncli-chat { … }` in `style.css` / `app.css`), and `scheme` follows the theme (mobile's *Auto* leaves it out, so the element follows the system too). The element loads lazily (its own ~200 KB chunk) the first time a UNCLI chat opens.
+- **Keys:** UNCLI's chat handles Escape inside itself; mobile's sheet closes on Escape only from outside the element.
+
+| `ChatPanelShell` prop | Type | Notes |
+|---|---|---|
+| `visible` | `boolean` | Mounts/unmounts the panel with its slide. |
+| `hosted` | `boolean` | A parent (SidePanel) owns geometry; fill it, no splitter or slide. |
+| `mainWidth` | `number` (bindable) | The card's main column, moved by the splitter. |
+| `splitterDragging` | `boolean` (bindable) | True while the splitter is dragged. |
+| `children` | `Snippet` | The chat body. |
+
+| `ChatSheetShell` prop | Type | Notes |
+|---|---|---|
+| `title` | `string` | Header title and the dialog's label. |
+| `note` | `string` | Faint text after the title (a count, the engine). |
+| `onClose` | `() => void` | Backdrop, X, swipe, Back. |
+| `onKeydown` | `(e: KeyboardEvent) => void` | Window, capture phase, so the page underneath never sees the sheet's keys. |
+| `navigatingAway` | `() => boolean` | True when a link navigated with `replace` (it consumed the sheet's history entry). |
+| `actions` | `Snippet` | Extra header buttons; `.icon-btn` gets the header's look. |
+| `children` | `Snippet` | The chat body. |

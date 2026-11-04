@@ -948,7 +948,7 @@
         <span class="chip saved">{t('card.saved')}</span>
       {/if}
     </span>
-    <ChatButton scope={{ kind: 'card', cardID: id }} bind:open={chatOpen} />
+    <ChatButton scope={{ kind: 'card', cardID: id }} bind:open={chatOpen} card={() => card} />
     <button type="button" class="topbar-search" onclick={() => (searchOpen = true)} aria-label={t('browse.search')} title={t('browse.search')}>
       <Search size={18} />
     </button>

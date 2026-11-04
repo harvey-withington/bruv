@@ -11,40 +11,11 @@
   import ChatModelChip from './ChatModelChip.svelte'
   import ChatTurnStatus from './ChatTurnStatus.svelte'
   import ChatNoticeLine from './ChatNoticeLine.svelte'
+  import ChatPanelShell from './ChatPanelShell.svelte'
   import { showConfirm } from '../lib/confirm.svelte'
   import { renderMarkdown } from '@shared/markdown'
   import { t } from '../lib/i18n.svelte'
   import { showToast } from '../lib/toast.svelte'
-  import { keyboardResize } from '../lib/actions'
-
-  // Custom Svelte transition: slide the chat-panel's width out to 0 on
-  // unmount, mirroring the CSS `chat-panel-in` keyframe used on mount.
-  // We measure the element's clientWidth at transition start (captured
-  // once in the outer closure) so the animation honours whatever width
-  // the user has dragged to. Operates on `width` + `opacity` only — no
-  // transform, so the .chat-messages scroll container inside is unaffected.
-  //
-  // Duration and easing are chosen to mirror the `chat-panel-in` CSS
-  // keyframe exactly (240ms, cubic-bezier(0.16, 1, 0.3, 1)) so the close
-  // animation plays as the true reverse of the open animation. The
-  // parent (CardDetail) uses a setTimeout of the same duration to
-  // delay dropping the `.chat-open` class on the modal — otherwise
-  // the dialog width would snap narrow before the panel has finished
-  // animating out.
-  const chatPanelEasing = (t: number) => {
-    // cubic-bezier(0.16, 1, 0.3, 1) via a JS approximation.
-    // Matches the CSS easing used by the `chat-panel-in` keyframe.
-    return 1 - Math.pow(1 - t, 4)
-  }
-  function slideOutWidth(node: HTMLElement, opts: { duration?: number } = {}) {
-    const duration = opts.duration ?? 240
-    const width = node.clientWidth
-    return {
-      duration,
-      easing: chatPanelEasing,
-      css: (t: number) => `width: ${width * t}px; opacity: ${t}; overflow: hidden; min-width: 0;`,
-    }
-  }
 
   let {
     cardId,
@@ -64,6 +35,7 @@
     bookmarkFn,
     loadModelFn,
     saveModelFn,
+    engineFallback = '',
   }: {
     cardId: string
     visible: boolean
@@ -100,6 +72,9 @@
      *  Get/SetProjectChatModel). Card mode uses Get/SetCardChatModel. */
     loadModelFn?: () => Promise<ModelRef>
     saveModelFn?: (ref: ModelRef) => Promise<void>
+    /** Why this chat runs here although the user chose the UNCLI engine
+     *  (shared/uncliChat.cardChatEngine); '' when they didn't. */
+    engineFallback?: string
   } = $props()
 
   // --- Project chat: context level (persisted globally in localStorage) ---
@@ -113,59 +88,6 @@
   function setProjectContextLevel(level: ProjectContextLevel) {
     projectContextLevel = level
     localStorage.setItem(PROJECT_CONTEXT_KEY, level)
-  }
-
-  // Resizable chat width (splitter between main and chat)
-  const CHAT_WIDTH_KEY = 'bruv:chatPanelWidth'
-  const MIN_PANEL = 300
-  let chatWidth = $state(Number(localStorage.getItem(CHAT_WIDTH_KEY)) || 380)
-  let resizing = $state(false)
-
-  /** Moves the main|chat boundary by `delta` px from the given widths,
-   *  unless that would squeeze either side below MIN_PANEL. */
-  function moveSplitter(fromMain: number, fromChat: number, delta: number) {
-    if (fromMain + delta >= MIN_PANEL && fromChat - delta >= MIN_PANEL) {
-      mainWidth = fromMain + delta
-      chatWidth = fromChat - delta
-    }
-  }
-  function saveSplit() {
-    localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth))
-    localStorage.setItem('bruv:mainPanelWidth', String(mainWidth))
-  }
-
-  /** Splitter: redistributes space between main and chat, outer edges stay fixed.
-   * Typed as MouseEvent because Svelte 5's `onpointerdown` attribute type
-   * is MouseEventHandler; PointerEvent extends MouseEvent at runtime so
-   * pointer-specific fields are narrowed below. Pointer events give us
-   * touch/stylus support for free on mobile/tablet viewports. */
-  function onSplitterDown(e: MouseEvent) {
-    e.preventDefault()
-    resizing = true
-    splitterDragging = true
-    const startX = e.clientX
-    const startChat = chatWidth
-    const startMain = mainWidth
-    const pe = e as PointerEvent
-    const target = e.currentTarget as HTMLElement | null
-    const pointerId = pe.pointerId
-    target?.setPointerCapture?.(pointerId)
-
-    function onMove(ev: PointerEvent) {
-      moveSplitter(startMain, startChat, ev.clientX - startX)
-    }
-    function onUp() {
-      resizing = false
-      splitterDragging = false
-      saveSplit()
-      try { target?.releasePointerCapture?.(pointerId) } catch { /* already released */ }
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointercancel', onUp)
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-    window.addEventListener('pointercancel', onUp)
   }
 
   // Fixed-position tooltip for edit details (avoids scroll-container clipping)
@@ -687,27 +609,8 @@
   >{tooltipText}</div>
 {/if}
 
-{#if visible}
-  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <div class="chat-panel" class:resizing class:hosted style={hosted ? undefined : `width: ${chatWidth}px; --chat-width: ${chatWidth}px;`} out:slideOutWidth={{ duration: 220 }}>
-    {#if !hosted}
-      <div
-        class="chat-resize-handle left"
-        class:active={resizing}
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={t('splitter.card_chat')}
-        aria-valuenow={Math.round(chatWidth)}
-        aria-valuemin={MIN_PANEL}
-        onpointerdown={onSplitterDown}
-        use:keyboardResize={{ axis: 'x', onMove: (d) => moveSplitter(mainWidth, chatWidth, d), onCommit: saveSplit }}
-      ></div>
-    {/if}
-    <!-- Inner wrapper is pinned to the final width, so children don't
-         reflow while the outer .chat-panel animates from 0 → chatWidth.
-         The overflow on the right is clipped by .modal's overflow:hidden. -->
-    <div class="chat-panel-inner" style={hosted ? undefined : `width: ${chatWidth}px;`}>
-    <div class="chat-header">
+<ChatPanelShell {visible} {hosted} bind:mainWidth bind:splitterDragging>
+    <div class="chat-header" class:hosted>
       <span class="chat-title"><BotMessageSquare size={15} /> {projectMode ? t('chat.project_title') : t('chat.title')}{messages.length > 0 ? ` (${messages.length})` : ''}</span>
       {#if projectMode}
         <div class="ctx-selector" role="group" aria-label={t('chat.context_label')}>
@@ -744,6 +647,9 @@
       </div>
     </div>
 
+    {#if engineFallback}
+      <div class="chat-banner" role="status">{engineFallback}</div>
+    {/if}
     {#if !configured}
       <div class="chat-banner">
         {@html t('chat.not_configured')}
@@ -959,103 +865,9 @@
       </div>
     </div>
     </div>
-    </div>
-  </div>
-{/if}
+</ChatPanelShell>
 
 <style>
-  .chat-panel {
-    flex-shrink: 0;
-    display: flex;
-    flex-direction: column;
-    border-left: 1px solid var(--border-muted);
-    background: var(--bg-surface);
-    position: relative;
-    /* Clip the fixed-width .chat-panel-inner child while the outer
-       panel width animates. Without this, inner content overflows
-       rightward during the intro animation. The child .chat-messages
-       has its own overflow:auto, which is independent. */
-    overflow: hidden;
-    /* Slide-out entrance — the panel's width grows from 0 to its
-       target on mount, so it appears to emerge from the right edge
-       of the card body. We animate `width` (layout), not `transform`,
-       because transforms create a stacking context that breaks the
-       scroll container inside .chat-messages on WebView2.
-       `--chat-width` is mirrored from the inline `width` style on
-       the element, so the keyframe doesn't hard-code a value.
-       `backwards` fill-mode applies the from-state before the
-       animation starts (preventing a 1-frame flash at full width),
-       then releases control back to the inline style after the
-       animation ends so the user's resize drag keeps working. */
-    animation: chat-panel-in 240ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
-  }
-
-  @keyframes chat-panel-in {
-    from {
-      width: 0;
-      opacity: 0;
-    }
-    to {
-      width: var(--chat-width);
-      opacity: 1;
-    }
-  }
-
-  /* Inner wrapper: pinned to the chat panel's natural width via an
-     inline style. Because it holds a fixed width while the parent
-     animates, the children inside (header, messages, input, etc.)
-     don't reflow on every animation frame — only the outer clip
-     region changes. This is both more efficient and visually cleaner
-     since text doesn't rewrap as the panel grows. */
-  .chat-panel-inner {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-    min-height: 0;
-    min-width: 0;
-  }
-
-  .chat-panel.resizing {
-    user-select: none;
-  }
-
-  /* Hosted mode: a SidePanel owns geometry + animations; fill it. The
-     border comes from the host, and the entrance animation would double
-     up with the host's. Background + header metrics match the sibling
-     WorkspacePanel tab so switching tabs doesn't shift tone or rhythm. */
-  .chat-panel.hosted {
-    width: 100%;
-    height: 100%;
-    border-left: none;
-    animation: none;
-    background: var(--bg-base);
-  }
-  .chat-panel.hosted .chat-panel-inner {
-    width: 100%;
-  }
-  .chat-panel.hosted .chat-header {
-    padding: 0.55rem 0.75rem;
-  }
-
-  .chat-resize-handle {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 5px;
-    z-index: 5;
-    transition: background 0.15s;
-  }
-  .chat-resize-handle.left {
-    left: 0;
-    cursor: col-resize;
-    border-radius: 0;
-  }
-  .chat-resize-handle:hover,
-  .chat-resize-handle.active {
-    background: var(--accent);
-    box-shadow: 0 0 6px var(--accent-glow-1);
-  }
-
   .chat-header {
     padding: 0.65rem 0.75rem 0.65rem 1rem;
     border-bottom: 1px solid var(--border-muted);
@@ -1073,8 +885,13 @@
      (.modal-actions, top-right of the dialog): keep the header's right
      edge — where the model chip lives — clear of it. Hosted (project)
      chat has no overlay button. */
-  .chat-panel:not(.hosted) .chat-header {
+  .chat-header:not(.hosted) {
     padding-right: 2.75rem;
+  }
+  /* Hosted (project chat in a SidePanel): header metrics match the
+     sibling WorkspacePanel tab so switching tabs doesn't shift rhythm. */
+  .chat-header.hosted {
+    padding: 0.55rem 0.75rem;
   }
   /* Card chat: the model chip takes the header's right edge. Project
      chat: the context selector already does, the chip follows it. */

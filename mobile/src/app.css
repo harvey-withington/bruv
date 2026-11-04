@@ -1,3 +1,20 @@
+/* The UNCLI card chat (UncliChatSheet) themed from BRUV's tokens, through
+   UNCLI's public --uncli-* properties (its docs/UI-CONVENTIONS.md). They
+   reference the tokens below, so the theme classes carry them along; the
+   ones mobile has no token for keep UNCLI's own. */
+uncli-chat {
+  --uncli-bg: var(--bg);
+  --uncli-surface: var(--bg-elev-1);
+  --uncli-text: var(--text);
+  --uncli-text-muted: var(--text-muted);
+  --uncli-text-faint: var(--text-faint);
+  --uncli-border: var(--border);
+  --uncli-accent: var(--accent);
+  --uncli-danger: var(--danger-border);
+  --uncli-warning: var(--warn-border);
+  --uncli-success: var(--success-border);
+}
+
 :root {
   /* Dark theme is the default — see lib/theme.svelte.ts for the user
    * toggle (Auto / Light / Dark). The .theme-* class lands on <html>

@@ -311,6 +311,8 @@ export const PreviewLLMRoute = (...args: Parameters<ReturnType<typeof getBackend
 // Per-chat model choice
 export const GetCardChatModel = (...args: Parameters<ReturnType<typeof getBackend>['GetCardChatModel']>) => getBackend().GetCardChatModel(...args)
 export const SetCardChatModel = (...args: Parameters<ReturnType<typeof getBackend>['SetCardChatModel']>) => getBackend().SetCardChatModel(...args)
+export const GetCardUncliSession = (...args: Parameters<ReturnType<typeof getBackend>['GetCardUncliSession']>) => getBackend().GetCardUncliSession(...args)
+export const SetCardUncliSession = (...args: Parameters<ReturnType<typeof getBackend>['SetCardUncliSession']>) => getBackend().SetCardUncliSession(...args)
 export const GetProjectChatModel = (...args: Parameters<ReturnType<typeof getBackend>['GetProjectChatModel']>) => getBackend().GetProjectChatModel(...args)
 export const SetProjectChatModel = (...args: Parameters<ReturnType<typeof getBackend>['SetProjectChatModel']>) => getBackend().SetProjectChatModel(...args)
 

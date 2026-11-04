@@ -33,10 +33,11 @@ var toolHandlers = map[string]toolFunc{
 	"create_card":      hCreateCard,
 	"create_card_type": hCreateCardType,
 	// Populate existing cards
-	"add_card_blocks":  hAddCardBlocks,
-	"set_card_fields":  hSetCardFields,
-	"add_card_tags":    hAddCardTags,
-	"remove_card_tags": hRemoveCardTags,
+	"add_card_blocks":     hAddCardBlocks,
+	"add_checklist_items": hAddChecklistItems,
+	"set_card_fields":     hSetCardFields,
+	"add_card_tags":       hAddCardTags,
+	"remove_card_tags":    hRemoveCardTags,
 	// Intrinsic card properties
 	"set_card_title":       hSetCardTitle,
 	"set_card_description": hSetCardDescription,
@@ -143,12 +144,12 @@ func blockArrayProp(desc string) map[string]any {
 		"items": obj(map[string]any{
 			"type": map[string]any{
 				"type": "string",
-				"description": "Block type. Common: 'text' (freeform), 'checklist' (array of strings), " +
+				"description": "Block type. Common: 'text' (freeform), 'checklist' (items: strings or {text, done}), " +
 					"'list' (array of strings), 'url', 'number', 'date' (YYYY-MM-DD; set format 'date-time' to keep a time), 'checkbox' (boolean).",
 			},
 			"label":  strProp("Human-readable label for the block, e.g. 'Notes', 'To-Do'."),
 			"format": map[string]any{"type": "string", "enum": []any{"date", "date-time"}, "description": llm.BlockFormatDesc},
-			"value":  map[string]any{"description": "The block's content. String for text/url/date; array of strings for checklist/list; boolean for checkbox; number for number."},
+			"value":  map[string]any{"description": "The block's content. String for text/url/date; for checklist an array of strings or of {text, done} objects (the shape get_card returns); array of strings for list; boolean for checkbox; number for number."},
 			"key":    strProp("Optional machine key (lowercase_with_underscores). Omit for freeform blocks."),
 		}, "type", "value"),
 	}
@@ -316,6 +317,19 @@ func Defs(rt Board, repoName string) []mcp.Tool {
 			}, "card_id", "blocks"),
 		},
 		{
+			Name: "add_checklist_items",
+			Description: "Add items to the end of an existing checklist on a card in " + board + ", keeping its items and their ticks. " +
+				"Name the checklist by its key, label or block id (see get_card)." + mentionNote,
+			InputSchema: obj(map[string]any{
+				"card_id":   strProp("The card's id."),
+				"checklist": strProp("The checklist block's key, label or id."),
+				"items": map[string]any{
+					"type":        "array",
+					"description": "Items to add: strings, or {text, done} objects.",
+				},
+			}, "card_id", "checklist", "items"),
+		},
+		{
 			Name: "set_card_fields",
 			Description: "Set values on a card's existing typed fields in " + board + ", matched by field key. " +
 				"Use get_card first to see the available field keys." + mentionNote,
@@ -383,7 +397,9 @@ func Defs(rt Board, repoName string) []mcp.Tool {
 			Name: "update_card",
 			Description: "Update a card in " + board + " in one call: title, due date, tags, and block values matched by key or label " +
 				"(a new key adds a text block). Values are shaped to each block's type — arrays for list/checklist, ISO 8601 for dates " +
-				"(a date-time block keeps the time and offset). Read the card first with get_card to see its blocks.",
+				"(a date-time block keeps the time and offset). A checklist value replaces the whole list: pass the existing items back " +
+				"as {id, text, done} to keep them and their ticks, or use add_checklist_items to add to it. " +
+				"Read the card first with get_card to see its blocks.",
 			// Same schema as the agent's update_self, plus card_id.
 			InputSchema: llm.CardUpdateParams(true),
 		},

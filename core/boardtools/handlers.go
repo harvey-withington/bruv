@@ -10,13 +10,18 @@ import (
 	"bruv/internal/repo"
 )
 
-// jsonResult marshals v to pretty JSON for the tool's text content.
+// jsonResult marshals v to pretty JSON for the tool's text content. HTML
+// escaping is off: "&" stays "&" rather than "&", which models then
+// copied back into card text.
 func jsonResult(v any) (string, bool) {
-	b, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
+	var buf strings.Builder
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(v); err != nil {
 		return "error: " + err.Error(), true
 	}
-	return string(b), false
+	return strings.TrimSuffix(buf.String(), "\n"), false
 }
 
 func errResult(format string, a ...any) (string, bool) {
@@ -106,7 +111,52 @@ func hGetCard(rt Board, a map[string]any) (string, bool) {
 	if err != nil {
 		return errResult("%v", err)
 	}
-	return jsonResult(card)
+	if len(card.Labels) == 0 && len(card.Members) == 0 {
+		return jsonResult(card)
+	}
+	// Labels and members are stored as ids; name them, so the model
+	// needn't look them up (and can't confuse them).
+	view := struct {
+		*model.Card
+		LabelNames  []string `json:"label_names,omitempty"`
+		MemberNames []string `json:"member_names,omitempty"`
+	}{Card: card}
+	view.LabelNames, view.MemberNames = cardPeopleAndLabels(rt, card)
+	return jsonResult(view)
+}
+
+// cardPeopleAndLabels names a card's labels and members from the project
+// it's filed in (its first pin), in the card's order; an id the project
+// doesn't know is kept as is.
+func cardPeopleAndLabels(rt Board, card *model.Card) (labels, members []string) {
+	crumbs, _ := rt.CardService().GetPinBreadcrumbs(card.ID)
+	labelName, memberName := map[string]string{}, map[string]string{}
+	if len(crumbs) > 0 {
+		p := crumbs[0]
+		if ls, err := rt.CatalogService().GetProjectLabels(p.BrandSlug, p.StreamSlug, p.ProjectSlug); err == nil {
+			for _, l := range ls {
+				labelName[l.ID] = l.Name
+			}
+		}
+		if ms, err := rt.ProjectService().GetProjectMembers(p.BrandSlug, p.StreamSlug, p.ProjectSlug); err == nil {
+			for _, m := range ms {
+				memberName[m.ID] = firstNonEmpty(m.FullName, m.Username)
+			}
+		}
+	}
+	name := func(names map[string]string, id string) string {
+		if n := names[id]; n != "" {
+			return n
+		}
+		return id
+	}
+	for _, id := range card.Labels {
+		labels = append(labels, name(labelName, id))
+	}
+	for _, id := range card.Members {
+		members = append(members, name(memberName, id))
+	}
+	return labels, members
 }
 
 func hSearchCards(rt Board, a map[string]any) (string, bool) {
@@ -261,6 +311,62 @@ func hAddCardBlocks(rt Board, a map[string]any) (string, bool) {
 		return errResult("%v", err)
 	}
 	return jsonResult(map[string]any{"card_id": cardID, "blocks_added": len(blocks)})
+}
+
+// hAddChecklistItems appends items to one of a card's checklists, keeping
+// the items already there (ids and ticks). The checklist is named by
+// block id, key or label, in that order of preference.
+func hAddChecklistItems(rt Board, a map[string]any) (string, bool) {
+	cardID, which := argStr(a, "card_id"), strings.TrimSpace(argStr(a, "checklist"))
+	if cardID == "" || which == "" {
+		return errResult("card_id and checklist are required")
+	}
+	items := cardtools.CoerceChecklistItems(a["items"])
+	if len(items) == 0 {
+		return errResult("items is required: strings, or {text, done} objects")
+	}
+	var label string
+	_, _, err := rt.CardService().Edit(cardID, func(card *model.Card) error {
+		b := findChecklist(card, which)
+		if b == nil {
+			return fmt.Errorf("card %s has no checklist %q; its checklists: %s", cardID, which, checklistNames(card))
+		}
+		b.Value = append(cardtools.CoerceChecklistItems(b.Value), items...)
+		label = firstNonEmpty(b.Label, b.Key)
+		return nil
+	})
+	if err != nil {
+		return errResult("%v", err)
+	}
+	return jsonResult(map[string]any{"card_id": cardID, "checklist": label, "items_added": len(items)})
+}
+
+func findChecklist(card *model.Card, which string) *model.Block {
+	for _, match := range []func(b *model.Block) bool{
+		func(b *model.Block) bool { return b.ID == which },
+		func(b *model.Block) bool { return strings.EqualFold(b.Key, which) },
+		func(b *model.Block) bool { return strings.EqualFold(strings.TrimSpace(b.Label), which) },
+	} {
+		for i := range card.Blocks {
+			if b := &card.Blocks[i]; b.Type == model.BlockChecklist && match(b) {
+				return b
+			}
+		}
+	}
+	return nil
+}
+
+func checklistNames(card *model.Card) string {
+	var names []string
+	for _, b := range card.Blocks {
+		if b.Type == model.BlockChecklist {
+			names = append(names, fmt.Sprintf("%q", firstNonEmpty(b.Label, firstNonEmpty(b.Key, b.ID))))
+		}
+	}
+	if len(names) == 0 {
+		return "none"
+	}
+	return strings.Join(names, ", ")
 }
 
 // hSetCardFields fills a card's fields by key (the rules live in

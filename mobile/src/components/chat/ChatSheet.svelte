@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte'
-  import { Send, Trash2, MessageCircle, PencilLine, ListChecks } from 'lucide-svelte'
+  import { Send, Trash2 } from 'lucide-svelte'
+  import { aiModeOf } from '@shared/aiMode'
   import { repoRPC, machineRPC } from '../../lib/auth'
   import { onReconnect } from '../../lib/connectivity.svelte'
   import { onEvent } from '../../lib/events.svelte'
@@ -15,6 +16,7 @@
   import ChatModelChip from './ChatModelChip.svelte'
   import ChatTurnStatus from './ChatTurnStatus.svelte'
   import ChatSheetShell from './ChatSheetShell.svelte'
+  import ChatModeButton from './ChatModeButton.svelte'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import type { ChatScope } from './scope'
   import type {
@@ -33,7 +35,7 @@
     scope: ChatScope
     onClose: () => void
     /** Why this chat runs here although the user chose the UNCLI engine
-     *  (shared/uncliChat.cardChatEngine); '' when they didn't. */
+     *  (shared/uncliChat.resolveChatEngine); '' when they didn't. */
     engineFallback?: string
   } = $props()
 
@@ -122,8 +124,7 @@
 
       const [cfg, isConfigured] = await Promise.all([cfgPromise, isConfiguredPromise])
       configured = !!isConfigured
-      const mode = cfg?.ai_mode
-      aiMode = mode === 'chat' || mode === 'suggest' ? mode : 'edit'
+      aiMode = aiModeOf(cfg?.ai_mode)
     } catch (err) {
       console.error('chat load failed:', err)
       saveError = err instanceof Error ? err.message : t('chat.err_send')
@@ -298,17 +299,6 @@
     }
   }
 
-  async function toggleMode() {
-    const cycle: Record<AIMode, AIMode> = { edit: 'suggest', suggest: 'chat', chat: 'edit' }
-    aiMode = cycle[aiMode]
-    try {
-      const cfg = (await machineRPC<LLMConfig>('GetLLMConfig')) ?? ({} as LLMConfig)
-      await machineRPC('SetLLMConfig', [{ ...cfg, ai_mode: aiMode }])
-    } catch (err) {
-      console.error('mode save failed:', err)
-    }
-  }
-
   // Composer keyboard behaviour comes from the shared inlineEdit action,
   // mobile multiline variant (WhatsApp-style: Enter inserts a newline,
   // the Send button sends; hardware Ctrl+Enter still sends). Cancel
@@ -448,27 +438,7 @@
       rows="2"
     ></textarea>
     <div class="composer-actions">
-      <button
-        type="button"
-        class="mode-btn mode-{aiMode}"
-        onclick={toggleMode}
-        title={aiMode === 'edit'
-          ? t('chat.mode_edit_hint')
-          : aiMode === 'suggest'
-            ? t('chat.mode_suggest_hint')
-            : t('chat.mode_chat_hint')}
-      >
-        {#if aiMode === 'edit'}
-          <PencilLine size={12} />
-          {t('chat.mode_edit')}
-        {:else if aiMode === 'suggest'}
-          <ListChecks size={12} />
-          {t('chat.mode_suggest')}
-        {:else}
-          <MessageCircle size={12} />
-          {t('chat.mode_chat')}
-        {/if}
-      </button>
+      <ChatModeButton bind:mode={aiMode} onerror={(message) => (saveError = message)} />
       <button
         type="button"
         class="send-btn"
@@ -596,24 +566,6 @@
     width: 80px;
   }
 
-  .mode-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    background: var(--bg-elev-1);
-    border: 1px solid var(--border);
-    color: var(--text-muted);
-    border-radius: 999px;
-    padding: 0.3rem 0.5rem;
-    font: inherit;
-    font-size: 0.7rem;
-    cursor: pointer;
-    width: 100%;
-  }
-  .mode-btn.mode-edit { color: #ef4444; border-color: rgba(239, 68, 68, 0.5); }
-  .mode-btn.mode-suggest { color: #f59e0b; border-color: rgba(245, 158, 11, 0.5); }
-  .mode-btn.mode-chat { color: #22c55e; border-color: rgba(34, 197, 94, 0.5); }
 
   .send-btn {
     background: var(--accent);

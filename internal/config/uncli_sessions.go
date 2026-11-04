@@ -1,11 +1,12 @@
 package config
 
-// The card chats' UNCLI sessions (the opt-in chat engine,
-// internal/uncliengine): which session each card's chat is, and which
-// repo and card each session is about, so the engine can give a session
-// that repo's board tools. One file for the machine, since the engine is
-// one for the machine: <configDir>/uncli_sessions.json, a map of session
-// ID → its card.
+// The chats' UNCLI sessions (the opt-in chat engine,
+// internal/uncliengine): which session each chat is, and which repo and
+// chat each session belongs to, so the engine can give a session that
+// repo's board tools. A chat is a card's (its card id) or a project's
+// (its chat id, chatsvc.ProjectChatID). One file for the machine, since
+// the engine is one for the machine: <configDir>/uncli_sessions.json, a
+// map of session ID → its chat.
 
 import (
 	"encoding/json"
@@ -15,16 +16,25 @@ import (
 	"time"
 )
 
-// UncliSession is the card a UNCLI session is the chat of.
+// UncliChatHeader names the UNCLI session on the board-tool calls the
+// engine's sessions make (internal/uncliengine sets it, internal/mcpserver
+// reads it), so they're treated as that BRUV chat's: its Chat / Suggest /
+// Edit mode applies. It can only restrict a caller, never widen access.
+const UncliChatHeader = "X-Bruv-Uncli-Session"
+
+// UncliSession is the chat a UNCLI session is.
 type UncliSession struct {
 	RepoID string `json:"repo_id"`
-	CardID string `json:"card_id"`
+	ChatID string `json:"chat_id"`
+	// LegacyCardID is how the first builds (card chats only) named the
+	// chat; read into ChatID, never written.
+	LegacyCardID string `json:"card_id,omitempty"`
 }
 
 var (
 	uncliSessionsMu sync.Mutex
 	// uncliSessionsChanged is closed (and replaced) on every write, for
-	// UncliSessionCard's waiters. Guarded by uncliSessionsMu.
+	// UncliSessionChat's waiters. Guarded by uncliSessionsMu.
 	uncliSessionsChanged = make(chan struct{})
 )
 
@@ -52,12 +62,18 @@ func loadUncliSessions() (map[string]UncliSession, error) {
 	if err := json.Unmarshal(data, &sessions); err != nil {
 		return nil, err
 	}
+	for id, s := range sessions {
+		if s.ChatID == "" {
+			s.ChatID, s.LegacyCardID = s.LegacyCardID, ""
+			sessions[id] = s
+		}
+	}
 	return sessions, nil
 }
 
-// CardUncliSession returns the UNCLI session of a card's chat, or "" when
-// it has none yet.
-func CardUncliSession(repoID, cardID string) (string, error) {
+// ChatUncliSession returns the UNCLI session of a chat, or "" when it has
+// none yet.
+func ChatUncliSession(repoID, chatID string) (string, error) {
 	uncliSessionsMu.Lock()
 	defer uncliSessionsMu.Unlock()
 	sessions, err := loadUncliSessions()
@@ -65,17 +81,17 @@ func CardUncliSession(repoID, cardID string) (string, error) {
 		return "", err
 	}
 	for id, s := range sessions {
-		if s.RepoID == repoID && s.CardID == cardID {
+		if s.RepoID == repoID && s.ChatID == chatID {
 			return id, nil
 		}
 	}
 	return "", nil
 }
 
-// SetCardUncliSession records sessionID as the card's chat, replacing
-// any session it had before.
-func SetCardUncliSession(repoID, cardID, sessionID string) error {
-	for _, seg := range []string{repoID, cardID, sessionID} {
+// SetChatUncliSession records sessionID as the chat's, replacing any
+// session it had before.
+func SetChatUncliSession(repoID, chatID, sessionID string) error {
+	for _, seg := range []string{repoID, chatID, sessionID} {
 		if err := validPathSegment(seg); err != nil {
 			return err
 		}
@@ -87,11 +103,11 @@ func SetCardUncliSession(repoID, cardID, sessionID string) error {
 		return err
 	}
 	for id, s := range sessions {
-		if s.RepoID == repoID && s.CardID == cardID {
+		if s.RepoID == repoID && s.ChatID == chatID {
 			delete(sessions, id)
 		}
 	}
-	sessions[sessionID] = UncliSession{RepoID: repoID, CardID: cardID}
+	sessions[sessionID] = UncliSession{RepoID: repoID, ChatID: chatID}
 	path, err := uncliSessionsPath()
 	if err != nil {
 		return err
@@ -108,11 +124,11 @@ func SetCardUncliSession(repoID, cardID, sessionID string) error {
 	return nil
 }
 
-// UncliSessionCard returns the card a session is the chat of, waiting up
-// to wait for it to be recorded: a page records a new session's card just
-// after creating it, and UNCLI may start the session's CLI (asking for
-// its tools) in between.
-func UncliSessionCard(sessionID string, wait time.Duration) (UncliSession, bool) {
+// UncliSessionChat returns the chat a session is, waiting up to wait for
+// it to be recorded: a page records a new session's chat just after
+// creating it, and UNCLI may start the session's CLI (asking for its
+// tools) in between.
+func UncliSessionChat(sessionID string, wait time.Duration) (UncliSession, bool) {
 	deadline := time.After(wait)
 	for {
 		uncliSessionsMu.Lock()

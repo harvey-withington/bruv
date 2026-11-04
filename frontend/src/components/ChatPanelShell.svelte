@@ -1,7 +1,7 @@
 <script lang="ts">
   // The card chat's docked panel: its width, the splitter against the
   // card's main column, and the slide in/out. Whichever chat engine runs
-  // (ChatSection, UncliCardChat) renders inside it. Hosted: a parent
+  // (ChatSection, UncliChat) renders inside it. Hosted: a parent
   // container (SidePanel) owns all of that, and the panel just fills it.
   import type { Snippet } from 'svelte'
   import { t } from '../lib/i18n.svelte'

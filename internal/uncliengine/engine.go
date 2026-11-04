@@ -2,8 +2,8 @@
 // chat engine cards can use instead of BRUV's built-in chat, opted into
 // with the chat_engine setting. The headless server starts it; the
 // transport mounts its handler at /uncli/ behind BRUV's sign-in
-// (transport/http/uncli.go). Each session is one card's chat
-// (config.SetCardUncliSession) and gets that repo's board tools over
+// (transport/http/uncli.go). Each session is one card's or project's
+// chat (config.SetChatUncliSession) and gets that repo's board tools over
 // BRUV's own MCP endpoint.
 package uncliengine
 
@@ -42,9 +42,9 @@ type Board struct {
 	Token string
 }
 
-// sessionCardWait bounds how long a starting CLI waits for the page to
-// record which card its new session is (config.UncliSessionCard).
-const sessionCardWait = 5 * time.Second
+// sessionChatWait bounds how long a starting CLI waits for the page to
+// record which chat its new session is (config.UncliSessionChat).
+const sessionChatWait = 5 * time.Second
 
 // Engine is the server's UNCLI. One that couldn't start still answers
 // Status; a nil Engine is a host that runs none.
@@ -95,21 +95,21 @@ func (e *Engine) ServeBoard(b Board) {
 	}
 }
 
-// boardTools gives a session the board tools of the repo its card is in.
+// boardTools gives a session the board tools of the repo its chat is in.
 func (e *Engine) boardTools(session string) map[string]uncli.MCPServer {
 	b := e.board.Load()
 	if b == nil {
 		return nil
 	}
-	card, ok := config.UncliSessionCard(session, sessionCardWait)
+	chat, ok := config.UncliSessionChat(session, sessionChatWait)
 	if !ok {
-		slog.Warn("uncli: session isn't a card's chat, so it gets no board tools", "session", session)
+		slog.Warn("uncli: session isn't a BRUV chat, so it gets no board tools", "session", session)
 		return nil
 	}
 	return map[string]uncli.MCPServer{
 		"bruv": {
-			URL:     b.Base + "/repos/" + url.PathEscape(card.RepoID) + "/mcp",
-			Headers: map[string]string{"Authorization": "Bearer " + b.Token},
+			URL:     b.Base + "/repos/" + url.PathEscape(chat.RepoID) + "/mcp",
+			Headers: map[string]string{"Authorization": "Bearer " + b.Token, config.UncliChatHeader: session},
 		},
 	}
 }

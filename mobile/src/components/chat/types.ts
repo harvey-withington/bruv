@@ -62,10 +62,8 @@ export type LLMConfig = {
   base_url?: string
 }
 
-/** Three-way mode the chat surface offers: edit (apply directly),
- *  suggest (propose, user reviews), chat (conversation only, no card
- *  mutations). Persisted globally via SetLLMConfig. */
-export type AIMode = 'edit' | 'suggest' | 'chat'
+/** The chat mode, shared with desktop and the UNCLI engine (shared/aiMode). */
+export type { AIMode } from '@shared/aiMode'
 
 /** Project-chat context level. Three values, persisted in localStorage
  *  globally (matches desktop). */

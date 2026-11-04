@@ -239,6 +239,10 @@ func extractBlockOptions(meta map[string]any) []string {
 	return out
 }
 
+// CoerceChecklistItems is coerceChecklist for the board tools'
+// add_checklist_items: the items to append, in the stored shape.
+func CoerceChecklistItems(val any) []map[string]any { return coerceChecklist(val) }
+
 // coerceChecklist converts []any of strings, []any of {id?, text, done}
 // maps, or a single newline-separated string into [{id, text, done}]. A
 // supplied id is kept — items are ID-keyed state (a rewrite of the list

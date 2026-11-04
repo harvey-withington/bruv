@@ -39,8 +39,7 @@ func TestStart(t *testing.T) {
 	}
 }
 
-// A card's session gets its repo's board tools with the engine's token;
-// a session that isn't a card's chat gets none.
+// A chat's session gets its repo's board tools with the engine's token.
 func TestBoardTools(t *testing.T) {
 	config.SetConfigDir(t.TempDir())
 	t.Cleanup(func() { config.SetConfigDir("") })
@@ -50,11 +49,11 @@ func TestBoardTools(t *testing.T) {
 		t.Error("tools before the server serves them")
 	}
 	e.ServeBoard(Board{Base: "http://127.0.0.1:9870", Token: "tok"})
-	if err := config.SetCardUncliSession("repo-1", "card-1", "s1"); err != nil {
+	if err := config.SetChatUncliSession("repo-1", "card-1", "s1"); err != nil {
 		t.Fatal(err)
 	}
 	got := e.boardTools("s1")["bruv"]
-	if got.URL != "http://127.0.0.1:9870/repos/repo-1/mcp" || got.Headers["Authorization"] != "Bearer tok" {
+	if got.URL != "http://127.0.0.1:9870/repos/repo-1/mcp" || got.Headers["Authorization"] != "Bearer tok" || got.Headers[config.UncliChatHeader] != "s1" {
 		t.Errorf("board tools = %+v", got)
 	}
 }

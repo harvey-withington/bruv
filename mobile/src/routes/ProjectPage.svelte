@@ -829,7 +829,7 @@
   </button>
   <h1 title={projectName}>{@html renderInline(projectName)}</h1>
   <div class="topbar-actions">
-    <ChatButton scope={{ kind: 'project', brand, stream, project }} />
+    <ChatButton scope={{ kind: 'project', brand, stream, project }} {projectName} />
     <CaptureButton />
     <button type="button" class="topbar-search" onclick={() => (searchOpen = true)} aria-label={t('browse.search')} title={t('browse.search')}>
       <Search size={18} />

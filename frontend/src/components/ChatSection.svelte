@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte'
-  import { Send, MapPin, Check, X, Wrench, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Bookmark, MessageCircle, PencilLine, ListChecks, Trash2, BotMessageSquare } from 'lucide-svelte'
-  import { LoadChatHistory, SendChatMessage, StopChatMessage, IsLLMConfigured, AcceptPinSuggestion, RejectPinSuggestion, GetLLMConfig, SetLLMConfig, ApplyPendingEdits, ClearCardChatHistory, ToggleChatBookmark, GetCardChatModel, SetCardChatModel } from '@shared/api'
+  import { Send, MapPin, Check, X, Wrench, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Bookmark, ListChecks, Trash2, BotMessageSquare } from 'lucide-svelte'
+  import { LoadChatHistory, SendChatMessage, StopChatMessage, IsLLMConfigured, AcceptPinSuggestion, RejectPinSuggestion, GetLLMConfig, ApplyPendingEdits, ClearCardChatHistory, ToggleChatBookmark, GetCardChatModel, SetCardChatModel } from '@shared/api'
   import type { ChatHistory, ChatMessage, ChatProgress, ModelRef, PendingEdit, ToolAction } from '@shared/types'
   import { decisionLabel, describeDecision } from '@shared/modelRefs'
   import { toolActionLabel } from '@shared/chatActionLabels'
@@ -12,6 +12,8 @@
   import ChatTurnStatus from './ChatTurnStatus.svelte'
   import ChatNoticeLine from './ChatNoticeLine.svelte'
   import ChatPanelShell from './ChatPanelShell.svelte'
+  import ChatModeButton from './ChatModeButton.svelte'
+  import { aiModeOf, type AIMode } from '@shared/aiMode'
   import { showConfirm } from '../lib/confirm.svelte'
   import { renderMarkdown } from '@shared/markdown'
   import { t } from '../lib/i18n.svelte'
@@ -73,7 +75,7 @@
     loadModelFn?: () => Promise<ModelRef>
     saveModelFn?: (ref: ModelRef) => Promise<void>
     /** Why this chat runs here although the user chose the UNCLI engine
-     *  (shared/uncliChat.cardChatEngine); '' when they didn't. */
+     *  (shared/uncliChat.resolveChatEngine); '' when they didn't. */
     engineFallback?: string
   } = $props()
 
@@ -239,7 +241,7 @@
     return () => { off(); turn.finish() }
   })
   let configured = $state(true)
-  let aiMode = $state<'edit' | 'suggest' | 'chat'>('edit')
+  let aiMode = $state<AIMode>('edit')
   let messagesContainerEl = $state<HTMLDivElement | null>(null)
   let textareaEl = $state<HTMLTextAreaElement | null>(null)
 
@@ -257,8 +259,7 @@
         if (seq !== chatLoadSeq) return
         messages = result?.messages || []
         configured = isConfigured
-        const mode = llmCfg?.ai_mode
-        aiMode = (mode === 'chat' || mode === 'suggest') ? mode : 'edit'
+        aiMode = aiModeOf(llmCfg?.ai_mode)
       } else {
         const [result, isConfigured, llmCfg] = await Promise.all([
           LoadChatHistory(cardId),
@@ -268,8 +269,7 @@
         if (seq !== chatLoadSeq) return
         messages = result?.messages || []
         configured = isConfigured
-        const mode = llmCfg?.ai_mode
-        aiMode = (mode === 'chat' || mode === 'suggest') ? mode : 'edit'
+        aiMode = aiModeOf(llmCfg?.ai_mode)
       }
     } catch (e) {
       if (seq !== chatLoadSeq) return
@@ -287,20 +287,6 @@
     // behaviour — the user just opened the card, no animation needed).
     await tick()
     requestAnimationFrame(scrollToBottom)
-  }
-
-  async function toggleMode() {
-    const cycle: Record<'edit' | 'suggest' | 'chat', 'edit' | 'suggest' | 'chat'> = {
-      edit: 'suggest', suggest: 'chat', chat: 'edit',
-    }
-    const next = cycle[aiMode]
-    aiMode = next
-    try {
-      const llmCfg = await GetLLMConfig()
-      await SetLLMConfig({ ...llmCfg, ai_mode: next })
-    } catch (e) {
-      console.error('Failed to save AI mode:', e)
-    }
   }
 
   async function send() {
@@ -839,25 +825,7 @@
           rows="2"
         ></textarea>
         <div class="chat-actions-col">
-        <button
-          class="mode-btn"
-          class:mode-chat={aiMode === 'chat'}
-          class:mode-suggest={aiMode === 'suggest'}
-          class:mode-edit={aiMode === 'edit'}
-          onclick={toggleMode}
-          title={aiMode === 'edit' ? t('chat.mode_edit_hint') : aiMode === 'suggest' ? t('chat.mode_suggest_hint') : t('chat.mode_chat_hint')}
-        >
-          {#if aiMode === 'edit'}
-            <PencilLine size={11} />
-            {t('chat.mode_edit')}
-          {:else if aiMode === 'suggest'}
-            <ListChecks size={11} />
-            {t('chat.mode_suggest')}
-          {:else}
-            <MessageCircle size={11} />
-            {t('chat.mode_chat')}
-          {/if}
-        </button>
+        <ChatModeButton bind:mode={aiMode} />
         <button class="chat-send-btn" onclick={send} disabled={!inputText.trim() || sending}>
           <Send size={14} />
           {t('chat.send')}
@@ -958,38 +926,6 @@
     gap: 4px;
     flex-shrink: 0;
     width: 72px;
-  }
-
-  .mode-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    padding: 4px 0;
-    border-radius: 6px;
-    font-size: 0.7rem;
-    font-weight: 500;
-    cursor: pointer;
-    border: 1px solid var(--border);
-    background: var(--bg-elevated);
-    color: var(--text-muted);
-    transition: color 0.15s, border-color 0.15s, background 0.15s;
-    width: 100%;
-  }
-  .mode-btn:hover {
-    color: var(--text-primary);
-  }
-  .mode-btn.mode-chat {
-    color: var(--success);
-    border-color: color-mix(in srgb, var(--success) 50%, transparent);
-  }
-  .mode-btn.mode-suggest {
-    color: var(--warning);
-    border-color: color-mix(in srgb, var(--warning) 50%, transparent);
-  }
-  .mode-btn.mode-edit {
-    color: var(--danger);
-    border-color: color-mix(in srgb, var(--danger) 50%, transparent);
   }
 
   .chat-banner {

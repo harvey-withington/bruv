@@ -253,7 +253,7 @@ Section /o "Server (run in background, auto-start on boot)" SecServer
         # than %APPDATA% because the service runs as LocalSystem —
         # %APPDATA% in that context is C:\Windows\System32\... and
         # the user can't see it.
-        MessageBox MB_OK|MB_ICONINFORMATION "BRUV Server is installed and running.$\r$\n$\r$\nRepo:                 $ServerRepoPath$\r$\nServer URL (local):   http://127.0.0.1:9870$\r$\nServer URL (Tailscale): http://<this-machine's tailnet IP>:9870$\r$\n$\r$\nThe one-time connection token for other devices is in:$\r$\n  %PROGRAMDATA%\BRUV\bootstrap-token.txt"
+        MessageBox MB_OK|MB_ICONINFORMATION "BRUV Server is installed and running.$\r$\n$\r$\nRepo:                 $ServerRepoPath$\r$\nServer URL (local):   http://127.0.0.1:9870$\r$\nServer URL (Tailscale): http://<this-machine's tailnet IP>:9870$\r$\n$\r$\nThe one-time connection token for other devices is in:$\r$\n  %PROGRAMDATA%\BRUV\bootstrap-token.txt$\r$\n$\r$\nTo use the UNCLI chat engine, run the service as your own account: in Services, open BRUV Server, set Log On to your account, then restart it. Updates keep that account."
     ${EndIf}
 SectionEnd
 

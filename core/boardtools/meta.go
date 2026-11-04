@@ -58,6 +58,7 @@ var meta = map[string]toolMeta{
 	"create_card":          {effectAdd, scopeLocation},
 	"create_card_type":     {effectAdd, scopeNone},
 	"add_card_blocks":      {effectAdd, scopeCard},
+	"add_checklist_items":  {effectAdd, scopeCard},
 	"set_card_fields":      {effectReplace, scopeCard},
 	"add_card_tags":        {effectAddOnce, scopeCard},
 	"remove_card_tags":     {effectReplace, scopeCard},

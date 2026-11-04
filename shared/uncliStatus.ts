@@ -1,6 +1,6 @@
 // Why the server's UNCLI chat engine can't be used, as a locale key both
 // surfaces define (uncli.*) with its params, or null when it's ready.
-// The settings show it beside the chat engine choice; a card opted into
+// The settings show it beside the chat engine choice; a chat opted into
 // UNCLI shows it while it falls back to the built-in chat.
 
 import type { UncliStatus } from './types'

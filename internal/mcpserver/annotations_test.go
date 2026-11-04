@@ -43,6 +43,7 @@ var wantHints = map[string]hints{
 	"create_card_type":    addHints,
 	"add_card_attachment": addHints,
 	"add_card_blocks":     addHints,
+	"add_checklist_items": addHints,
 	"add_card_comment":    addHints,
 	"add_card_tags":       addOnceHints,
 	"pin_card":            addOnceHints,

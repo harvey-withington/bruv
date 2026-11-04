@@ -642,18 +642,44 @@ func (r *Runtime) SetCardChatModel(cardID string, ref config.ModelRef) error {
 // GetCardUncliSession is the card chat's UNCLI session (the opt-in chat
 // engine), "" before its first chat there.
 func (r *Runtime) GetCardUncliSession(cardID string) (string, error) {
-	if r.repo == nil {
-		return "", fmt.Errorf("no repository open")
-	}
-	return config.CardUncliSession(r.repo.Manifest.ID, cardID)
+	return r.chatUncliSession(cardID)
 }
 
 // SetCardUncliSession records a new UNCLI session as the card's chat.
 func (r *Runtime) SetCardUncliSession(cardID, sessionID string) error {
+	return r.setChatUncliSession(cardID, sessionID)
+}
+
+// GetProjectUncliSession is GetCardUncliSession for a project's chat.
+func (r *Runtime) GetProjectUncliSession(brandSlug, streamSlug, projectSlug string) (string, error) {
+	id, err := r.projectChatID(brandSlug, streamSlug, projectSlug)
+	if err != nil {
+		return "", err
+	}
+	return r.chatUncliSession(id)
+}
+
+// SetProjectUncliSession is SetCardUncliSession for a project's chat.
+func (r *Runtime) SetProjectUncliSession(brandSlug, streamSlug, projectSlug, sessionID string) error {
+	id, err := r.projectChatID(brandSlug, streamSlug, projectSlug)
+	if err != nil {
+		return err
+	}
+	return r.setChatUncliSession(id, sessionID)
+}
+
+func (r *Runtime) chatUncliSession(chatID string) (string, error) {
+	if r.repo == nil {
+		return "", fmt.Errorf("no repository open")
+	}
+	return config.ChatUncliSession(r.repo.Manifest.ID, chatID)
+}
+
+func (r *Runtime) setChatUncliSession(chatID, sessionID string) error {
 	if r.repo == nil {
 		return fmt.Errorf("no repository open")
 	}
-	return config.SetCardUncliSession(r.repo.Manifest.ID, cardID, sessionID)
+	return config.SetChatUncliSession(r.repo.Manifest.ID, chatID, sessionID)
 }
 
 func (r *Runtime) GetProjectChatModel(brandSlug, streamSlug, projectSlug string) (config.ModelRef, error) {

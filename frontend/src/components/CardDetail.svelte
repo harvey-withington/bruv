@@ -1,6 +1,6 @@
 <script lang="ts">
   import { GetCard, UpdateCardTitle, UpdateCardType, RefreshTypeBlocks, UpdateCardDescription, UpdateCardDueDate,
-    DeleteCard, PinCard, UnpinCard, MoveCardToCategory, UpdateCardBlocks, GetCardPinBreadcrumbs, GetProjectLabels, GetCategoryAcceptedTypes, GetAgentConfig, GetProjectMembers, CreateCardTypeFromCard } from '@shared/api'
+    DeleteCard, PinCard, UnpinCard, MoveCardToCategory, UpdateCardBlocks, GetCardPinBreadcrumbs, GetProjectLabels, GetCategoryAcceptedTypes, GetAgentConfig, GetProjectMembers, CreateCardTypeFromCard, GetCardUncliSession, SetCardUncliSession, LoadChatHistory, ApplyPendingEdits } from '@shared/api'
   import { onEvent } from '../lib/events'
   import { projectTags, nav, cardTypes, loadCardTypes, board } from '../lib/store.svelte'
   import { X, Trash2, BotMessageSquare, ClipboardList, History, Timer, ArrowUpRight } from 'lucide-svelte'
@@ -11,8 +11,9 @@
   import PendingClipBanner from './PendingClipBanner.svelte'
   import DescriptionSection from './DescriptionSection.svelte'
   import ChatSection from './ChatSection.svelte'
-  import UncliCardChat from './UncliCardChat.svelte'
-  import { chatEngine, ensureChatEngine } from '../lib/chatEngine.svelte'
+  import UncliChat from './UncliChat.svelte'
+  import { chatEngine, ensureChatEngine, engineFallbackText } from '../lib/chatEngine.svelte'
+  import { cardTurnContext } from '@shared/uncliChat'
   import AgentTab from './AgentTab.svelte'
   import AgentRunsTab from './AgentRunsTab.svelte'
   import CardShareMenu from './CardShareMenu.svelte'
@@ -785,10 +786,20 @@
            out of the DOM, and its slide-in animation replays every
            time the assistant responds. -->
       {#if chatEngine.current.engine === 'uncli'}
-        <UncliCardChat {cardId} {card} bind:visible={showChat} bind:mainWidth bind:splitterDragging />
+        <UncliChat
+          chatKey={cardId}
+          title={card.title || t('card.untitled')}
+          sessions={{ get: () => GetCardUncliSession(cardId), set: (s) => SetCardUncliSession(cardId, s) }}
+          context={() => (card ? cardTurnContext(card) : null)}
+          history={{ load: () => LoadChatHistory(cardId), apply: (msgID, ids) => ApplyPendingEdits(cardId, msgID, ids) }}
+          onEditsApplied={() => { requestSilentReload(); onUpdated?.() }}
+          visible={showChat}
+          bind:mainWidth
+          bind:splitterDragging
+        />
       {:else}
         <ChatSection {cardId} bind:visible={showChat} bind:mainWidth bind:splitterDragging onCardChanged={() => { requestSilentReload(); onUpdated?.() }}
-          engineFallback={chatEngine.current.fallback ? t(chatEngine.current.fallback.key, chatEngine.current.fallback.params) : ''} />
+          engineFallback={engineFallbackText(t)} />
       {/if}
     {/if}
 

@@ -104,7 +104,7 @@
     onpointercancel={onHeaderPointerUp}
   >
     <span class="grabber" aria-hidden="true"></span>
-    <span class="title">{title}{#if note}<span class="note"> {note}</span>{/if}</span>
+    <span class="title">{title}{#if note}<span class="note">{note}</span>{/if}</span>
     {@render actions?.()}
     <button type="button" class="icon-btn" onclick={onClose} aria-label={t('chat.dismiss')}>
       <X size={18} />
@@ -170,7 +170,10 @@
     color: var(--text);
     font-size: 0.95rem;
   }
-  .note { color: var(--text-faint); font-weight: 400; }
+  /* Spaced by margin, not a text space: Svelte trims an element's
+     leading whitespace, which ran "Chat" and "UNCLI" together. Muted,
+     not faint, so it reads on both themes. */
+  .note { margin-left: 0.35em; color: var(--text-muted); font-weight: 400; }
   .header :global(.icon-btn) {
     margin-top: 0.4rem;
     background: transparent;

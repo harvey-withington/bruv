@@ -313,6 +313,8 @@ export const GetCardChatModel = (...args: Parameters<ReturnType<typeof getBacken
 export const SetCardChatModel = (...args: Parameters<ReturnType<typeof getBackend>['SetCardChatModel']>) => getBackend().SetCardChatModel(...args)
 export const GetCardUncliSession = (...args: Parameters<ReturnType<typeof getBackend>['GetCardUncliSession']>) => getBackend().GetCardUncliSession(...args)
 export const SetCardUncliSession = (...args: Parameters<ReturnType<typeof getBackend>['SetCardUncliSession']>) => getBackend().SetCardUncliSession(...args)
+export const GetProjectUncliSession = (...args: Parameters<ReturnType<typeof getBackend>['GetProjectUncliSession']>) => getBackend().GetProjectUncliSession(...args)
+export const SetProjectUncliSession = (...args: Parameters<ReturnType<typeof getBackend>['SetProjectUncliSession']>) => getBackend().SetProjectUncliSession(...args)
 export const GetProjectChatModel = (...args: Parameters<ReturnType<typeof getBackend>['GetProjectChatModel']>) => getBackend().GetProjectChatModel(...args)
 export const SetProjectChatModel = (...args: Parameters<ReturnType<typeof getBackend>['SetProjectChatModel']>) => getBackend().SetProjectChatModel(...args)
 

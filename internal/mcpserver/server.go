@@ -34,6 +34,7 @@ import (
 
 	"bruv/core/boardtools"
 	"bruv/core/supervisor"
+	"bruv/internal/config"
 	"bruv/internal/mcp"
 
 	"github.com/google/uuid"
@@ -100,6 +101,8 @@ func (h *Handler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 	repoName := h.repoName(repoID)
+	// Set on the calls of BRUV's own UNCLI chats; their mode applies.
+	uncliSession := r.Header.Get(config.UncliChatHeader)
 
 	switch r.Method {
 	case nethttp.MethodPost:
@@ -128,7 +131,7 @@ func (h *Handler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 
 	// JSON-RPC batch (array of messages).
 	if body[0] == '[' {
-		h.serveBatch(w, rt, repoName, body)
+		h.serveBatch(w, rt, repoName, uncliSession, body)
 		return
 	}
 
@@ -140,7 +143,7 @@ func (h *Handler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 	if req.Method == "initialize" {
 		w.Header().Set("Mcp-Session-Id", uuid.NewString())
 	}
-	resp, isNotification := h.dispatch(rt, repoName, &req)
+	resp, isNotification := h.dispatch(rt, repoName, uncliSession, &req)
 	if isNotification {
 		w.WriteHeader(nethttp.StatusAccepted)
 		return
@@ -151,7 +154,7 @@ func (h *Handler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 // serveBatch processes an array of JSON-RPC messages, returning an array
 // of responses (notifications produce none). An all-notification batch
 // gets a bare 202.
-func (h *Handler) serveBatch(w nethttp.ResponseWriter, rt *supervisor.Runtime, repoName string, body []byte) {
+func (h *Handler) serveBatch(w nethttp.ResponseWriter, rt *supervisor.Runtime, repoName, uncliSession string, body []byte) {
 	var reqs []rpcRequest
 	if err := json.Unmarshal(body, &reqs); err != nil {
 		writeRPCError(w, nil, mcp.ErrCodeParseError, err.Error())
@@ -159,7 +162,7 @@ func (h *Handler) serveBatch(w nethttp.ResponseWriter, rt *supervisor.Runtime, r
 	}
 	out := make([]*rpcResponse, 0, len(reqs))
 	for i := range reqs {
-		resp, isNotification := h.dispatch(rt, repoName, &reqs[i])
+		resp, isNotification := h.dispatch(rt, repoName, uncliSession, &reqs[i])
 		if !isNotification {
 			out = append(out, resp)
 		}
@@ -173,7 +176,7 @@ func (h *Handler) serveBatch(w nethttp.ResponseWriter, rt *supervisor.Runtime, r
 
 // dispatch routes one JSON-RPC message. The bool return is true when the
 // message was a notification (no id) and therefore produces no response.
-func (h *Handler) dispatch(rt *supervisor.Runtime, repoName string, req *rpcRequest) (*rpcResponse, bool) {
+func (h *Handler) dispatch(rt *supervisor.Runtime, repoName, uncliSession string, req *rpcRequest) (*rpcResponse, bool) {
 	if len(req.ID) == 0 {
 		// Notification — we only expect notifications/initialized, and
 		// there's nothing to do for a stateless server. Ack with no body.
@@ -189,7 +192,7 @@ func (h *Handler) dispatch(rt *supervisor.Runtime, repoName string, req *rpcRequ
 	case "tools/list":
 		resp.Result = map[string]any{"tools": boardtools.Defs(rt, repoName)}
 	case "tools/call":
-		resp.Result = callTool(rt, req.Params)
+		resp.Result = callTool(rt, uncliSession, req.Params)
 	default:
 		resp.Error = &mcp.ErrorObject{
 			Code:    mcp.ErrCodeMethodNotFound,
@@ -247,23 +250,31 @@ func (h *Handler) repoName(id string) string {
 	return id
 }
 
-// parseRepoID extracts <id> from a "/repos/<id>/mcp" path.
 // callTool decodes a tools/call request and runs it through the native
-// tool registry. Bad params surface as isError text so the model can
-// adjust rather than seeing a transport error.
-func callTool(rt *supervisor.Runtime, params json.RawMessage) mcp.CallToolResult {
+// tool registry, as one of BRUV's UNCLI chats when uncliSession is set
+// (uncli.go). Bad params surface as isError text so the model can adjust
+// rather than seeing a transport error.
+func callTool(rt *supervisor.Runtime, uncliSession string, params json.RawMessage) mcp.CallToolResult {
 	var p struct {
 		Name      string         `json:"name"`
 		Arguments map[string]any `json:"arguments"`
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &p); err != nil {
-			return mcp.CallToolResult{Content: []mcp.Content{{Type: "text", Text: "invalid tools/call params: " + err.Error()}}, IsError: true}
+			return toolError("invalid tools/call params: " + err.Error())
 		}
+	}
+	if uncliSession != "" {
+		return callAsUncliChat(rt, uncliSession, p.Name, p.Arguments)
 	}
 	return boardtools.Call(rt, p.Name, p.Arguments)
 }
 
+func toolError(text string) mcp.CallToolResult {
+	return mcp.CallToolResult{Content: []mcp.Content{{Type: "text", Text: text}}, IsError: true}
+}
+
+// parseRepoID extracts <id> from a "/repos/<id>/mcp" path.
 func parseRepoID(p string) string {
 	p = strings.TrimPrefix(p, "/repos/")
 	p = strings.TrimSuffix(p, "/")

@@ -1,12 +1,13 @@
 <script lang="ts">
   import { BotMessageSquare } from 'lucide-svelte'
-  import { readCardChatEngine, type CardChatEngine } from '@shared/uncliChat'
+  import { cardTurnContext, projectTurnContext, readChatEngine, type ChatEngineChoice, type ChatSessions } from '@shared/uncliChat'
   import type { LLMConfig, UncliStatus } from '@shared/types'
-  import { machineRPC } from '../../lib/auth'
+  import { machineRPC, repoRPC } from '../../lib/auth'
   import { t } from '../../lib/i18n.svelte'
   import ChatSheet from './ChatSheet.svelte'
   import UncliChatSheet from './UncliChatSheet.svelte'
   import type { ChatScope } from './scope'
+  import type { ChatFile } from './types'
 
   // Topbar icon button that opens the AI chat sheet (replaces the old
   // floating action button). BotMessageSquare matches desktop's chat
@@ -16,32 +17,75 @@
   // `open` is bindable so pages with their own overlay layering (e.g.
   // CardPage's Back/Escape guards) can see whether the sheet is up.
   //
-  // A card's chat runs on the engine the user chose (desktop Settings →
-  // AI), read as it opens: UNCLI when opted in and the server can run it,
-  // else the built-in chat, saying why if they opted in.
+  // The chat runs on the engine the user chose (desktop Settings → AI),
+  // read as it opens: UNCLI when opted in and the server can run it, else
+  // the built-in chat, saying why if they opted in.
 
   let {
     scope,
     open = $bindable(false),
     card = () => null,
+    projectName = '',
   }: {
     scope: ChatScope
     open?: boolean
-    /** The open card, for the UNCLI chat's turn context. */
+    /** The open card (card scope), for the UNCLI chat's title and context. */
     card?: () => { id: string; title: string; type: string } | null
+    /** The project's name (project scope); its slug until loaded. */
+    projectName?: string
   } = $props()
 
-  let engine = $state<CardChatEngine>({ engine: 'builtin', fallback: null })
+  let engine = $state<ChatEngineChoice>({ engine: 'builtin', fallback: null })
 
   async function openChat() {
-    if (scope.kind === 'card') {
-      engine = await readCardChatEngine(
-        () => machineRPC<LLMConfig>('GetLLMConfig'),
-        () => machineRPC<UncliStatus>('GetUncliStatus'),
-      ).catch((): CardChatEngine => ({ engine: 'builtin', fallback: null }))
-    }
+    engine = await readChatEngine(
+      () => machineRPC<LLMConfig>('GetLLMConfig'),
+      () => machineRPC<UncliStatus>('GetUncliStatus'),
+    ).catch((): ChatEngineChoice => ({ engine: 'builtin', fallback: null }))
     open = true
   }
+
+  // The UNCLI chat's title, recorded session, turn context and history
+  // (where Suggest mode stages its edits), per scope.
+  type UncliChatProps = {
+    title: string
+    sessions: ChatSessions
+    context: () => string | null
+    history: { load: () => Promise<ChatFile>; apply: (messageId: string, acceptIDs: string[]) => Promise<ChatFile> }
+  }
+  const uncliChat = $derived.by((): UncliChatProps => {
+    const s = scope
+    if (s.kind === 'card') {
+      return {
+        title: card()?.title || t('card.untitled'),
+        sessions: {
+          get: () => repoRPC<string>('GetCardUncliSession', [s.cardID]),
+          set: session => repoRPC<void>('SetCardUncliSession', [s.cardID, session]),
+        },
+        context: () => {
+          const c = card()
+          return c ? cardTurnContext(c) : null
+        },
+        history: {
+          load: () => repoRPC<ChatFile>('LoadChatHistory', [s.cardID]),
+          apply: (messageId, acceptIDs) => repoRPC<ChatFile>('ApplyPendingEdits', [s.cardID, messageId, acceptIDs]),
+        },
+      }
+    }
+    const name = projectName || s.project
+    return {
+      title: name,
+      sessions: {
+        get: () => repoRPC<string>('GetProjectUncliSession', [s.brand, s.stream, s.project]),
+        set: session => repoRPC<void>('SetProjectUncliSession', [s.brand, s.stream, s.project, session]),
+      },
+      context: () => projectTurnContext({ brand: s.brand, stream: s.stream, project: name }),
+      history: {
+        load: () => repoRPC<ChatFile>('LoadProjectChatHistory', [s.brand, s.stream, s.project]),
+        apply: (messageId, acceptIDs) => repoRPC<ChatFile>('ApplyProjectPendingEdits', [s.brand, s.stream, s.project, messageId, acceptIDs]),
+      },
+    }
+  })
 </script>
 
 <button
@@ -55,8 +99,8 @@
 </button>
 
 {#if open}
-  {#if scope.kind === 'card' && engine.engine === 'uncli'}
-    <UncliChatSheet cardID={scope.cardID} {card} onClose={() => (open = false)} />
+  {#if engine.engine === 'uncli'}
+    <UncliChatSheet {...uncliChat} onClose={() => (open = false)} />
   {:else}
     <ChatSheet
       {scope}

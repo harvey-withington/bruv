@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { nav, board, prefs as prefsStore, loadCardTypes, loadGlobalTagColors, setupAgentEventListeners } from './lib/store.svelte'
+  import { nav, board, prefs as prefsStore, loadBoard, loadCardTypes, loadGlobalTagColors, setupAgentEventListeners } from './lib/store.svelte'
   import MentionPicker from './components/MentionPicker.svelte'
   import { mentionHost, selectMention, closeMentionPicker } from './lib/mentions.svelte'
   import { onMount, onDestroy } from 'svelte'
@@ -13,6 +13,9 @@
   import TopBar from './components/TopBar.svelte'
   import Board from './components/Board.svelte'
   import ChatSection from './components/ChatSection.svelte'
+  import UncliChat from './components/UncliChat.svelte'
+  import { chatEngine, ensureChatEngine, engineFallbackText } from './lib/chatEngine.svelte'
+  import { projectTurnContext } from '@shared/uncliChat'
   import SidePanel from './components/SidePanel.svelte'
   import WorkspacePanel from './components/workspace/WorkspacePanel.svelte'
   import CardDetail from './components/CardDetail.svelte'
@@ -35,7 +38,7 @@
   import { installResilience } from './lib/connectivity.svelte'
   import { resolveTransportInfo } from '@shared/adapters/cloud'
 
-  import { GetUIPreferences, SetUIPreferences, GetCurrentRepo, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, StopProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, ToggleProjectChatBookmark, GetProjectChatModel, SetProjectChatModel, IsLLMConfigured, GetLocalServerStatus } from '@shared/api'
+  import { GetUIPreferences, SetUIPreferences, GetCurrentRepo, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, StopProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, ToggleProjectChatBookmark, GetProjectChatModel, SetProjectChatModel, IsLLMConfigured, GetLocalServerStatus, GetProjectUncliSession, SetProjectUncliSession } from '@shared/api'
 
   // Restore persisted preferences
   loadTheme()
@@ -152,6 +155,10 @@
   const SIDE_PANEL_TAB_KEY = 'bruv:sidePanelTab'
   let sidePanelOpen = $state(localStorage.getItem(SIDE_PANEL_OPEN_KEY) === '1')
   let sidePanelTab = $state<SideTabID>(localStorage.getItem(SIDE_PANEL_TAB_KEY) === 'workspace' ? 'workspace' : 'chat')
+  // Which engine the project chat runs (built-in, or the opt-in UNCLI).
+  $effect(() => {
+    if (sidePanelOpen) ensureChatEngine()
+  })
   $effect(() => {
     localStorage.setItem(SIDE_PANEL_OPEN_KEY, sidePanelOpen ? '1' : '0')
     localStorage.setItem(SIDE_PANEL_TAB_KEY, sidePanelTab)
@@ -466,7 +473,26 @@
               <!-- Both panes stay mounted; inactive ones hide via CSS so
                    chat state (draft, scroll, history) survives tab flips. -->
               <div class="sp-tab-pane" class:pane-hidden={active !== 'chat'}>
+                {#if chatEngine.current.engine === 'uncli'}
+                <UncliChat
+                  hosted
+                  visible={sidePanelOpen}
+                  chatKey={`${nav.brandSlug}/${nav.streamSlug}/${nav.projectSlug}`}
+                  title={nav.projectName || t('chat.project_title')}
+                  sessions={{
+                    get: () => GetProjectUncliSession(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!),
+                    set: (s) => SetProjectUncliSession(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, s),
+                  }}
+                  context={() => projectTurnContext({ brand: nav.brandName, stream: nav.streamName, project: nav.projectName })}
+                  history={{
+                    load: () => LoadProjectChatHistory(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!),
+                    apply: (msgID, ids) => ApplyProjectPendingEdits(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, msgID, ids),
+                  }}
+                  onEditsApplied={() => loadBoard(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, { silent: true })}
+                />
+                {:else}
                 <ChatSection
+                  engineFallback={engineFallbackText(t)}
                   cardId=""
                   hosted
                   visible={sidePanelOpen}
@@ -482,6 +508,7 @@
                   loadModelFn={() => GetProjectChatModel(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!)}
                   saveModelFn={(ref) => SetProjectChatModel(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, ref)}
                 />
+                {/if}
               </div>
               <div class="sp-tab-pane" class:pane-hidden={active !== 'workspace'}>
                 <WorkspacePanel

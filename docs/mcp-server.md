@@ -43,7 +43,8 @@ comment, attach files, and set up and run card agents.
 | `search_cards` | Full-text search (check for duplicates before creating). |
 | `create_brand` / `create_stream` / `create_project` / `create_category` | Create hierarchy nodes (parents auto-created). |
 | `create_card` | Create + populate a card. Pass all of `brand`/`stream`/`project`/`category` to file it (auto-created), or none to leave it in the inbox. Accepts `tags`, `description`, `blocks`. |
-| `add_card_blocks` / `set_card_fields` / `add_card_tags` / `remove_card_tags` | Populate an existing card, or drop tags (`all: true` clears them). |
+| `add_card_blocks` / `set_card_fields` / `add_card_tags` / `remove_card_tags` | Populate an existing card, or drop tags (`all: true` clears them). Checklist items are strings or `{text, done}`, the shape `get_card` returns. |
+| `add_checklist_items` | Append items to an existing checklist (named by key, label or block id), keeping its items and ticks. |
 | `set_card_title` / `set_card_description` / `set_card_type` / `set_card_due_date` | Change a card's intrinsic properties. Description is Markdown; due date is `YYYY-MM-DD` (or an ISO 8601 date-time) or `""` to clear. |
 | `add_card_attachment` | Attach a file (≤ 3 MB). Pass `text` for UTF-8 files or `content_base64` for binary — exactly one. |
 | `get_card_attachment` | Download an attachment by `attachment_id` or `name`. Text files return as a text block (specs land straight in context); binary as an embedded base64 resource; over 4 MB you get metadata plus a 5-minute signed URL instead. |
@@ -65,7 +66,7 @@ freely and ask before writes. They are hints, not guarantees.
 | Kind | Tools | `readOnly` | `destructive` | `idempotent` | `openWorld` |
 |---|---|---|---|---|---|
 | Read | `list_*`, `get_card`, `get_card_attachment`, `get_card_agent`, `search_cards`, `recent_cards` | true | false | true | false |
-| Add | `create_*`, `add_card_attachment`, `add_card_blocks`, `add_card_comment` | false | false | false | false |
+| Add | `create_*`, `add_card_attachment`, `add_card_blocks`, `add_checklist_items`, `add_card_comment` | false | false | false | false |
 | Add once | `add_card_tags`, `pin_card` | false | false | true | false |
 | Replace or remove | `update_card`, `set_card_*`, `configure_card_agent`, `remove_card_tags`, `unpin_card` | false | true | true | false |
 | Run an agent | `run_card_agent` | false | true | false | true |

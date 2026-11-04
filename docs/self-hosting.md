@@ -95,6 +95,19 @@ bruv.exe service restart    # bounce it (e.g. after editing settings)
 
 Or use Windows' Services app (`services.msc`) and look for **BRUV Server**.
 
+### Running the server as your own account (for the UNCLI chat engine)
+
+A fresh install runs **BRUV Server** as Windows' LocalSystem account. That's fine for BRUV itself, but the opt-in UNCLI chat engine (Settings → AI → *Chat engine*) runs Claude Code on the server, and Claude Code runs tools as the account the server runs as. LocalSystem can do anything on the machine, so UNCLI refuses to start under it, and BRUV's settings say so.
+
+To use the UNCLI chat engine, run the service as a person's account:
+
+1. Open **Services** (`services.msc`) and double-click **BRUV Server**.
+2. On the **Log On** tab, pick **This account**, enter your Windows account (e.g. `.\yourname`) and its password, and click **OK**. Windows grants the account the "Log on as a service" right for you.
+3. Make sure that account can write to `%PROGRAMDATA%\BRUV`. An administrator account can. Otherwise, give it **Modify** on that folder.
+4. Restart the service.
+
+Updates keep the account: re-running the installer, or `bruv.exe service install`, updates the existing service in place rather than recreating it. Only `bruv.exe service uninstall` followed by `install` (as in *Moving the repo* below) goes back to LocalSystem, so set the account again after that.
+
 ### Moving the repo
 
 To move the repo picked at install time:

@@ -237,6 +237,9 @@ func Summary(name string, args map[string]any, result string) string {
 			}
 		}
 		return "Added fields: " + strings.Join(labels, ", ")
+	case "add_checklist_items":
+		items, _ := args["items"].([]any)
+		return fmt.Sprintf("Added %d item(s) to %s", len(items), argStr(args, "checklist"))
 	}
 	return strings.ReplaceAll(name, "_", " ")
 }

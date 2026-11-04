@@ -23,6 +23,7 @@ import (
 	"bruv/frontend"
 	"bruv/internal/repocli"
 	"bruv/internal/server"
+	"bruv/internal/uncliengine"
 	"bruv/mobile"
 )
 
@@ -34,6 +35,9 @@ var (
 )
 
 func main() {
+	// The server's UNCLI uses this binary as the CLIs' tool hook.
+	uncliengine.RunHook()
+
 	// `repo` subcommand: registry management against repos.json on disk
 	// (no HTTP, no device token). Dispatched before flag.Parse so we
 	// don't choke on positional args. See internal/repocli for the

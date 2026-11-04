@@ -1055,9 +1055,25 @@ export type LLMConfig = {
   chat_budget_mode?: ChatBudgetMode | ''
   /** Output-token budget per chat turn; 0 / absent = the default (16,000). */
   chat_budget_tokens?: number
+  /** Which engine runs card chats; '' = builtin. UNCLI is opt-in. */
+  chat_engine?: ChatEngine | ''
 }
 
 export type ChatBudgetMode = 'warn' | 'hard' | 'off'
+
+/** BRUV's own chat, or the server's UNCLI (internal/uncliengine). */
+export type ChatEngine = 'builtin' | 'uncli'
+
+/** Whether the server can run the UNCLI chat engine, and why not
+ *  (internal/uncliengine.Status). */
+export type UncliStatus = {
+  ready: boolean
+  reason?: 'not_hosted' | 'service_account' | 'failed'
+  /** The Windows service account the server runs as (service_account). */
+  account?: string
+  /** The start error (failed). */
+  detail?: string
+}
 
 // --- Backend capabilities ---
 export type BackendCapabilities = {
@@ -1231,6 +1247,7 @@ export interface BackendAdapter {
   // LLM config
   GetLLMConfig(): Promise<LLMConfig>
   SetLLMConfig(c: LLMConfig): Promise<void>
+  GetUncliStatus(): Promise<UncliStatus>
 
   // Connections (per-machine known remote BRUV servers)
   ListConnections(): Promise<ConnectionStore>

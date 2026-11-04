@@ -31,6 +31,7 @@ import (
 	llmsvc "bruv/core/services/llm"
 	"bruv/internal/config"
 	"bruv/internal/push"
+	"bruv/internal/uncliengine"
 )
 
 // MachineService is the per-machine RPC surface. Construct via NewMachineService.
@@ -43,6 +44,11 @@ type MachineService struct {
 	registry *push.Registry
 
 	llm *llmsvc.Service
+
+	// Optional. The server's UNCLI (the opt-in card chat engine), set via
+	// WithUncli by the headless server. Nil on the desktop app's own
+	// server, which hosts none.
+	uncli *uncliengine.Engine
 }
 
 // NewMachineService constructs a MachineService.
@@ -65,6 +71,17 @@ func (m *MachineService) WithPush(v *push.VAPID, r *push.Registry) *MachineServi
 	m.registry = r
 	return m
 }
+
+// WithUncli wires the server's UNCLI in, for GetUncliStatus.
+func (m *MachineService) WithUncli(e *uncliengine.Engine) *MachineService {
+	m.uncli = e
+	return m
+}
+
+// GetUncliStatus says whether this server can run the UNCLI chat engine,
+// and why not: the settings show it beside the chat_engine choice, and
+// cards fall back to the built-in chat while it isn't ready.
+func (m *MachineService) GetUncliStatus() uncliengine.Status { return m.uncli.Status() }
 
 // errPushNotConfigured is returned by push RPCs on a host without
 // push wired up. Phrased so the user-facing toast can render it

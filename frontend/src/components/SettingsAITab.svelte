@@ -3,6 +3,7 @@
   // task, routers, and AI behaviour.
   import { t } from '../lib/i18n.svelte'
   import { CHAT_BUDGET_MIN, CHAT_BUDGET_MAX } from '@shared/chatTurn.svelte'
+  import { uncliUnavailable } from '@shared/uncliStatus'
   import type { SettingsForm } from '../lib/settingsForm.svelte'
   import type { FieldVisible } from '../lib/settingsSearch'
   import LLMProvidersManager from './LLMProvidersManager.svelte'
@@ -11,6 +12,7 @@
 
   let { form, visible }: { form: SettingsForm; visible: FieldVisible } = $props()
   const llm = $derived(form.llm)
+  const uncliUnavailableNow = $derived(uncliUnavailable(form.uncli.status, form.uncli.error))
 </script>
 
 {#if visible('accounts')}
@@ -29,8 +31,20 @@
   <LLMRoutersManager bind:routing={form.llmRouting} accounts={form.llmAccounts} />
 {/if}
 
-{#if visible('ai_mode') || visible('min_confidence') || visible('chat_budget') || visible('context')}
+{#if visible('chat_engine') || visible('ai_mode') || visible('min_confidence') || visible('chat_budget') || visible('context')}
   <div class="field-section-label">{t('llm.behavior_title')}</div>
+{/if}
+
+{#if visible('chat_engine')}
+  <label class="field">
+    <span class="field-label">{t('llm.chat_engine')}</span>
+    <select bind:value={llm.chat_engine}>
+      <option value="builtin">{t('llm.chat_engine_builtin')}</option>
+      <!-- Opt-in only where the server can run it; kept selectable if already chosen, so it can be switched back. -->
+      <option value="uncli" disabled={!!uncliUnavailableNow && llm.chat_engine !== 'uncli'}>{t('llm.chat_engine_uncli')}</option>
+    </select>
+    <span class="field-hint">{uncliUnavailableNow ? t(uncliUnavailableNow.key, uncliUnavailableNow.params) : t('llm.chat_engine_hint')}</span>
+  </label>
 {/if}
 
 {#if visible('ai_mode')}

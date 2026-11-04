@@ -7,8 +7,9 @@
 // below are placeholders only — a section that fails to load is never
 // saved, so they can't overwrite real settings.
 
-import { GetPreferences, SetPreferences, GetUIPreferences, SetUIPreferences, GetLLMConfig, SetLLMConfig, GetNotifyConfig, SetNotifyConfig, GetLLMAccounts, SaveLLMAccounts, GetLLMRouting, SaveLLMRouting, GetDueDateSettings, SaveDueDateSettings, GetCapturePrefs, SetCapturePrefs } from '@shared/api'
-import type { CapturePrefs, LLMAccount, LLMRouting, ChatBudgetMode } from '@shared/types'
+import { GetPreferences, SetPreferences, GetUIPreferences, SetUIPreferences, GetLLMConfig, SetLLMConfig, GetUncliStatus, GetNotifyConfig, SetNotifyConfig, GetLLMAccounts, SaveLLMAccounts, GetLLMRouting, SaveLLMRouting, GetDueDateSettings, SaveDueDateSettings, GetCapturePrefs, SetCapturePrefs } from '@shared/api'
+import type { CapturePrefs, LLMAccount, LLMRouting, ChatBudgetMode, ChatEngine, UncliStatus } from '@shared/types'
+import { errorDetail } from '@shared/errors'
 import { CHAT_BUDGET_DEFAULT, clampChatBudget } from '@shared/chatTurn.svelte'
 import { normalizeRouting } from '@shared/modelRefs'
 import { t, setLocale } from './i18n.svelte'
@@ -48,7 +49,12 @@ export class SettingsForm {
     min_confidence: '',
     chat_budget_mode: 'warn' as ChatBudgetMode,
     chat_budget_tokens: CHAT_BUDGET_DEFAULT,
+    chat_engine: 'builtin' as ChatEngine,
   })
+
+  /** Whether the server can run the UNCLI chat engine; error when it
+   *  couldn't be asked (an older server). Never blocks saving. */
+  uncli = $state<{ status: UncliStatus | null; error: string }>({ status: null, error: '' })
 
   llmAccounts = $state<LLMAccount[]>([])
   llmRouting = $state<LLMRouting>({ models: [], routers: [], default: '', tasks: {} })
@@ -130,6 +136,7 @@ export class SettingsForm {
     },
     llmConfig: {
       load: async () => {
+        void this.loadUncliStatus()
         const c = await GetLLMConfig()
         if (!c) return
         Object.assign(this.llm, {
@@ -142,6 +149,7 @@ export class SettingsForm {
           min_confidence: c.min_confidence || '',
           chat_budget_mode: c.chat_budget_mode || 'warn',
           chat_budget_tokens: c.chat_budget_tokens || CHAT_BUDGET_DEFAULT,
+          chat_engine: c.chat_engine || 'builtin',
         })
       },
       save: () => SetLLMConfig({ ...this.llm, chat_budget_tokens: clampChatBudget(this.llm.chat_budget_tokens) }),
@@ -214,6 +222,14 @@ export class SettingsForm {
 
   load(): Promise<void> {
     return this.sections.loadAll()
+  }
+
+  private async loadUncliStatus(): Promise<void> {
+    try {
+      this.uncli = { status: await GetUncliStatus(), error: '' }
+    } catch (e) {
+      this.uncli = { status: null, error: errorDetail(e) }
+    }
   }
 
   /** Saves providers + models + routing. Also called by model Test and

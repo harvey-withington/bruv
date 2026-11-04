@@ -301,6 +301,7 @@ const SERVER_METHODS = new Set<string>([
   'GetAuthInfo',
   'GetLLMConfig',
   'SetLLMConfig',
+  'GetUncliStatus',
   'GetLLMAccounts',
   'SaveLLMAccounts',
   'GetLLMRouting',

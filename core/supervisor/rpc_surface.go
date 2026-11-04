@@ -124,12 +124,12 @@ var repoRPCMethods = []string{
 }
 
 // machineRPCMethods is the per-machine RPC surface of *MachineService
-// (everything but the WithPush wiring hook).
+// (everything but the WithPush / WithUncli wiring hooks).
 var machineRPCMethods = []string{
 	"DiscoverLLMModels", "GetAuthInfo", "GetDueDateSettings",
 	"GetLLMAccounts", "GetLLMConfig", "GetLLMRegistry", "GetLLMRouting",
 	"GetNotifications", "GetNotifyConfig", "GetPreferences", "GetProfile",
-	"GetVapidPublicKey", "IsLLMConfigured", "NewLLMRouter", "PreviewLLMRoute",
+	"GetUncliStatus", "GetVapidPublicKey", "IsLLMConfigured", "NewLLMRouter", "PreviewLLMRoute",
 	"RegisterPushSubscription", "SaveDueDateSettings", "SaveLLMAccounts",
 	"SaveLLMRouting", "SetLLMConfig", "SetNotifyConfig", "SetPreferences",
 	"SetProfile", "TestLLMModel", "UnregisterPushSubscription",

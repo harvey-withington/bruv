@@ -96,10 +96,12 @@ func runServiceInstall() {
 	}
 
 	// Default config dir for service runs lives under ProgramData
-	// rather than the invoking user's AppData. Reason: the service
+	// rather than the invoking user's AppData. Reason: a fresh install
 	// runs as LocalSystem (kardianos default), so a per-user path
 	// would resolve to C:\Windows\System32\config\systemprofile\
-	// AppData\Roaming\bruv — invisible to the actual user. ProgramData
+	// AppData\Roaming\bruv — invisible to the actual user — and an
+	// operator may later switch its Log on as account, which
+	// reinstalls keep (updateInstalledService). ProgramData
 	// is writable by LocalSystem, readable by all local users, and
 	// is the canonical "machine-wide app data" location on Windows.
 	// The user-supplied --config (if given) takes precedence.
@@ -153,16 +155,21 @@ func runServiceInstall() {
 		fmt.Fprintln(os.Stderr, "error: build service:", err)
 		os.Exit(1)
 	}
-	// Stop + uninstall any prior registration before re-installing.
-	// Without this, re-running install against an already-installed
-	// service leaves the OLD registration (with the OLD args, e.g.
-	// missing --config) in place — kardianos's Install on Windows
-	// errors with "service already exists" and we'd silently keep
-	// the broken setup. Both calls are best-effort: a fresh install
-	// has nothing to stop or uninstall.
+	// Re-running install (every installer update does) must take the
+	// new args, e.g. a --config the old registration lacked, but keep
+	// the service's Log on as account: an existing registration is
+	// updated in place rather than uninstalled and recreated as
+	// LocalSystem. Stop is best-effort: a fresh install has nothing
+	// running.
 	_ = svc.Stop()
-	_ = svc.Uninstall()
-	if err := svc.Install(); err != nil {
+	account, existed, err := updateInstalledService(args)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error: update service:", err)
+		os.Exit(1)
+	}
+	if existed {
+		fmt.Println("Updated the existing BRUV Server registration (logs on as", account+").")
+	} else if err := svc.Install(); err != nil {
 		fmt.Fprintln(os.Stderr, "error: install service:", err)
 		os.Exit(1)
 	}

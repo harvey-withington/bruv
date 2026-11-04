@@ -35,6 +35,7 @@ import (
 	"bruv/internal/mcpserver"
 	"bruv/internal/notify"
 	"bruv/internal/push"
+	"bruv/internal/uncliengine"
 	transporthttp "bruv/transport/http"
 )
 
@@ -169,7 +170,13 @@ func Run(opts Options) error {
 		slog.Warn("push: subscription registry unavailable, push notifications disabled", "err", err)
 	}
 
-	machineSvc := supervisor.NewMachineService()
+	// The opt-in UNCLI card chat engine. Started whatever the setting, so
+	// switching to it needs no restart; one that can't run says why in
+	// GetUncliStatus. Closed after the HTTP listener stops (deferred).
+	chatEngine := uncliengine.Start(opts.ConfigDir)
+	defer chatEngine.Close()
+
+	machineSvc := supervisor.NewMachineService().WithUncli(chatEngine)
 	if pushVAPID != nil && pushRegistry != nil {
 		machineSvc = machineSvc.WithPush(pushVAPID, pushRegistry)
 		// Mirror every in-app notification (agent results, due dates,
@@ -190,6 +197,7 @@ func Run(opts Options) error {
 		Repos:         supervisor.NewHTTPAdapter(sup),
 		MachineTarget: machineSvc,
 		MCPHandler:    mcpserver.New(sup, opts.Version),
+		Uncli:         chatEngine.Handler(),
 		Present: &transporthttp.PresentConfig{
 			Secret: sup.Secret(),
 			ResolveCardJSON: func(repoID, cardID string) ([]byte, bool) {

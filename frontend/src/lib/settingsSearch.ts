@@ -28,6 +28,7 @@ const FIELDS: SettingsField[] = [
   { tab: 'ai', key: 'accounts', label: 'ai providers accounts provider openai anthropic ollama openrouter lm studio compatible local api key models find discover tier tools' },
   { tab: 'ai', key: 'use_for', label: 'use for model per task default card chat project chat create with ai agents assign' },
   { tab: 'ai', key: 'routers', label: 'routers routing auto automatic rules complexity heuristic fallback keywords try' },
+  { tab: 'ai', key: 'chat_engine', label: 'chat engine card chat uncli claude code cli built-in' },
   { tab: 'ai', key: 'ai_mode', label: 'ai mode chat edit card fields' },
   { tab: 'ai', key: 'min_confidence', label: 'minimum confidence ai suggestion pin threshold' },
   { tab: 'ai', key: 'chat_budget', label: 'response budget tokens output limit cost warn stop chat reply' },

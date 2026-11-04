@@ -28,6 +28,8 @@
     "vitest": "^3.2.7"
   },
   "dependencies": {
+    "@uncli/chat": "file:../../../UNCLI/UNCLI-1.0/app/frontend/dist-embed/packs/uncli-chat-0.6.2-alpha.tgz",
+    "@uncli/client": "file:../../../UNCLI/UNCLI-1.0/app/frontend/dist-embed/packs/uncli-client-0.6.2-alpha.tgz",
     "dompurify": "^3.4.17",
     "lucide-svelte": "^0.577.0",
     "marked": "^17.0.6"

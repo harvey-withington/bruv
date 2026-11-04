@@ -21,7 +21,7 @@ var internalRuntimeMethods = []string{
 
 // internalMachineMethods are exported *MachineService methods that
 // must NOT be reachable over /server/rpc.
-var internalMachineMethods = []string{"RPCMethods", "WithPush"}
+var internalMachineMethods = []string{"RPCMethods", "WithPush", "WithUncli"}
 
 // TestRPCSurfacePinned: every exported method is classified as RPC or
 // internal, exactly once, and every listed name exists. A new exported

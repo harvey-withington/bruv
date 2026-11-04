@@ -5,6 +5,7 @@ import (
 	"bruv/internal/config"
 	"bruv/internal/repocli"
 	"bruv/internal/server"
+	"bruv/internal/uncliengine"
 	"bruv/mobile"
 	"embed"
 	"flag"
@@ -21,6 +22,10 @@ import (
 var assets embed.FS
 
 func main() {
+	// The server's UNCLI starts the CLIs with this binary as their tool
+	// hook (uncliengine): answer it and exit before anything else runs.
+	uncliengine.RunHook()
+
 	// --- Service-mode dispatch ---
 	//
 	// One bruv.exe behaves several ways. Order matters here: SCM

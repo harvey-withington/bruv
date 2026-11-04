@@ -18,7 +18,15 @@ type LLMConfig struct {
 	MinConfidence    string `json:"min_confidence,omitempty"`     // "high", "medium", "low", "" (any)
 	ChatBudgetMode   string `json:"chat_budget_mode,omitempty"`   // ChatBudgetWarn (default), ChatBudgetHard, ChatBudgetOff
 	ChatBudgetTokens int    `json:"chat_budget_tokens,omitempty"` // 0 = DefaultChatBudgetTokens
+	ChatEngine       string `json:"chat_engine,omitempty"`        // ChatEngineBuiltin (default) or ChatEngineUncli
 }
+
+// Card chat engines. UNCLI is opt-in while it's tried out: switching
+// back to the built-in chat leaves both chats' history in place.
+const (
+	ChatEngineBuiltin = "builtin"
+	ChatEngineUncli   = "uncli"
+)
 
 // Chat budget modes: what happens when a chat turn's output passes the
 // budget.

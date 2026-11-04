@@ -38,6 +38,9 @@ import (
 //	                                     (when StaticAssets is set)
 //	GET    /m/                            mobile PWA bundle
 //	                                     (when MobileAssets is set)
+//	POST   /auth/uncli-cookie             device token → /uncli cookie
+//	*      /uncli/...                     the server's UNCLI
+//	                                     (both when Uncli is set)
 type Config struct {
 	Addr      string
 	ConfigDir string
@@ -80,6 +83,12 @@ type Config struct {
 	// the caller (it depends on supervisor types this package can't
 	// import); leave nil to skip the route.
 	MCPHandler nethttp.Handler
+	// Uncli optionally serves the server's own UNCLI (the opt-in card chat
+	// engine, internal/uncliengine) at /uncli/, behind uncliGuard, with
+	// POST /auth/uncli-cookie for pages to sign in to it. Leave nil to
+	// skip both routes (the desktop app's own server, or an engine that
+	// couldn't start).
+	Uncli nethttp.Handler
 }
 
 // AttachmentConfig wires the signed-URL handler. Secret is the HMAC
@@ -345,6 +354,13 @@ func (s *Server) buildMux() *nethttp.ServeMux {
 	// configured target get a clean 404.
 	if s.machineDispatcher != nil {
 		mux.Handle("/server/rpc", requireAuth(s.devices, s.machineDispatcher.Handler()))
+	}
+
+	// /uncli/ — the server's own UNCLI, for <uncli-chat src="/uncli">.
+	// See uncli.go for its sign-in.
+	if s.cfg.Uncli != nil {
+		mux.Handle("/auth/uncli-cookie", requireAuth(s.devices, uncliCookieHandler()))
+		mux.Handle("/uncli/", uncliGuard(s.devices, nethttp.StripPrefix("/uncli", s.cfg.Uncli)))
 	}
 
 	// Mode B: serve the embedded Svelte bundle at /app/*. Intentionally

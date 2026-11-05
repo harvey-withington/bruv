@@ -344,7 +344,7 @@
   "llm.chat_engine_uncli": "UNCLI with Claude Code (preview)",
   "llm.chat_engine_hint": "For card and project chats. UNCLI runs Claude Code on the BRUV server, where it can use tools with your approval. You can switch back at any time; both engines keep their history.",
   "uncli.checking": "Checking whether the server can run UNCLI…",
-  "uncli.unavailable_not_hosted": "UNCLI runs on a BRUV server, and this app's own server doesn't host it. Connect to a BRUV server to use it.",
+  "uncli.unavailable_not_hosted": "The BRUV server you're connected to doesn't host UNCLI.",
   "uncli.unavailable_service_account": "UNCLI can't run because the BRUV server runs as {account}, which would give Claude Code that account's full access. In Services, open BRUV Server, set Log On to your own account, then restart the service.",
   "uncli.unavailable_failed": "UNCLI didn't start on the server: {detail}",
   "uncli.unavailable_unknown": "Couldn't check UNCLI on the server: {detail}",

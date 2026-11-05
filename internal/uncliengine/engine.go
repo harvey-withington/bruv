@@ -1,7 +1,8 @@
 // Package uncliengine runs BRUV's own UNCLI (UNCLI decision 0027): the
 // chat engine card and project chats can use instead of BRUV's built-in
-// chat, opted into with the chat_engine setting. The headless server
-// starts it; the transport mounts its handler at /uncli/ behind BRUV's
+// chat, opted into with the chat_engine setting. The headless server and
+// the desktop app's local server each start one; the transport mounts
+// its handler at /uncli/ behind BRUV's
 // sign-in (transport/http/uncli.go). Each session is one card's or
 // project's chat and gets that repo's board tools over BRUV's own MCP
 // endpoint, with BRUV's Chat / Suggest / Edit mode deciding their writes.
@@ -24,7 +25,7 @@ import (
 
 // Why the engine isn't running (Status.Reason).
 const (
-	ReasonNotHosted      = "not_hosted"      // this host runs no UNCLI (the desktop app's own server)
+	ReasonNotHosted      = "not_hosted"      // this host runs no UNCLI
 	ReasonServiceAccount = "service_account" // the server runs as a Windows service account
 	ReasonFailed         = "failed"          // it failed to start (Status.Detail)
 )

@@ -232,9 +232,7 @@ func Run(opts Options) error {
 		}
 		return fmt.Errorf("http transport start: %w", err)
 	}
-	if chatEngine.Status().Ready {
-		serveBoardTools(chatEngine, srv, opts.ConfigDir)
-	}
+	ServeBoardTools(chatEngine, srv, opts.ConfigDir)
 	slog.Info("bruv-server listening",
 		"addr", srv.Addr(),
 		"repos", len(store.Repos),
@@ -278,11 +276,16 @@ func Run(opts Options) error {
 	return nil
 }
 
-// serveBoardTools gives the UNCLI chat engine's sessions the board tools:
-// BRUV's own MCP endpoint on loopback, with a device token of the
-// engine's own (listed among the paired devices, so it can be revoked).
-// Without one, chats still work, just without the board.
-func serveBoardTools(e *uncliengine.Engine, srv *transporthttp.Server, configDir string) {
+// ServeBoardTools gives the UNCLI chat engine's sessions the board tools,
+// once srv is listening: BRUV's own MCP endpoint on loopback, with a
+// device token of the engine's own (listed among the paired devices, so
+// it can be revoked). Without one, chats still work, just without the
+// board. Nothing for an engine that isn't running. The headless server
+// and the desktop app's local server both call it.
+func ServeBoardTools(e *uncliengine.Engine, srv *transporthttp.Server, configDir string) {
+	if !e.Status().Ready {
+		return
+	}
 	token, err := srv.Devices().SelfEnrol(filepath.Join(configDir, "uncli-device-token.txt"), configDir, "UNCLI chat (board tools)")
 	if err != nil {
 		slog.Warn("uncli: no device token, so chats get no board tools", "err", err)

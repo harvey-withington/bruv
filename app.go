@@ -18,6 +18,8 @@ import (
 	"bruv/internal/config"
 	"bruv/internal/logging"
 	"bruv/internal/mcpserver"
+	"bruv/internal/server"
+	"bruv/internal/uncliengine"
 	"bruv/internal/update"
 	"bruv/mobile"
 	transporthttp "bruv/transport/http"
@@ -90,6 +92,12 @@ type App struct {
 	busBridgeOnce  sync.Once
 
 	httpServer *transporthttp.Server
+
+	// chatEngine is this device's UNCLI (the opt-in chat engine), mounted
+	// on the local server like the headless server's. Started whatever the
+	// setting, so switching needs no restart; one that can't run (another
+	// BRUV on this machine already runs one on the same data) says why.
+	chatEngine *uncliengine.Engine
 
 	// localServer records how the loopback transport bound this boot —
 	// read by the frontend at startup so a moved port is announced, not
@@ -327,6 +335,7 @@ func (a *App) startHTTPTransport() {
 		slog.Warn("http transport: resolve config dir failed", "err", err)
 		return
 	}
+	a.chatEngine = uncliengine.Start(cfgDir, transporthttp.UncliOriginAllowed)
 	start := func(addr string) error {
 		srv, err := transporthttp.NewMulti(transporthttp.Config{
 			Addr:          addr,
@@ -337,8 +346,9 @@ func (a *App) startHTTPTransport() {
 			StaticAssets:  assets,
 			MobileAssets:  mobile.Assets(),
 			Repos:         supervisor.NewHTTPAdapter(a.sup),
-			MachineTarget: supervisor.NewMachineService(),
+			MachineTarget: supervisor.NewMachineService().WithUncli(a.chatEngine),
 			MCPHandler:    mcpserver.New(a.sup, AppVersion),
+			Uncli:         a.chatEngine.Handler(),
 			Present: &transporthttp.PresentConfig{
 				Secret: a.sup.Secret(),
 				ResolveCardJSON: func(repoID, cardID string) ([]byte, bool) {
@@ -357,6 +367,7 @@ func (a *App) startHTTPTransport() {
 			return err
 		}
 		a.httpServer = srv
+		server.ServeBoardTools(a.chatEngine, srv, cfgDir)
 		return nil
 	}
 
@@ -411,16 +422,17 @@ func (a *App) startHTTPTransport() {
 // the frontend can warn when the port moved (pairings are URL-keyed).
 func (a *App) GetLocalServerStatus() LocalServerStatus { return a.localServer }
 
-// stopHTTPTransport shuts the HTTP server down. Safe to call when the
-// server never started (no-op).
+// stopHTTPTransport shuts the HTTP server down, then the chat engine and
+// the CLIs it runs. Safe to call when the server never started (no-op).
 func (a *App) stopHTTPTransport() {
-	if a.httpServer == nil {
-		return
+	if a.httpServer != nil {
+		if err := a.httpServer.Stop(); err != nil {
+			slog.Warn("http transport: shutdown failed", "err", err)
+		}
+		a.httpServer = nil
 	}
-	if err := a.httpServer.Stop(); err != nil {
-		slog.Warn("http transport: shutdown failed", "err", err)
-	}
-	a.httpServer = nil
+	a.chatEngine.Close()
+	a.chatEngine = nil
 }
 
 // refreshLocalConnection re-stamps the persisted Local connection

@@ -10,7 +10,7 @@ import (
 	"github.com/harvey-withington/uncli/app/uncli"
 )
 
-// A host without an engine (the desktop app's own server) says so.
+// A host without an engine says so.
 func TestNilEngine(t *testing.T) {
 	var e *Engine
 	if s := e.Status(); s.Ready || s.Reason != ReasonNotHosted {

@@ -84,8 +84,7 @@ type Config struct {
 	MCPHandler nethttp.Handler
 	// Uncli optionally serves the server's own UNCLI (the opt-in card chat
 	// engine, internal/uncliengine) at /uncli/, behind uncliGuard. Leave
-	// nil to skip the route (the desktop app's own server, or an engine
-	// that couldn't start).
+	// nil to skip the route (an engine that couldn't start).
 	Uncli nethttp.Handler
 }
 

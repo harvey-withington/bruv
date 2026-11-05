@@ -19,6 +19,7 @@ import (
 	"bruv/internal/config"
 	"bruv/internal/llm"
 	"bruv/internal/model"
+	inotify "bruv/internal/notify"
 
 	"github.com/google/uuid"
 )
@@ -70,6 +71,33 @@ func (r *Runtime) UncliChatBrief(chatID string) string {
 		return ""
 	}
 	return r.prompts.CardChatBrief(card, cfg)
+}
+
+// NotifyUncliApproval tells the user a UNCLI chat (chatID, as UncliChatID)
+// is waiting for them: an in-app notification, which a server mirrors to
+// the phones that take push. A card's chat opens on a tap, and its alerts
+// replace each other rather than stack. what is the approval's own title.
+func (r *Runtime) NotifyUncliApproval(chatID, what string) {
+	n := inotify.Request{Source: "uncli_chat", Body: what, Channels: inotify.ParseChannels("in-app")}
+	if projectID, ok := strings.CutPrefix(chatID, chatsvc.ProjectChatID("")); ok {
+		name := "a project"
+		if loc, err := r.GetProjectLocation(projectID); err == nil {
+			if p, err := r.repo.GetProject(loc.BrandSlug, loc.StreamSlug, loc.ProjectSlug); err == nil {
+				name = "“" + p.Name + "”"
+			}
+		}
+		n.Title = "Your chat on " + name + " is waiting for you"
+	} else {
+		n.CardID, n.Title = chatID, "Your chat on a card is waiting for you"
+		if card, err := r.GetCard(chatID); err == nil {
+			n.CardTitle, n.Title = card.Title, "Your chat on “"+card.Title+"” is waiting for you"
+		}
+	}
+	cfg, err := config.LoadNotifyConfig()
+	if err != nil {
+		cfg = config.DefaultNotifyConfig()
+	}
+	inotify.NewDispatcher(cfg, func(name string, data any) { r.bus.Publish(name, data) }).Send(n)
 }
 
 // UncliStagedContent is the text of the history message holding a UNCLI

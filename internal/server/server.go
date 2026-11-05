@@ -176,6 +176,7 @@ func Run(opts Options) error {
 	// GetUncliStatus. Closed after the HTTP listener stops (deferred).
 	chatEngine := uncliengine.Start(opts.ConfigDir, transporthttp.UncliOriginAllowed)
 	defer chatEngine.Close()
+	AlertOnApprovals(chatEngine, sup)
 
 	machineSvc := supervisor.NewMachineService().WithUncli(chatEngine)
 	if pushVAPID != nil && pushRegistry != nil {
@@ -274,6 +275,22 @@ func Run(opts Options) error {
 		slog.Warn("http transport stop", "err", err)
 	}
 	return nil
+}
+
+// AlertOnApprovals tells the user when one of BRUV's UNCLI chats waits
+// for them (an approval, a question, a plan): a notification, pushed to
+// their phones by a server that has push. The headless server and the
+// desktop app both call it.
+func AlertOnApprovals(e *uncliengine.Engine, sup *supervisor.Supervisor) {
+	e.OnNeedsApproval(func(a uncliengine.Approval) {
+		rt, err := sup.Load(a.RepoID)
+		if err != nil || rt == nil {
+			return
+		}
+		if chatID, ok := rt.UncliChatID(a.RepoID, a.Meta, a.Session); ok {
+			rt.NotifyUncliApproval(chatID, a.Title)
+		}
+	})
 }
 
 // ServeBoardTools gives the UNCLI chat engine's sessions the board tools,

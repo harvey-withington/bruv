@@ -3,8 +3,8 @@ package uncliengine
 import (
 	"context"
 	"net/http"
-	"strings"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"bruv/internal/config"
@@ -26,6 +26,26 @@ func TestNilEngine(t *testing.T) {
 	}
 	e.ServeBoard(Board{})
 	e.Close()
+}
+
+// A BRUV chat waiting for the user is passed on with its repo; other
+// sessions, or with nobody listening, nothing happens.
+func TestNeedsApproval(t *testing.T) {
+	config.SetConfigDir(t.TempDir())
+	t.Cleanup(func() { config.SetConfigDir("") })
+	if err := config.SetChatUncliSession("repo1", "card1", "s1"); err != nil {
+		t.Fatal(err)
+	}
+	e := &Engine{}
+	e.needsApproval("s1", uncli.HostPrompt{Title: "Run npm test"}) // nobody listening
+
+	var got []Approval
+	e.OnNeedsApproval(func(a Approval) { got = append(got, a) })
+	e.needsApproval("s1", uncli.HostPrompt{Title: "Run npm test", Detail: "npm test"})
+	e.needsApproval("someone-elses", uncli.HostPrompt{Title: "x"})
+	if len(got) != 1 || got[0] != (Approval{RepoID: "repo1", Session: "s1", Title: "Run npm test", Detail: "npm test"}) {
+		t.Errorf("approvals = %+v", got)
+	}
 }
 
 // The engine runs a real UNCLI in BRUV's config folder and answers

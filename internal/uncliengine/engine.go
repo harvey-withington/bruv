@@ -53,9 +53,43 @@ const boardServer = "bruv"
 // Engine is the server's UNCLI. One that couldn't start still answers
 // Status; a nil Engine is a host that runs none.
 type Engine struct {
-	core   *uncli.Core
-	status Status
-	board  atomic.Pointer[Board]
+	core     *uncli.Core
+	status   Status
+	board    atomic.Pointer[Board]
+	approval atomic.Pointer[func(Approval)]
+}
+
+// Approval is a chat's session waiting for the user on an approval card
+// (a tool UNCLI asks about, a question, a plan), told whether or not any
+// page shows it, so the host can alert them elsewhere.
+type Approval struct {
+	RepoID, Meta, Session string
+	Title, Detail         string // what it asks (HostPrompt), in UNCLI's words or BRUV's own
+}
+
+// OnNeedsApproval sets who's told when a session starts waiting for the
+// user. Sessions that aren't BRUV chats are left out.
+func (e *Engine) OnNeedsApproval(f func(Approval)) {
+	if e != nil {
+		e.approval.Store(&f)
+	}
+}
+
+// needsApproval is UNCLI's Options.OnNeedsApproval.
+func (e *Engine) needsApproval(session string, prompt uncli.HostPrompt) {
+	f := e.approval.Load()
+	if f == nil {
+		return
+	}
+	repoID, ok := e.repoOf(session)
+	if !ok {
+		return
+	}
+	meta := ""
+	if e.core != nil {
+		meta = e.core.SessionMeta(session)
+	}
+	(*f)(Approval{RepoID: repoID, Meta: meta, Session: session, Title: prompt.Title, Detail: prompt.Detail})
 }
 
 // RunHook answers a CLI's hook and exits when the program was started
@@ -70,12 +104,13 @@ func RunHook() { uncli.RunHook() }
 func Start(configDir string, allowOrigin func(origin string, r *http.Request) bool) *Engine {
 	e := &Engine{}
 	core, err := uncli.Start(uncli.Options{
-		DataDir:        filepath.Join(configDir, "uncli"),
-		AllowOrigin:    allowOrigin,
-		Name:           "BRUV",
-		Hooks:          true,
-		MCPServers:     e.boardTools,
-		HostToolPolicy: boardToolPolicy,
+		DataDir:         filepath.Join(configDir, "uncli"),
+		AllowOrigin:     allowOrigin,
+		Name:            "BRUV",
+		Hooks:           true,
+		MCPServers:      e.boardTools,
+		HostToolPolicy:  boardToolPolicy,
+		OnNeedsApproval: e.needsApproval,
 	})
 	var sa *uncli.ServiceAccountError
 	switch {

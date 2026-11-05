@@ -336,6 +336,7 @@ func (a *App) startHTTPTransport() {
 		return
 	}
 	a.chatEngine = uncliengine.Start(cfgDir, transporthttp.UncliOriginAllowed)
+	server.AlertOnApprovals(a.chatEngine, a.sup)
 	start := func(addr string) error {
 		srv, err := transporthttp.NewMulti(transporthttp.Config{
 			Addr:          addr,

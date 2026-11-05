@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"bruv/core/supervisor"
 	"bruv/internal/config"
@@ -134,6 +135,39 @@ func TestUncliChatBrief(t *testing.T) {
 	text, isErr := callAsWithMeta(t, h, "new", meta, "set_card_title", map[string]any{"card_id": card.ID, "title": "Sydney trip"})
 	if isErr || status(t, text)["status"] != "staged" {
 		t.Errorf("staging by meta: %q", text)
+	}
+}
+
+// A UNCLI chat waiting for the user becomes a notification about its
+// card, which a server pushes to phones.
+func TestNotifyUncliApproval(t *testing.T) {
+	_, sup := newTestHandler(t)
+	config.SetConfigDir(t.TempDir())
+	t.Cleanup(func() { config.SetConfigDir("") })
+	rt := sup.Resolve(testRepoID)
+	card, err := rt.CreateCard("task", "Melbourne trip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	chatID, ok := rt.UncliChatID(testRepoID, "bruv/"+testRepoID+"/card/"+card.ID, "s1")
+	if !ok {
+		t.Fatal("no chat for the meta")
+	}
+	rt.NotifyUncliApproval(chatID, "Run npm test")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		ns, _ := config.LoadNotifications()
+		if len(ns) == 1 {
+			n := ns[0]
+			if n.Title != "Your chat on “Melbourne trip” is waiting for you" || n.Body != "Run npm test" || n.CardID != card.ID {
+				t.Errorf("notification = %+v", n)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no notification: %+v", ns)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 

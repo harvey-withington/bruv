@@ -38,12 +38,6 @@ describe('chatHost', () => {
     expect(h.headers?.()).toEqual({ Authorization: 'Bearer tok' })
     expect(h.enter).toBe('newline')
     expect(h.composerControls?.map(c => c.id)).toEqual(['mode'])
-    expect('sideTabs' in h).toBe(false) // UNCLI's default panel
-  })
-
-  it('passes the side panel tabs on, [] for none', () => {
-    const h = chatHost({ token: () => '', follow: () => {}, searchCards: async () => [], context: () => null, cardLabel: '', enter: 'newline', controls: [], sideTabs: [] })
-    expect(h.sideTabs).toEqual([])
   })
 
   it('takes bruv: links and leaves the rest', () => {

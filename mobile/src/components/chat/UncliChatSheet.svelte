@@ -111,9 +111,6 @@
         cardLabel: t('uncli.mention_card'),
         enter: 'newline', // as ChatSheet: Enter a new line, Send (or Ctrl+Enter) sends
         controls: [modeControl(current, t, m => void changeMode(m))],
-        // No side panel: in a phone's narrow layout it takes the
-        // conversation's place, message box and all.
-        sideTabs: [],
       })
     })
   })

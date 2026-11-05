@@ -7,7 +7,7 @@
 // UncliChatSheet) and supply their own navigation, search, RPCs and
 // strings.
 
-import type { ChatHost, ComposerControl, SideTab, Tone, UncliChat } from '@uncli/chat/element'
+import type { ChatHost, ComposerControl, Tone, UncliChat } from '@uncli/chat/element'
 import type { AIMode } from './aiMode'
 import { CARD_MENTION_PREFIX, cardMentionLink, mentionMarkdown } from './mentions'
 import { errorDetail } from './errors'
@@ -355,9 +355,6 @@ export interface ChatHostOptions {
   enter: NonNullable<ChatHost['enter']>
   /** The message box's controls (modeControl). */
   controls: ComposerControl[]
-  /** The side panel's tabs; [] for none (and no button for it). Left
-   *  out, UNCLI's default. */
-  sideTabs?: SideTab[]
 }
 
 const MENTION_LIMIT = 8
@@ -381,6 +378,5 @@ export function chatHost(o: ChatHostOptions): ChatHost {
     turnContext: o.context,
     enter: o.enter,
     composerControls: o.controls,
-    ...(o.sideTabs ? { sideTabs: o.sideTabs } : {}),
   }
 }

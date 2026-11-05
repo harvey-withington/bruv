@@ -102,7 +102,7 @@ func (h *Handler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 	}
 	repoName := h.repoName(repoID)
 	// Set on the calls of BRUV's own UNCLI chats; their mode applies.
-	uncliSession := r.Header.Get(config.UncliChatHeader)
+	caller := uncliCaller{repoID: repoID, session: r.Header.Get(config.UncliChatHeader), meta: r.Header.Get(config.UncliChatMetaHeader)}
 
 	switch r.Method {
 	case nethttp.MethodPost:
@@ -131,7 +131,7 @@ func (h *Handler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 
 	// JSON-RPC batch (array of messages).
 	if body[0] == '[' {
-		h.serveBatch(w, rt, repoName, uncliSession, body)
+		h.serveBatch(w, rt, repoName, caller, body)
 		return
 	}
 
@@ -143,7 +143,7 @@ func (h *Handler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 	if req.Method == "initialize" {
 		w.Header().Set("Mcp-Session-Id", uuid.NewString())
 	}
-	resp, isNotification := h.dispatch(rt, repoName, uncliSession, &req)
+	resp, isNotification := h.dispatch(rt, repoName, caller, &req)
 	if isNotification {
 		w.WriteHeader(nethttp.StatusAccepted)
 		return
@@ -154,7 +154,7 @@ func (h *Handler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 // serveBatch processes an array of JSON-RPC messages, returning an array
 // of responses (notifications produce none). An all-notification batch
 // gets a bare 202.
-func (h *Handler) serveBatch(w nethttp.ResponseWriter, rt *supervisor.Runtime, repoName, uncliSession string, body []byte) {
+func (h *Handler) serveBatch(w nethttp.ResponseWriter, rt *supervisor.Runtime, repoName string, caller uncliCaller, body []byte) {
 	var reqs []rpcRequest
 	if err := json.Unmarshal(body, &reqs); err != nil {
 		writeRPCError(w, nil, mcp.ErrCodeParseError, err.Error())
@@ -162,7 +162,7 @@ func (h *Handler) serveBatch(w nethttp.ResponseWriter, rt *supervisor.Runtime, r
 	}
 	out := make([]*rpcResponse, 0, len(reqs))
 	for i := range reqs {
-		resp, isNotification := h.dispatch(rt, repoName, uncliSession, &reqs[i])
+		resp, isNotification := h.dispatch(rt, repoName, caller, &reqs[i])
 		if !isNotification {
 			out = append(out, resp)
 		}
@@ -176,7 +176,7 @@ func (h *Handler) serveBatch(w nethttp.ResponseWriter, rt *supervisor.Runtime, r
 
 // dispatch routes one JSON-RPC message. The bool return is true when the
 // message was a notification (no id) and therefore produces no response.
-func (h *Handler) dispatch(rt *supervisor.Runtime, repoName, uncliSession string, req *rpcRequest) (*rpcResponse, bool) {
+func (h *Handler) dispatch(rt *supervisor.Runtime, repoName string, caller uncliCaller, req *rpcRequest) (*rpcResponse, bool) {
 	if len(req.ID) == 0 {
 		// Notification — we only expect notifications/initialized, and
 		// there's nothing to do for a stateless server. Ack with no body.
@@ -186,13 +186,13 @@ func (h *Handler) dispatch(rt *supervisor.Runtime, repoName, uncliSession string
 	resp := &rpcResponse{JSONRPC: "2.0", ID: req.ID}
 	switch req.Method {
 	case "initialize":
-		resp.Result = h.initializeResult(repoName, req.Params)
+		resp.Result = h.initializeResult(rt, repoName, caller, req.Params)
 	case "ping":
 		resp.Result = map[string]any{}
 	case "tools/list":
 		resp.Result = map[string]any{"tools": boardtools.Defs(rt, repoName)}
 	case "tools/call":
-		resp.Result = callTool(rt, uncliSession, req.Params)
+		resp.Result = callTool(rt, caller, req.Params)
 	default:
 		resp.Error = &mcp.ErrorObject{
 			Code:    mcp.ErrCodeMethodNotFound,
@@ -205,7 +205,7 @@ func (h *Handler) dispatch(rt *supervisor.Runtime, repoName, uncliSession string
 // initializeResult builds the handshake reply, negotiating the protocol
 // version down to one we speak and naming the bound repo so a user with
 // several BRUV connectors can tell them apart.
-func (h *Handler) initializeResult(repoName string, params json.RawMessage) map[string]any {
+func (h *Handler) initializeResult(rt *supervisor.Runtime, repoName string, caller uncliCaller, params json.RawMessage) map[string]any {
 	proto := mcp.ProtocolVersion
 	if len(params) > 0 {
 		var p struct {
@@ -227,7 +227,7 @@ func (h *Handler) initializeResult(repoName string, params json.RawMessage) map[
 			"name":    "BRUV — " + repoName,
 			"version": h.version,
 		},
-		"instructions": boardtools.Instructions(repoName),
+		"instructions": boardtools.Instructions(repoName) + caller.brief(rt),
 	}
 }
 
@@ -249,7 +249,7 @@ func (h *Handler) repoName(id string) string {
 // tool registry, as one of BRUV's UNCLI chats when uncliSession is set
 // (uncli.go). Bad params surface as isError text so the model can adjust
 // rather than seeing a transport error.
-func callTool(rt *supervisor.Runtime, uncliSession string, params json.RawMessage) mcp.CallToolResult {
+func callTool(rt *supervisor.Runtime, caller uncliCaller, params json.RawMessage) mcp.CallToolResult {
 	var p struct {
 		Name      string         `json:"name"`
 		Arguments map[string]any `json:"arguments"`
@@ -259,8 +259,8 @@ func callTool(rt *supervisor.Runtime, uncliSession string, params json.RawMessag
 			return toolError("invalid tools/call params: " + err.Error())
 		}
 	}
-	if uncliSession != "" {
-		return callAsUncliChat(rt, uncliSession, p.Name, p.Arguments)
+	if caller.session != "" {
+		return callAsUncliChat(rt, caller, p.Name, p.Arguments)
 	}
 	return boardtools.Call(rt, p.Name, p.Arguments)
 }

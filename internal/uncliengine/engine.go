@@ -123,11 +123,14 @@ func (e *Engine) boardTools(session string) map[string]uncli.MCPServer {
 		slog.Warn("uncli: session isn't a BRUV chat, so it gets no board tools", "session", session)
 		return nil
 	}
+	headers := map[string]string{"Authorization": "Bearer " + b.Token, config.UncliChatHeader: session}
+	if e.core != nil {
+		if meta := e.core.SessionMeta(session); meta != "" {
+			headers[config.UncliChatMetaHeader] = meta
+		}
+	}
 	return map[string]uncli.MCPServer{
-		boardServer: {
-			URL:     b.Base + "/repos/" + url.PathEscape(repoID) + "/mcp",
-			Headers: map[string]string{"Authorization": "Bearer " + b.Token, config.UncliChatHeader: session},
-		},
+		boardServer: {URL: b.Base + "/repos/" + url.PathEscape(repoID) + "/mcp", Headers: headers},
 	}
 }
 

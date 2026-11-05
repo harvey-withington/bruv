@@ -15,12 +15,25 @@ import (
 // any other MCP client).
 func callAs(t *testing.T, h *Handler, session, name string, args map[string]any) (string, bool) {
 	t.Helper()
-	params, _ := json.Marshal(map[string]any{"name": name, "arguments": args})
-	payload, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": json.RawMessage(params)})
-	req := httptest.NewRequest(http.MethodPost, "/repos/"+testRepoID+"/mcp", strings.NewReader(string(payload)))
+	return callAsWithMeta(t, h, session, "", name, args)
+}
+
+// asUncliChat marks req as a UNCLI chat's: its session and, if any, meta.
+func asUncliChat(req *http.Request, session, meta string) {
 	if session != "" {
 		req.Header.Set(config.UncliChatHeader, session)
 	}
+	if meta != "" {
+		req.Header.Set(config.UncliChatMetaHeader, meta)
+	}
+}
+
+func callAsWithMeta(t *testing.T, h *Handler, session, meta, name string, args map[string]any) (string, bool) {
+	t.Helper()
+	params, _ := json.Marshal(map[string]any{"name": name, "arguments": args})
+	payload, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": json.RawMessage(params)})
+	req := httptest.NewRequest(http.MethodPost, "/repos/"+testRepoID+"/mcp", strings.NewReader(string(payload)))
+	asUncliChat(req, session, meta)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	var resp struct {
@@ -52,6 +65,76 @@ func status(t *testing.T, text string) map[string]any {
 		t.Fatalf("not a status object: %q", text)
 	}
 	return out
+}
+
+// instructionsAs is what a client is told on connecting, as a UNCLI chat
+// with session and meta (both "" = any other client).
+func instructionsAs(t *testing.T, h *Handler, session, meta string) string {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/repos/"+testRepoID+"/mcp",
+		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`))
+	asUncliChat(req, session, meta)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var resp struct {
+		Result struct {
+			Instructions string `json:"instructions"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("initialize: %q (%v)", rec.Body.String(), err)
+	}
+	return resp.Result.Instructions
+}
+
+// A UNCLI chat is told what it's about when it connects, from the meta
+// it was made with: the card, the user's own context. Nothing else is.
+func TestUncliChatBrief(t *testing.T) {
+	h, sup := newTestHandler(t)
+	config.SetConfigDir(t.TempDir())
+	t.Cleanup(func() { config.SetConfigDir("") })
+	if err := config.SaveLLMConfig(config.LLMConfig{Context: "I plan trips with my kids."}); err != nil {
+		t.Fatal(err)
+	}
+	rt := sup.Resolve(testRepoID)
+	card, err := rt.CreateCard("task", "Melbourne trip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta := "bruv/" + testRepoID + "/card/" + card.ID
+
+	brief := instructionsAs(t, h, "s1", meta)
+	for _, want := range []string{"## This chat", `"Melbourne trip"`, card.ID, "in the inbox", "I plan trips with my kids."} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("brief lacks %q:\n%s", want, brief)
+		}
+	}
+	for name, got := range map[string]string{
+		"another client":      instructionsAs(t, h, "", ""),
+		"another repo's chat": instructionsAs(t, h, "s2", "bruv/other-repo/card/"+card.ID),
+	} {
+		if strings.Contains(got, "## This chat") {
+			t.Errorf("%s was briefed:\n%s", name, got)
+		}
+	}
+
+	// A project chat: its place, and that the tools default to it.
+	if _, isErr := callToolRPC(t, h, "create_card", map[string]any{"title": "Flights", "brand": "Home", "stream": "Trips", "project": "Melbourne", "category": "Ideas"}); isErr {
+		t.Fatal("create_card failed")
+	}
+	brief = instructionsAs(t, h, "s3", "bruv/"+testRepoID+"/project/home/trips/melbourne")
+	for _, want := range []string{"## This chat", "Project: Melbourne (in Home › Trips)", "leave brand, stream and project out"} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("project brief lacks %q:\n%s", want, brief)
+		}
+	}
+
+	// Suggest stages by the meta alone, before BRUV records the session.
+	setAIMode(t, "suggest")
+	text, isErr := callAsWithMeta(t, h, "new", meta, "set_card_title", map[string]any{"card_id": card.ID, "title": "Sydney trip"})
+	if isErr || status(t, text)["status"] != "staged" {
+		t.Errorf("staging by meta: %q", text)
+	}
 }
 
 // TestUncliChatModes: a UNCLI chat's writes follow BRUV's Chat / Suggest

@@ -21,6 +21,11 @@ import (
 // Edit mode applies. It can only restrict a caller, never widen access.
 const UncliChatHeader = "X-Bruv-Uncli-Session"
 
+// UncliChatMetaHeader carries, beside UncliChatHeader, the meta the page
+// made the session with (shared/uncliChat.chatMeta), which names its chat
+// from the start, before BRUV has recorded the session.
+const UncliChatMetaHeader = "X-Bruv-Uncli-Chat"
+
 // UncliChatModeRefusal is what a UNCLI chat's model is told when it tries
 // to change the board in Chat mode (by UNCLI, from the engine's tool
 // policy, and by BRUV's MCP endpoint behind it).

@@ -23,6 +23,55 @@ import (
 	"github.com/google/uuid"
 )
 
+// UncliChatID is the chat (a card id, or a project's chatsvc.ProjectChatID)
+// a UNCLI session is: from the meta the page made it with
+// (shared/uncliChat.chatMeta: "bruv/<repo>/card/<card>" or
+// "bruv/<repo>/project/<brand>/<stream>/<project>"), else from BRUV's
+// record of the session. repoID is this repo's id in the registry (the
+// one pages and URLs use); false when it's no chat of this repo's.
+func (r *Runtime) UncliChatID(repoID, meta, session string) (string, bool) {
+	if r.repo == nil {
+		return "", false
+	}
+	parts := strings.Split(meta, "/")
+	if len(parts) >= 4 && parts[0] == "bruv" && parts[1] == repoID {
+		switch {
+		case parts[2] == "card" && len(parts) == 4 && parts[3] != "":
+			return parts[3], true
+		case parts[2] == "project" && len(parts) == 6:
+			if p, err := r.repo.GetProject(parts[3], parts[4], parts[5]); err == nil {
+				return chatsvc.ProjectChatID(p.ID), true
+			}
+		}
+	}
+	if chat, ok := config.UncliSessionChat(session); ok && chat.RepoID == repoID {
+		return chat.ChatID, true
+	}
+	return "", false
+}
+
+// UncliChatBrief is what a UNCLI chat's model is told about its chat when
+// it connects (prompts.CardChatBrief / ProjectChatBrief); "" when the
+// chat's card or project can't be read.
+func (r *Runtime) UncliChatBrief(chatID string) string {
+	cfg, err := r.LLM.GetConfig()
+	if err != nil {
+		cfg = config.LLMConfig{}
+	}
+	if projectID, ok := strings.CutPrefix(chatID, chatsvc.ProjectChatID("")); ok {
+		loc, err := r.GetProjectLocation(projectID)
+		if err != nil {
+			return ""
+		}
+		return r.prompts.ProjectChatBrief(loc.BrandSlug, loc.StreamSlug, loc.ProjectSlug, cfg)
+	}
+	card, err := r.GetCard(chatID)
+	if err != nil {
+		return ""
+	}
+	return r.prompts.CardChatBrief(card, cfg)
+}
+
 // UncliStagedContent is the text of the history message holding a UNCLI
 // chat's staged edits; the pages pick those messages out by it
 // (shared/uncliChat UNCLI_STAGED_CONTENT) and show the edits, not this.

@@ -32,7 +32,33 @@ const (
 		"Don't make the same change again; say what you suggested."
 )
 
-func callAsUncliChat(rt *supervisor.Runtime, session, name string, args map[string]any) mcp.CallToolResult {
+// uncliCaller is one of BRUV's own UNCLI chats calling the repo repoID:
+// its session (config.UncliChatHeader) and the meta naming its chat
+// (config.UncliChatMetaHeader). No session for any other client.
+type uncliCaller struct{ repoID, session, meta string }
+
+// chat is the chat the caller is (supervisor.UncliChatID).
+func (c uncliCaller) chat(rt *supervisor.Runtime) (string, bool) {
+	if c.session == "" {
+		return "", false
+	}
+	return rt.UncliChatID(c.repoID, c.meta, c.session)
+}
+
+// brief is what the caller's model is told about its chat on connecting,
+// after the board's instructions; "" for any other client.
+func (c uncliCaller) brief(rt *supervisor.Runtime) string {
+	chatID, ok := c.chat(rt)
+	if !ok {
+		return ""
+	}
+	if brief := rt.UncliChatBrief(chatID); brief != "" {
+		return "\n\n## This chat\n" + brief
+	}
+	return ""
+}
+
+func callAsUncliChat(rt *supervisor.Runtime, caller uncliCaller, name string, args map[string]any) mcp.CallToolResult {
 	if !boardtools.IsWrite(name) {
 		return boardtools.Call(rt, name, args)
 	}
@@ -44,11 +70,11 @@ func callAsUncliChat(rt *supervisor.Runtime, session, name string, args map[stri
 	case "chat":
 		return statusResult(true, map[string]any{"status": "refused", "reason": config.UncliChatModeRefusal})
 	case "suggest":
-		chat, ok := config.UncliSessionChat(session)
+		chatID, ok := caller.chat(rt)
 		if !ok {
 			return statusResult(true, map[string]any{"status": "refused", "reason": refusedUnlinked})
 		}
-		staged, refused, err := rt.StageUncliEdit(chat.ChatID, name, args)
+		staged, refused, err := rt.StageUncliEdit(chatID, name, args)
 		switch {
 		case err != nil:
 			return statusResult(true, map[string]any{"status": "error", "error": "couldn't stage the change: " + err.Error()})

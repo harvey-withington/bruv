@@ -1,12 +1,14 @@
 <script lang="ts">
   // The AI chat's bottom sheet: backdrop, the sheet itself, a header to
   // swipe it closed by, hardware Back closing it, and its capture-phase
-  // keys. Whichever chat engine runs (ChatSheet, UncliChatSheet) renders
-  // inside. Header buttons passed as `actions` get the header's
-  // .icon-btn look.
+  // keys, and room for the on-screen keyboard: the sheet shrinks above it
+  // (fitVisualViewport) instead of the page sliding up. Whichever chat
+  // engine runs (ChatSheet, UncliChatSheet) renders inside. Header
+  // buttons passed as `actions` get the header's .icon-btn look.
   import { onMount, type Snippet } from 'svelte'
   import { X } from 'lucide-svelte'
   import { t } from '../../lib/i18n.svelte'
+  import { fitVisualViewport } from '../../lib/actions/fitVisualViewport'
 
   let {
     title,
@@ -90,6 +92,7 @@
 
 <div
   class="sheet"
+  use:fitVisualViewport
   role="dialog"
   aria-label={title}
   style:transform={translateY > 0 ? `translateY(${translateY}px)` : undefined}
@@ -122,12 +125,15 @@
     animation: fade-in 200ms ease forwards;
   }
 
+  /* Sits on the keyboard and shrinks to what's left visible, rather than
+     the page sliding up under it (fitVisualViewport). Closed keyboard:
+     90% of the screen as before. */
   .sheet {
     position: fixed;
     left: 0;
     right: 0;
-    bottom: 0;
-    height: 90vh;
+    bottom: var(--keyboard-inset, 0px);
+    height: min(90vh, calc(var(--visible-height, 100vh) - 0.75rem));
     background: var(--bg);
     border-top-left-radius: 16px;
     border-top-right-radius: 16px;

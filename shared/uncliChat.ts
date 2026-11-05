@@ -71,6 +71,11 @@ export function chatMeta(repoId: string, chat: ChatRef): string {
 export interface ChatSessions {
   get(): Promise<string>
   set(session: string): Promise<void>
+  /** How many sessions the chat has had (Get…UncliSessionCount), to number a new one's title. */
+  count(): Promise<number>
+  /** What the chat is about (the card's or project's name, as it is when a
+   *  session starts), new sessions' title. */
+  name(): string
   meta: string
   /** The CLI and model new sessions open on (runsOnFor); null = UNCLI's default. */
   runsOn?: UncliRunsOn | null
@@ -100,8 +105,15 @@ export async function openChatSession(el: UncliChat, sessions: ChatSessions): Pr
  *  session is made. */
 export async function startNewChat(el: UncliChat, sessions: ChatSessions): Promise<void> {
   const { provider, model } = sessions.runsOn ?? {}
-  const created = await el.newSession('chat', '', model ?? '', provider ? { meta: sessions.meta, provider } : { meta: sessions.meta })
+  const title = chatTitle(sessions.name(), (await sessions.count()) + 1)
+  const created = await el.newSession('chat', '', model ?? '', { meta: sessions.meta, title, ...(provider ? { provider } : {}) })
   await sessions.set(created)
+}
+
+/** A new session's title: the chat's name, numbered from its second
+ *  ("Trip", "Trip 2", …). The user can rename it in the chat's header. */
+export function chatTitle(name: string, n: number): string {
+  return n > 1 ? `${name} ${n}` : name
 }
 
 // --- Choosing what chats open on (Settings → AI) ---

@@ -92,7 +92,7 @@ describe('chat sessions', () => {
     })
     return el as unknown as UncliChat & { newSession: ReturnType<typeof vi.fn> }
   }
-  const sessions = (existing = '') => ({ get: vi.fn(async () => existing), set: vi.fn(async () => {}), meta: 'bruv/r1/card/c1' })
+  const sessions = (existing = '', had = 0) => ({ get: vi.fn(async () => existing), set: vi.fn(async () => {}), count: vi.fn(async () => had), name: () => 'Trip', meta: 'bruv/r1/card/c1' })
 
   it("reopens the chat's session", async () => {
     const el = element()
@@ -106,7 +106,7 @@ describe('chat sessions', () => {
     const el = element()
     const s = sessions()
     await openChatSession(el, s)
-    expect(el.newSession).toHaveBeenCalledWith('chat', '', '', { meta: 'bruv/r1/card/c1' })
+    expect(el.newSession).toHaveBeenCalledWith('chat', '', '', { meta: 'bruv/r1/card/c1', title: 'Trip' })
     expect(s.set).toHaveBeenCalledWith('s-new-1')
   })
 
@@ -121,7 +121,7 @@ describe('chat sessions', () => {
     el.dispatchEvent(new CustomEvent('uncli-deleted', { detail: { session: 's-new-1' } }))
     el.dispatchEvent(new CustomEvent('uncli-missing', { detail: { session: 's-new-2' } }))
     await vi.waitFor(() => expect(s.set).toHaveBeenCalledTimes(3))
-    expect(el.newSession).toHaveBeenCalledWith('chat', '', '', { meta: 'bruv/r1/card/c1' })
+    expect(el.newSession).toHaveBeenCalledWith('chat', '', '', { meta: 'bruv/r1/card/c1', title: 'Trip' })
 
     // A session the element started itself is recorded.
     el.dispatchEvent(new CustomEvent('uncli-new-session', { detail: { session: 's-own', previous: 's-new-3' } }))
@@ -132,17 +132,22 @@ describe('chat sessions', () => {
     expect(s.set).toHaveBeenCalledTimes(4)
   })
 
-  it('startNewChat records the new session', async () => {
+  it('startNewChat names the session after the chat, numbered from the second, and records it', async () => {
+    const first = element()
+    await startNewChat(first, sessions())
+    expect(first.newSession).toHaveBeenCalledWith('chat', '', '', { meta: 'bruv/r1/card/c1', title: 'Trip' })
+
     const el = element()
-    const s = sessions('s-old')
+    const s = sessions('s-old', 2)
     await startNewChat(el, s)
+    expect(el.newSession).toHaveBeenCalledWith('chat', '', '', { meta: 'bruv/r1/card/c1', title: 'Trip 3' })
     expect(s.set).toHaveBeenCalledWith('s-new-1')
   })
 
   it('opens new chats on the chosen CLI and model, and records none when the CLI refuses', async () => {
     const el = element()
     await startNewChat(el, { ...sessions(), runsOn: { provider: 'codex', model: 'gpt-5' } })
-    expect(el.newSession).toHaveBeenCalledWith('chat', '', 'gpt-5', { meta: 'bruv/r1/card/c1', provider: 'codex' })
+    expect(el.newSession).toHaveBeenCalledWith('chat', '', 'gpt-5', { meta: 'bruv/r1/card/c1', title: 'Trip', provider: 'codex' })
 
     const signedOut = element()
     signedOut.newSession.mockRejectedValueOnce(new Error("can't start a session on Codex: Codex isn't signed in"))

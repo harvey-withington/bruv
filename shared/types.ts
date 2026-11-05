@@ -1664,6 +1664,8 @@ export interface BackendAdapter {
   SetCardUncliSession(cardID: string, sessionID: string): Promise<void>
   GetProjectUncliSession(brandSlug: string, streamSlug: string, projectSlug: string): Promise<string>
   SetProjectUncliSession(brandSlug: string, streamSlug: string, projectSlug: string, sessionID: string): Promise<void>
+  GetCardUncliSessionCount(cardID: string): Promise<number>
+  GetProjectUncliSessionCount(brandSlug: string, streamSlug: string, projectSlug: string): Promise<number>
   GetProjectChatModel(brandSlug: string, streamSlug: string, projectSlug: string): Promise<ModelRef>
   SetProjectChatModel(brandSlug: string, streamSlug: string, projectSlug: string, ref: ModelRef): Promise<void>
 

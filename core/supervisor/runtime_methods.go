@@ -668,6 +668,28 @@ func (r *Runtime) SetProjectUncliSession(brandSlug, streamSlug, projectSlug, ses
 	return r.setChatUncliSession(id, sessionID)
 }
 
+// GetCardUncliSessionCount is how many UNCLI sessions the card's chat has
+// had (0 before its first), for numbering a new one's title.
+func (r *Runtime) GetCardUncliSessionCount(cardID string) (int, error) {
+	return r.chatUncliSessionCount(cardID)
+}
+
+// GetProjectUncliSessionCount is GetCardUncliSessionCount for a project's chat.
+func (r *Runtime) GetProjectUncliSessionCount(brandSlug, streamSlug, projectSlug string) (int, error) {
+	id, err := r.projectChatID(brandSlug, streamSlug, projectSlug)
+	if err != nil {
+		return 0, err
+	}
+	return r.chatUncliSessionCount(id)
+}
+
+func (r *Runtime) chatUncliSessionCount(chatID string) (int, error) {
+	if r.repo == nil {
+		return 0, fmt.Errorf("no repository open")
+	}
+	return config.ChatUncliSessionCount(r.repo.Manifest.ID, chatID)
+}
+
 func (r *Runtime) chatUncliSession(chatID string) (string, error) {
 	if r.repo == nil {
 		return "", fmt.Errorf("no repository open")

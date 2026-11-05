@@ -36,6 +36,10 @@ const UncliChatModeRefusal = "This chat is in Chat mode, so it can't change the 
 type UncliSession struct {
 	RepoID string `json:"repo_id"`
 	ChatID string `json:"chat_id"`
+	// Number is which of the chat's sessions this is, counting from 1, so
+	// a new one can be titled "<name> 2" (shared/uncliChat.chatTitle).
+	// Records from before the count are the first.
+	Number int `json:"number,omitempty"`
 	// LegacyCardID is how the first builds (card chats only) named the
 	// chat; read into ChatID, never written.
 	LegacyCardID string `json:"card_id,omitempty"`
@@ -93,8 +97,25 @@ func ChatUncliSession(repoID, chatID string) (string, error) {
 	return "", nil
 }
 
+// ChatUncliSessionCount is how many UNCLI sessions a chat has had: the
+// number of its current one, 0 before its first.
+func ChatUncliSessionCount(repoID, chatID string) (int, error) {
+	uncliSessionsMu.Lock()
+	defer uncliSessionsMu.Unlock()
+	sessions, err := loadUncliSessions()
+	if err != nil {
+		return 0, err
+	}
+	for _, s := range sessions {
+		if s.RepoID == repoID && s.ChatID == chatID {
+			return max(s.Number, 1), nil
+		}
+	}
+	return 0, nil
+}
+
 // SetChatUncliSession records sessionID as the chat's, replacing any
-// session it had before.
+// session it had before and numbering it after that one.
 func SetChatUncliSession(repoID, chatID, sessionID string) error {
 	for _, seg := range []string{repoID, chatID, sessionID} {
 		if err := validPathSegment(seg); err != nil {
@@ -107,12 +128,18 @@ func SetChatUncliSession(repoID, chatID, sessionID string) error {
 	if err != nil {
 		return err
 	}
+	number := 1
 	for id, s := range sessions {
 		if s.RepoID == repoID && s.ChatID == chatID {
+			if id == sessionID {
+				number = max(s.Number, 1) // recorded again: same number
+			} else {
+				number = max(s.Number, 1) + 1
+			}
 			delete(sessions, id)
 		}
 	}
-	sessions[sessionID] = UncliSession{RepoID: repoID, ChatID: chatID}
+	sessions[sessionID] = UncliSession{RepoID: repoID, ChatID: chatID, Number: number}
 	path, err := uncliSessionsPath()
 	if err != nil {
 		return err

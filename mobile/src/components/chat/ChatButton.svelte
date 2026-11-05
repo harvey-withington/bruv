@@ -63,6 +63,8 @@
         sessions: {
           get: () => repoRPC<string>('GetCardUncliSession', [s.cardID]),
           set: session => repoRPC<void>('SetCardUncliSession', [s.cardID, session]),
+          count: () => repoRPC<number>('GetCardUncliSessionCount', [s.cardID]),
+          name: () => card()?.title || t('card.untitled'),
         },
         context: () => {
           const c = card()
@@ -81,6 +83,8 @@
       sessions: {
         get: () => repoRPC<string>('GetProjectUncliSession', [s.brand, s.stream, s.project]),
         set: session => repoRPC<void>('SetProjectUncliSession', [s.brand, s.stream, s.project, session]),
+        count: () => repoRPC<number>('GetProjectUncliSessionCount', [s.brand, s.stream, s.project]),
+        name: () => name,
       },
       context: () => projectTurnContext({ brand: s.brand, stream: s.stream, project: name }),
       history: {

@@ -84,8 +84,8 @@ var repoRPCMethods = []string{
 	"StopProjectChatMessage", "ToggleChatBookmark",
 	"ToggleProjectChatBookmark",
 	// The opt-in UNCLI chat engine: which session is each chat.
-	"GetCardUncliSession", "SetCardUncliSession",
-	"GetProjectUncliSession", "SetProjectUncliSession",
+	"GetCardUncliSession", "SetCardUncliSession", "GetCardUncliSessionCount",
+	"GetProjectUncliSession", "SetProjectUncliSession", "GetProjectUncliSessionCount",
 
 	// Capture
 	"CaptureFromURL", "CompleteCapture", "GetCapturePrefs", "MatchCaptureURL",

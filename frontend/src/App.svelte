@@ -39,7 +39,7 @@
   import { installResilience } from './lib/connectivity.svelte'
   import { resolveTransportInfo } from '@shared/adapters/cloud'
 
-  import { GetUIPreferences, SetUIPreferences, GetCurrentRepo, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, StopProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, ToggleProjectChatBookmark, GetProjectChatModel, SetProjectChatModel, IsLLMConfigured, GetLocalServerStatus, GetProjectUncliSession, SetProjectUncliSession } from '@shared/api'
+  import { GetUIPreferences, SetUIPreferences, GetCurrentRepo, GetCardLocation, GetProjectLocation, LoadProjectChatHistory, SendProjectChatMessage, StopProjectChatMessage, ClearProjectChatHistory, ApplyProjectPendingEdits, ToggleProjectChatBookmark, GetProjectChatModel, SetProjectChatModel, IsLLMConfigured, GetLocalServerStatus, GetProjectUncliSession, SetProjectUncliSession, GetProjectUncliSessionCount } from '@shared/api'
 
   // Restore persisted preferences
   loadTheme()
@@ -477,6 +477,8 @@
                   sessions={{
                     get: () => GetProjectUncliSession(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!),
                     set: (s) => SetProjectUncliSession(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, s),
+                    count: () => GetProjectUncliSessionCount(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!),
+                    name: () => nav.projectName || nav.projectSlug!,
                   }}
                   context={() => projectTurnContext({ brand: nav.brandName, stream: nav.streamName, project: nav.projectName })}
                   history={{

@@ -1,11 +1,14 @@
 // The UNCLI chat engine's page side, shared by both surfaces: which
 // engine BRUV's chats use, and what BRUV does for the <uncli-chat>
 // element (UNCLI's EMBEDDING.md, "host"): its sign-in, @mentions of
-// cards, bruv: links, and what the chat is about as each turn's context.
-// A chat is a card's or a project's. The surfaces mount the element
-// (UncliChat, UncliChatSheet) and supply their own navigation, search,
-// RPCs and strings.
+// cards, bruv: links, what the chat is about as each turn's context, and
+// the Chat / Suggest / Edit control in the message box. A chat is a
+// card's or a project's. The surfaces mount the element (UncliChat,
+// UncliChatSheet) and supply their own navigation, search, RPCs and
+// strings.
 
+import type { ChatHost, ComposerControl, Tone, UncliChat } from '@uncli/chat/element'
+import type { AIMode } from './aiMode'
 import { CARD_MENTION_PREFIX, cardMentionLink, mentionMarkdown } from './mentions'
 import { errorDetail } from './errors'
 import { uncliUnavailable, type UncliUnavailable } from './uncliStatus'
@@ -18,32 +21,6 @@ export const UNCLI_LINK_SCHEMES = 'bruv'
 export function uncliSrc(serverBase: string): string {
   return serverBase.replace(/\/+$/, '') + '/uncli'
 }
-
-// The element's API as far as BRUV uses it. The package ships no types
-// for its built element, so these mirror its ChatHost and Mention.
-export type UncliMention = { label: string; detail?: string; insert: string }
-
-export interface UncliChatHost {
-  openLink?(href: string): boolean
-  complete?(query: string): Promise<UncliMention[]> | UncliMention[]
-  turnContext?(): string | null
-  headers?(): Record<string, string> | null
-  /** What Enter does in the message box: "send" (Shift+Enter for a new
-   *  line) or "newline" (Ctrl+Enter or Send sends). */
-  enter?: UncliEnterKey
-}
-
-export type UncliEnterKey = 'send' | 'newline'
-
-export interface UncliChatElement extends HTMLElement {
-  host: UncliChatHost | null
-  session: string
-  newSession(profile?: string, workdir?: string, model?: string): Promise<string>
-}
-
-/** The element's event when a session finishes answering (detail:
- *  { session }). */
-export const UNCLI_IDLE = 'uncli-idle'
 
 // --- Which engine BRUV's chats use ---
 
@@ -78,17 +55,28 @@ export async function readChatEngine(
 
 // --- A chat's session ---
 
+/** Which chat: a card's, or a project's. */
+export type ChatRef = { kind: 'card'; cardId: string } | { kind: 'project'; brand: string; stream: string; project: string }
+
+/** What a session is for, given to UNCLI when it's made (newSession's
+ *  meta), so the server gives it its repo's board tools from its first
+ *  start (internal/uncliengine.RepoOfMeta reads it back). */
+export function chatMeta(repoId: string, chat: ChatRef): string {
+  const what = chat.kind === 'card' ? `card/${chat.cardId}` : `project/${chat.brand}/${chat.stream}/${chat.project}`
+  return `bruv/${repoId}/${what}`
+}
+
 /** Where a chat's session is recorded on the server (Get/Set
- *  Card|ProjectUncliSession), which is how the server gives the session
- *  that repo's board tools (config.UncliSessionChat). */
+ *  Card|ProjectUncliSession), and the meta new ones are made with. */
 export interface ChatSessions {
   get(): Promise<string>
   set(session: string): Promise<void>
+  meta: string
 }
 
 /** Shows the chat in el: the session it had, or a new one recorded as
  *  the chat's. */
-export async function openChatSession(el: UncliChatElement, sessions: ChatSessions): Promise<void> {
+export async function openChatSession(el: UncliChat, sessions: ChatSessions): Promise<void> {
   const existing = await sessions.get()
   if (existing) {
     el.session = existing
@@ -97,11 +85,35 @@ export async function openChatSession(el: UncliChatElement, sessions: ChatSessio
   await startNewChat(el, sessions)
 }
 
-/** Starts a new session for the chat and records it as the chat's. The
- *  old one stays in UNCLI, but this chat no longer opens it. */
-export async function startNewChat(el: UncliChatElement, sessions: ChatSessions): Promise<void> {
-  const created = await el.newSession()
+/** Starts a new session for the chat, with its meta, and records it as
+ *  the chat's. */
+export async function startNewChat(el: UncliChat, sessions: ChatSessions): Promise<void> {
+  const created = await el.newSession('chat', '', '', { meta: sessions.meta })
   await sessions.set(created)
+}
+
+/** Keeps the chat's recorded session right as the element changes it:
+ *  its New chat is made here, with the meta (uncli-new-chat, cancelled);
+ *  a chat deleted from its header, or one UNCLI no longer has, is
+ *  replaced with a new one; a session it started itself is recorded.
+ *  onError hears about a failure. Returns the cleanup. */
+export function followChatSessions(el: UncliChat, sessions: ChatSessions, onError: (e: unknown) => void): () => void {
+  const replace = () => void startNewChat(el, sessions).catch(onError)
+  const onNewChat = (e: Event) => {
+    e.preventDefault()
+    replace()
+  }
+  const onNewSession = (e: CustomEvent<{ session: string }>) => void sessions.set(e.detail.session).catch(onError)
+  el.addEventListener('uncli-new-chat', onNewChat)
+  el.addEventListener('uncli-deleted', replace)
+  el.addEventListener('uncli-missing', replace)
+  el.addEventListener('uncli-new-session', onNewSession)
+  return () => {
+    el.removeEventListener('uncli-new-chat', onNewChat)
+    el.removeEventListener('uncli-deleted', replace)
+    el.removeEventListener('uncli-missing', replace)
+    el.removeEventListener('uncli-new-session', onNewSession)
+  }
 }
 
 // --- What each turn is told (model-facing, so not localized, like
@@ -121,6 +133,27 @@ export function projectTurnContext(project: { brand: string; stream: string; pro
     `its cards are in its categories. ` + BOARD_TOOLS_HINT
 }
 
+// --- The Chat / Suggest / Edit control ---
+
+const MODE_LOOK: Record<AIMode, { icon: string; tone: Tone }> = {
+  chat: { icon: 'message-circle', tone: 'success' },
+  suggest: { icon: 'list-checks', tone: 'warning' },
+  edit: { icon: 'pencil-line', tone: 'danger' },
+}
+
+/** The chat mode as a drop-down in the message box, drawn by UNCLI
+ *  (host.composerControls). t is the surface's: chat.mode_<mode> labels
+ *  and uncli.mode_<mode>_hint hints. */
+export function modeControl(mode: AIMode, t: (key: string) => string, onChange: (mode: AIMode) => void): ComposerControl {
+  return {
+    id: 'mode',
+    label: t('uncli.mode_label'),
+    value: mode,
+    options: (['chat', 'suggest', 'edit'] as const).map(m => ({ id: m, label: t(`chat.mode_${m}`), hint: t(`uncli.mode_${m}_hint`), ...MODE_LOOK[m] })),
+    onChange: id => onChange(id as AIMode),
+  }
+}
+
 // --- The host hooks ---
 
 export interface ChatHostOptions {
@@ -135,12 +168,14 @@ export interface ChatHostOptions {
   cardLabel: string
   /** Enter as in the surface's own chat: desktop's ChatSection sends,
    *  mobile's ChatSheet starts a new line. */
-  enter: UncliEnterKey
+  enter: NonNullable<ChatHost['enter']>
+  /** The message box's controls (modeControl). */
+  controls: ComposerControl[]
 }
 
 const MENTION_LIMIT = 8
 
-export function chatHost(o: ChatHostOptions): UncliChatHost {
+export function chatHost(o: ChatHostOptions): ChatHost {
   return {
     headers: () => ({ Authorization: `Bearer ${o.token()}` }),
     openLink: href => {
@@ -158,5 +193,6 @@ export function chatHost(o: ChatHostOptions): UncliChatHost {
     },
     turnContext: o.context,
     enter: o.enter,
+    composerControls: o.controls,
   }
 }

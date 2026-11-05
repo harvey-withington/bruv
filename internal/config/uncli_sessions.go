@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 )
 
 // UncliChatHeader names the UNCLI session on the board-tool calls the
@@ -21,6 +20,12 @@ import (
 // reads it), so they're treated as that BRUV chat's: its Chat / Suggest /
 // Edit mode applies. It can only restrict a caller, never widen access.
 const UncliChatHeader = "X-Bruv-Uncli-Session"
+
+// UncliChatModeRefusal is what a UNCLI chat's model is told when it tries
+// to change the board in Chat mode (by UNCLI, from the engine's tool
+// policy, and by BRUV's MCP endpoint behind it).
+const UncliChatModeRefusal = "This chat is in Chat mode, so it can't change the board. " +
+	"Describe the change instead, or ask the user to switch the chat to Suggest or Edit."
 
 // UncliSession is the chat a UNCLI session is.
 type UncliSession struct {
@@ -31,12 +36,7 @@ type UncliSession struct {
 	LegacyCardID string `json:"card_id,omitempty"`
 }
 
-var (
-	uncliSessionsMu sync.Mutex
-	// uncliSessionsChanged is closed (and replaced) on every write, for
-	// UncliSessionChat's waiters. Guarded by uncliSessionsMu.
-	uncliSessionsChanged = make(chan struct{})
-)
+var uncliSessionsMu sync.Mutex
 
 func uncliSessionsPath() (string, error) {
 	dir, err := configDir()
@@ -116,32 +116,19 @@ func SetChatUncliSession(repoID, chatID, sessionID string) error {
 	if err != nil {
 		return err
 	}
-	if err := atomicWriteFile(path, data, 0o644); err != nil {
-		return err
-	}
-	close(uncliSessionsChanged)
-	uncliSessionsChanged = make(chan struct{})
-	return nil
+	return atomicWriteFile(path, data, 0o644)
 }
 
-// UncliSessionChat returns the chat a session is, waiting up to wait for
-// it to be recorded: a page records a new session's chat just after
-// creating it, and UNCLI may start the session's CLI (asking for its
-// tools) in between.
-func UncliSessionChat(sessionID string, wait time.Duration) (UncliSession, bool) {
-	deadline := time.After(wait)
-	for {
-		uncliSessionsMu.Lock()
-		sessions, err := loadUncliSessions()
-		changed := uncliSessionsChanged
-		uncliSessionsMu.Unlock()
-		if s, ok := sessions[sessionID]; err == nil && ok {
-			return s, true
-		}
-		select {
-		case <-changed:
-		case <-deadline:
-			return UncliSession{}, false
-		}
+// UncliSessionChat returns the chat a session is, as recorded by its page.
+// A brand-new session's first CLI start may come before that record; the
+// engine reads the page's meta for it instead (uncli.Core.SessionMeta).
+func UncliSessionChat(sessionID string) (UncliSession, bool) {
+	uncliSessionsMu.Lock()
+	defer uncliSessionsMu.Unlock()
+	sessions, err := loadUncliSessions()
+	if err != nil {
+		return UncliSession{}, false
 	}
+	s, ok := sessions[sessionID]
+	return s, ok
 }

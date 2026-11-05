@@ -6,8 +6,7 @@
   import { MessageCircle, PencilLine, ListChecks } from 'lucide-svelte'
   import { nextAIMode, type AIMode } from '@shared/aiMode'
   import { errorDetail } from '@shared/errors'
-  import type { LLMConfig } from '@shared/types'
-  import { machineRPC } from '../../lib/auth'
+  import { saveAIMode } from '../../lib/aiModeSave'
   import { t } from '../../lib/i18n.svelte'
 
   let { mode = $bindable('edit'), onerror }: { mode: AIMode; onerror: (message: string) => void } = $props()
@@ -16,8 +15,7 @@
     const previous = mode
     mode = nextAIMode(mode)
     try {
-      const cfg = (await machineRPC<LLMConfig>('GetLLMConfig')) ?? ({} as LLMConfig)
-      await machineRPC('SetLLMConfig', [{ ...cfg, ai_mode: mode }])
+      await saveAIMode(mode)
     } catch (e) {
       mode = previous
       onerror(t('chat.mode_save_failed', { detail: errorDetail(e) }))

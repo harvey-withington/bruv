@@ -213,6 +213,8 @@ func Summary(name string, args map[string]any, result string) string {
 		return "Created card type: " + argStr(args, "label")
 	case "configure_card_agent":
 		return "Configured the agent"
+	case "update_card":
+		return updateCardSummary(args)
 	case "set_card_fields":
 		var r struct {
 			Updated []string `json:"updated_fields"`
@@ -242,6 +244,42 @@ func Summary(name string, args map[string]any, result string) string {
 		return fmt.Sprintf("Added %d item(s) to %s", len(items), argStr(args, "checklist"))
 	}
 	return strings.ReplaceAll(name, "_", " ")
+}
+
+// updateCardSummary names what an update_card call changes, block by
+// block (by the key or label it names), so a review or approval reads
+// "Updated Preparation to Leave" rather than "update card".
+func updateCardSummary(args map[string]any) string {
+	var parts []string
+	if title := argStr(args, "title"); title != "" {
+		parts = append(parts, "title → "+title)
+	}
+	if due, ok := args["due_date"].(string); ok {
+		if due != "" {
+			parts = append(parts, "due date → "+due)
+		} else {
+			parts = append(parts, "cleared the due date")
+		}
+	}
+	if _, ok := args["tags"]; ok {
+		parts = append(parts, "tags → "+strings.Join(argStrSlice(args, "tags"), ", "))
+	}
+	updates, _ := args["updates"].([]any)
+	fields := make([]string, 0, len(updates))
+	for _, u := range updates {
+		if m, ok := u.(map[string]any); ok {
+			if key := argStr(m, "key"); key != "" {
+				fields = append(fields, key)
+			}
+		}
+	}
+	if len(fields) > 0 {
+		parts = append(parts, strings.Join(fields, ", "))
+	}
+	if len(parts) == 0 {
+		return "Updated the card"
+	}
+	return "Updated " + strings.Join(parts, "; ")
 }
 
 func firstNonEmpty(a, b string) string {

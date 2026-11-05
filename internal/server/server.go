@@ -30,6 +30,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"bruv/core/boardtools"
 	"bruv/core/supervisor"
 	"bruv/internal/config"
 	"bruv/internal/logging"
@@ -234,6 +235,13 @@ func Run(opts Options) error {
 	}
 	if chatEngine.Status().Ready {
 		serveBoardTools(chatEngine, srv, opts.ConfigDir)
+		// Suggest mode's approval cards name the card being changed.
+		chatEngine.DescribeWith(func(repoID, tool string, args map[string]any) (string, string) {
+			if rt, err := sup.Load(repoID); err == nil && rt != nil {
+				return boardtools.DescribeCall(rt, tool, args)
+			}
+			return boardtools.DescribeCall(nil, tool, args)
+		})
 	}
 	slog.Info("bruv-server listening",
 		"addr", srv.Addr(),

@@ -1,20 +1,22 @@
 // Package uncliengine runs BRUV's own UNCLI (UNCLI decision 0027): the
-// chat engine cards can use instead of BRUV's built-in chat, opted into
-// with the chat_engine setting. The headless server starts it; the
-// transport mounts its handler at /uncli/ behind BRUV's sign-in
-// (transport/http/uncli.go). Each session is one card's or project's
-// chat (config.SetChatUncliSession) and gets that repo's board tools over
-// BRUV's own MCP endpoint.
+// chat engine card and project chats can use instead of BRUV's built-in
+// chat, opted into with the chat_engine setting. The headless server
+// starts it; the transport mounts its handler at /uncli/ behind BRUV's
+// sign-in (transport/http/uncli.go). Each session is one card's or
+// project's chat and gets that repo's board tools over BRUV's own MCP
+// endpoint, with BRUV's Chat / Suggest / Edit mode deciding their writes.
 package uncliengine
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
-	"time"
 
+	"bruv/core/boardtools"
 	"bruv/internal/config"
 
 	"github.com/harvey-withington/uncli/app/uncli"
@@ -42,16 +44,20 @@ type Board struct {
 	Token string
 }
 
-// sessionChatWait bounds how long a starting CLI waits for the page to
-// record which chat its new session is (config.UncliSessionChat).
-const sessionChatWait = 5 * time.Second
+// boardServer is the name sessions know BRUV's board tools by.
+const boardServer = "bruv"
+
+// Describer words a board-tool call in a repo for its permission prompt
+// (boardtools.DescribeCall over that repo's runtime).
+type Describer func(repoID, tool string, args map[string]any) (title, detail string)
 
 // Engine is the server's UNCLI. One that couldn't start still answers
 // Status; a nil Engine is a host that runs none.
 type Engine struct {
-	core   *uncli.Core
-	status Status
-	board  atomic.Pointer[Board]
+	core     *uncli.Core
+	status   Status
+	board    atomic.Pointer[Board]
+	describe atomic.Pointer[Describer]
 }
 
 // RunHook answers a CLI's hook and exits when the program was started
@@ -62,28 +68,29 @@ func RunHook() { uncli.RunHook() }
 // Start runs the engine with its data in <configDir>/uncli, admitting
 // pages whose origin allowOrigin accepts. It never fails: an engine that
 // can't run says why in its Status, so the chat setting can show the
-// reason and cards keep BRUV's own chat.
+// reason and chats keep BRUV's own engine.
 func Start(configDir string, allowOrigin func(origin string, r *http.Request) bool) *Engine {
-	// UNCLI refuses service accounts itself, but its error isn't exported,
-	// so BRUV checks first to tell the user which account and what to do.
-	if a := serviceAccount(); a != "" {
-		slog.Warn("uncli: not started, the server runs as a service account", "account", a)
-		return &Engine{status: Status{Reason: ReasonServiceAccount, Account: a}}
-	}
 	e := &Engine{}
 	core, err := uncli.Start(uncli.Options{
-		DataDir:     filepath.Join(configDir, "uncli"),
-		AllowOrigin: allowOrigin,
-		Name:        "BRUV",
-		Hooks:       true,
-		MCPServers:  e.boardTools,
+		DataDir:        filepath.Join(configDir, "uncli"),
+		AllowOrigin:    allowOrigin,
+		Name:           "BRUV",
+		Hooks:          true,
+		MCPServers:     e.boardTools,
+		HostToolPolicy: e.boardToolPolicy,
 	})
-	if err != nil {
+	var sa *uncli.ServiceAccountError
+	switch {
+	case errors.As(err, &sa):
+		slog.Warn("uncli: not started, the server runs as a service account", "account", sa.Account)
+		e.status = Status{Reason: ReasonServiceAccount, Account: sa.Account}
+	case err != nil:
 		slog.Warn("uncli: not started", "err", err)
-		return &Engine{status: Status{Reason: ReasonFailed, Detail: err.Error()}}
+		e.status = Status{Reason: ReasonFailed, Detail: err.Error()}
+	default:
+		slog.Info("uncli: started", "data", filepath.Join(configDir, "uncli"))
+		e.core, e.status = core, Status{Ready: true}
 	}
-	slog.Info("uncli: started", "data", filepath.Join(configDir, "uncli"))
-	e.core, e.status = core, Status{Ready: true}
 	return e
 }
 
@@ -95,23 +102,99 @@ func (e *Engine) ServeBoard(b Board) {
 	}
 }
 
+// DescribeWith says how to word the permission prompts of board-tool
+// calls, once the server has its repos. Until then prompts carry the
+// tool's summary without the card's name.
+func (e *Engine) DescribeWith(d Describer) {
+	if e != nil {
+		e.describe.Store(&d)
+	}
+}
+
+// repoOf is the repo a session's chat is in: from what the page said when
+// it made the session (chatMeta), or else from BRUV's record of it (a
+// session made before this UNCLI restarted).
+func (e *Engine) repoOf(session string) (string, bool) {
+	if e.core != nil {
+		if repoID, ok := RepoOfMeta(e.core.SessionMeta(session)); ok {
+			return repoID, true
+		}
+	}
+	if chat, found := config.UncliSessionChat(session); found {
+		return chat.RepoID, true
+	}
+	return "", false
+}
+
 // boardTools gives a session the board tools of the repo its chat is in.
 func (e *Engine) boardTools(session string) map[string]uncli.MCPServer {
 	b := e.board.Load()
 	if b == nil {
 		return nil
 	}
-	chat, ok := config.UncliSessionChat(session, sessionChatWait)
+	repoID, ok := e.repoOf(session)
 	if !ok {
 		slog.Warn("uncli: session isn't a BRUV chat, so it gets no board tools", "session", session)
 		return nil
 	}
 	return map[string]uncli.MCPServer{
-		"bruv": {
-			URL:     b.Base + "/repos/" + url.PathEscape(chat.RepoID) + "/mcp",
+		boardServer: {
+			URL:     b.Base + "/repos/" + url.PathEscape(repoID) + "/mcp",
 			Headers: map[string]string{"Authorization": "Bearer " + b.Token, config.UncliChatHeader: session},
 		},
 	}
+}
+
+// boardToolPolicy is BRUV's Chat / Suggest / Edit mode (ai_mode) for its
+// own board tools, asked at each call so a switch applies at once. Reads
+// keep UNCLI's rules. Writes: refused in Chat; in Suggest, UNCLI's
+// approval card asks the user, worded by BRUV (DescribeCall), and Allow
+// runs it; in Edit they run unasked. "This is safe" on the card puts the
+// tool on the user's safe list, after which UNCLI runs it even in
+// Suggest; a refusal always wins. internal/mcpserver/uncli.go refuses
+// Chat-mode writes again on BRUV's side.
+func (e *Engine) boardToolPolicy(call uncli.HostToolCall) uncli.HostDecision {
+	if call.Server != boardServer || !boardtools.IsWrite(call.Tool) {
+		return uncli.HostDecision{}
+	}
+	cfg, err := config.LoadLLMConfig()
+	if err != nil {
+		return uncli.HostDecision{Decision: uncli.PolicyAsk, Prompt: e.prompt(call)}
+	}
+	switch cfg.AIMode {
+	case "chat":
+		return uncli.HostDecision{Decision: uncli.PolicyDeny, Reason: config.UncliChatModeRefusal}
+	case "suggest":
+		return uncli.HostDecision{Decision: uncli.PolicyAsk, Prompt: e.prompt(call)}
+	default:
+		return uncli.HostDecision{Decision: uncli.PolicyAllow}
+	}
+}
+
+// prompt words a call for UNCLI's approval card, naming the card when the
+// session's repo is known.
+func (e *Engine) prompt(call uncli.HostToolCall) *uncli.HostPrompt {
+	var title, detail string
+	if d := e.describe.Load(); d != nil {
+		if repoID, ok := e.repoOf(call.Session); ok {
+			title, detail = (*d)(repoID, call.Tool, call.Args)
+		}
+	}
+	if title == "" {
+		title, detail = boardtools.DescribeCall(nil, call.Tool, call.Args)
+	}
+	return &uncli.HostPrompt{Title: title, Detail: detail}
+}
+
+// RepoOfMeta reads the repo from a session's meta, as the pages write it
+// (shared/uncliChat.chatMeta): "bruv/<repo id>/card/<card id>" or
+// "bruv/<repo id>/project/<brand>/<stream>/<project>".
+func RepoOfMeta(meta string) (string, bool) {
+	parts := strings.Split(meta, "/")
+	if len(parts) < 4 || parts[0] != "bruv" || parts[1] == "" {
+		return "", false
+	}
+	return parts[1], true
 }
 
 // Status says whether the engine runs, and why not.

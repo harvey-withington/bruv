@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { nav, board, prefs as prefsStore, loadBoard, loadCardTypes, loadGlobalTagColors, setupAgentEventListeners } from './lib/store.svelte'
+  import { nav, board, prefs as prefsStore, loadCardTypes, loadGlobalTagColors, setupAgentEventListeners } from './lib/store.svelte'
   import MentionPicker from './components/MentionPicker.svelte'
   import { mentionHost, selectMention, closeMentionPicker } from './lib/mentions.svelte'
   import { onMount, onDestroy } from 'svelte'
@@ -477,18 +477,12 @@
                 <UncliChat
                   hosted
                   visible={sidePanelOpen}
-                  chatKey={`${nav.brandSlug}/${nav.streamSlug}/${nav.projectSlug}`}
-                  title={nav.projectName || t('chat.project_title')}
+                  chat={{ kind: 'project', brand: nav.brandSlug!, stream: nav.streamSlug!, project: nav.projectSlug! }}
                   sessions={{
                     get: () => GetProjectUncliSession(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!),
                     set: (s) => SetProjectUncliSession(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, s),
                   }}
                   context={() => projectTurnContext({ brand: nav.brandName, stream: nav.streamName, project: nav.projectName })}
-                  history={{
-                    load: () => LoadProjectChatHistory(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!),
-                    apply: (msgID, ids) => ApplyProjectPendingEdits(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, msgID, ids),
-                  }}
-                  onEditsApplied={() => loadBoard(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, { silent: true })}
                 />
                 {:else}
                 <ChatSection

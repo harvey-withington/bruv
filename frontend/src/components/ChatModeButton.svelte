@@ -3,9 +3,9 @@
   // to the next mode and saves it (ai_mode, one setting for BRUV's own
   // chat and the UNCLI engine). A failed save goes back and says so.
   import { MessageCircle, PencilLine, ListChecks } from 'lucide-svelte'
-  import { GetLLMConfig, SetLLMConfig } from '@shared/api'
   import { nextAIMode, type AIMode } from '@shared/aiMode'
   import { errorDetail } from '@shared/errors'
+  import { saveAIMode } from '../lib/aiModeSave'
   import { showToast } from '../lib/toast.svelte'
   import { t } from '../lib/i18n.svelte'
 
@@ -15,8 +15,7 @@
     const previous = mode
     mode = nextAIMode(mode)
     try {
-      const cfg = await GetLLMConfig()
-      await SetLLMConfig({ ...cfg, ai_mode: mode })
+      await saveAIMode(mode)
     } catch (e) {
       mode = previous
       showToast(t('chat.mode_save_failed', { detail: errorDetail(e) }), 'error')

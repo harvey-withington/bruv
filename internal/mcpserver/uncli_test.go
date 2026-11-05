@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"bruv/core/supervisor"
 	"bruv/internal/config"
 )
 
@@ -44,8 +43,11 @@ func setAIMode(t *testing.T, mode string) {
 	}
 }
 
-// TestUncliChatModes: a UNCLI chat's board writes follow BRUV's Chat /
-// Suggest / Edit mode; reads always run; other MCP clients are unaffected.
+// TestUncliChatModes: BRUV's own check behind UNCLI's (the engine's
+// HostToolPolicy). A UNCLI chat's writes are refused in Chat mode; in
+// Suggest and Edit a call that reaches BRUV was allowed (by the user, on
+// UNCLI's approval card, in Suggest) and runs. Reads always run, and
+// other MCP clients are unaffected.
 func TestUncliChatModes(t *testing.T) {
 	h, sup := newTestHandler(t)
 	config.SetConfigDir(t.TempDir())
@@ -53,9 +55,6 @@ func TestUncliChatModes(t *testing.T) {
 	rt := sup.Resolve(testRepoID)
 	card, err := rt.CreateCard("task", "Before")
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err := config.SetChatUncliSession(testRepoID, card.ID, "s1"); err != nil {
 		t.Fatal(err)
 	}
 	title := func() string {
@@ -69,7 +68,6 @@ func TestUncliChatModes(t *testing.T) {
 		return callAs(t, h, session, "set_card_title", map[string]any{"card_id": card.ID, "title": to})
 	}
 
-	// Chat: writes refused, reads run, other clients unaffected.
 	setAIMode(t, "chat")
 	if text, isErr := retitle("s1", "Chat"); !isErr || !strings.Contains(text, "Chat mode") || title() != "Before" {
 		t.Errorf("chat mode write: %q, isErr=%v, title=%q", text, isErr, title())
@@ -81,31 +79,10 @@ func TestUncliChatModes(t *testing.T) {
 		t.Errorf("another MCP client was held to chat mode: %q, title=%q", text, title())
 	}
 
-	// Suggest: staged on the card's chat, applied only when accepted.
-	setAIMode(t, "suggest")
-	if text, isErr := retitle("s1", "Suggested"); isErr || !strings.Contains(text, "Staged") || title() != "Other client" {
-		t.Fatalf("suggest mode write: %q, isErr=%v, title=%q", text, isErr, title())
-	}
-	cf, err := rt.LoadChatHistory(card.ID)
-	if err != nil || len(cf.Messages) != 1 || len(cf.Messages[0].PendingEdits) != 1 || cf.Messages[0].Content != supervisor.UncliStagedContent {
-		t.Fatalf("staged history = %+v, %v", cf, err)
-	}
-	msg := cf.Messages[0]
-	if _, err := rt.ApplyPendingEdits(card.ID, msg.ID, []string{msg.PendingEdits[0].ID}); err != nil {
-		t.Fatal(err)
-	}
-	if title() != "Suggested" {
-		t.Errorf("accepted edit not applied: title=%q", title())
-	}
-
-	// Suggest from a session that's no longer a BRUV chat: refused.
-	if text, isErr := retitle("gone", "Nowhere"); !isErr || !strings.Contains(text, "no longer") {
-		t.Errorf("unlinked suggest: %q, isErr=%v", text, isErr)
-	}
-
-	// Edit: writes run.
-	setAIMode(t, "edit")
-	if text, isErr := retitle("s1", "Edited"); isErr || title() != "Edited" {
-		t.Errorf("edit mode write: %q, isErr=%v, title=%q", text, isErr, title())
+	for _, mode := range []string{"suggest", "edit"} {
+		setAIMode(t, mode)
+		if text, isErr := retitle("s1", mode); isErr || title() != mode {
+			t.Errorf("%s mode write: %q, isErr=%v, title=%q", mode, text, isErr, title())
+		}
 	}
 }

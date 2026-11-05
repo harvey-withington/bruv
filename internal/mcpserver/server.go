@@ -265,7 +265,7 @@ func callTool(rt *supervisor.Runtime, uncliSession string, params json.RawMessag
 		}
 	}
 	if uncliSession != "" {
-		return callAsUncliChat(rt, uncliSession, p.Name, p.Arguments)
+		return callAsUncliChat(rt, p.Name, p.Arguments)
 	}
 	return boardtools.Call(rt, p.Name, p.Arguments)
 }

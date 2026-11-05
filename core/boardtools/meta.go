@@ -75,6 +75,13 @@ var meta = map[string]toolMeta{
 	"unpin_card":           {effectReplace, scopeCardAndLocation}, // unpinning the last pin takes the card off every board
 	"list_cards":           {effectRead, scopeLocation},
 	"recent_cards":         {effectRead, scopeResults},
+	"move_card":            {effectReplace, scopeCardAndLocation},
+	"update_project":       {effectReplace, scopeLocation},
+	"create_project_tag":   {effectAdd, scopeLocation},
+	"update_project_tag":   {effectReplace, scopeLocation},
+	"delete_project_tag":   {effectReplace, scopeLocation},
+	"update_category":      {effectReplace, scopeLocation},
+	"delete_category":      {effectReplace, scopeLocation},
 	"get_card_agent":       {effectRead, scopeCard},
 	"configure_card_agent": {effectReplace, scopeCard},
 	"run_card_agent":       {effectRunAgent, scopeCard},

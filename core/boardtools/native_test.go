@@ -73,7 +73,7 @@ func TestNoSurfaceRedefinesANativeTool(t *testing.T) {
 	}
 	for surface, defs := range map[string][]llm.ToolDef{
 		"card chat":    llm.CardTools(nil),
-		"project chat": llm.ProjectTools(nil, nil),
+		"project chat": llm.ProjectTools(nil),
 		"agent":        llm.AgentBuiltinTools(),
 	} {
 		for _, d := range defs {

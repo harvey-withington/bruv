@@ -58,6 +58,13 @@ var wantHints = map[string]hints{
 	"configure_card_agent": replaceHints,
 	"remove_card_tags":     replaceHints,
 	"unpin_card":           replaceHints,
+	"move_card":            replaceHints,
+	"update_project":       replaceHints,
+	"update_project_tag":   replaceHints,
+	"delete_project_tag":   replaceHints,
+	"update_category":      replaceHints,
+	"delete_category":      replaceHints,
+	"create_project_tag":   addHints,
 
 	// The agent's own tools may reach outside the board.
 	"run_card_agent": {destructive: true, openWorld: true},

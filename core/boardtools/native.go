@@ -242,6 +242,21 @@ func Summary(name string, args map[string]any, result string) string {
 	case "add_checklist_items":
 		items, _ := args["items"].([]any)
 		return fmt.Sprintf("Added %d item(s) to %s", len(items), argStr(args, "checklist"))
+	case "move_card":
+		return "Moved to " + firstNonEmpty(argStr(args, "to_category_name"), "another category")
+	case "update_project":
+		return "Updated the project" + changedFields(args, "name", "description", "icon")
+	case "create_project_tag":
+		return "Created tag: " + argStr(args, "name")
+	case "update_project_tag":
+		return "Updated tag " + firstNonEmpty(argStr(args, "tag_name"), argStr(args, "tag_id")) + changedFields(args, "name", "color", "icon")
+	case "delete_project_tag":
+		return "Deleted tag " + firstNonEmpty(argStr(args, "tag_name"), argStr(args, "tag_id"))
+	case "update_category":
+		return "Updated category " + firstNonEmpty(argStr(args, "category_name"), argStr(args, "category_id")) +
+			changedFields(args, "name", "description", "icon", "accepted_types")
+	case "delete_category":
+		return "Deleted category " + firstNonEmpty(argStr(args, "category_name"), argStr(args, "category_id"))
 	}
 	return strings.ReplaceAll(name, "_", " ")
 }
@@ -280,6 +295,20 @@ func updateCardSummary(args map[string]any) string {
 		return "Updated the card"
 	}
 	return "Updated " + strings.Join(parts, "; ")
+}
+
+// changedFields is ": name, icon" for the keys a call passes, else "".
+func changedFields(args map[string]any, keys ...string) string {
+	var given []string
+	for _, k := range keys {
+		if _, ok := args[k]; ok {
+			given = append(given, strings.ReplaceAll(k, "_", " "))
+		}
+	}
+	if len(given) == 0 {
+		return ""
+	}
+	return ": " + strings.Join(given, ", ")
 }
 
 func firstNonEmpty(a, b string) string {

@@ -24,9 +24,10 @@ comment, attach files, and set up and run card agents.
   Tailscale (or any path that reaches the backend).
 - **Same tools as BRUV's own AI.** The tool set is BRUV's native board tools —
   the ones card chat, project chat and agents use — over the whole repo. Tools
-  create, read, update, file and comment; there are no delete tools. Edits can
-  still overwrite content (`set_card_description`, `update_card`), drop tags
-  (`remove_card_tags`) or unfile a card (`unpin_card`).
+  create, read, update, file and comment. Nothing deletes a card; the only
+  deletes are a project's categories (their cards are unpinned) and tags from
+  its tag vocabulary. Edits can also overwrite content (`set_card_description`,
+  `update_card`), drop tags (`remove_card_tags`) or unfile a card (`unpin_card`).
 - **Agents:** the connector can read, configure (goal, schedule, granted tools,
   model, budgets) and run card agents. An agent it configures runs on this BRUV
   backend with your LLM accounts and whatever tools it is granted — treat the
@@ -50,6 +51,10 @@ comment, attach files, and set up and run card agents.
 | `get_card_attachment` | Download an attachment by `attachment_id` or `name`. Text files return as a text block (specs land straight in context); binary as an embedded base64 resource; over 4 MB you get metadata plus a 5-minute signed URL instead. |
 | `add_card_comment` / `list_card_comments` | Post or read comments — the natural place for an agent to record an outcome without touching the card's content. |
 | `pin_card` / `unpin_card` | File a card into a category (parents auto-created) or remove it from one (nothing created; the card is kept). |
+| `move_card` | Move a card between two categories of a project (destination by id, or by name for one just created). |
+| `update_project` | Change a project's name, description or icon. |
+| `create_project_tag` / `update_project_tag` / `delete_project_tag` | A project's tag vocabulary (tags by id or name). Cards keep their tag strings. |
+| `update_category` / `delete_category` | Change a category's name, description, icon or accepted card types; delete one (its cards are unpinned; a project keeps at least one). A name two categories share is refused — pass the id. |
 | `list_cards` | Cards on a project board grouped by category in board order — compact summaries; `get_card` for content. |
 | `recent_cards` | Most recently updated cards — find what the user just created. |
 | `update_card` | Change title, due date, tags and block values in one call (blocks matched by key or label; a new key adds a text block). |
@@ -66,9 +71,9 @@ freely and ask before writes. They are hints, not guarantees.
 | Kind | Tools | `readOnly` | `destructive` | `idempotent` | `openWorld` |
 |---|---|---|---|---|---|
 | Read | `list_*`, `get_card`, `get_card_attachment`, `get_card_agent`, `search_cards`, `recent_cards` | true | false | true | false |
-| Add | `create_*`, `add_card_attachment`, `add_card_blocks`, `add_checklist_items`, `add_card_comment` | false | false | false | false |
+| Add | `create_*` (incl. `create_project_tag`), `add_card_attachment`, `add_card_blocks`, `add_checklist_items`, `add_card_comment` | false | false | false | false |
 | Add once | `add_card_tags`, `pin_card` | false | false | true | false |
-| Replace or remove | `update_card`, `set_card_*`, `configure_card_agent`, `remove_card_tags`, `unpin_card` | false | true | true | false |
+| Replace or remove | `update_card`, `set_card_*`, `configure_card_agent`, `remove_card_tags`, `unpin_card`, `move_card`, `update_project`, `update_project_tag`, `delete_project_tag`, `update_category`, `delete_category` | false | true | true | false |
 | Run an agent | `run_card_agent` | false | true | false | true |
 
 Overwriting a value counts as destructive, following the spec, even though
@@ -143,6 +148,5 @@ A bad/expired token returns `401`; an unknown/disabled repo id returns `404`.
 
 ## Not in v1
 
-Delete and reorder tools (filing is covered by `pin_card`/`unpin_card`; a move is
-an unpin plus a pin), an optional single "all-repos" connector for
+Deleting cards, projects or the hierarchy above them, and reordering, an optional single "all-repos" connector for
 cross-repo capture, MCP resources/prompts, OAuth, and repo-scoped tokens.

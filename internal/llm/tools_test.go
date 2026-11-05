@@ -129,7 +129,7 @@ func TestWebToolsExposedToChat(t *testing.T) {
 	// Contract test — card and project chat must expose web_fetch and
 	// web_search, but never http_request (that's agent-only by design).
 	cards := CardTools(nil)
-	projects := ProjectTools(nil, nil)
+	projects := ProjectTools(nil)
 	for _, set := range []struct {
 		name  string
 		tools []ToolDef

@@ -16,8 +16,18 @@ import (
 // promptVerbs turns Summary's past tense into a prompt's imperative.
 var promptVerbs = map[string]string{
 	"Updated": "Update", "Added": "Add", "Created": "Create", "Removed": "Remove",
-	"Cleared": "Clear", "Configured": "Configure", "Set": "Set",
+	"Cleared": "Clear", "Configured": "Configure", "Set": "Set", "Moved": "Move", "Deleted": "Delete",
 }
+
+// projectTools are the tools whose brand/stream/project only say which
+// project they change (a project chat fills its own in), not a change.
+var projectTools = func() map[string]bool {
+	m := map[string]bool{}
+	for _, t := range projectDefs("") {
+		m[t.Name] = true
+	}
+	return m
+}()
 
 // DescribeCall needs b only to name the card; a nil b leaves it out.
 func DescribeCall(b Board, name string, args map[string]any) (title, detail string) {
@@ -54,9 +64,10 @@ func changeLines(name string, args map[string]any) []string {
 	}
 	keys := make([]string, 0, len(args))
 	for k := range args {
-		if k != "card_id" {
-			keys = append(keys, k)
+		if k == "card_id" || (projectTools[name] && (k == "brand" || k == "stream" || k == "project")) {
+			continue
 		}
+		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	for _, k := range keys {

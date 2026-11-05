@@ -151,22 +151,10 @@ func cardTypeDesc(cardTypes []string) string {
 		". Pass one of these (labels are matched too); unknown types are refused."
 }
 
-// ProjectTools returns the tool definitions for project-level AI chat.
-// The LLM can create cards, bulk-tag, move cards between categories, etc.
-func ProjectTools(cardTypes []string, categories []map[string]string) []ToolDef {
-	// accepted_types keeps a hard enum — restricting a category only makes
-	// sense against EXISTING types. card_type params don't, so a type made
-	// by create_card_type in the same turn still validates at apply time.
-	typeIDs := make([]any, len(cardTypes))
-	for i, t := range cardTypes {
-		typeIDs[i] = t
-	}
-
-	catIDs := make([]any, len(categories))
-	for i, c := range categories {
-		catIDs[i] = c["id"]
-	}
-
+// ProjectTools returns project chat's own tool definitions: the batch
+// edits. Everything else it does (moving cards, the project, its tags and
+// categories) is a native board tool, added alongside by the chat runtime.
+func ProjectTools(cardTypes []string) []ToolDef {
 	tools := []ToolDef{
 		{
 			Name:        "add_tags_to_cards",
@@ -189,32 +177,6 @@ func ProjectTools(cardTypes []string, categories []map[string]string) []ToolDef 
 			},
 		},
 		{
-			Name:        "move_card",
-			Description: "Move a card to a different category within this project. Identify the destination by `to_category_id` (preferred) or `to_category_name` (use this when moving into a category you just created in the same conversation — its ID won't be known yet). The source is auto-detected from the card's current pin and does not need to be supplied.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"card_id": map[string]any{
-						"type":        "string",
-						"description": "ID of the card to move",
-					},
-					"to_category_id": map[string]any{
-						"type":        "string",
-						"description": "ID of the destination category (preferred)",
-					},
-					"to_category_name": map[string]any{
-						"type":        "string",
-						"description": "Name of the destination category — fallback for when `to_category_id` is unknown (e.g. you just staged its creation)",
-					},
-					"from_category_id": map[string]any{
-						"type":        "string",
-						"description": "Optional. Source category ID. If omitted, the card's current category in this project is used.",
-					},
-				},
-				"required": []string{"card_id"},
-			},
-		},
-		{
 			Name:        "update_cards",
 			Description: "Update many cards in a single call. Each entry is a partial update for one card. All fields per entry are optional except `card_id`. Prefer this over many `update_card` calls when editing several cards at once. The result lists what changed and what failed per card.",
 			Parameters: map[string]any{
@@ -227,152 +189,6 @@ func ProjectTools(cardTypes []string, categories []map[string]string) []ToolDef 
 					},
 				},
 				"required": []string{"updates"},
-			},
-		},
-
-		// --- Project metadata ---
-		{
-			Name:        "update_project",
-			Description: "Update the current project's name, description, or icon. All fields optional — only the supplied ones change. Cannot change which brand/stream the project belongs to.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"name": map[string]any{
-						"type":        "string",
-						"description": "New project name (optional)",
-					},
-					"description": map[string]any{
-						"type":        "string",
-						"description": "New project description (optional)",
-					},
-					"icon": map[string]any{
-						"type":        "string",
-						"description": "Icon identifier — Lucide icon name, or a `data:image/...;base64,...` data URL for a custom image, optionally prefixed with `c:#rrggbb:` to colorize. Empty string clears the icon. (optional)",
-					},
-				},
-			},
-		},
-
-		// --- Project tags (the project's tag vocabulary) ---
-		{
-			Name:        "create_project_tag",
-			Description: "Define a new tag in this project's tag vocabulary. The name is also the string used on cards. Color is auto-assigned from the palette unless specified.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"name": map[string]any{
-						"type":        "string",
-						"description": "Tag name (also the string used on cards)",
-					},
-					"color": map[string]any{
-						"type":        "string",
-						"description": "Hex color (e.g. `#61bd4f`). Optional — auto-assigned from palette if omitted.",
-					},
-					"icon": map[string]any{
-						"type":        "string",
-						"description": "Icon identifier (Lucide name or data URL). Optional.",
-					},
-				},
-				"required": []string{"name"},
-			},
-		},
-		{
-			Name:        "update_project_tag",
-			Description: "Rename a tag, change its color, or set its icon. Identify the tag by either `tag_id` (preferred) or `tag_name`. All update fields optional.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"tag_id": map[string]any{
-						"type":        "string",
-						"description": "ID of the tag to update (preferred)",
-					},
-					"tag_name": map[string]any{
-						"type":        "string",
-						"description": "Name of the tag to update — used as a fallback when `tag_id` is unknown",
-					},
-					"name": map[string]any{
-						"type":        "string",
-						"description": "New name (optional). Renaming a tag here does NOT rename the tag string on existing cards.",
-					},
-					"color": map[string]any{
-						"type":        "string",
-						"description": "New hex color (optional)",
-					},
-					"icon": map[string]any{
-						"type":        "string",
-						"description": "New icon, or empty string to clear (optional)",
-					},
-				},
-			},
-		},
-		{
-			Name:        "delete_project_tag",
-			Description: "Delete a tag from this project's tag vocabulary. Use this for removing unused tags. Identify by `tag_id` (preferred) or `tag_name`. This does NOT remove the tag string from any cards still using it — use `update_cards` with `tags_to_remove` first if needed.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"tag_id": map[string]any{
-						"type":        "string",
-						"description": "ID of the tag to delete (preferred)",
-					},
-					"tag_name": map[string]any{
-						"type":        "string",
-						"description": "Name of the tag to delete — used as a fallback when `tag_id` is unknown",
-					},
-				},
-			},
-		},
-
-		// --- Categories ---
-		{
-			Name:        "update_category",
-			Description: "Update a category's name, description, icon, or accepted card types. Identify by `category_id` (preferred) or `category_name`. All update fields optional.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"category_id": map[string]any{
-						"type":        "string",
-						"description": "ID of the category to update (preferred)",
-					},
-					"category_name": map[string]any{
-						"type":        "string",
-						"description": "Name of the category — fallback for when `category_id` is unknown (e.g. you just staged its creation)",
-					},
-					"name": map[string]any{
-						"type":        "string",
-						"description": "New name (optional)",
-					},
-					"description": map[string]any{
-						"type":        "string",
-						"description": "New description (optional)",
-					},
-					"icon": map[string]any{
-						"type":        "string",
-						"description": "New icon, or empty string to clear (optional)",
-					},
-					"accepted_types": map[string]any{
-						"type":        "array",
-						"items":       map[string]any{"type": "string", "enum": typeIDs},
-						"description": "Restrict the category to these card types. Empty array means accept all types. (optional)",
-					},
-				},
-			},
-		},
-		{
-			Name:        "delete_category",
-			Description: "Delete a category. Cards pinned to this category will be unpinned (moved to the inbox). The project must have at least one category remaining. Identify by `category_id` (preferred) or `category_name`.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"category_id": map[string]any{
-						"type":        "string",
-						"description": "ID of the category to delete (preferred)",
-					},
-					"category_name": map[string]any{
-						"type":        "string",
-						"description": "Name of the category — fallback for when `category_id` is unknown",
-					},
-				},
 			},
 		},
 	}

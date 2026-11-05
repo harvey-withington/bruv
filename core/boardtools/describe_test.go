@@ -32,6 +32,17 @@ func TestDescribeCall(t *testing.T) {
 		t.Errorf("set_card_title = %q / %q", title, detail)
 	}
 
+	// A project tool: its project isn't a change.
+	title, detail = boardtools.DescribeCall(rt, "move_card", map[string]any{
+		"card_id": id, "to_category_name": "Booked", "brand": "home", "stream": "trips", "project": "winter",
+	})
+	if title != "Move to Booked on “Trip Planning Melbourne”" || detail != "to_category_name: Booked" {
+		t.Errorf("move_card = %q / %q", title, detail)
+	}
+	if title, _ = boardtools.DescribeCall(nil, "delete_category", map[string]any{"category_name": "Old"}); title != "Delete category Old" {
+		t.Errorf("delete_category = %q", title)
+	}
+
 	// Without a board, and with a long value: no card name, a short line.
 	title, detail = boardtools.DescribeCall(nil, "set_card_description", map[string]any{"card_id": id, "description": strings.Repeat("word ", 100)})
 	if title != "Set the description" || len([]rune(detail)) > 160 || !strings.HasSuffix(detail, "…") {

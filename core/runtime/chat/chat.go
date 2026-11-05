@@ -344,13 +344,9 @@ func (rt *Runtime) SendProject(brandSlug, streamSlug, projectSlug, userMessage, 
 	// Build tool definitions. Card types come from the CATALOG (built-ins
 	// + user types), not the schema registry — the registry misses every
 	// user-created type (field report 2026-08-14).
-	var catMaps []map[string]string
-	for _, cat := range categories {
-		catMaps = append(catMaps, map[string]string{"id": cat.ID, "breadcrumb": cat.Name})
-	}
-	// Project chat's own tools (batch edits, project metadata, tags,
-	// categories) plus the native board tools, scoped to this project.
-	toolDefs := append(llm.ProjectTools(catalogTypeIDs(rt), catMaps), rt.deps.Tools().NativeDefs(true)...)
+	// Project chat's own tools (batch edits) plus the native board tools,
+	// scoped to this project.
+	toolDefs := append(llm.ProjectTools(catalogTypeIDs(rt)), rt.deps.Tools().NativeDefs(true)...)
 
 	// Workspace tools, offered only when a workspace is attached and gated
 	// by the session context level: `all` → everything incl. file reads;

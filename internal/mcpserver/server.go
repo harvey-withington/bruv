@@ -14,8 +14,8 @@
 //     repo. See plan/bruv-mcp-server-for-third-party-agents-*.md.
 //   - The tools are BRUV's native tool set (core/boardtools) — the same
 //     registry card chat, project chat and agents call in-process. This
-//     package is only the MCP transport over it. No destructive
-//     operations in v1.
+//     package is only the MCP transport over it. Nothing deletes a card
+//     (docs/mcp-server.md).
 //
 // Auth is handled upstream: the route is mounted behind the same
 // requireAuth(device-token) wrapper as the rest of /repos/<id>/...

@@ -55,6 +55,9 @@ comment, attach files, and set up and run card agents.
 | `update_project` | Change a project's name, description or icon. |
 | `create_project_tag` / `update_project_tag` / `delete_project_tag` | A project's tag vocabulary (tags by id or name). Cards keep their tag strings. |
 | `update_category` / `delete_category` | Change a category's name, description, icon or accepted card types; delete one (its cards are unpinned; a project keeps at least one). A name two categories share is refused — pass the id. |
+| `workspace_index` / `workspace_status` / `workspace_read_file` | Read a project's workspace: its file tree and summary, where its files come from, one text file's content (truncated if long). Read-only. |
+| `read_card_file` | Read a file a card names in its Workspace Files block (or one inside a folder it names) — nothing else. |
+| `template_list` / `template_params` | The vault's folder templates and a template's parameters. Creating a folder from one stays the user's, in the app. |
 | `list_cards` | Cards on a project board grouped by category in board order — compact summaries; `get_card` for content. |
 | `recent_cards` | Most recently updated cards — find what the user just created. |
 | `update_card` | Change title, due date, tags and block values in one call (blocks matched by key or label; a new key adds a text block). |
@@ -70,7 +73,7 @@ freely and ask before writes. They are hints, not guarantees.
 
 | Kind | Tools | `readOnly` | `destructive` | `idempotent` | `openWorld` |
 |---|---|---|---|---|---|
-| Read | `list_*`, `get_card`, `get_card_attachment`, `get_card_agent`, `search_cards`, `recent_cards` | true | false | true | false |
+| Read | `list_*`, `get_card`, `get_card_attachment`, `get_card_agent`, `search_cards`, `recent_cards`, `workspace_*`, `read_card_file`, `template_*` | true | false | true | false |
 | Add | `create_*` (incl. `create_project_tag`), `add_card_attachment`, `add_card_blocks`, `add_checklist_items`, `add_card_comment` | false | false | false | false |
 | Add once | `add_card_tags`, `pin_card` | false | false | true | false |
 | Replace or remove | `update_card`, `set_card_*`, `configure_card_agent`, `remove_card_tags`, `unpin_card`, `move_card`, `update_project`, `update_project_tag`, `delete_project_tag`, `update_category`, `delete_category` | false | true | true | false |

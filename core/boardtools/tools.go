@@ -61,6 +61,13 @@ var toolHandlers = map[string]toolFunc{
 	"delete_project_tag": hDeleteProjectTag,
 	"update_category":    hUpdateCategory,
 	"delete_category":    hDeleteCategory,
+	// Workspaces (read-only)
+	"workspace_index":     hWorkspaceIndex,
+	"workspace_status":    hWorkspaceStatus,
+	"workspace_read_file": hWorkspaceReadFile,
+	"template_list":       hTemplateList,
+	"template_params":     hTemplateParams,
+	"read_card_file":      hReadCardFile,
 	// Card agents
 	"get_card_agent":       hGetCardAgent,
 	"configure_card_agent": hConfigureCardAgent,
@@ -522,6 +529,7 @@ func Defs(rt Board, repoName string) []mcp.Tool {
 		},
 	}
 	tools = append(tools, projectDefs(board)...)
+	tools = append(tools, workspaceDefs(board)...)
 	// Behaviour hints come from the one classification table (meta.go),
 	// so they can't drift from what Suggest mode treats as a write.
 	for i := range tools {

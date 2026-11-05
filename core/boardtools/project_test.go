@@ -114,6 +114,15 @@ func TestSuggestedMoveApplies(t *testing.T) {
 	}
 }
 
+// A card reads only the files its Workspace Files block names.
+func TestReadCardFileOnlyTheCardsFiles(t *testing.T) {
+	rt := newBoard(t)
+	id, _ := projectCard(t, rt, "Notes")
+	if _, text, isErr := call(t, rt, nil, "read_card_file", map[string]any{"card_id": id, "path": "secrets.md"}); !isErr || !strings.Contains(text, "names no workspace files") {
+		t.Errorf("a card naming no files: %s", text)
+	}
+}
+
 // Over MCP (no scope) the project is named.
 func TestProjectToolsNeedAProjectUnscoped(t *testing.T) {
 	rt := newBoard(t)

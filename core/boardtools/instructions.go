@@ -23,6 +23,7 @@ Tools, one line each:
 - Change a card: set_card_title; set_card_description; set_card_type; set_card_due_date; add_card_tags / remove_card_tags; add_card_blocks (new blocks of any type, checklists included); add_checklist_items (more items on a checklist the card already has); set_card_fields (fill the card type's own fields by key); update_card (several of title, due date, tags and block values in one call).
 - File: pin_card (into a category; a card can be in several); unpin_card; move_card (from one of a project's categories to another).
 - Projects: update_project (name, description, icon); create_project_tag, update_project_tag, delete_project_tag (the project's tag vocabulary; tagging cards is add_card_tags); update_category, delete_category (only when asked).
+- Workspaces (read-only): workspace_index (a project's files), workspace_status, workspace_read_file; read_card_file (a file the card names in its Workspace Files block); template_list, template_params (folder templates; the user creates folders from them in the app).
 - Attachments and comments: add_card_attachment, get_card_attachment; add_card_comment, list_card_comments.
 - Agents: get_card_agent, configure_card_agent, run_card_agent.
 

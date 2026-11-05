@@ -1,6 +1,9 @@
 package llm
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // builtinAgentToolNames are the agent-only built-ins (see AgentBuiltinTools).
 var builtinAgentToolNames = []string{"web_fetch", "web_search", "notify", "update_self", "http_request"}
@@ -268,12 +271,12 @@ func cardUpdateParameters(cardTypes []string, forArrayItem bool) map[string]any 
 	return schema
 }
 
-// WithoutTool returns defs minus the named tool — how card chat drops
+// WithoutTool returns defs minus the named tools — how card chat drops
 // suggest_pin for a card that is already filed. Order is preserved.
-func WithoutTool(defs []ToolDef, name string) []ToolDef {
+func WithoutTool(defs []ToolDef, names ...string) []ToolDef {
 	out := make([]ToolDef, 0, len(defs))
 	for _, d := range defs {
-		if d.Name != name {
+		if !slices.Contains(names, d.Name) {
 			out = append(out, d)
 		}
 	}

@@ -7,6 +7,7 @@ package supervisor
 import (
 	"bruv/core/boardtools"
 	"bruv/core/runtime/tools"
+	workspacesvc "bruv/core/services/workspace"
 	"bruv/internal/llm"
 	"bruv/internal/model"
 )
@@ -20,6 +21,9 @@ func (r *Runtime) SchemaBlocks(cardType string) []model.Block {
 	}
 	return r.registry.SchemaToBlocks(cardType)
 }
+
+// WorkspaceService is the workspace service, for the workspace tools.
+func (r *Runtime) WorkspaceService() *workspacesvc.Service { return r.Workspace }
 
 type nativeTools struct{ r *Runtime }
 

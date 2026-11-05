@@ -523,13 +523,12 @@ type cardToolHandler func(d *Dispatcher, cardID string, card *model.Card, tc llm
 // those switches do mostly-trivial PendingEdit wrapping while this
 // one ran the real 400-line card-mutation logic the audit called out.
 var cardToolHandlers = map[string]cardToolHandler{
-	"set_fields":     (*Dispatcher).toolSetFields,
-	"update_blocks":  (*Dispatcher).toolSetFields, // alias — same handler
-	"add_field":      (*Dispatcher).toolAddField,
-	"suggest_pin":    (*Dispatcher).toolSuggestPin,
-	"web_fetch":      (*Dispatcher).toolWeb,
-	"web_search":     (*Dispatcher).toolWeb,
-	"read_card_file": (*Dispatcher).toolReadCardFile,
+	"set_fields":    (*Dispatcher).toolSetFields,
+	"update_blocks": (*Dispatcher).toolSetFields, // alias — same handler
+	"add_field":     (*Dispatcher).toolAddField,
+	"suggest_pin":   (*Dispatcher).toolSuggestPin,
+	"web_fetch":     (*Dispatcher).toolWeb,
+	"web_search":    (*Dispatcher).toolWeb,
 }
 
 // ExecuteCard runs a single tool and returns (result string, action record, pin suggestion).
@@ -750,10 +749,6 @@ func (d *Dispatcher) ExecuteProject(tc llm.ToolCall, scope ProjectChatScope) (st
 	}
 	if result, action, ok := RunWebTool(tc); ok {
 		return result, action
-	}
-	// Workspace tools are read-only and project-scoped — shared handler.
-	if IsWorkspaceTool(tc.Name) {
-		return d.execWorkspaceTool(tc, scope)
 	}
 	switch tc.Name {
 	case "add_tags_to_cards":
@@ -1006,12 +1001,6 @@ func (d *Dispatcher) StageProject(tc llm.ToolCall, scope ProjectChatScope) (stri
 	}
 	if result, _, ok := RunWebTool(tc); ok {
 		return result, nil // read-only: runs even in Suggest mode
-	}
-	// Read-only workspace tools execute directly even in suggest mode —
-	// same treatment as web_fetch/web_search below: nothing to stage.
-	if IsWorkspaceTool(tc.Name) {
-		result, _ := d.execWorkspaceTool(tc, scope)
-		return result, nil
 	}
 	inScope := func(id string) bool {
 		if scope.CardIDs == nil {

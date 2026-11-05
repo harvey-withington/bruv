@@ -16,7 +16,7 @@ var internalRuntimeMethods = []string{
 	"Prompts", "Repo", "SchemaRegistry", "Tools", "Watcher",
 	"ResolveAttachment", "WorkspaceGitServeDir", "PresentCardJSON",
 	"ListCategoryCards", "ReadCardAttachment",
-	"SchemaBlocks", "StageUncliEdit",
+	"SchemaBlocks", "StageUncliEdit", "WorkspaceService",
 }
 
 // internalMachineMethods are exported *MachineService methods that

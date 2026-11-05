@@ -42,7 +42,11 @@ const GROUPS: { key: string; titleKey: string; ids: string[] }[] = [
   { key: 'self', titleKey: 'agent.tool_group_self', ids: ['update_self', 'notify'] },
   {
     key: 'read', titleKey: 'agent.tool_group_read',
-    ids: ['get_card', 'search_cards', 'list_cards', 'recent_cards', 'list_categories', 'list_card_types', 'list_card_comments', 'get_card_attachment', 'get_card_agent'],
+    ids: ['get_card', 'search_cards', 'list_cards', 'recent_cards', 'list_categories', 'list_card_types', 'list_card_comments', 'get_card_attachment', 'get_card_agent', 'read_card_file'],
+  },
+  {
+    key: 'workspace', titleKey: 'agent.tool_group_workspace',
+    ids: ['workspace_index', 'workspace_status', 'workspace_read_file', 'template_list', 'template_params'],
   },
   {
     key: 'write', titleKey: 'agent.tool_group_write',

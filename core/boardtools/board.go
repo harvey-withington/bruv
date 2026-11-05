@@ -10,6 +10,7 @@ import (
 	"bruv/core/services/card"
 	"bruv/core/services/catalog"
 	projectsvc "bruv/core/services/project"
+	workspacesvc "bruv/core/services/workspace"
 	"bruv/internal/index"
 	"bruv/internal/model"
 	"bruv/internal/repo"
@@ -23,6 +24,7 @@ type Board interface {
 	ProjectService() *projectsvc.Service
 	CatalogService() *catalog.Service
 	AgentService() *agentsvc.Service
+	WorkspaceService() *workspacesvc.Service
 
 	GetCard(id string) (*model.Card, error)
 	CreateCard(cardType, title string) (*model.Card, error)

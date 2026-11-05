@@ -34,6 +34,12 @@ var wantHints = map[string]hints{
 	"get_card_agent":      readHints,
 	"search_cards":        readHints,
 	"recent_cards":        readHints,
+	"workspace_index":     readHints,
+	"workspace_status":    readHints,
+	"workspace_read_file": readHints,
+	"template_list":       readHints,
+	"template_params":     readHints,
+	"read_card_file":      readHints,
 
 	"create_brand":        addHints,
 	"create_stream":       addHints,

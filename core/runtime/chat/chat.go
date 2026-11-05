@@ -298,6 +298,44 @@ func (rt *Runtime) wrapUp(ctx context.Context, provider llm.Provider, modelName 
 	return strings.TrimSpace(resp.Content)
 }
 
+// projectWorkspaceTools gates a project chat's workspace tools: offered
+// only when a workspace is attached, by the session's context level —
+// `all` everything incl. file reads, `metadata` structure and status but
+// no file contents, `none` nothing (the mapping the prompt builder uses
+// for the workspace summary). A project chat has no card whose files it
+// reads.
+func projectWorkspaceTools(defs []llm.ToolDef, hasWorkspace bool, level model.ProjectChatContextLevel) []llm.ToolDef {
+	defs = llm.WithoutTool(defs, llm.CardFileTool)
+	switch {
+	case !hasWorkspace, level == model.ProjectChatContextNone:
+		return llm.WithoutTool(defs, llm.ProjectWorkspaceTools...)
+	case level == model.ProjectChatContextMetadata:
+		return llm.WithoutTool(defs, llm.WorkspaceFileReadTool)
+	}
+	return defs
+}
+
+// cardFileTool is the native read_card_file, its description naming the
+// files this card may read, so the model knows what's there to ask for.
+func cardFileTool(native []llm.ToolDef, paths []string) []llm.ToolDef {
+	const most = 40
+	shown := paths
+	if len(shown) > most {
+		shown = shown[:most]
+	}
+	list := "`" + strings.Join(shown, "`, `") + "`"
+	if len(paths) > most {
+		list += " and more"
+	}
+	for _, d := range native {
+		if d.Name == llm.CardFileTool {
+			d.Description += " This card names: " + list + "; folders end in /."
+			return []llm.ToolDef{d}
+		}
+	}
+	return nil
+}
+
 // catalogTypeIDs returns every card type id the user can actually see —
 // built-ins + user-created — for tool definitions. NOT Registry().List():
 // the schema registry only knows embedded/external schemas.
@@ -348,20 +386,7 @@ func (rt *Runtime) SendProject(brandSlug, streamSlug, projectSlug, userMessage, 
 	// scoped to this project.
 	toolDefs := append(llm.ProjectTools(catalogTypeIDs(rt)), rt.deps.Tools().NativeDefs(true)...)
 
-	// Workspace tools, offered only when a workspace is attached and gated
-	// by the session context level: `all` → everything incl. file reads;
-	// `metadata` → structure/status but no file contents; `none` → nothing.
-	// (Same mapping the prompt builder uses for the workspace summary.)
-	if rt.deps.Repo().HasWorkspace(brandSlug, streamSlug, projectSlug) {
-		switch model.ProjectChatContextLevel(contextLevel) {
-		case model.ProjectChatContextNone:
-			// no workspace tools
-		case model.ProjectChatContextMetadata:
-			toolDefs = append(toolDefs, llm.WorkspaceTools(false)...)
-		default: // all (and unrecognised values default to all, like the prompt)
-			toolDefs = append(toolDefs, llm.WorkspaceTools(true)...)
-		}
-	}
+	toolDefs = projectWorkspaceTools(toolDefs, rt.deps.Repo().HasWorkspace(brandSlug, streamSlug, projectSlug), model.ProjectChatContextLevel(contextLevel))
 
 	// Build the per-call scope for tool callbacks. Both staging and execute
 	// callbacks use the cardIDs set to reject IDs the LLM hallucinated or
@@ -468,7 +493,10 @@ func (rt *Runtime) sendCard(cardID, userMessage, modeOverride string) (*model.Ch
 		// Card chat's own tools (this card's fields, filing) plus BRUV's
 		// native board tools — the same set the MCP server exposes —
 		// scoped to the card's project.
-		tools := append(llm.CardTools(catMaps), rt.deps.Tools().NativeDefs(true)...)
+		// Not the project's workspace (a card reads only the files it
+		// names, added below), nor read_card_file twice.
+		tools := llm.WithoutTool(append(llm.CardTools(catMaps), rt.deps.Tools().NativeDefs(true)...),
+			append(llm.ProjectWorkspaceTools, llm.CardFileTool)...)
 		if alreadyFiled {
 			tools = llm.WithoutTool(tools, "suggest_pin")
 		}
@@ -542,7 +570,7 @@ func (rt *Runtime) sendCard(cardID, userMessage, modeOverride string) (*model.Ch
 	// own content, readable in every mode (read-only, like web research):
 	// the block is the scope, nothing else in the workspace is reachable.
 	if paths := tools.CardFilePaths(card); len(paths) > 0 {
-		toolDefs = append(toolDefs, llm.CardFileTool(paths))
+		toolDefs = append(toolDefs, cardFileTool(rt.deps.Tools().NativeDefs(true), paths)...)
 	}
 	slog.Info("card chat tools assembled",
 		"cardID", cardID, "ai_mode", cfg.AIMode, "tool_count", len(toolDefs))

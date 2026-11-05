@@ -105,6 +105,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     }),
     SetLLMConfig: async () => {},
     GetUncliStatus: async () => ({ ready: false, reason: 'not_hosted' as const }),
+    GetUncliProviders: async () => [],
 
     ListConnections: async () => ({ active: '', connections: [] }),
     AddConnection: async (name: string, url: string, deviceToken: string) => ({

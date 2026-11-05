@@ -25,6 +25,7 @@ package supervisor
 
 import (
 	"context"
+	"time"
 	"encoding/json"
 	"fmt"
 
@@ -46,8 +47,7 @@ type MachineService struct {
 	llm *llmsvc.Service
 
 	// Optional. The server's UNCLI (the opt-in card chat engine), set via
-	// WithUncli by the headless server. Nil on the desktop app's own
-	// server, which hosts none.
+	// WithUncli by the headless server and the desktop app. Nil in tests.
 	uncli *uncliengine.Engine
 }
 
@@ -82,6 +82,16 @@ func (m *MachineService) WithUncli(e *uncliengine.Engine) *MachineService {
 // and why not: the settings show it beside the chat_engine choice, and
 // cards fall back to the built-in chat while it isn't ready.
 func (m *MachineService) GetUncliStatus() uncliengine.Status { return m.uncli.Status() }
+
+// GetUncliProviders lists the CLIs the server's UNCLI can run chats on,
+// with their models, for choosing what card and project chats open on
+// (LLMConfig.UncliChats). Checking each CLI's sign-in can take a few
+// seconds the first time.
+func (m *MachineService) GetUncliProviders() ([]uncliengine.Provider, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	return m.uncli.Providers(ctx)
+}
 
 // errPushNotConfigured is returned by push RPCs on a host without
 // push wired up. Phrased so the user-facing toast can render it

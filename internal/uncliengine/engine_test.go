@@ -1,7 +1,9 @@
 package uncliengine
 
 import (
+	"context"
 	"net/http"
+	"strings"
 	"net/http/httptest"
 	"testing"
 
@@ -18,6 +20,9 @@ func TestNilEngine(t *testing.T) {
 	}
 	if e.Handler() != nil {
 		t.Error("a nil engine has a handler")
+	}
+	if _, err := e.Providers(context.Background()); err == nil || !strings.Contains(err.Error(), ReasonNotHosted) {
+		t.Errorf("a nil engine's providers: %v", err)
 	}
 	e.ServeBoard(Board{})
 	e.Close()
@@ -38,6 +43,16 @@ func TestStart(t *testing.T) {
 	e.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/version", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("/version = %d %s", rec.Code, rec.Body.String())
+	}
+	// Its CLIs, the default first; ready or not, each says which.
+	providers, err := e.Providers(context.Background())
+	if err != nil || len(providers) == 0 || providers[0].ID == "" || providers[0].Models == nil {
+		t.Fatalf("providers = %+v, %v", providers, err)
+	}
+	for _, p := range providers {
+		if !p.Ready && p.Reason == "" {
+			t.Errorf("%s isn't ready and doesn't say why", p.ID)
+		}
 	}
 }
 

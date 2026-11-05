@@ -9,7 +9,9 @@
 package uncliengine
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -165,6 +167,40 @@ func RepoOfMeta(meta string) (string, bool) {
 		return "", false
 	}
 	return parts[1], true
+}
+
+// Provider is a CLI the engine can run chats on (uncli.Provider): whether
+// it can now, and its models.
+type Provider struct {
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	Ready        bool    `json:"ready"`
+	Reason       string  `json:"reason,omitempty"` // why not, a sentence to show
+	Models       []Model `json:"models"`
+	DefaultModel string  `json:"default_model,omitempty"` // "" where the CLI picks
+}
+
+// Model is one of a CLI's models.
+type Model struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+// Providers lists the CLIs, the default first. An engine that isn't
+// running has none to list, and says why.
+func (e *Engine) Providers(ctx context.Context) ([]Provider, error) {
+	if e == nil || e.core == nil {
+		return nil, fmt.Errorf("UNCLI isn't running on this server (%s)", e.Status().Reason)
+	}
+	out := []Provider{}
+	for _, p := range e.core.Providers(ctx) {
+		q := Provider{ID: p.ID, Name: p.Name, Ready: p.Ready, Reason: p.Reason, DefaultModel: p.DefaultModel, Models: []Model{}}
+		for _, m := range p.Models {
+			q.Models = append(q.Models, Model{ID: m.ID, Label: m.Label})
+		}
+		out = append(out, q)
+	}
+	return out, nil
 }
 
 // Status says whether the engine runs, and why not.

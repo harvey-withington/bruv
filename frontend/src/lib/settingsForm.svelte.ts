@@ -8,7 +8,7 @@
 // saved, so they can't overwrite real settings.
 
 import { GetPreferences, SetPreferences, GetUIPreferences, SetUIPreferences, GetLLMConfig, SetLLMConfig, GetUncliStatus, GetNotifyConfig, SetNotifyConfig, GetLLMAccounts, SaveLLMAccounts, GetLLMRouting, SaveLLMRouting, GetDueDateSettings, SaveDueDateSettings, GetCapturePrefs, SetCapturePrefs } from '@shared/api'
-import type { CapturePrefs, LLMAccount, LLMRouting, ChatBudgetMode, ChatEngine, UncliStatus } from '@shared/types'
+import type { CapturePrefs, LLMAccount, LLMConfig, LLMRouting, ChatBudgetMode, ChatEngine, UncliStatus } from '@shared/types'
 import { errorDetail } from '@shared/errors'
 import { CHAT_BUDGET_DEFAULT, clampChatBudget } from '@shared/chatTurn.svelte'
 import { normalizeRouting } from '@shared/modelRefs'
@@ -51,6 +51,7 @@ export class SettingsForm {
     chat_budget_mode: 'warn' as ChatBudgetMode,
     chat_budget_tokens: CHAT_BUDGET_DEFAULT,
     chat_engine: 'builtin' as ChatEngine,
+    uncli_chats: {} as NonNullable<LLMConfig['uncli_chats']>,
   })
 
   /** Whether the server can run the UNCLI chat engine; error when it
@@ -151,6 +152,7 @@ export class SettingsForm {
           chat_budget_mode: c.chat_budget_mode || 'warn',
           chat_budget_tokens: c.chat_budget_tokens || CHAT_BUDGET_DEFAULT,
           chat_engine: c.chat_engine || 'builtin',
+          uncli_chats: c.uncli_chats ?? {},
         })
       },
       save: () => SetLLMConfig({ ...this.llm, chat_budget_tokens: clampChatBudget(this.llm.chat_budget_tokens) }),

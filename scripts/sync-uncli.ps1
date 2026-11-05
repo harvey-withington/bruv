@@ -47,10 +47,20 @@ $packs = Join-Path $UncliRoot 'app\frontend\dist-embed\packs'
 
 function Step([string]$text) { Write-Host "==> $text" -ForegroundColor Cyan }
 
+# Runs npm, judged by its exit code alone: Windows PowerShell turns npm's
+# stderr (deprecation warnings) into errors, which 'Stop' would make fatal.
+function Invoke-Npm([string]$what, [string[]]$npmArgs) {
+  $ErrorActionPreference = 'Continue'
+  $output = & npm @npmArgs 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    $output | ForEach-Object { Write-Host $_ }
+    throw "$what failed (exit $LASTEXITCODE)"
+  }
+}
+
 if (-not $SkipPack) {
   Step "Packing UNCLI's chat packages in $UncliRoot"
-  npm --prefix (Join-Path $UncliRoot 'app\frontend') run pack:packages | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw "pack:packages failed (exit $LASTEXITCODE)" }
+  Invoke-Npm 'pack:packages' @('--prefix', (Join-Path $UncliRoot 'app\frontend'), 'run', 'pack:packages')
 }
 $tarballs = @(Get-ChildItem $packs -Filter 'uncli-*.tgz')
 if ($tarballs.Count -ne 2) { throw "Expected the client and chat tarballs in $packs, found: $($tarballs.Name -join ', ')" }
@@ -72,8 +82,7 @@ foreach ($target in @(
   try {
     Remove-Item -Recurse -Force 'node_modules\@uncli' -ErrorAction SilentlyContinue
     $paths = $tarballs | ForEach-Object { Relative $target.Dir $_.FullName }
-    npm install @($target.Args) @paths | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "npm install failed in $($target.Dir) (exit $LASTEXITCODE)" }
+    Invoke-Npm "npm install in $($target.Dir)" (@('install') + $target.Args + $paths)
   } finally {
     Pop-Location
   }
@@ -82,7 +91,7 @@ foreach ($target in @(
 $wasm = Join-Path $repo 'frontend\node_modules\@lottiefiles\dotlottie-web\dist\dotlottie-player.wasm'
 if (-not (Test-Path $wasm)) {
   Step 'The desktop animation package went missing; reinstalling frontend/'
-  npm install --prefix (Join-Path $repo 'frontend') | Out-Null
+  Invoke-Npm 'reinstalling frontend' @('install', '--prefix', (Join-Path $repo 'frontend'))
   if (-not (Test-Path $wasm)) { throw "Still missing after reinstall: $wasm" }
 }
 

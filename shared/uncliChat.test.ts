@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { MenuControl, UncliChat } from '@uncli/chat/element'
-import { chatHost, chatMeta, cardTurnContext, followChatSessions, modeControl, nextTurnNote, openChatSession, projectTurnContext, resolveChatEngine, reviewStagedChanges, startNewChat, uncliSrc, UNCLI_STAGED_CONTENT } from './uncliChat'
+import { chatHost, chatMeta, cardTurnContext, followChatSessions, modeControl, nextTurnNote, openChatSession, parseRunsOn, projectTurnContext, resolveChatEngine, reviewStagedChanges, runsOnFor, runsOnGroups, runsOnValue, startNewChat, uncliSrc, UNCLI_STAGED_CONTENT } from './uncliChat'
 
 describe('resolveChatEngine', () => {
   it('stays built-in unless the user opted in', () => {
@@ -137,6 +137,54 @@ describe('chat sessions', () => {
     const s = sessions('s-old')
     await startNewChat(el, s)
     expect(s.set).toHaveBeenCalledWith('s-new-1')
+  })
+
+  it('opens new chats on the chosen CLI and model, and records none when the CLI refuses', async () => {
+    const el = element()
+    await startNewChat(el, { ...sessions(), runsOn: { provider: 'codex', model: 'gpt-5' } })
+    expect(el.newSession).toHaveBeenCalledWith('chat', '', 'gpt-5', { meta: 'bruv/r1/card/c1', provider: 'codex' })
+
+    const signedOut = element()
+    signedOut.newSession.mockRejectedValueOnce(new Error("can't start a session on Codex: Codex isn't signed in"))
+    const s = { ...sessions(), runsOn: { provider: 'codex' } }
+    await expect(startNewChat(signedOut, s)).rejects.toThrow("Codex isn't signed in")
+    expect(s.set).not.toHaveBeenCalled()
+  })
+})
+
+describe('choosing what chats open on', () => {
+  const card = { kind: 'card', cardId: 'c1' } as const
+  const project = { kind: 'project', brand: 'b', stream: 's', project: 'p' } as const
+
+  it("reads the choice for the chat's kind", () => {
+    const config = { uncli_chats: { card_chat: { provider: 'claude', model: 'opus' }, project_chat: {} } }
+    expect(runsOnFor(config, card)).toEqual({ provider: 'claude', model: 'opus' })
+    expect(runsOnFor(config, project)).toBeNull()
+    expect(runsOnFor(null, card)).toBeNull()
+  })
+
+  it('round-trips a choice through a select value; empty is the default', () => {
+    expect(runsOnValue(null)).toBe('')
+    expect(parseRunsOn('')).toBeNull()
+    const v = runsOnValue({ provider: 'claude', model: 'claude/opus' })
+    expect(parseRunsOn(v)).toEqual({ provider: 'claude', model: 'claude/opus' })
+  })
+
+  it('groups the choices by CLI, an unready one disabled with why', () => {
+    const t = (key: string, p?: Record<string, string>) => `${key}${p ? JSON.stringify(p) : ''}`
+    const groups = runsOnGroups([
+      { id: 'claude', name: 'Claude Code', ready: true, models: [{ id: 'opus', label: 'Opus' }], default_model: 'opus' },
+      { id: 'codex', name: 'Codex', ready: false, reason: "Codex isn't signed in", models: [] },
+    ], t)
+    expect(groups[0]).toEqual({
+      label: 'Claude Code',
+      options: [
+        { value: runsOnValue({ provider: 'claude' }), label: 'uncli.runs_on_cli_default{"cli":"Claude Code","model":"Opus"}', disabled: false },
+        { value: runsOnValue({ provider: 'claude', model: 'opus' }), label: 'Claude Code · Opus', disabled: false },
+      ],
+    })
+    expect(groups[1].label).toBe('uncli.runs_on_unready{"cli":"Codex","reason":"Codex isn\'t signed in"}')
+    expect(groups[1].options).toEqual([{ value: runsOnValue({ provider: 'codex' }), label: 'uncli.runs_on_cli_picks{"cli":"Codex"}', disabled: true }])
   })
 })
 

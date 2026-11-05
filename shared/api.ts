@@ -18,6 +18,7 @@ export const SetProfile = (...args: Parameters<ReturnType<typeof getBackend>['Se
 export const GetLLMConfig = () => getBackend().GetLLMConfig()
 export const SetLLMConfig = (...args: Parameters<ReturnType<typeof getBackend>['SetLLMConfig']>) => getBackend().SetLLMConfig(...args)
 export const GetUncliStatus = () => getBackend().GetUncliStatus()
+export const GetUncliProviders = () => getBackend().GetUncliProviders()
 
 // Connections
 export const ListConnections = () => getBackend().ListConnections()

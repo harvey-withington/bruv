@@ -1057,6 +1057,28 @@ export type LLMConfig = {
   chat_budget_tokens?: number
   /** Which engine runs card chats; '' = builtin. UNCLI is opt-in. */
   chat_engine?: ChatEngine | ''
+  /** Per kind of chat, the CLI and model a new UNCLI chat opens on;
+   *  absent = UNCLI's default. */
+  uncli_chats?: Partial<Record<UncliChatKind, UncliRunsOn>>
+}
+
+/** The kinds of chat a UNCLI CLI and model are chosen for. */
+export type UncliChatKind = 'card_chat' | 'project_chat'
+
+/** A CLI of the server's UNCLI and one of its models; '' or absent for
+ *  either is UNCLI's default (config.UncliRunsOn). */
+export type UncliRunsOn = { provider?: string; model?: string }
+
+/** A CLI the server's UNCLI can run chats on (uncliengine.Provider). */
+export type UncliProvider = {
+  id: string
+  name: string
+  ready: boolean
+  /** Why not ready, a sentence to show (UNCLI's words). */
+  reason?: string
+  models: { id: string; label: string }[]
+  /** What a session on it starts on without a model; absent where the CLI picks. */
+  default_model?: string
 }
 
 export type ChatBudgetMode = 'warn' | 'hard' | 'off'
@@ -1248,6 +1270,7 @@ export interface BackendAdapter {
   GetLLMConfig(): Promise<LLMConfig>
   SetLLMConfig(c: LLMConfig): Promise<void>
   GetUncliStatus(): Promise<UncliStatus>
+  GetUncliProviders(): Promise<UncliProvider[]>
 
   // Connections (per-machine known remote BRUV servers)
   ListConnections(): Promise<ConnectionStore>

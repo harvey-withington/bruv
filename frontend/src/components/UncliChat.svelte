@@ -14,7 +14,8 @@
   import { httpBase, resolveTransportInfo } from '@shared/adapters/cloud'
   import { aiModeOf, aiModeTurnContext, type AIMode } from '@shared/aiMode'
   import { errorDetail } from '@shared/errors'
-  import { chatHost, chatMeta, followChatSessions, modeControl, nextTurnNote, openChatSession, reviewStagedChanges, uncliSrc, UNCLI_LINK_SCHEMES, type ChatRef, type ChatSessions, type StagedHistory } from '@shared/uncliChat'
+  import type { LLMConfig } from '@shared/types'
+  import { chatHost, chatMeta, followChatSessions, modeControl, nextTurnNote, openChatSession, reviewStagedChanges, runsOnFor, uncliSrc, UNCLI_LINK_SCHEMES, type ChatRef, type ChatSessions, type StagedHistory } from '@shared/uncliChat'
   import ChatPanelShell from './ChatPanelShell.svelte'
   import { saveAIMode } from '../lib/aiModeSave'
   import { followBruv } from '../lib/bruvLinks'
@@ -58,6 +59,8 @@
   let error = $state('')
   let el = $state<UncliChat | null>(null)
   let mode = $state<AIMode>('edit')
+  // The settings' CLI and model choice for new chats (runsOnFor).
+  let config: LLMConfig | null = null
   // How the last review went, told to the model with its next turn.
   const reviewed = nextTurnNote()
 
@@ -70,6 +73,7 @@
       const [info, cfg] = await Promise.all([resolveTransportInfo(), GetLLMConfig(), import('@uncli/chat/element')])
       token = info.token
       repoId = info.repoID ?? ''
+      config = cfg
       mode = aiModeOf(cfg?.ai_mode)
       src = uncliSrc(httpBase(info))
     } catch (e) {
@@ -81,7 +85,7 @@
   })
 
   function sessionsWithMeta(): ChatSessions {
-    return { ...sessions, meta: chatMeta(repoId, chat) }
+    return { ...sessions, meta: chatMeta(repoId, chat), runsOn: runsOnFor(config, chat) }
   }
 
   async function changeMode(next: AIMode) {

@@ -9,6 +9,7 @@
   import LLMProvidersManager from './LLMProvidersManager.svelte'
   import TaskRoutingTable from './TaskRoutingTable.svelte'
   import LLMRoutersManager from './LLMRoutersManager.svelte'
+  import UncliChatsSettings from './UncliChatsSettings.svelte'
 
   let { form, visible }: { form: SettingsForm; visible: FieldVisible } = $props()
   const llm = $derived(form.llm)
@@ -45,6 +46,9 @@
     </select>
     <span class="field-hint">{uncliUnavailableNow ? t(uncliUnavailableNow.key, uncliUnavailableNow.params) : t('llm.chat_engine_hint')}</span>
   </label>
+  {#if llm.chat_engine === 'uncli' && !uncliUnavailableNow}
+    <UncliChatsSettings bind:chats={llm.uncli_chats} />
+  {/if}
 {/if}
 
 {#if visible('ai_mode')}

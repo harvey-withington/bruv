@@ -12,7 +12,7 @@ import type { AIMode } from './aiMode'
 import { CARD_MENTION_PREFIX, cardMentionLink, mentionMarkdown } from './mentions'
 import { errorDetail } from './errors'
 import { uncliUnavailable, type UncliUnavailable } from './uncliStatus'
-import type { LLMConfig, SearchResult, UncliStatus } from './types'
+import type { LLMConfig, SearchResult, UncliProvider, UncliRunsOn, UncliStatus } from './types'
 
 /** Link schemes the chat keeps in answers, besides the web's. */
 export const UNCLI_LINK_SCHEMES = 'bruv'
@@ -72,6 +72,15 @@ export interface ChatSessions {
   get(): Promise<string>
   set(session: string): Promise<void>
   meta: string
+  /** The CLI and model new sessions open on (runsOnFor); null = UNCLI's default. */
+  runsOn?: UncliRunsOn | null
+}
+
+/** The CLI and model the settings choose for chat's kind
+ *  (LLMConfig.uncli_chats); null = UNCLI's default. */
+export function runsOnFor(config: Pick<LLMConfig, 'uncli_chats'> | null, chat: ChatRef): UncliRunsOn | null {
+  const choice = config?.uncli_chats?.[chat.kind === 'card' ? 'card_chat' : 'project_chat']
+  return choice?.provider || choice?.model ? choice : null
 }
 
 /** Shows the chat in el: the session it had, or a new one recorded as
@@ -85,11 +94,51 @@ export async function openChatSession(el: UncliChat, sessions: ChatSessions): Pr
   await startNewChat(el, sessions)
 }
 
-/** Starts a new session for the chat, with its meta, and records it as
- *  the chat's. */
+/** Starts a new session for the chat, with its meta, on its CLI and
+ *  model, and records it as the chat's. A chosen CLI that can't run now
+ *  (not installed, signed out) rejects with UNCLI's reason, and no
+ *  session is made. */
 export async function startNewChat(el: UncliChat, sessions: ChatSessions): Promise<void> {
-  const created = await el.newSession('chat', '', '', { meta: sessions.meta })
+  const { provider, model } = sessions.runsOn ?? {}
+  const created = await el.newSession('chat', '', model ?? '', provider ? { meta: sessions.meta, provider } : { meta: sessions.meta })
   await sessions.set(created)
+}
+
+// --- Choosing what chats open on (Settings → AI) ---
+
+/** A <select> value for a choice: '' is UNCLI's default. */
+export function runsOnValue(r: UncliRunsOn | null | undefined): string {
+  return r?.provider || r?.model ? JSON.stringify([r.provider ?? '', r.model ?? '']) : ''
+}
+
+export function parseRunsOn(value: string): UncliRunsOn | null {
+  if (!value) return null
+  const [provider, model] = JSON.parse(value) as [string, string]
+  return { provider, model }
+}
+
+export type RunsOnOption = { value: string; label: string; disabled: boolean }
+/** One CLI's choices; a CLI that can't run now is listed, disabled, with why. */
+export type RunsOnGroup = { label: string; options: RunsOnOption[] }
+
+/** The choices for what chats open on, a group per CLI: its default
+ *  model, then each model. t is the surface's (uncli.runs_on_*). */
+export function runsOnGroups(providers: UncliProvider[], t: (key: string, params?: Record<string, string>) => string): RunsOnGroup[] {
+  return providers.map(p => {
+    const disabled = !p.ready
+    const defaultLabel = p.models.find(m => m.id === p.default_model)?.label ?? p.default_model
+    return {
+      label: p.ready ? p.name : t('uncli.runs_on_unready', { cli: p.name, reason: p.reason ?? '' }),
+      options: [
+        {
+          value: runsOnValue({ provider: p.id }),
+          label: defaultLabel ? t('uncli.runs_on_cli_default', { cli: p.name, model: defaultLabel }) : t('uncli.runs_on_cli_picks', { cli: p.name }),
+          disabled,
+        },
+        ...p.models.map(m => ({ value: runsOnValue({ provider: p.id, model: m.id }), label: `${p.name} · ${m.label}`, disabled })),
+      ],
+    }
+  })
 }
 
 /** Keeps the chat's recorded session right as the element changes it:

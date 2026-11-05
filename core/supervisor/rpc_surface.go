@@ -132,7 +132,7 @@ var machineRPCMethods = []string{
 	"DiscoverLLMModels", "GetAuthInfo", "GetDueDateSettings",
 	"GetLLMAccounts", "GetLLMConfig", "GetLLMRegistry", "GetLLMRouting",
 	"GetNotifications", "GetNotifyConfig", "GetPreferences", "GetProfile",
-	"GetUncliStatus", "GetVapidPublicKey", "IsLLMConfigured", "NewLLMRouter", "PreviewLLMRoute",
+	"GetUncliProviders", "GetUncliStatus", "GetVapidPublicKey", "IsLLMConfigured", "NewLLMRouter", "PreviewLLMRoute",
 	"RegisterPushSubscription", "SaveDueDateSettings", "SaveLLMAccounts",
 	"SaveLLMRouting", "SetLLMConfig", "SetNotifyConfig", "SetPreferences",
 	"SetProfile", "TestLLMModel", "UnregisterPushSubscription",

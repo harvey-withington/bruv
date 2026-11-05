@@ -19,6 +19,16 @@ type LLMConfig struct {
 	ChatBudgetMode   string `json:"chat_budget_mode,omitempty"`   // ChatBudgetWarn (default), ChatBudgetHard, ChatBudgetOff
 	ChatBudgetTokens int    `json:"chat_budget_tokens,omitempty"` // 0 = DefaultChatBudgetTokens
 	ChatEngine       string `json:"chat_engine,omitempty"`        // ChatEngineBuiltin (default) or ChatEngineUncli
+	// UncliChats is, per kind of chat ("card_chat", "project_chat"), the
+	// CLI and model a new UNCLI chat opens on; absent = UNCLI's default.
+	UncliChats map[string]UncliRunsOn `json:"uncli_chats,omitempty"`
+}
+
+// UncliRunsOn is a CLI of the server's UNCLI and one of its models; ""
+// for either is UNCLI's default (its first CLI; the CLI's own model).
+type UncliRunsOn struct {
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
 }
 
 // Card chat engines. UNCLI is opt-in while it's tried out: switching

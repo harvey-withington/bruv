@@ -15,7 +15,7 @@
   import type { UncliChat } from '@uncli/chat/element'
   import { aiModeOf, aiModeTurnContext, type AIMode } from '@shared/aiMode'
   import { errorDetail } from '@shared/errors'
-  import { chatHost, chatMeta, followChatSessions, modeControl, nextTurnNote, openChatSession, reviewStagedChanges, uncliSrc, UNCLI_LINK_SCHEMES, type ChatRef, type ChatSessions, type StagedHistory } from '@shared/uncliChat'
+  import { chatHost, chatMeta, followChatSessions, modeControl, nextTurnNote, openChatSession, reviewStagedChanges, runsOnFor, uncliSrc, UNCLI_LINK_SCHEMES, type ChatRef, type ChatSessions, type StagedHistory } from '@shared/uncliChat'
   import type { LLMConfig, SearchResult } from '@shared/types'
   import { machineRPC, readActiveRepoID, readEnrolment, repoRPC } from '../../lib/auth'
   import { saveAIMode } from '../../lib/aiModeSave'
@@ -54,6 +54,8 @@
   let notice = $state('')
   let el = $state<UncliChat | null>(null)
   let mode = $state<AIMode>('edit')
+  // The settings' CLI and model choice for new chats (runsOnFor).
+  let config: LLMConfig | null = null
   // How the last review went, told to the model with its next turn.
   const reviewed = nextTurnNote()
   // Set when a link navigates: replace() consumes the sheet's history
@@ -70,6 +72,7 @@
     token = enrolment.deviceToken
     Promise.all([machineRPC<LLMConfig>('GetLLMConfig'), import('@uncli/chat/element')])
       .then(([cfg]) => {
+        config = cfg
         mode = aiModeOf(cfg?.ai_mode)
         src = uncliSrc(enrolment.serverURL)
       })
@@ -118,7 +121,7 @@
     const target = el
     if (!target) return
     return untrack(() => {
-      const s: ChatSessions = { ...sessions, meta: chatMeta(readActiveRepoID() ?? '', chat) }
+      const s: ChatSessions = { ...sessions, meta: chatMeta(readActiveRepoID() ?? '', chat), runsOn: runsOnFor(config, chat) }
       openChatSession(target, s).catch(e => {
         error = t('uncli.session_failed', { detail: errorDetail(e) })
       })

@@ -3,18 +3,19 @@
   // a card's or a project's: UNCLI's <uncli-chat> in the chat sheet,
   // showing the chat's session (shared/uncliChat), in its compact layout
   // by its width. The element shows UNCLI's own download and sign-in steps
-  // until its CLI is ready, approvals (Suggest mode's, worded by BRUV's
-  // server) and its own header (New chat, delete, options). BRUV supplies
-  // its sign-in, @mentions of cards, bruv: links, what the chat is about
-  // as each turn's context, and the Chat / Suggest / Edit control in the
-  // message box. The sheet's header names the chat, so it's clear which
-  // one you're typing into.
+  // until its CLI is ready, approvals and its own header (New chat,
+  // delete, options). BRUV supplies its sign-in, @mentions of cards, bruv:
+  // links, what the chat is about as each turn's context, the Chat /
+  // Suggest / Edit control in the message box, and Suggest's review: one
+  // card when a turn ends for the changes it staged (reviewStagedChanges).
+  // The sheet's header names the chat, so it's clear which one you're
+  // typing into.
   import { onMount, untrack } from 'svelte'
   import { X } from 'lucide-svelte'
   import type { UncliChat } from '@uncli/chat/element'
   import { aiModeOf, aiModeTurnContext, type AIMode } from '@shared/aiMode'
   import { errorDetail } from '@shared/errors'
-  import { chatHost, chatMeta, followChatSessions, modeControl, openChatSession, uncliSrc, UNCLI_LINK_SCHEMES, type ChatRef, type ChatSessions } from '@shared/uncliChat'
+  import { chatHost, chatMeta, followChatSessions, modeControl, nextTurnNote, openChatSession, reviewStagedChanges, uncliSrc, UNCLI_LINK_SCHEMES, type ChatRef, type ChatSessions, type StagedHistory } from '@shared/uncliChat'
   import type { LLMConfig, SearchResult } from '@shared/types'
   import { machineRPC, readActiveRepoID, readEnrolment, repoRPC } from '../../lib/auth'
   import { saveAIMode } from '../../lib/aiModeSave'
@@ -29,6 +30,7 @@
     chat,
     sessions,
     context,
+    history,
     onClose,
   }: {
     /** What the chat is about (the card's or project's name). */
@@ -39,6 +41,9 @@
     sessions: Omit<ChatSessions, 'meta'>
     /** Told to the model with each turn, with the chat mode. */
     context: () => string | null
+    /** The chat's history, where Suggest mode stages its changes, and
+     *  Apply(Project)PendingEdits for the turn's review. */
+    history: StagedHistory
     onClose: () => void
   } = $props()
 
@@ -49,6 +54,8 @@
   let notice = $state('')
   let el = $state<UncliChat | null>(null)
   let mode = $state<AIMode>('edit')
+  // How the last review went, told to the model with its next turn.
+  const reviewed = nextTurnNote()
   // Set when a link navigates: replace() consumes the sheet's history
   // entry (ChatSheetShell.navigatingAway).
   let navigatedAway = false
@@ -97,7 +104,7 @@
         token: () => token,
         follow,
         searchCards: q => repoRPC<SearchResult[]>('SearchCards', [q, 8]),
-        context: () => [context(), aiModeTurnContext(current)].filter(Boolean).join('\n'),
+        context: () => [context(), aiModeTurnContext(current), reviewed.take()].filter(Boolean).join('\n'),
         cardLabel: t('uncli.mention_card'),
         enter: 'newline', // as ChatSheet: Enter a new line, Send (or Ctrl+Enter) sends
         controls: [modeControl(current, t, m => void changeMode(m))],
@@ -119,6 +126,28 @@
         notice = t('uncli.session_failed', { detail: errorDetail(e) })
       })
     })
+  })
+
+  // Suggest mode: one review card when a turn ends, for what it staged.
+  $effect(() => {
+    const target = el
+    if (!target) return
+    return untrack(() =>
+      reviewStagedChanges(
+        target,
+        history,
+        { title: n => t('uncli.review_title', { count: n }), detail: t('uncli.review_detail') },
+        {
+          done: ({ failed, note }) => {
+            reviewed.set(note)
+            if (failed) notice = t('uncli.review_some_failed', { count: failed })
+          },
+          error: e => {
+            notice = t('uncli.review_failed', { detail: errorDetail(e) })
+          },
+        },
+      ),
+    )
   })
 
   // Escape closes the sheet, unless it's for the chat itself (its own

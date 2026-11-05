@@ -35,8 +35,12 @@ func (n nativeTools) Defs(scoped bool) []llm.ToolDef {
 }
 func (n nativeTools) Has(name string) bool     { return boardtools.Has(name) }
 func (n nativeTools) IsWrite(name string) bool { return boardtools.IsWrite(name) }
+// Check vets a write before it's staged: in scope, and able to apply.
 func (n nativeTools) Check(scope *tools.ProjectChatScope, name string, args map[string]any) error {
-	return boardtools.CheckScope(n.r, scope, name, args)
+	if err := boardtools.CheckScope(n.r, scope, name, args); err != nil {
+		return err
+	}
+	return boardtools.Preflight(n.r, name, args)
 }
 func (n nativeTools) Call(scope *tools.ProjectChatScope, name string, args map[string]any) (string, bool) {
 	return boardtools.CallNative(n.r, scope, name, args)

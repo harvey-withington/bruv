@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { MenuControl, UncliChat } from '@uncli/chat/element'
-import { chatHost, chatMeta, cardTurnContext, followChatSessions, modeControl, openChatSession, projectTurnContext, resolveChatEngine, startNewChat, uncliSrc } from './uncliChat'
+import { chatHost, chatMeta, cardTurnContext, followChatSessions, modeControl, nextTurnNote, openChatSession, projectTurnContext, resolveChatEngine, reviewStagedChanges, startNewChat, uncliSrc, UNCLI_STAGED_CONTENT } from './uncliChat'
 
 describe('resolveChatEngine', () => {
   it('stays built-in unless the user opted in', () => {
@@ -137,6 +137,99 @@ describe('chat sessions', () => {
     const s = sessions('s-old')
     await startNewChat(el, s)
     expect(s.set).toHaveBeenCalledWith('s-new-1')
+  })
+})
+
+describe('nextTurnNote', () => {
+  it('is told to the next turn only', () => {
+    const note = nextTurnNote()
+    expect(note.take()).toBeNull()
+    note.set('reviewed')
+    expect(note.take()).toBe('reviewed')
+    expect(note.take()).toBeNull()
+    note.set('') // a review with nothing to tell
+    expect(note.take()).toBeNull()
+  })
+})
+
+describe('reviewStagedChanges', () => {
+  type Edit = { id: string; label: string; detail: string; status: string; error?: string }
+  type Message = { id: string; content: string; pending_edits?: Edit[] }
+  const staged = (id: string, edits: { id: string; status?: string }[]): Message => ({
+    id,
+    content: UNCLI_STAGED_CONTENT,
+    pending_edits: edits.map(e => ({ id: e.id, label: `Change ${e.id}`, detail: `about ${e.id}`, status: e.status ?? 'pending' })),
+  })
+  function setup(answer: { action: string; items: string[] }, messages: Message[] = [staged('m1', [{ id: 'a' }, { id: 'b' }]), { id: 'm0', content: 'BRUV built-in reply' }, staged('m2', [{ id: 'c' }, { id: 'old', status: 'accepted' }])]) {
+    const el = Object.assign(new EventTarget(), { review: vi.fn(async () => answer) }) as unknown as UncliChat & { review: ReturnType<typeof vi.fn> }
+    const history = {
+      load: vi.fn(async () => ({ messages })),
+      // As the server: the ticked ones applied (c fails), the rest rejected.
+      apply: vi.fn(async (messageId: string, accept: string[]) => ({
+        messages: [{
+          id: messageId,
+          content: UNCLI_STAGED_CONTENT,
+          pending_edits: (messages.find(m => m.id === messageId)?.pending_edits ?? []).map(e =>
+            e.status !== 'pending' ? e
+            : !accept.includes(e.id) ? { ...e, status: 'rejected' }
+            : e.id === 'c' ? { ...e, status: 'failed', error: 'no checklist "Packing"' }
+            : { ...e, status: 'accepted' }),
+        }],
+      })),
+    }
+    const done = vi.fn()
+    const stop = reviewStagedChanges(el, history, { title: n => `Apply ${n}?`, detail: 'From this turn.' }, { done, error: e => { throw e } })
+    return { el, history, done, stop }
+  }
+
+  it("asks once about the turn's staged changes when it ends, and applies the ticked ones", async () => {
+    const { el, history, done } = setup({ action: 'apply', items: ['a', 'c'] })
+    el.dispatchEvent(new CustomEvent('uncli-idle', { detail: { session: 's1' } }))
+    await vi.waitFor(() => expect(done).toHaveBeenCalled())
+    expect(el.review).toHaveBeenCalledTimes(1)
+    expect(el.review.mock.calls[0][0]).toEqual({
+      title: 'Apply 3?',
+      detail: 'From this turn.',
+      items: [
+        { id: 'a', label: 'Change a', detail: 'about a' },
+        { id: 'b', label: 'Change b', detail: 'about b' },
+        { id: 'c', label: 'Change c', detail: 'about c' },
+      ],
+    })
+    expect(history.apply).toHaveBeenCalledWith('m1', ['a'])
+    expect(history.apply).toHaveBeenCalledWith('m2', ['c'])
+    expect(done).toHaveBeenCalledWith({
+      applied: 1,
+      failed: 1,
+      note: 'Since your last turn, the user reviewed the changes you suggested: applied "Change a"; turned down "Change b"; ' +
+        'accepted "Change c" but it failed: no checklist "Packing".',
+    })
+  })
+
+  it('Discard rejects them all; a dismissed card leaves them waiting', async () => {
+    const discard = setup({ action: 'discard', items: ['a'] })
+    discard.el.dispatchEvent(new CustomEvent('uncli-idle', { detail: { session: 's1' } }))
+    await vi.waitFor(() => expect(discard.done).toHaveBeenCalledWith({
+      applied: 0,
+      failed: 0,
+      note: 'Since your last turn, the user reviewed the changes you suggested: turned down "Change a", "Change b", "Change c".',
+    }))
+    expect(discard.history.apply).toHaveBeenCalledWith('m1', [])
+
+    const dismissed = setup({ action: 'dismissed', items: [] })
+    dismissed.el.dispatchEvent(new CustomEvent('uncli-idle', { detail: { session: 's1' } }))
+    await vi.waitFor(() => expect(dismissed.el.review).toHaveBeenCalled())
+    expect(dismissed.history.apply).not.toHaveBeenCalled()
+  })
+
+  it('stays quiet when nothing is staged, and stops listening on cleanup', async () => {
+    const { el, history, stop } = setup({ action: 'apply', items: [] }, [{ id: 'm0', content: 'reply' }])
+    el.dispatchEvent(new CustomEvent('uncli-idle', { detail: { session: 's1' } }))
+    await vi.waitFor(() => expect(history.load).toHaveBeenCalledTimes(1))
+    expect(el.review).not.toHaveBeenCalled()
+    stop()
+    el.dispatchEvent(new CustomEvent('uncli-idle', { detail: { session: 's1' } }))
+    expect(history.load).toHaveBeenCalledTimes(1)
   })
 })
 

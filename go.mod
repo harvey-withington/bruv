@@ -93,4 +93,4 @@ require (
 
 replace github.com/wailsapp/go-webview2 v1.0.22 => github.com/wailsapp/go-webview2 v1.0.19
 
-replace github.com/harvey-withington/uncli/app => S:/Local/Code/Projects/UNCLI/UNCLI-1.0/app
+replace github.com/harvey-withington/uncli/app => ../../UNCLI/UNCLI-1.0/app

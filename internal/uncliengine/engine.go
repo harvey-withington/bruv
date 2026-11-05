@@ -47,17 +47,12 @@ type Board struct {
 // boardServer is the name sessions know BRUV's board tools by.
 const boardServer = "bruv"
 
-// Describer words a board-tool call in a repo for its permission prompt
-// (boardtools.DescribeCall over that repo's runtime).
-type Describer func(repoID, tool string, args map[string]any) (title, detail string)
-
 // Engine is the server's UNCLI. One that couldn't start still answers
 // Status; a nil Engine is a host that runs none.
 type Engine struct {
-	core     *uncli.Core
-	status   Status
-	board    atomic.Pointer[Board]
-	describe atomic.Pointer[Describer]
+	core   *uncli.Core
+	status Status
+	board  atomic.Pointer[Board]
 }
 
 // RunHook answers a CLI's hook and exits when the program was started
@@ -77,7 +72,7 @@ func Start(configDir string, allowOrigin func(origin string, r *http.Request) bo
 		Name:           "BRUV",
 		Hooks:          true,
 		MCPServers:     e.boardTools,
-		HostToolPolicy: e.boardToolPolicy,
+		HostToolPolicy: boardToolPolicy,
 	})
 	var sa *uncli.ServiceAccountError
 	switch {
@@ -99,15 +94,6 @@ func Start(configDir string, allowOrigin func(origin string, r *http.Request) bo
 func (e *Engine) ServeBoard(b Board) {
 	if e != nil {
 		e.board.Store(&b)
-	}
-}
-
-// DescribeWith says how to word the permission prompts of board-tool
-// calls, once the server has its repos. Until then prompts carry the
-// tool's summary without the card's name.
-func (e *Engine) DescribeWith(d Describer) {
-	if e != nil {
-		e.describe.Store(&d)
 	}
 }
 
@@ -147,43 +133,23 @@ func (e *Engine) boardTools(session string) map[string]uncli.MCPServer {
 
 // boardToolPolicy is BRUV's Chat / Suggest / Edit mode (ai_mode) for its
 // own board tools, asked at each call so a switch applies at once. Reads
-// keep UNCLI's rules. Writes: refused in Chat; in Suggest, UNCLI's
-// approval card asks the user, worded by BRUV (DescribeCall), and Allow
-// runs it; in Edit they run unasked. "This is safe" on the card puts the
-// tool on the user's safe list, after which UNCLI runs it even in
-// Suggest; a refusal always wins. internal/mcpserver/uncli.go refuses
-// Chat-mode writes again on BRUV's side.
-func (e *Engine) boardToolPolicy(call uncli.HostToolCall) uncli.HostDecision {
+// keep UNCLI's rules. Writes are refused in Chat, and otherwise run
+// without UNCLI asking: in Edit they apply, and in Suggest BRUV's MCP
+// endpoint stages them, for one review card when the turn ends
+// (internal/mcpserver/uncli.go, shared/uncliChat.reviewStagedChanges).
+// If the mode can't be read, UNCLI asks the user.
+func boardToolPolicy(call uncli.HostToolCall) uncli.HostDecision {
 	if call.Server != boardServer || !boardtools.IsWrite(call.Tool) {
 		return uncli.HostDecision{}
 	}
 	cfg, err := config.LoadLLMConfig()
 	if err != nil {
-		return uncli.HostDecision{Decision: uncli.PolicyAsk, Prompt: e.prompt(call)}
+		return uncli.HostDecision{Decision: uncli.PolicyAsk}
 	}
-	switch cfg.AIMode {
-	case "chat":
+	if cfg.AIMode == "chat" {
 		return uncli.HostDecision{Decision: uncli.PolicyDeny, Reason: config.UncliChatModeRefusal}
-	case "suggest":
-		return uncli.HostDecision{Decision: uncli.PolicyAsk, Prompt: e.prompt(call)}
-	default:
-		return uncli.HostDecision{Decision: uncli.PolicyAllow}
 	}
-}
-
-// prompt words a call for UNCLI's approval card, naming the card when the
-// session's repo is known.
-func (e *Engine) prompt(call uncli.HostToolCall) *uncli.HostPrompt {
-	var title, detail string
-	if d := e.describe.Load(); d != nil {
-		if repoID, ok := e.repoOf(call.Session); ok {
-			title, detail = (*d)(repoID, call.Tool, call.Args)
-		}
-	}
-	if title == "" {
-		title, detail = boardtools.DescribeCall(nil, call.Tool, call.Args)
-	}
-	return &uncli.HostPrompt{Title: title, Detail: detail}
+	return uncli.HostDecision{Decision: uncli.PolicyAllow}
 }
 
 // RepoOfMeta reads the repo from a session's meta, as the pages write it

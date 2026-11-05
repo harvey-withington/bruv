@@ -3,18 +3,18 @@
   // <uncli-chat> in a card's chat panel or the project side panel,
   // showing the chat's session (shared/uncliChat). The element shows
   // UNCLI's own download and sign-in steps until its CLI is ready,
-  // approvals (Suggest mode's, worded by BRUV's server) and its own
-  // header (New chat, delete, options). BRUV supplies its sign-in,
-  // @mentions of cards, bruv: links, what the chat is about as each
-  // turn's context, and the Chat / Suggest / Edit control in the message
-  // box.
+  // approvals and its own header (New chat, delete, options). BRUV
+  // supplies its sign-in, @mentions of cards, bruv: links, what the chat
+  // is about as each turn's context, the Chat / Suggest / Edit control in
+  // the message box, and Suggest's review: one card when a turn ends for
+  // the changes it staged (reviewStagedChanges).
   import { untrack } from 'svelte'
   import type { UncliChat } from '@uncli/chat/element'
   import { GetLLMConfig, SearchCards } from '@shared/api'
   import { httpBase, resolveTransportInfo } from '@shared/adapters/cloud'
   import { aiModeOf, aiModeTurnContext, type AIMode } from '@shared/aiMode'
   import { errorDetail } from '@shared/errors'
-  import { chatHost, chatMeta, followChatSessions, modeControl, openChatSession, uncliSrc, UNCLI_LINK_SCHEMES, type ChatRef, type ChatSessions } from '@shared/uncliChat'
+  import { chatHost, chatMeta, followChatSessions, modeControl, nextTurnNote, openChatSession, reviewStagedChanges, uncliSrc, UNCLI_LINK_SCHEMES, type ChatRef, type ChatSessions, type StagedHistory } from '@shared/uncliChat'
   import ChatPanelShell from './ChatPanelShell.svelte'
   import { saveAIMode } from '../lib/aiModeSave'
   import { followBruv } from '../lib/bruvLinks'
@@ -26,6 +26,8 @@
     chat,
     sessions,
     context,
+    history,
+    onApplied,
     visible,
     hosted = false,
     mainWidth = $bindable(720),
@@ -37,6 +39,11 @@
     sessions: Omit<ChatSessions, 'meta'>
     /** Told to the model with each turn, with the chat mode. */
     context: () => string | null
+    /** The chat's history, where Suggest mode stages its changes, and
+     *  Apply(Project)PendingEdits for the turn's review. */
+    history: StagedHistory
+    /** Reviewed changes were applied: the card or board may need reloading. */
+    onApplied?: () => void
     visible: boolean
     /** In the project SidePanel, which owns geometry; a card's chat sits
      *  under CardDetail's close button instead. */
@@ -51,6 +58,8 @@
   let error = $state('')
   let el = $state<UncliChat | null>(null)
   let mode = $state<AIMode>('edit')
+  // How the last review went, told to the model with its next turn.
+  const reviewed = nextTurnNote()
 
   const chatKey = $derived(JSON.stringify(chat))
 
@@ -97,7 +106,7 @@
         token: () => token,
         follow: followBruv,
         searchCards: q => SearchCards(q, 8),
-        context: () => [context(), aiModeTurnContext(current)].filter(Boolean).join('\n'),
+        context: () => [context(), aiModeTurnContext(current), reviewed.take()].filter(Boolean).join('\n'),
         cardLabel: t('uncli.mention_card'),
         enter: 'send', // as ChatSection: Enter sends, Shift+Enter a new line
         controls: [modeControl(current, t, m => void changeMode(m))],
@@ -119,6 +128,27 @@
       })
       return followChatSessions(target, s, onError)
     })
+  })
+
+  // Suggest mode: one review card when a turn ends, for what it staged.
+  $effect(() => {
+    const target = el
+    if (!target) return
+    return untrack(() =>
+      reviewStagedChanges(
+        target,
+        history,
+        { title: n => t('uncli.review_title', { count: n }), detail: t('uncli.review_detail') },
+        {
+          done: ({ applied, failed, note }) => {
+            reviewed.set(note)
+            if (applied) onApplied?.()
+            if (failed) showToast(t('error.edit_apply_some_failed', { count: failed }), 'error')
+          },
+          error: e => showToast(t('uncli.review_failed', { detail: errorDetail(e) }), 'error'),
+        },
+      ),
+    )
   })
 </script>
 

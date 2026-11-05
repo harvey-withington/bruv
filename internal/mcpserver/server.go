@@ -227,12 +227,7 @@ func (h *Handler) initializeResult(repoName string, params json.RawMessage) map[
 			"name":    "BRUV — " + repoName,
 			"version": h.version,
 		},
-		"instructions": "Capture ideas and inspiration into the \"" + repoName +
-			"\" BRUV board. A BRUV board organises ideas as Brand → Stream → " +
-			"Project → Category → Card. Use create_card to capture an idea; pass " +
-			"brand/stream/project/category names to file it (they're created if " +
-			"they don't exist). Call the list_* tools first if you need to match " +
-			"existing names. Everything you do here stays within this one board.",
+		"instructions": boardtools.Instructions(repoName),
 	}
 }
 
@@ -265,7 +260,7 @@ func callTool(rt *supervisor.Runtime, uncliSession string, params json.RawMessag
 		}
 	}
 	if uncliSession != "" {
-		return callAsUncliChat(rt, p.Name, p.Arguments)
+		return callAsUncliChat(rt, uncliSession, p.Name, p.Arguments)
 	}
 	return boardtools.Call(rt, p.Name, p.Arguments)
 }

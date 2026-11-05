@@ -1,10 +1,10 @@
 package boardtools
 
-// DescribeCall words a board-tool call for a permission prompt, before it
-// runs: the UNCLI chat's approval card in Suggest mode
-// (internal/uncliengine). Title is what it does and to which card
-// ("Update Preparation to Leave on “Trip Planning Melbourne”"); Detail is
-// what changes, a line each, plain text.
+// DescribeCall words a board-tool call for the user to decide on before
+// it runs: a change the UNCLI chat's Suggest mode staged, on its review
+// card (supervisor.StageUncliEdit). Title is what it does and to which
+// card ("Update Preparation to Leave on “Trip Planning Melbourne”");
+// Detail is what changes, a line each, plain text.
 
 import (
 	"encoding/json"

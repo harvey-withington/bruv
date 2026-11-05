@@ -90,39 +90,24 @@ func TestBoardToolPolicy(t *testing.T) {
 		}
 	}
 
-	e := &Engine{}
 	write := uncli.HostToolCall{Session: "s1", Server: boardServer, Tool: "set_card_title", Args: map[string]any{"card_id": "c1", "title": "Melbourne"}}
 
 	mode("chat")
-	if d := e.boardToolPolicy(write); d.Decision != uncli.PolicyDeny || d.Reason != config.UncliChatModeRefusal {
+	if d := boardToolPolicy(write); d.Decision != uncli.PolicyDeny || d.Reason != config.UncliChatModeRefusal {
 		t.Errorf("chat write = %+v", d)
 	}
-	if d := e.boardToolPolicy(uncli.HostToolCall{Session: "s1", Server: boardServer, Tool: "get_card"}); d.Decision != "" {
+	if d := boardToolPolicy(uncli.HostToolCall{Session: "s1", Server: boardServer, Tool: "get_card"}); d.Decision != "" {
 		t.Errorf("chat read = %+v, want UNCLI's rules", d)
 	}
-	if d := e.boardToolPolicy(uncli.HostToolCall{Session: "s1", Server: "someone-else", Tool: "set_card_title"}); d.Decision != "" {
+	if d := boardToolPolicy(uncli.HostToolCall{Session: "s1", Server: "someone-else", Tool: "set_card_title"}); d.Decision != "" {
 		t.Errorf("another server's tool = %+v, want UNCLI's rules", d)
 	}
 
-	// Suggest: UNCLI's approval card, in BRUV's words, naming the card
-	// once the server describes calls.
-	mode("suggest")
-	if d := e.boardToolPolicy(write); d.Decision != uncli.PolicyAsk || d.Prompt == nil || d.Prompt.Title != "Set title → Melbourne" || d.Prompt.Detail != "title: Melbourne" {
-		t.Errorf("suggest write = %+v / %+v", d, d.Prompt)
-	}
-	if err := config.SetChatUncliSession("repo-1", "c1", "s1"); err != nil {
-		t.Fatal(err)
-	}
-	e.DescribeWith(func(repoID, tool string, args map[string]any) (string, string) {
-		return "Rename “Trip” in " + repoID, "title: Melbourne"
-	})
-	if d := e.boardToolPolicy(write); d.Prompt == nil || d.Prompt.Title != "Rename “Trip” in repo-1" {
-		t.Errorf("suggest write with a describer = %+v", d.Prompt)
-	}
-
-	for _, m := range []string{"edit", ""} {
+	// Suggest (BRUV stages, and the page reviews the turn's changes) and
+	// Edit (applied): UNCLI lets them through unasked.
+	for _, m := range []string{"suggest", "edit", ""} {
 		mode(m)
-		if d := e.boardToolPolicy(write); d.Decision != uncli.PolicyAllow || d.Prompt != nil {
+		if d := boardToolPolicy(write); d.Decision != uncli.PolicyAllow || d.Prompt != nil {
 			t.Errorf("%q write = %+v, want allow", m, d)
 		}
 	}

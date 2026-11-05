@@ -1,6 +1,6 @@
 <script lang="ts">
   import { GetCard, UpdateCardTitle, UpdateCardType, RefreshTypeBlocks, UpdateCardDescription, UpdateCardDueDate,
-    DeleteCard, PinCard, UnpinCard, MoveCardToCategory, UpdateCardBlocks, GetCardPinBreadcrumbs, GetProjectLabels, GetCategoryAcceptedTypes, GetAgentConfig, GetProjectMembers, CreateCardTypeFromCard, GetCardUncliSession, SetCardUncliSession } from '@shared/api'
+    DeleteCard, PinCard, UnpinCard, MoveCardToCategory, UpdateCardBlocks, GetCardPinBreadcrumbs, GetProjectLabels, GetCategoryAcceptedTypes, GetAgentConfig, GetProjectMembers, CreateCardTypeFromCard, GetCardUncliSession, SetCardUncliSession, LoadChatHistory, ApplyPendingEdits } from '@shared/api'
   import { onEvent } from '../lib/events'
   import { projectTags, nav, cardTypes, loadCardTypes, board } from '../lib/store.svelte'
   import { X, Trash2, BotMessageSquare, ClipboardList, History, Timer, ArrowUpRight } from 'lucide-svelte'
@@ -790,6 +790,8 @@
           chat={{ kind: 'card', cardId }}
           sessions={{ get: () => GetCardUncliSession(cardId), set: (s) => SetCardUncliSession(cardId, s) }}
           context={() => (card ? cardTurnContext(card) : null)}
+          history={{ load: () => LoadChatHistory(cardId), apply: (msgID, ids) => ApplyPendingEdits(cardId, msgID, ids) }}
+          onApplied={() => { requestSilentReload(); onUpdated?.() }}
           visible={showChat}
           bind:mainWidth
           bind:splitterDragging

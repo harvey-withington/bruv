@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { nav, board, prefs as prefsStore, loadCardTypes, loadGlobalTagColors, setupAgentEventListeners } from './lib/store.svelte'
+  import { nav, board, prefs as prefsStore, loadBoard, loadCardTypes, loadGlobalTagColors, setupAgentEventListeners } from './lib/store.svelte'
   import MentionPicker from './components/MentionPicker.svelte'
   import { mentionHost, selectMention, closeMentionPicker } from './lib/mentions.svelte'
   import { onMount, onDestroy } from 'svelte'
@@ -16,6 +16,7 @@
   import UncliChat from './components/UncliChat.svelte'
   import { chatEngine, ensureChatEngine, engineFallbackText } from './lib/chatEngine.svelte'
   import { projectTurnContext } from '@shared/uncliChat'
+  import { isTyping } from '@shared/focus'
   import SidePanel from './components/SidePanel.svelte'
   import WorkspacePanel from './components/workspace/WorkspacePanel.svelte'
   import CardDetail from './components/CardDetail.svelte'
@@ -288,19 +289,14 @@
     return () => document.removeEventListener('bruv:navigate', handleBruvNav)
   })
 
-  // Global keyboard shortcuts (only when no input/textarea focused)
-  function isInputFocused(): boolean {
-    const el = document.activeElement
-    if (!el) return false
-    const tag = el.tagName.toLowerCase()
-    return tag === 'input' || tag === 'textarea' || (el as HTMLElement).isContentEditable
-  }
-
+  // Global keyboard shortcuts, never while the user types: isTyping looks
+  // inside shadow roots, so a key typed in the UNCLI chat's message box
+  // (inside <uncli-chat>) stays a keystroke.
   onMount(() => {
     function handleGlobalKeydown(e: KeyboardEvent) {
       // Never behind a card dialog or an overlay layer — `p`/`w` would
       // open panels (and `/` steal focus) underneath the open card.
-      if (isInputFocused() || globalShortcutsBlocked()) return
+      if (isTyping() || globalShortcutsBlocked()) return
       if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
         e.preventDefault()
         showKeyboardShortcuts = !showKeyboardShortcuts
@@ -483,6 +479,11 @@
                     set: (s) => SetProjectUncliSession(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, s),
                   }}
                   context={() => projectTurnContext({ brand: nav.brandName, stream: nav.streamName, project: nav.projectName })}
+                  history={{
+                    load: () => LoadProjectChatHistory(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!),
+                    apply: (msgID, ids) => ApplyProjectPendingEdits(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, msgID, ids),
+                  }}
+                  onApplied={() => loadBoard(nav.brandSlug!, nav.streamSlug!, nav.projectSlug!, { silent: true })}
                 />
                 {:else}
                 <ChatSection

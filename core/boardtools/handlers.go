@@ -329,7 +329,7 @@ func hAddChecklistItems(rt Board, a map[string]any) (string, bool) {
 	_, _, err := rt.CardService().Edit(cardID, func(card *model.Card) error {
 		b := findChecklist(card, which)
 		if b == nil {
-			return fmt.Errorf("card %s has no checklist %q; its checklists: %s", cardID, which, checklistNames(card))
+			return noChecklistError(card, which)
 		}
 		b.Value = append(cardtools.CoerceChecklistItems(b.Value), items...)
 		label = firstNonEmpty(b.Label, b.Key)

@@ -116,6 +116,129 @@ export function followChatSessions(el: UncliChat, sessions: ChatSessions, onErro
   }
 }
 
+// --- Suggest mode's review, once per turn ---
+
+/** The history message BRUV's server stages a UNCLI chat's changes on
+ *  (supervisor.UncliStagedContent: keep the two the same). */
+export const UNCLI_STAGED_CONTENT = 'Edits proposed in the UNCLI chat.'
+
+type StagedEdit = { id: string; label: string; detail?: string; status: string; error?: string }
+type HistoryMessage = { id: string; content: string; pending_edits?: StagedEdit[] }
+
+/** A chat's history, where Suggest mode stages its changes, and
+ *  Apply(Project)PendingEdits, which applies acceptIDs and rejects the
+ *  message's other pending changes. */
+type History = { messages?: HistoryMessage[] | null } | null
+
+export interface StagedHistory {
+  load(): Promise<History>
+  apply(messageId: string, acceptIDs: string[]): Promise<History>
+}
+
+/** The changes Suggest staged that still wait, by history message. */
+export function stagedGroups(messages: HistoryMessage[]): { messageId: string; edits: StagedEdit[] }[] {
+  return messages
+    .filter(m => m.content === UNCLI_STAGED_CONTENT)
+    .map(m => ({ messageId: m.id, edits: (m.pending_edits ?? []).filter(e => e.status === 'pending') }))
+    .filter(g => g.edits.length > 0)
+}
+
+export interface ReviewStrings {
+  /** "Apply 3 suggested changes?" */
+  title: (count: number) => string
+  /** "From this turn." */
+  detail: string
+}
+
+/** What the user made of a turn's staged changes. */
+export interface ReviewOutcome {
+  applied: number
+  failed: number
+  /** For the model's next turn (nextTurnNote): which were applied, turned
+   *  down or failed, and why. Model-facing, so not localized. */
+  note: string
+}
+
+/** The model-facing account of a review: each staged change by its label,
+ *  once its history message has the outcome. */
+export function reviewNote(edits: StagedEdit[]): string {
+  const labels = (status: string) => edits.filter(e => e.status === status).map(e => `"${e.label}"`)
+  const parts = [
+    labels('accepted').length ? `applied ${labels('accepted').join(', ')}` : '',
+    labels('rejected').length ? `turned down ${labels('rejected').join(', ')}` : '',
+    ...edits.filter(e => e.status === 'failed').map(e => `accepted "${e.label}" but it failed: ${e.error || 'no reason given'}`),
+  ].filter(Boolean)
+  return parts.length ? `Since your last turn, the user reviewed the changes you suggested: ${parts.join('; ')}.` : ''
+}
+
+/** A note for the model's next turn only, such as a review's outcome. */
+export function nextTurnNote(): { set: (note: string) => void; take: () => string | null } {
+  let note = ''
+  return {
+    set: n => { note = n },
+    take: () => {
+      const n = note
+      note = ''
+      return n || null
+    },
+  }
+}
+
+/** Suggest mode's review: when a turn ends (uncli-idle), one UNCLI review
+ *  card for the changes it staged; Apply applies the ones left ticked and
+ *  rejects the rest, Discard rejects them all, and a withdrawn card
+ *  (cleanup, a new turn's review) leaves them waiting for the next one.
+ *  done hears the outcome; error, a failure. Returns the cleanup. */
+export function reviewStagedChanges(
+  el: UncliChat,
+  history: StagedHistory,
+  strings: ReviewStrings,
+  on: { done: (outcome: ReviewOutcome) => void; error: (e: unknown) => void },
+): () => void {
+  let open: AbortController | null = null
+  const review = async () => {
+    open?.abort()
+    const controller = new AbortController()
+    open = controller
+    try {
+      const groups = stagedGroups((await history.load())?.messages ?? [])
+      const edits = groups.flatMap(g => g.edits)
+      if (!edits.length || controller.signal.aborted) return
+      const answer = await el.review(
+        {
+          title: strings.title(edits.length),
+          detail: strings.detail,
+          items: edits.map(e => ({ id: e.id, label: e.label, detail: e.detail || undefined })),
+        },
+        { signal: controller.signal },
+      )
+      if (answer.action !== 'apply' && answer.action !== 'discard') return
+      const ticked = new Set(answer.action === 'apply' ? answer.items : [])
+      const reviewed: StagedEdit[] = []
+      for (const g of groups) {
+        const after = await history.apply(g.messageId, g.edits.filter(e => ticked.has(e.id)).map(e => e.id))
+        const outcome = (after?.messages ?? []).find(m => m.id === g.messageId)?.pending_edits ?? []
+        reviewed.push(...outcome.filter(e => g.edits.some(s => s.id === e.id)))
+      }
+      on.done({
+        applied: reviewed.filter(e => e.status === 'accepted').length,
+        failed: reviewed.filter(e => e.status === 'failed').length,
+        note: reviewNote(reviewed),
+      })
+    } catch (e) {
+      on.error(e)
+    } finally {
+      if (open === controller) open = null
+    }
+  }
+  const onIdle = () => void review()
+  el.addEventListener('uncli-idle', onIdle)
+  return () => {
+    el.removeEventListener('uncli-idle', onIdle)
+    open?.abort()
+  }
+}
+
 // --- What each turn is told (model-facing, so not localized, like
 // BRUV's own chat prompts) ---
 

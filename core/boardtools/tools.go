@@ -309,8 +309,9 @@ func Defs(rt Board, repoName string) []mcp.Tool {
 
 		// --- Populate existing cards ---
 		{
-			Name:        "add_card_blocks",
-			Description: "Append structured content blocks to an existing card in " + board + "." + mentionNote,
+			Name: "add_card_blocks",
+			Description: "Append structured content blocks to an existing card in " + board + " — text, a new checklist, a list, a url, a date and so on. " +
+				"To add items to a checklist the card already has, use add_checklist_items; to change a block's value, update_card." + mentionNote,
 			InputSchema: obj(map[string]any{
 				"card_id": strProp("The card's id."),
 				"blocks":  blockArrayProp("Blocks to append."),
@@ -319,7 +320,8 @@ func Defs(rt Board, repoName string) []mcp.Tool {
 		{
 			Name: "add_checklist_items",
 			Description: "Add items to the end of an existing checklist on a card in " + board + ", keeping its items and their ticks. " +
-				"Name the checklist by its key, label or block id (see get_card)." + mentionNote,
+				"Name the checklist by its key, label or block id (see get_card). " +
+				"The card has no such checklist? Make one with add_card_blocks (type 'checklist')." + mentionNote,
 			InputSchema: obj(map[string]any{
 				"card_id":   strProp("The card's id."),
 				"checklist": strProp("The checklist block's key, label or id."),

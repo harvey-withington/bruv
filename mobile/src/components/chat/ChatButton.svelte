@@ -1,12 +1,13 @@
 <script lang="ts">
   import { BotMessageSquare } from 'lucide-svelte'
-  import { cardTurnContext, projectTurnContext, readChatEngine, type ChatEngineChoice, type ChatRef, type ChatSessions } from '@shared/uncliChat'
+  import { cardTurnContext, projectTurnContext, readChatEngine, type ChatEngineChoice, type ChatRef, type ChatSessions, type StagedHistory } from '@shared/uncliChat'
   import type { LLMConfig, UncliStatus } from '@shared/types'
   import { machineRPC, repoRPC } from '../../lib/auth'
   import { t } from '../../lib/i18n.svelte'
   import ChatSheet from './ChatSheet.svelte'
   import UncliChatSheet from './UncliChatSheet.svelte'
   import type { ChatScope } from './scope'
+  import type { ChatFile } from './types'
 
   // Topbar icon button that opens the AI chat sheet (replaces the old
   // floating action button). BotMessageSquare matches desktop's chat
@@ -44,12 +45,14 @@
     open = true
   }
 
-  // The UNCLI chat's title, recorded session and turn context, per scope.
+  // The UNCLI chat's title, recorded session, turn context and history
+  // (where Suggest mode stages its changes), per scope.
   type UncliChatProps = {
     title: string
     chat: ChatRef
     sessions: Omit<ChatSessions, 'meta'>
     context: () => string | null
+    history: StagedHistory
   }
   const uncliChat = $derived.by((): UncliChatProps => {
     const s = scope
@@ -65,6 +68,10 @@
           const c = card()
           return c ? cardTurnContext(c) : null
         },
+        history: {
+          load: () => repoRPC<ChatFile>('LoadChatHistory', [s.cardID]),
+          apply: (messageId, acceptIDs) => repoRPC<ChatFile>('ApplyPendingEdits', [s.cardID, messageId, acceptIDs]),
+        },
       }
     }
     const name = projectName || s.project
@@ -76,6 +83,10 @@
         set: session => repoRPC<void>('SetProjectUncliSession', [s.brand, s.stream, s.project, session]),
       },
       context: () => projectTurnContext({ brand: s.brand, stream: s.stream, project: name }),
+      history: {
+        load: () => repoRPC<ChatFile>('LoadProjectChatHistory', [s.brand, s.stream, s.project]),
+        apply: (messageId, acceptIDs) => repoRPC<ChatFile>('ApplyProjectPendingEdits', [s.brand, s.stream, s.project, messageId, acceptIDs]),
+      },
     }
   })
 </script>

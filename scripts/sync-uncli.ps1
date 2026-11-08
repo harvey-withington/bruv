@@ -10,8 +10,8 @@
   and the chat element as two npm tarballs (@uncli/client, @uncli/chat)
   that UNCLI packs into app/frontend/dist-embed/packs. A rebuilt tarball
   keeps its version and path, so npm won't pick it up by itself; this
-  removes node_modules/@uncli and reinstalls it in the root (whose
-  shared/ code imports the element's types), frontend/ and mobile/.
+  removes node_modules/@uncli and reinstalls it in frontend/, mobile/
+  and the root (whose shared/ code imports the element's types).
 
   Afterwards it checks the desktop's vendored dotlottie-web asset is
   still there (a nested reinstall once lost it and broke the build) and
@@ -73,10 +73,13 @@ function Relative([string]$dir, [string]$file) {
   [System.Uri]::UnescapeDataString($from.MakeRelativeUri((New-Object System.Uri $file)).ToString())
 }
 
+# The root goes last: it links bruv-frontend (file:frontend), so its install
+# also resolves frontend's package.json, which must already name the new
+# tarballs after a version bump.
 foreach ($target in @(
-    @{ Dir = $repo; Args = @('--ignore-scripts') },  # root: its postinstall reinstalls both surfaces
     @{ Dir = (Join-Path $repo 'frontend'); Args = @() },
-    @{ Dir = (Join-Path $repo 'mobile'); Args = @() })) {
+    @{ Dir = (Join-Path $repo 'mobile'); Args = @() },
+    @{ Dir = $repo; Args = @('--ignore-scripts') })) {  # root: its postinstall reinstalls both surfaces
   Step "Reinstalling in $(Split-Path -Leaf $target.Dir)"
   Push-Location $target.Dir
   try {

@@ -1,5 +1,7 @@
 # BRUV Project — Coding Preferences
 
+The procedure behind these rules (checks, CI commands, commit form) is the `bruv-conventions` skill. Maintainer-only notes live in the private `plan/` repo when it's cloned into this folder; they're loaded here, and the line does nothing elsewhere: @plan/claude-notes.md
+
 ## Code Quality Philosophy
 We are building a high-quality, maintainable application — not just working code. Always prioritize clean architecture, readability, and long-term maintainability. Proactively offer to refactor and improve code quality whenever an opportunity arises.
 

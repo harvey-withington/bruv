@@ -12,7 +12,7 @@ CLAUDE.md holds the rules; this skill is the *procedure* — what to actually ch
 - **Go backend at repo root** (`core/` services + runtime, `transport/http` JSON-RPC 2.0 + SSE, `internal/` repo/model/index). Wails desktop shell and headless `bruv.exe --server` drive the same service layer.
 - **`frontend/`** — desktop Svelte app (Wails). **`mobile/`** — phone PWA served at `/m/`. Two surfaces of one app.
 - **`shared/`** — TypeScript used by both surfaces (`@shared/` alias in both vite configs). API wrappers (`api.ts`), backend interface types (`types.ts`), and transport-agnostic logic.
-- **`plan/`** — gitignored project journal. `plan/TODO.md` is the single source of truth for open work; check it before proposing new work, update it when scope changes.
+- **`plan/`** — gitignored here; for the maintainer it's a separate private repo cloned into this folder, so it travels between their machines. `plan/TODO.md` is the single source of truth for open work; check it before proposing new work, update it when scope changes. `plan/claude-notes.md` holds the maintainer's private working notes (imported by CLAUDE.md when present).
 
 ## Design ethos (the why behind the rules)
 
@@ -36,8 +36,22 @@ BRUV is a polished Kanban surface that **augments an AI-first capture ethos** �
 9. **State keyed by entity ID**, never array index — indices shift on reorder/delete.
 10. **Component size ~300 lines.** If your change pushes a component further past it, extract the piece you're adding as a child component instead of growing the parent.
 11. **Strict TS.** No `any`, no `as any`. If a backend method in `shared/types.ts` returns `Promise<any>`, prefer fixing its type over casting at the call site.
-12. **Drag-and-drop** over up/down buttons wherever reordering exists. Design metaphor: no grip-handle icons — the element body drags. Mobile uses the Pointer-Events action in `mobile/src/lib/actions/dnd.svelte.ts` (long-press to arm).
+12. **Drag-and-drop** over up/down buttons wherever reordering exists. Design metaphor: no grip-handle icons — the element body drags. Mobile uses the Pointer-Events action in `mobile/src/lib/actions/dnd.svelte.ts` (long-press to arm); desktop uses HTML5 drag via `frontend/src/lib/reorder.ts`. The split is intentional (touch needs long-press) — don't unify them.
 13. **UI-CONVENTIONS is a contract** — it lives at `frontend/src/UI-CONVENTIONS.md` (NOT the repo root — root-level searches miss it). Update it when adding shared components or patterns.
+14. **Fix every sibling copy in the same change.** When a fix or a new shared helper applies elsewhere (duplicate helpers, sibling components, the other surface), grep for the pattern and convert every hit now, not as a follow-up. Ask only when a sibling genuinely means something different.
+15. **One tool registry.** Every LLM surface (MCP, card chat, project chat, agents) uses `core/boardtools` — handlers, schemas and scope together. Change the registry or the shared helper, never a surface copy, schemas included. `TestNoSurfaceRedefinesANativeTool` guards the names. Agents: an empty `allowed_tools` grants no tools.
+16. **Card types must exist.** Never stamp a card with a type id that isn't defined (there is no built-in "idea" type; defaults use `catalog.DefaultCardType`). Every LLM surface refuses an unknown type and names the known ones; creating a type is an explicit tool call, used sparingly. Use real type ids in examples, tool descriptions and tests.
+17. **Setup fixes are durable.** The project is built on more than one machine, and "works on the other machine" is usually environment state (tool versions on PATH, an `npm install` never run). Fix it where every machine gets it (postinstall, version pins in CONTRIBUTING.md, scripts), and compare `wails version` / `node -v` / `go version` before suspecting the code.
+
+## Public repo hygiene
+
+The repo is public. Tracked files (code, comments, tests, docs, skills) must read as written for an unknown developer: "your home server", `<host>`, env vars such as `BRUV_DEPLOY_HOST`. Never a real hostname, tailnet, SSH user, machine name, or anything about the maintainer's habits. Test fixtures use neutral names (`homebox.example-tailnet.ts.net`, `HOMEBOX`). Keep the lesson, drop the diary. Private specifics go in `plan/`. Before committing a new skill, doc or comment, grep it for the identifiers listed in `plan/claude-notes.md`.
+
+## Working on Windows
+
+- Commands default to PowerShell (the VS Code terminal here). Say so when a snippet is bash-only (`$VAR`, `rm -rf`, heredocs); plain `git` / `npm` / `go` need no note.
+- In the Bash tool (Git Bash), a heredoc whose body contains backticks fails with "unexpected EOF". Write such files or scripts with the Write tool instead.
+- Windows PowerShell 5.1 turns a native command's stderr (git's push progress, npm warnings) into an error and a non-zero `$?`, even when the command succeeded. Judge by the command's own output and exit code.
 
 ## Pre-commit verification
 
@@ -75,7 +89,7 @@ Fix root causes, not symptoms — no `svelte-ignore`, no `--no-verify`.
 
 ## Commits
 
-**Never run `git commit` or `git push` — the developer commits and pushes manually after verifying the work.** Finish by suggesting a commit message: compact one-liner, lowercase, items separated by " / " (slashes, not commas):
+**Don't run `git commit` or `git push` unless the developer asks for it in the moment** — they normally commit and push manually after verifying the work. An ask covers that one commit; push only when push is asked for too, and neither carries over to later work. When committing before a deploy, commit first so the build stamps the right sha. Otherwise finish by suggesting a commit message: compact one-liner, lowercase, items separated by " / " (slashes, not commas):
 
 ```
 card share/export as markdown + json / import from json / fix pin-rejection orphan

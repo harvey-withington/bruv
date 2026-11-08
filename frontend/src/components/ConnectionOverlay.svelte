@@ -7,6 +7,7 @@
   import { connectivity, retryNow } from '../lib/connectivity.svelte'
   import { switchConnection, LOCAL_CONNECTION_ID, activeConnectionLabel } from '../lib/connections.svelte'
   import { t } from '../lib/i18n.svelte'
+  import { offline, workOffline } from '../lib/offline.svelte'
 
   let retrying = $state(false)
 
@@ -21,7 +22,7 @@
   }
 </script>
 
-{#if connectivity.offline}
+{#if connectivity.offline && !offline.working}
   <div class="overlay" role="alertdialog" aria-modal="true" aria-label={t('connection.lost_title')}>
     <div class="panel">
       <h2>{t('connection.lost_title')}</h2>
@@ -30,10 +31,21 @@
         <button type="button" class="primary" onclick={handleRetry} disabled={retrying || connectivity.checking}>
           {retrying || connectivity.checking ? t('connection.reconnecting') : t('common.retry')}
         </button>
+        <!-- Always offered on a connection that can work offline — with
+             nothing kept here yet it's disabled and says how to start
+             (UI-CONVENTIONS §12.9), rather than hiding. -->
+        {#if offline.scope}
+          <button type="button" class="secondary" onclick={workOffline} disabled={offline.cards.length === 0}>
+            {t('offline.work_offline', { count: offline.cards.length })}
+          </button>
+        {/if}
         <button type="button" class="secondary" onclick={() => switchConnection(LOCAL_CONNECTION_ID)}>
           {t('connection.use_local')}
         </button>
       </div>
+      {#if offline.scope && offline.cards.length === 0}
+        <p class="hint">{t('offline.none_kept_hint')}</p>
+      {/if}
     </div>
   </div>
 {/if}
@@ -99,7 +111,17 @@
     background: transparent;
     color: var(--text-primary);
   }
-  .secondary:hover {
+  .secondary:hover:not(:disabled) {
     background: var(--bg);
+  }
+  .secondary:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+  .hint {
+    margin: 1rem 0 0;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    text-align: center;
   }
 </style>

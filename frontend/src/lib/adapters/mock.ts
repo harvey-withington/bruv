@@ -206,6 +206,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     UpdateCategoryIcon: async () => mockCategory(),
 
     CreateCard: async () => mockCard(),
+    CreateCardWithID: async () => mockCard(),
     GetCard: async () => mockCard(),
     ListCards: async () => [],
     DeleteCard: async () => {},
@@ -215,6 +216,7 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     UpdateCardType: async () => mockCard(),
     RefreshTypeBlocks: async () => mockCard(),
     UpdateCardDescription: async () => mockCard(),
+    CommitCardEdit: async () => ({ conflict: false, card: mockCard() }),
     UpdateCardBlocks: async () => mockCard(),
     UpdateCardTags: async () => mockCard(),
     UpdateCardLabels: async () => mockCard(),
@@ -424,6 +426,10 @@ export function createMockAdapter(overrides: Partial<BackendAdapter> = {}): Back
     ImportTrelloBoardFromJSON: async () => ({
       project_slug: 'mock', project_name: 'Mock', categories: 0, cards: 0,
       labels: 0, comments: 0, archived: 0, skipped_closed: 0,
+    }),
+    ImportTrelloCardFromJSON: async () => ({
+      card_id: 'mock', title: 'Mock', tags: [], checklists: 0,
+      attachments: 0, linked_attachments: [], comments: 0,
     }),
     ExportProjectToFile: async () => 0,
   }

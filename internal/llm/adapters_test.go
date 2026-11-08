@@ -262,7 +262,7 @@ var allProviders = []struct {
 	name string
 	make func(baseURL string) Provider
 }{
-	{"anthropic", func(u string) Provider { return NewAnthropic("test-key", u) }},
+	{"anthropic", func(u string) Provider { return NewAnthropic("test-key", u, Options{}) }},
 	{"openai", func(u string) Provider { return NewOpenAI("test-key", u) }},
 	{"ollama", func(u string) Provider { return NewOllama(u) }},
 }

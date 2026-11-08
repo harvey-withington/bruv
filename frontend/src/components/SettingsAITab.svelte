@@ -32,7 +32,7 @@
   <LLMRoutersManager bind:routing={form.llmRouting} accounts={form.llmAccounts} />
 {/if}
 
-{#if visible('chat_engine') || visible('ai_mode') || visible('min_confidence') || visible('chat_budget') || visible('context')}
+{#if visible('chat_engine') || visible('ai_mode') || visible('min_confidence') || visible('chat_budget') || visible('prompt_cache') || visible('context')}
   <div class="field-section-label">{t('llm.behavior_title')}</div>
 {/if}
 
@@ -91,6 +91,18 @@
     </label>
   {/if}
   <span class="field-hint">{t(`llm.chat_budget_${llm.chat_budget_mode}_hint`, { max: CHAT_BUDGET_MAX.toLocaleString() })}</span>
+{/if}
+
+{#if visible('prompt_cache')}
+  <label class="field">
+    <span class="field-label">{t('llm.prompt_cache')}</span>
+    <select bind:value={llm.prompt_cache}>
+      <option value="5m">{t('llm.prompt_cache_short')}</option>
+      <option value="1h">{t('llm.prompt_cache_long')}</option>
+    </select>
+    <span class="field-hint">{t(llm.prompt_cache === '1h' ? 'llm.prompt_cache_long_hint' : 'llm.prompt_cache_short_hint')}</span>
+    <span class="field-hint">{t('llm.prompt_cache_scope_hint')}</span>
+  </label>
 {/if}
 
 {#if visible('context')}

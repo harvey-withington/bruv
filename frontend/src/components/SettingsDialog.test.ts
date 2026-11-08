@@ -32,6 +32,17 @@ describe('SettingsDialog AI tab', () => {
     await waitFor(() => expect(screen.getByText('Claude')).toBeInTheDocument())
     expect(screen.getByText('Card chat')).toBeInTheDocument()
   })
+
+  it('conversation cache: hint follows the choice and the choice is saved', async () => {
+    adapter.SetLLMConfig = vi.fn(async () => {})
+    render(SettingsDialog, { props: { onClose: () => {}, initialTab: 'ai' } })
+    const select = await screen.findByLabelText(/Conversation cache/)
+    expect(screen.getByText(/lasts 5 minutes/)).toBeInTheDocument()
+    await fireEvent.change(select, { target: { value: '1h' } })
+    expect(await screen.findByText(/lasts an hour/)).toBeInTheDocument()
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(adapter.SetLLMConfig).toHaveBeenCalledWith(expect.objectContaining({ prompt_cache: '1h' })))
+  })
 })
 
 // A section that failed to load is never saved (lib/settingsSections).

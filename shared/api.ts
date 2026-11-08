@@ -128,6 +128,7 @@ export const UpdateCategoryIcon = (...args: Parameters<ReturnType<typeof getBack
 
 // Card CRUD
 export const CreateCard = (...args: Parameters<ReturnType<typeof getBackend>['CreateCard']>) => getBackend().CreateCard(...args)
+export const CreateCardWithID = (...args: Parameters<ReturnType<typeof getBackend>['CreateCardWithID']>) => getBackend().CreateCardWithID(...args)
 export const GetCard = (...args: Parameters<ReturnType<typeof getBackend>['GetCard']>) => getBackend().GetCard(...args)
 export const ListCards = () => getBackend().ListCards()
 export const DeleteCard = (...args: Parameters<ReturnType<typeof getBackend>['DeleteCard']>) => getBackend().DeleteCard(...args)
@@ -138,6 +139,7 @@ export const UpdateCardTitle = (...args: Parameters<ReturnType<typeof getBackend
 export const UpdateCardType = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardType']>) => getBackend().UpdateCardType(...args)
 export const RefreshTypeBlocks = (...args: Parameters<ReturnType<typeof getBackend>['RefreshTypeBlocks']>) => getBackend().RefreshTypeBlocks(...args)
 export const UpdateCardDescription = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardDescription']>) => getBackend().UpdateCardDescription(...args)
+export const CommitCardEdit = (...args: Parameters<ReturnType<typeof getBackend>['CommitCardEdit']>) => getBackend().CommitCardEdit(...args)
 export const UpdateCardBlocks = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardBlocks']>) => getBackend().UpdateCardBlocks(...args)
 export const UpdateCardTags = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardTags']>) => getBackend().UpdateCardTags(...args)
 export const UpdateCardLabels = (...args: Parameters<ReturnType<typeof getBackend>['UpdateCardLabels']>) => getBackend().UpdateCardLabels(...args)
@@ -377,4 +379,5 @@ export const DeleteCardComment = (...args: Parameters<ReturnType<typeof getBacke
 // Import / Export
 export const ImportTrelloBoard = (...args: Parameters<ReturnType<typeof getBackend>['ImportTrelloBoard']>) => getBackend().ImportTrelloBoard(...args)
 export const ImportTrelloBoardFromJSON = (...args: Parameters<ReturnType<typeof getBackend>['ImportTrelloBoardFromJSON']>) => getBackend().ImportTrelloBoardFromJSON(...args)
+export const ImportTrelloCardFromJSON = (...args: Parameters<ReturnType<typeof getBackend>['ImportTrelloCardFromJSON']>) => getBackend().ImportTrelloCardFromJSON(...args)
 export const ExportProjectToFile = (...args: Parameters<ReturnType<typeof getBackend>['ExportProjectToFile']>) => getBackend().ExportProjectToFile(...args)

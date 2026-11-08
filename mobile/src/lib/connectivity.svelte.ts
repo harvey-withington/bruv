@@ -28,6 +28,13 @@ let suspected = false
 
 const PROBE_INTERVAL_MS = 3000
 
+// The device itself has no network (at launch, or dropping it later): no
+// need to wait for a request to stall before saying so.
+if (typeof window !== 'undefined') {
+  window.addEventListener('offline', () => reportOffline())
+  if (navigator.onLine === false) queueMicrotask(() => reportOffline())
+}
+
 // Handlers run when connectivity is restored — typically the mounted
 // page's data loader, so the view it owns refreshes in place.
 const reconnectHandlers = new Set<() => void>()

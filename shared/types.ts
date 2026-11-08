@@ -625,6 +625,18 @@ export type TrelloImportResult = {
   skipped_closed: number
 }
 
+/** Result of importing one Trello card export (ImportTrelloCardFromJSON). */
+export type TrelloCardImportResult = {
+  card_id: string
+  title: string
+  tags: string[] | null
+  checklists: number
+  attachments: number
+  /** Uploads that couldn't be downloaded and were kept as links. */
+  linked_attachments: string[] | null
+  comments: number
+}
+
 export type Attachment = {
   id: string
   name: string
@@ -646,11 +658,31 @@ export type Card = {
   due_date: string | null
   created_at: string
   updated_at?: string
+  /** Save counter, bumped by every write of the card (absent = 0). An
+   *  offline edit names the revision it was made against. */
+  rev?: number
   context_level?: string    // "isolated" | "project" | "brand" | "global"
   labels?: string[]         // label IDs from the project's tags.json
   blocks: Block[]
   file_attachments: Attachment[]
   members?: string[]
+}
+
+/** A content edit for CommitCardEdit. Omitted fields are left alone;
+ *  due_date "" clears the date. */
+export type CardEdit = {
+  title?: string
+  description?: string
+  due_date?: string
+  tags?: string[]
+  blocks?: Block[]
+}
+
+/** conflict: the card had moved past the expected revision, nothing was
+ *  written, and `card` is the current card to merge against. */
+export type CardCommitResult = {
+  conflict: boolean
+  card: Card
 }
 
 // CardPin mirrors Go's card.CategoryPath — a category's full
@@ -1055,6 +1087,9 @@ export type LLMConfig = {
   chat_budget_mode?: ChatBudgetMode | ''
   /** Output-token budget per chat turn; 0 / absent = the default (16,000). */
   chat_budget_tokens?: number
+  /** How long a chat's prompt stays cached after its last use; '' = '5m'.
+   *  The hour costs more to write (2x input price instead of 1.25x). */
+  prompt_cache?: PromptCacheDuration | ''
   /** Which engine runs card chats; '' = builtin. UNCLI is opt-in. */
   chat_engine?: ChatEngine | ''
   /** Per kind of chat, the CLI and model a new UNCLI chat opens on;
@@ -1082,6 +1117,7 @@ export type UncliProvider = {
 }
 
 export type ChatBudgetMode = 'warn' | 'hard' | 'off'
+export type PromptCacheDuration = '5m' | '1h'
 
 /** BRUV's own chat, or the server's UNCLI (internal/uncliengine). */
 export type ChatEngine = 'builtin' | 'uncli'
@@ -1431,6 +1467,9 @@ export interface BackendAdapter {
 
   // Card CRUD
   CreateCard(cardType: string, title: string): Promise<Card>
+  /** CreateCard under a client-chosen UUID (a card made offline); returns
+   *  the existing card when that id is already taken. */
+  CreateCardWithID(id: string, cardType: string, title: string): Promise<Card>
   GetCard(id: string): Promise<Card>
   ListCards(): Promise<Card[]>
   DeleteCard(id: string): Promise<void>
@@ -1445,6 +1484,8 @@ export interface BackendAdapter {
   UpdateCardTags(id: string, tags: string[]): Promise<Card>
   UpdateCardLabels(id: string, labelIDs: string[]): Promise<Card>
   UpdateCardDueDate(id: string, dueDate: string): Promise<Card>
+  /** Apply `edit` only if the card is still at `expectedRev` (offline sync). */
+  CommitCardEdit(id: string, expectedRev: number, edit: CardEdit): Promise<CardCommitResult>
 
   // Pins
   PinCard(cardID: string, categoryID: string): Promise<void>
@@ -1703,6 +1744,8 @@ export interface BackendAdapter {
   // Import / Export
   ImportTrelloBoard(brandSlug: string, streamSlug: string, filePath: string, archiveMode: TrelloArchiveMode, apiKey?: string, apiToken?: string): Promise<TrelloImportResult>
   ImportTrelloBoardFromJSON(brandSlug: string, streamSlug: string, jsonContent: string, archiveMode: TrelloArchiveMode, apiKey?: string, apiToken?: string): Promise<TrelloImportResult>
+  /** Imports a Trello single-card export at the end of a category. Uses the server's saved Trello key + token. */
+  ImportTrelloCardFromJSON(categoryId: string, jsonContent: string): Promise<TrelloCardImportResult>
   ExportProjectToFile(brandSlug: string, streamSlug: string, projectSlug: string, filePath: string): Promise<number>
 
   // Due-date notifications

@@ -5,6 +5,7 @@
   import { focusTrap } from '../lib/actions'
   import { showToast } from '../lib/toast.svelte'
   import { ImportTrelloBoardFromJSON, GetPreferences, SetPreferences } from '@shared/api'
+  import { isTrelloCardExport } from '@shared/cardJson'
   import type { TrelloArchiveMode, TrelloImportResult } from '@shared/types'
 
   let {
@@ -127,6 +128,10 @@
     }
     if (!brandSlug || !streamSlug) {
       errorMsg = t('import.trello.no_target')
+      return
+    }
+    if (isTrelloCardExport(fileContent)) {
+      errorMsg = t('import.trello.single_card')
       return
     }
     importing = true

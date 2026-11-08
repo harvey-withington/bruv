@@ -6,7 +6,10 @@
   import { t } from '../../../lib/i18n.svelte'
   import { showToast } from '../../../lib/toast.svelte'
   import { showConfirm } from '../../../lib/confirm.svelte'
-  import type { DocumentSource } from '../../../lib/editor/documentSource'
+  import type { DocumentSource, SavedAs } from '../../../lib/editor/documentSource'
+  import { saveAsName } from '@shared/documentSource'
+  import { errorDetail } from '@shared/errors'
+  import SaveAsBar from './SaveAsBar.svelte'
   import { DocumentSession } from '../../../lib/editor/documentSession.svelte'
   import type { CodeMirrorApi, CursorPosition } from '../../../lib/editor/codemirror'
   import { documentLayout, loadDocumentPrefs, outlineShown, setDocumentLayout, setOutlineShown } from '../../../lib/editor/documentPrefs.svelte'
@@ -20,9 +23,12 @@
   // edit / split / preview layouts, outline, autosave with the external-
   // change guard (DocumentSession). Source-agnostic by design — a card
   // document is a different DocumentSource, not a different editor.
-  let { source, onClose, onOpenExternal, onReveal }: {
+  let { source, onClose, onSavedAs, onOpenExternal, onReveal }: {
     source: DocumentSource
     onClose: () => void
+    /** Save as finished: the host swaps to `saved.source` (and refreshes
+     *  whatever lists the card's attachments). */
+    onSavedAs?: (saved: SavedAs) => void
     /** Tier 1 fallbacks — shown when provided (workspace files have them). */
     onOpenExternal?: () => void
     onReveal?: () => void
@@ -159,6 +165,20 @@
     }
   }
 
+  let savingAs = $state<'closed' | 'open' | 'busy'>('closed')
+
+  async function saveAs(typed: string) {
+    savingAs = 'busy'
+    try {
+      const saved = await session.saveAs(saveAsName(typed, source.path))
+      savingAs = 'closed'
+      onSavedAs?.(saved)
+    } catch (e) {
+      savingAs = 'open'
+      showToast(`${t('document.save_as_failed')}: ${errorDetail(e)}`, 'error')
+    }
+  }
+
   const showEditor = $derived(layout !== 'preview')
   const showPreview = $derived(layout !== 'edit')
   const showOutline = $derived(outline && format.outline !== undefined)
@@ -174,10 +194,14 @@
     onToggleOutline={toggleOutline}
     saving={session.saving}
     onPrint={format.printable ? print : undefined}
+    onSaveAs={source.saveAs && onSavedAs && session.status === 'ready' ? () => { savingAs = 'open' } : undefined}
     {onOpenExternal}
     {onReveal}
     onClose={() => { void requestClose() }}
   />
+  {#if savingAs !== 'closed'}
+    <SaveAsBar original={name} busy={savingAs === 'busy'} onSave={(n) => void saveAs(n)} onCancel={() => { savingAs = 'closed' }} />
+  {/if}
 
   {#if session.status === 'error'}
     <div class="state">

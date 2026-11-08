@@ -18,10 +18,27 @@ type LLMConfig struct {
 	MinConfidence    string `json:"min_confidence,omitempty"`     // "high", "medium", "low", "" (any)
 	ChatBudgetMode   string `json:"chat_budget_mode,omitempty"`   // ChatBudgetWarn (default), ChatBudgetHard, ChatBudgetOff
 	ChatBudgetTokens int    `json:"chat_budget_tokens,omitempty"` // 0 = DefaultChatBudgetTokens
+	PromptCache      string `json:"prompt_cache,omitempty"`       // PromptCacheShort (default) or PromptCacheLong
 	ChatEngine       string `json:"chat_engine,omitempty"`        // ChatEngineBuiltin (default) or ChatEngineUncli
 	// UncliChats is, per kind of chat ("card_chat", "project_chat"), the
 	// CLI and model a new UNCLI chat opens on; absent = UNCLI's default.
 	UncliChats map[string]UncliRunsOn `json:"uncli_chats,omitempty"`
+}
+
+// Prompt cache durations: how long a provider keeps a chat's prompt cached
+// after its last use. The long one survives long pauses but costs more to
+// write (Anthropic: 2x input price instead of 1.25x; reads are 0.1x either way).
+const (
+	PromptCacheShort = "5m"
+	PromptCacheLong  = "1h"
+)
+
+// PromptCacheTTL resolves the configured cache duration, default filled in.
+func (c LLMConfig) PromptCacheTTL() string {
+	if c.PromptCache == PromptCacheLong {
+		return PromptCacheLong
+	}
+	return PromptCacheShort
 }
 
 // UncliRunsOn is a CLI of the server's UNCLI and one of its models; ""

@@ -51,6 +51,38 @@ describe('DocumentSession', () => {
     expect(s.stamp?.hash).toBe('sha256:v1')
   })
 
+  it('save as puts the draft in a copy and the original back as opened', async () => {
+    const disk = fakeDisk('original')
+    const copies: Array<{ name: string; content: string }> = []
+    disk.source.saveAs = vi.fn(async (name: string, content: string) => {
+      copies.push({ name, content })
+      return { source: { ...disk.source, path: name }, card: {} as never }
+    })
+    const s = new DocumentSession(disk.source, hooks(), 10)
+    await s.load()
+    s.edit('original, edited')
+    await vi.advanceTimersByTimeAsync(20) // autosave has overwritten the original
+    expect(disk.read()).toBe('original, edited')
+    const saved = await s.saveAs('draft (copy).md')
+    expect(copies).toEqual([{ name: 'draft (copy).md', content: 'original, edited' }])
+    expect(disk.read()).toBe('original')
+    expect(saved.source.path).toBe('draft (copy).md')
+    expect(await s.close()).toBe(true) // disposed, nothing left to save over the original
+    expect(disk.read()).toBe('original')
+  })
+
+  it('save as never puts back over a change made elsewhere', async () => {
+    const disk = fakeDisk('original')
+    disk.source.saveAs = vi.fn(async (name: string) => ({ source: { ...disk.source, path: name }, card: {} as never }))
+    const s = new DocumentSession(disk.source, hooks(), 10)
+    await s.load()
+    s.edit('mine')
+    await vi.advanceTimersByTimeAsync(20)
+    disk.externalWrite('someone else')
+    await s.saveAs('copy.md')
+    expect(disk.read()).toBe('someone else')
+  })
+
   it('reports a load failure instead of throwing', async () => {
     const source: DocumentSource = {
       path: 'x.bin',

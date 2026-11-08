@@ -3,11 +3,12 @@ import {
   importCardFromJson,
   mergeCardFromJson,
   ImportError,
+  importNotice,
   type CardTransferApi,
   type TypeConflictResolution,
 } from '@shared/cardTransfer'
 import { collectAttachmentRefs, remapAttachmentRefs } from '@shared/attachmentRefs'
-import { CARD_JSON_FORMAT, CARD_JSON_VERSION } from '@shared/cardJson'
+import { CARD_JSON_FORMAT, CARD_JSON_VERSION, isTrelloCardExport } from '@shared/cardJson'
 import type { Card } from '@shared/types'
 
 // Replay-order tests for the import flow: a fake CardTransferApi records
@@ -23,6 +24,7 @@ function makeApi(overrides: {
   acceptedTypes?: string[] | null
   knownTypes?: string[]
   pinFails?: boolean
+  trelloLinked?: string[]
 } = {}): { api: CardTransferApi; calls: Call[] } {
   const calls: Call[] = []
   const rec = (method: string, ...args: unknown[]) => { calls.push({ method, args }) }
@@ -56,6 +58,13 @@ function makeApi(overrides: {
     addCardComment: async (cardId, author, text) => { rec('addCardComment', cardId, author, text) },
     listCardComments: async () => [],
     signAttachmentURL: async () => '',
+    importTrelloCard: async (categoryId, json) => {
+      rec('importTrelloCard', categoryId, json)
+      return {
+        card_id: 'trello-1', title: 'Trip', tags: ['Trip'], checklists: 6,
+        attachments: 15, linked_attachments: overrides.trelloLinked ?? null, comments: 0,
+      }
+    },
   }
   return { api, calls }
 }
@@ -279,6 +288,49 @@ describe('importCardFromJson — pin failure', () => {
   })
 })
 
+// --- Trello single-card exports ------------------------------------------
+
+const trelloCard = JSON.stringify({
+  id: '69b1160f42548362c382874c',
+  idBoard: '6911465e5a0ee615e42a65ac',
+  idList: '680c8ca98d24e6e53f22b803',
+  name: 'Trip Planning Phnom Penh Mar 2026',
+  checklists: [],
+  labels: [],
+  actions: [],
+})
+
+describe('importCardFromJson — Trello card export', () => {
+  it('hands the whole export to the server importer, with no client replay', async () => {
+    const { api, calls } = makeApi()
+    const out = await importCardFromJson(api, trelloCard, 'cat-1', { fallbackTitle: 'F' })
+    expect(methods(calls)).toEqual(['importTrelloCard'])
+    expect(calls[0].args).toEqual(['cat-1', trelloCard])
+    expect(out).toEqual({ cardId: 'trello-1', failedAttachments: [], failedComments: [], linkedAttachments: [] })
+    expect(importNotice(out!)).toEqual({ kind: 'success', key: 'card.import_done' })
+  })
+
+  it('reports uploads kept as links', async () => {
+    const { api } = makeApi({ trelloLinked: ['a.pdf', 'b.png'] })
+    const out = await importCardFromJson(api, trelloCard, 'cat-1', { fallbackTitle: 'F' })
+    expect(importNotice(out!)).toEqual({ kind: 'warning', key: 'card.import_trello_linked', params: { count: 2 } })
+  })
+
+  it('a Trello board export is not mistaken for a card', () => {
+    expect(isTrelloCardExport(trelloCard)).toBe(true)
+    expect(isTrelloCardExport(JSON.stringify({ id: 'b', idBoard: 'b', idList: 'l', cards: [] }))).toBe(false)
+    expect(isTrelloCardExport(envelope())).toBe(false)
+    expect(isTrelloCardExport('not json')).toBe(false)
+  })
+
+  it('refuses to merge a Trello card into an existing card', async () => {
+    const { api, calls } = makeApi()
+    await expect(mergeCardFromJson(api, trelloCard, 'card-1', { mergedSuffix: ' (merged)', mergedHeading: 'Merged' }))
+      .rejects.toSatisfy((e: unknown) => e instanceof ImportError && e.code === 'trello_card_merge')
+    expect(calls).toEqual([])
+  })
+})
+
 // --- Attachment refs re-homed onto the copies (sweep 9.7) ----------------
 //
 // Import/merge re-upload attachments and the server mints NEW ids; block
@@ -348,6 +400,7 @@ describe('import / merge re-home attachment refs', () => {
       addCardComment: async () => {},
       listCardComments: async () => [],
       signAttachmentURL: async () => '',
+      importTrelloCard: async () => { throw new Error('not a Trello import') },
     }
     return { api, blocksWritten: () => written }
   }

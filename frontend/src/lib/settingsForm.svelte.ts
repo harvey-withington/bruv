@@ -8,7 +8,7 @@
 // saved, so they can't overwrite real settings.
 
 import { GetPreferences, SetPreferences, GetUIPreferences, SetUIPreferences, GetLLMConfig, SetLLMConfig, GetUncliStatus, GetNotifyConfig, SetNotifyConfig, GetLLMAccounts, SaveLLMAccounts, GetLLMRouting, SaveLLMRouting, GetDueDateSettings, SaveDueDateSettings, GetCapturePrefs, SetCapturePrefs } from '@shared/api'
-import type { CapturePrefs, LLMAccount, LLMConfig, LLMRouting, ChatBudgetMode, ChatEngine, UncliStatus } from '@shared/types'
+import type { CapturePrefs, LLMAccount, LLMConfig, LLMRouting, ChatBudgetMode, ChatEngine, PromptCacheDuration, UncliStatus } from '@shared/types'
 import { errorDetail } from '@shared/errors'
 import { CHAT_BUDGET_DEFAULT, clampChatBudget } from '@shared/chatTurn.svelte'
 import { normalizeRouting } from '@shared/modelRefs'
@@ -50,6 +50,7 @@ export class SettingsForm {
     min_confidence: '',
     chat_budget_mode: 'warn' as ChatBudgetMode,
     chat_budget_tokens: CHAT_BUDGET_DEFAULT,
+    prompt_cache: '5m' as PromptCacheDuration,
     chat_engine: 'builtin' as ChatEngine,
     uncli_chats: {} as NonNullable<LLMConfig['uncli_chats']>,
   })
@@ -151,6 +152,7 @@ export class SettingsForm {
           min_confidence: c.min_confidence || '',
           chat_budget_mode: c.chat_budget_mode || 'warn',
           chat_budget_tokens: c.chat_budget_tokens || CHAT_BUDGET_DEFAULT,
+          prompt_cache: c.prompt_cache || '5m',
           chat_engine: c.chat_engine || 'builtin',
           uncli_chats: c.uncli_chats ?? {},
         })

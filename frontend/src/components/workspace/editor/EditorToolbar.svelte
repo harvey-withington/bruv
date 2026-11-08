@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { X, ExternalLink, FolderSearch, Pencil, Columns2, Eye, ListTree, Printer } from 'lucide-svelte'
+  import { X, ExternalLink, FolderSearch, Pencil, Columns2, Eye, ListTree, Printer, CopyPlus } from 'lucide-svelte'
   import type { DocumentLayout } from '@shared/types'
   import { t } from '../../../lib/i18n.svelte'
   import SaveIndicator from '../../SaveIndicator.svelte'
 
-  let { path, layout, onLayout, outline, canOutline, onToggleOutline, saving, onPrint, onOpenExternal, onReveal, onClose }: {
+  let { path, layout, onLayout, outline, canOutline, onToggleOutline, saving, onPrint, onSaveAs, onOpenExternal, onReveal, onClose }: {
     path: string
     layout: DocumentLayout
     onLayout: (layout: DocumentLayout) => void
@@ -15,6 +15,8 @@
     saving: boolean
     /** Present only for formats whose preview is print-shaped (Fountain). */
     onPrint?: () => void
+    /** Present when the source can save a copy (attachments). */
+    onSaveAs?: () => void
     onOpenExternal?: () => void
     onReveal?: () => void
     onClose: () => void
@@ -43,6 +45,9 @@
   </div>
   {#if onPrint}
     <button class="icon-btn" onclick={onPrint} title={t('document.print')} aria-label={t('document.print')}><Printer size={15} /></button>
+  {/if}
+  {#if onSaveAs}
+    <button class="icon-btn" onclick={onSaveAs} title={t('document.save_as')} aria-label={t('document.save_as')}><CopyPlus size={15} /></button>
   {/if}
   {#if onOpenExternal}
     <button class="icon-btn" onclick={onOpenExternal} title={t('workspace.open_external')} aria-label={t('workspace.open_external')}><ExternalLink size={15} /></button>

@@ -14,12 +14,14 @@
   import SharePage from './routes/SharePage.svelte'
   import SettingsPage from './routes/SettingsPage.svelte'
   import ActivityPage from './routes/ActivityPage.svelte'
+  import OfflinePage from './routes/OfflinePage.svelte'
   import Toast from './components/Toast.svelte'
   import MentionSheet from './components/MentionSheet.svelte'
   import { mentionHost, selectMention, closeMentionPicker, installMentionNavigation, installMentionLabelRefresh } from './lib/mentions.svelte'
   import { onEvent } from './lib/events.svelte'
   import { onMount } from 'svelte'
   import ConnectionOverlay from './components/ConnectionOverlay.svelte'
+  import OfflineBar from './components/OfflineBar.svelte'
 
   // Two-stage auth gate, runs reactively on every route change:
   //
@@ -83,6 +85,8 @@
   }))
 </script>
 
+<OfflineBar />
+
 {#if route.current.name === 'enrol'}
   <EnrolPage />
 {:else if route.current.name === 'repos'}
@@ -109,6 +113,8 @@
   <SettingsPage />
 {:else if route.current.name === 'activity'}
   <ActivityPage />
+{:else if route.current.name === 'offline'}
+  <OfflinePage />
 {:else}
   <main class="not-found">
     <h1>{t('not_found.title')}</h1>

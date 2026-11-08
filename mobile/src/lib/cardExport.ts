@@ -10,8 +10,9 @@ import {
 } from '@shared/cardTransfer'
 import type { BruvCardExport } from '@shared/cardJson'
 import type { CardMarkdownLabels } from '@shared/cardMarkdown'
-import type { Card, CardComment, CardTypeInfo } from '@shared/types'
+import type { Card, CardComment, CardTypeInfo, TrelloCardImportResult } from '@shared/types'
 import { t } from './i18n.svelte'
+import { signAttachmentURL } from './attachmentURL'
 
 // Mobile binding of @shared/cardTransfer: injects the repoRPC
 // transport plus localized strings. All envelope/replay logic lives
@@ -32,7 +33,8 @@ const api: CardTransferApi = {
   addCardAttachment: (cardId, name, base64Data) => repoRPC('AddCardAttachment', [cardId, name, base64Data]),
   addCardComment: (cardId, author, text) => repoRPC('AddCardComment', [cardId, author, text]),
   listCardComments: async (cardId) => (await repoRPC<CardComment[]>('ListCardComments', [cardId])) ?? [],
-  signAttachmentURL: (cardId, attachmentId) => repoRPC<string>('SignAttachmentURL', [cardId, attachmentId]),
+  signAttachmentURL,
+  importTrelloCard: (categoryId, json) => repoRPC<TrelloCardImportResult>('ImportTrelloCardFromJSON', [categoryId, json]),
 }
 
 export function buildCardExportPayload(card: Card): Promise<BruvCardExport> {
@@ -67,5 +69,5 @@ export function cardMarkdownLabels(): CardMarkdownLabels {
   }
 }
 
-export { ImportError } from '@shared/cardTransfer'
+export { ImportError, importNotice } from '@shared/cardTransfer'
 export type { ImportOutcome, MergeOutcome, TypeConflictReason, TypeConflictResolution } from '@shared/cardTransfer'

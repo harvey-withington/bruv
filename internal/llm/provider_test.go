@@ -3,7 +3,7 @@ package llm
 import "testing"
 
 func TestNewProviderOpenAI(t *testing.T) {
-	p, err := NewProvider("openai", "test-key", "")
+	p, err := NewProvider("openai", "test-key", "", Options{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -13,7 +13,7 @@ func TestNewProviderOpenAI(t *testing.T) {
 }
 
 func TestNewProviderAnthropic(t *testing.T) {
-	p, err := NewProvider("anthropic", "test-key", "")
+	p, err := NewProvider("anthropic", "test-key", "", Options{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -23,7 +23,7 @@ func TestNewProviderAnthropic(t *testing.T) {
 }
 
 func TestNewProviderOllama(t *testing.T) {
-	p, err := NewProvider("ollama", "", "")
+	p, err := NewProvider("ollama", "", "", Options{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -33,14 +33,14 @@ func TestNewProviderOllama(t *testing.T) {
 }
 
 func TestNewProviderUnknown(t *testing.T) {
-	_, err := NewProvider("unknown", "", "")
+	_, err := NewProvider("unknown", "", "", Options{})
 	if err == nil {
 		t.Fatal("expected error for unknown provider, got nil")
 	}
 }
 
 func TestNewProviderCustomBaseURL(t *testing.T) {
-	p, err := NewProvider("openai", "key", "https://custom.api.com")
+	p, err := NewProvider("openai", "key", "https://custom.api.com", Options{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

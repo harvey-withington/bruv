@@ -311,7 +311,7 @@ func (r *resolver) skip(source, ref, why string) {
 }
 
 func (r *resolver) selection(acct *config.LLMAccount, name string, m *config.LLMModel, source string) (*Selection, error) {
-	provider, err := llm.NewProvider(acct.Provider, acct.APIKey, acct.BaseURL)
+	provider, err := llm.NewProvider(acct.Provider, acct.APIKey, acct.BaseURL, llm.Options{PromptCacheTTL: r.cfg.PromptCacheTTL()})
 	if err != nil {
 		return nil, fmt.Errorf("create %s provider: %w", acct.Provider, err)
 	}

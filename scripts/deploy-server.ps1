@@ -11,9 +11,12 @@
   over SSH - stops the service, swaps the binary (keeping a .bak), and
   restarts. Windows can't overwrite a running .exe, hence stop->swap->start.
   The build also emits the NSIS installer (needs NSIS locally), which is
-  pushed to the SSH user's home as bruv-amd64-installer.exe so the server
-  always holds an installer matching the service it runs. -SkipInstaller
-  opts out.
+  kept on the server the same way the UNCLI sibling project keeps its
+  builds: in a folder in the SSH user's home (bruv-builds), one file per
+  deploy named bruv-setup-<yyyy-MM-dd>-<NNN>.exe, the number counting up
+  across deploys, and only the newest -KeepBuilds (6) kept. So the server
+  always holds an installer matching the service it runs, plus a few to
+  roll back to. -SkipInstaller opts out.
 
   The remote target is self-discovered: the script reads the service's
   own configured binary path (Win32_Service.PathName), so there's no
@@ -50,10 +53,11 @@ param(
   # URL hit after the deploy to confirm the new build is live (unauthed
   # /version endpoint). Override for TLS-fronted servers (https / :443).
   [string]$HealthUrl,
-  # Where the installer lands on the server, as an scp destination path
-  # relative to the SSH user's home (or absolute). Defaults to
-  # BRUV_DEPLOY_INSTALLER_PATH, else the installer's own file name.
-  [string]$RemoteInstallerPath = $(if ($env:BRUV_DEPLOY_INSTALLER_PATH) { $env:BRUV_DEPLOY_INSTALLER_PATH } else { 'bruv-amd64-installer.exe' }),
+  # Folder (in the SSH user's home) that keeps the installers, one per
+  # deploy: bruv-setup-<date>-<number>.exe. BRUV_DEPLOY_BUILDS_DIR overrides.
+  [string]$RemoteBuildsDir = $(if ($env:BRUV_DEPLOY_BUILDS_DIR) { $env:BRUV_DEPLOY_BUILDS_DIR } else { 'bruv-builds' }),
+  # How many installers to keep there; older ones are deleted.
+  [ValidateRange(1, 1000)][int]$KeepBuilds = 6,
   [switch]$SkipBuild,     # reuse the existing build/bin binary (and installer, if present)
   [switch]$SkipInstaller, # don't build or push the NSIS installer
   [switch]$NoBackup,      # don't keep a .bak (not recommended)
@@ -133,24 +137,72 @@ if (-not $Force) {
 
 # --- 3. Stage the binary on the remote (lands in the SSH user's home) -----
 Info "Copying binary to $Target ..."
-& scp $LocalExe "${Target}:bruv-deploy.exe"
+& scp -o BatchMode=yes $LocalExe "${Target}:bruv-deploy.exe"
 if ($LASTEXITCODE -ne 0) { Die "scp failed (exit $LASTEXITCODE). Is OpenSSH reachable on $RemoteHost?" }
 
-# --- 3b. Refresh the installer kept on the server ------------------------
-# Lands at $RemoteInstallerPath (default: the installer's file name in the
-# SSH user's home) so other machines can scp it down from a known place.
-# Secondary to the service swap, so a failure here warns rather than aborts.
-$installerPushed = $false
+# --- 3b. Keep the installer on the server, numbered --------------------
+# Same scheme as the UNCLI sibling project's uncli-builds: one file per
+# deploy, bruv-setup-<yyyy-MM-dd>-<NNN>.exe in $RemoteBuildsDir, NNN one
+# higher than the highest already there, newest $KeepBuilds kept. The old
+# fixed bruv-amd64-installer.exe in the home folder is retired the first
+# time. Secondary to the service swap, so a failure warns, never aborts.
+function Invoke-RemotePS([string]$script) {
+  $enc = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($script))
+  & ssh -o BatchMode=yes $Target "powershell -NoProfile -NonInteractive -EncodedCommand $enc"
+}
+
+$installerPushed = $null
 if ($SkipInstaller) {
   Info "Skipping installer (-SkipInstaller)."
 } elseif (-not (Test-Path $LocalInstaller)) {
-  Warn "No installer at $LocalInstaller - the server's copy is left as-is."
+  Warn "No installer at $LocalInstaller - the server's builds are left as-is."
 } else {
-  $isize = [math]::Round((Get-Item $LocalInstaller).Length / 1MB, 1)
-  Info "Copying installer ($isize MB) to ${Target}:$RemoteInstallerPath ..."
-  & scp $LocalInstaller "${Target}:$RemoteInstallerPath"
-  if ($LASTEXITCODE -ne 0) { Warn "Installer scp failed (exit $LASTEXITCODE) - continuing with the service swap." }
-  else { $installerPushed = $true }
+  $nextNumber = @'
+$dir = Join-Path $env:USERPROFILE '__DIR__'
+New-Item -ItemType Directory -Force -Path $dir | Out-Null
+$max = 0
+Get-ChildItem -LiteralPath $dir -Filter 'bruv-setup-*.exe' | ForEach-Object {
+  if ($_.BaseName -match '-(\d+)$') { $n = [int]$matches[1]; if ($n -gt $max) { $max = $n } }
+}
+Write-Output ($max + 1)
+'@
+  $next = (Invoke-RemotePS $nextNumber.Replace('__DIR__', $RemoteBuildsDir) | Select-Object -Last 1)
+  if ($LASTEXITCODE -ne 0 -or "$next" -notmatch '^\d+$') {
+    Warn "Couldn't read the build number from ${Target}:$RemoteBuildsDir - installer not pushed."
+  } else {
+    $buildName = 'bruv-setup-{0}-{1:D3}.exe' -f (Get-Date -Format 'yyyy-MM-dd'), [int]$next
+    $isize = [math]::Round((Get-Item $LocalInstaller).Length / 1MB, 1)
+    Info "Copying installer ($isize MB) to ${Target}:$RemoteBuildsDir/$buildName ..."
+    & scp -o BatchMode=yes $LocalInstaller "${Target}:$RemoteBuildsDir/$buildName"
+    if ($LASTEXITCODE -ne 0) {
+      Warn "Installer scp failed (exit $LASTEXITCODE) - continuing with the service swap."
+    } else {
+      $installerPushed = "$RemoteBuildsDir/$buildName"
+      $prune = @'
+$dir = Join-Path $env:USERPROFILE '__DIR__'
+$builds = Get-ChildItem -LiteralPath $dir -Filter 'bruv-setup-*.exe' |
+  Where-Object { $_.BaseName -match '-(\d+)$' } |
+  Sort-Object { [int]($_.BaseName -replace '^.*-(\d+)$', '$1') } -Descending
+$builds | Select-Object -Skip __KEEP__ | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force; Write-Output "removed old build $($_.Name)" }
+$legacy = Join-Path $env:USERPROFILE 'bruv-amd64-installer.exe'
+if (Test-Path -LiteralPath $legacy) { Remove-Item -LiteralPath $legacy -Force; Write-Output "retired $legacy (builds now live in $dir)" }
+'@
+      $pruned = @(Invoke-RemotePS $prune.Replace('__DIR__', $RemoteBuildsDir).Replace('__KEEP__', [string]$KeepBuilds))
+      if ($LASTEXITCODE -ne 0) { Warn "Pruning old builds failed (exit $LASTEXITCODE) - they're left in place." }
+      $pruned | ForEach-Object { Write-Host $_ }
+      # One JSON line for the build log, the same shape UNCLI's publish-build prints.
+      $buildRecord = [ordered]@{
+        build   = [int]$next
+        name    = $buildName
+        date    = (Get-Date -Format 'yyyy-MM-dd')
+        bytes   = (Get-Item $LocalInstaller).Length
+        sha256  = (Get-FileHash -Algorithm SHA256 -LiteralPath $LocalInstaller).Hash.ToLower()
+        path    = "$RemoteBuildsDir/$buildName"
+        version = $version
+        removed = @($pruned | Where-Object { $_ -match '^removed old build (.+)$' } | ForEach-Object { $matches[1] })
+      }
+    }
+  }
 }
 
 # --- 4. Remote swap (stop -> backup -> replace -> start, with rollback) ------
@@ -224,7 +276,7 @@ $remote = $remote.Replace('__SVC__', $ServiceName).Replace('__BACKUP__', $(if ($
 $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($remote))
 
 Info "Deploying on $RemoteHost ..."
-& ssh $Target "powershell -NoProfile -NonInteractive -EncodedCommand $encoded"
+& ssh -o BatchMode=yes $Target "powershell -NoProfile -NonInteractive -EncodedCommand $encoded"
 if ($LASTEXITCODE -ne 0) { Die "Remote deploy failed (exit $LASTEXITCODE). The service was rolled back if a backup existed." }
 
 # --- 5. Confirm the new build is live ------------------------------------
@@ -243,5 +295,8 @@ if (-not $confirmed) {
   Warn "Deployed + service started, but couldn't reach $HealthUrl to confirm."
   Warn "If your server is TLS-fronted, pass -HealthUrl https://$RemoteHost/version"
 }
-if ($installerPushed) { Ok "Installer refreshed at ${Target}:$RemoteInstallerPath" }
+if ($installerPushed) {
+  Ok "Installer kept at ${Target}:$installerPushed (newest $KeepBuilds kept)"
+  if ($buildRecord) { Write-Output ($buildRecord | ConvertTo-Json -Compress) }
+}
 Ok "Done."

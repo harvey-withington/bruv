@@ -153,6 +153,22 @@ export function parseCardImport(text: string): CardImportResult {
   return { ok: true, value }
 }
 
+/**
+ * True for Trello's single-card export (card menu → Share → Export JSON):
+ * the card's own ids at the top level and no `cards` array, which only a
+ * board export has. Those go to the server's Trello card importer.
+ */
+export function isTrelloCardExport(text: string): boolean {
+  let parsed: unknown
+  try { parsed = JSON.parse(text) }
+  catch { return false }
+  return isObject(parsed)
+    && typeof parsed.id === 'string'
+    && typeof parsed.idBoard === 'string'
+    && typeof parsed.idList === 'string'
+    && !('cards' in parsed)
+}
+
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }

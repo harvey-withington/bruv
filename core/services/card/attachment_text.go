@@ -15,6 +15,7 @@ import (
 
 	"bruv/internal/fsutil"
 	"bruv/internal/model"
+	"bruv/internal/repo"
 )
 
 // MaxTextAttachmentBytes caps what the editor will open — the same limit
@@ -44,45 +45,59 @@ func (s *Service) StatAttachmentText(cardID, attachmentID string) (*model.Worksp
 
 // SaveAttachmentText is the guarded write: when expectedHash is set and
 // the file no longer carries it, nothing is written and the result reports
-// Diverged with the current stamp. The card's attachment record picks up
-// the new size, and card:updated fires so other surfaces refresh.
+// Diverged with the current stamp. The hash check, the write and the
+// attachment record's new size all happen under the card's file lock, so
+// two guarded saves can't both pass the check. card:updated fires so
+// other surfaces refresh.
 func (s *Service) SaveAttachmentText(cardID, attachmentID, content, expectedHash string) (*model.WorkspaceSaveResult, error) {
 	r := s.deps.Repo()
 	if r == nil {
 		return nil, fmt.Errorf("no repository open")
 	}
-	if expectedHash != "" {
-		current, err := s.StatAttachmentText(cardID, attachmentID)
-		if err != nil && !os.IsNotExist(err) {
-			return nil, err
+	var result model.WorkspaceSaveResult
+	card, err := r.MutateCard(cardID, func(c *model.Card) error {
+		att := attachmentIn(c, attachmentID)
+		if att == nil {
+			return fmt.Errorf("attachment %q not found on card %q", attachmentID, cardID)
 		}
-		if current != nil && current.Hash != expectedHash {
-			return &model.WorkspaceSaveResult{Diverged: true, Stamp: *current}, nil
-		}
-	}
-	if _, err := r.FindAttachment(cardID, attachmentID); err != nil {
-		return nil, err
-	}
-	path := r.AttachmentPath(cardID, attachmentID)
-	if err := fsutil.WriteFileAtomic(path, []byte(content), 0o644); err != nil {
-		return nil, err
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, err
-	}
-	card, err := r.UpdateCard(cardID, func(c *model.Card) {
-		for i := range c.FileAttachments {
-			if c.FileAttachments[i].ID == attachmentID {
-				c.FileAttachments[i].Size = info.Size()
+		if expectedHash != "" {
+			current, err := s.StatAttachmentText(cardID, attachmentID)
+			if err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			if current != nil && current.Hash != expectedHash {
+				result = model.WorkspaceSaveResult{Diverged: true, Stamp: *current}
+				return repo.ErrNoChange
 			}
 		}
+		path := r.AttachmentPath(cardID, attachmentID)
+		if err := fsutil.WriteFileAtomic(path, []byte(content), 0o644); err != nil {
+			return err
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return err
+		}
+		att.Size = info.Size()
+		result = model.WorkspaceSaveResult{Stamp: model.NewFileStamp([]byte(content), info.ModTime())}
+		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	s.emitCardUpdated(card)
-	return &model.WorkspaceSaveResult{Stamp: model.NewFileStamp([]byte(content), info.ModTime())}, nil
+	if !result.Diverged {
+		s.emitCardUpdated(card)
+	}
+	return &result, nil
+}
+
+func attachmentIn(c *model.Card, attachmentID string) *model.FileAttachment {
+	for i := range c.FileAttachments {
+		if c.FileAttachments[i].ID == attachmentID {
+			return &c.FileAttachments[i]
+		}
+	}
+	return nil
 }
 
 func (s *Service) readAttachmentText(cardID, attachmentID string) ([]byte, os.FileInfo, error) {

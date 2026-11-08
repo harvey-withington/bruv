@@ -5,6 +5,7 @@ import {
   DeleteCard,
   GetCard,
   GetCategoryAcceptedTypes,
+  ImportTrelloCardFromJSON,
   ListCardComments,
   ListCardTypes,
   PinCard,
@@ -49,6 +50,7 @@ const api: CardTransferApi = {
   addCardComment: (cardId, author, text) => AddCardComment(cardId, author, text),
   listCardComments: (cardId) => ListCardComments(cardId),
   signAttachmentURL: (cardId, attachmentId) => SignAttachmentURL(cardId, attachmentId),
+  importTrelloCard: (categoryId, json) => ImportTrelloCardFromJSON(categoryId, json),
 }
 
 export function buildCardExportPayload(card: Card): Promise<BruvCardExport> {
@@ -83,5 +85,5 @@ export function cardMarkdownLabels(): CardMarkdownLabels {
   }
 }
 
-export { ImportError } from '@shared/cardTransfer'
+export { ImportError, importNotice } from '@shared/cardTransfer'
 export type { ImportOutcome, MergeOutcome, TypeConflictReason, TypeConflictResolution } from '@shared/cardTransfer'

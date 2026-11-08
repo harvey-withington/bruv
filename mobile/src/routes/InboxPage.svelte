@@ -1,15 +1,13 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
-  import { Check, Trash2, MapPin, X, Search } from 'lucide-svelte'
+  import { Trash2, MapPin, X, Search } from 'lucide-svelte'
   import { repoRPC } from '../lib/auth'
   import { onReconnect } from '../lib/connectivity.svelte'
   import { navigate, cardURL } from '../lib/router.svelte'
   import { t } from '../lib/i18n.svelte'
-  import { renderInline } from '@shared/markdown'
-  import { repoMeta } from '../lib/repoMeta.svelte'
-  import { getCardTypeColor, getCardTypeTextColor, getCardTypeLabel } from '@shared/cardTypes'
   import { onEvent } from '../lib/events.svelte'
   import { longPress } from '../lib/actions/longPress.svelte'
+  import CardRow from '../components/CardRow.svelte'
   import PinPicker from '../components/PinPicker.svelte'
   import ConfirmDialog from '../components/ConfirmDialog.svelte'
   import SearchSheet from '../components/SearchSheet.svelte'
@@ -256,40 +254,8 @@
       {/if}
       <ul class="cards">
         {#each cards as card (card.id)}
-          <li>
-            <button
-              type="button"
-              class="card-row"
-              class:selected={isSelected(card.id)}
-              style:view-transition-name={`card-${card.id}`}
-              onclick={() => tapRow(card)}
-              use:longPress={() => startSelectionWith(card.id)}
-            >
-              {#if selecting}
-                <span class="checkbox" class:checked={isSelected(card.id)} aria-hidden="true">
-                  {#if isSelected(card.id)}<Check size={14} />{/if}
-                </span>
-              {/if}
-              <div class="card-main">
-                <span class="card-title">{@html renderInline(card.title || t('inbox.untitled'))}</span>
-                {#if card.tags?.length}
-                  <div class="tags">
-                    {#each card.tags as tag}
-                      <span class="tag" style:background={repoMeta.tagColor(tag)}>{tag}</span>
-                    {/each}
-                  </div>
-                {/if}
-              </div>
-              {#if card.type}
-                <span
-                  class="card-type"
-                  style:background={getCardTypeColor(card.type, repoMeta.cardTypes)}
-                  style:color={getCardTypeTextColor(card.type)}
-                >
-                  {getCardTypeLabel(card.type, repoMeta.cardTypes)}
-                </span>
-              {/if}
-            </button>
+          <li use:longPress={() => startSelectionWith(card.id)}>
+            <CardRow {card} {selecting} selected={isSelected(card.id)} onClick={() => tapRow(card)} />
           </li>
         {/each}
       </ul>
@@ -310,42 +276,8 @@
       {/if}
       <ul class="cards">
         {#each recents as card (card.id)}
-          <li>
-            <button
-              type="button"
-              class="card-row"
-              class:selected={isSelected(card.id)}
-              onclick={() => tapRow(card)}
-              use:longPress={() => startSelectionWith(card.id)}
-            >
-              {#if selecting}
-                <span class="checkbox" class:checked={isSelected(card.id)} aria-hidden="true">
-                  {#if isSelected(card.id)}<Check size={14} />{/if}
-                </span>
-              {/if}
-              <div class="card-main">
-                <span class="card-title">{@html renderInline(card.title || t('inbox.untitled'))}</span>
-                {#if card.breadcrumb}
-                  <span class="card-breadcrumb">{card.breadcrumb}</span>
-                {/if}
-                {#if card.tags?.length}
-                  <div class="tags">
-                    {#each card.tags as tag}
-                      <span class="tag" style:background={repoMeta.tagColor(tag)}>{tag}</span>
-                    {/each}
-                  </div>
-                {/if}
-              </div>
-              {#if card.type}
-                <span
-                  class="card-type"
-                  style:background={getCardTypeColor(card.type, repoMeta.cardTypes)}
-                  style:color={getCardTypeTextColor(card.type)}
-                >
-                  {getCardTypeLabel(card.type, repoMeta.cardTypes)}
-                </span>
-              {/if}
-            </button>
+          <li use:longPress={() => startSelectionWith(card.id)}>
+            <CardRow {card} breadcrumb={card.breadcrumb} {selecting} selected={isSelected(card.id)} onClick={() => tapRow(card)} />
           </li>
         {/each}
       </ul>
@@ -494,13 +426,6 @@
     border-bottom-color: var(--accent);
   }
 
-  .card-breadcrumb {
-    font-size: 0.72rem;
-    color: var(--text-faint);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
 
   .hint {
     color: var(--text-faint);
@@ -519,92 +444,8 @@
     gap: 0.4rem;
   }
 
-  .card-row {
-    width: 100%;
-    background: var(--bg-elev-1);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 0.85rem 1rem;
-    color: var(--text);
-    font: inherit;
-    cursor: pointer;
-    display: flex;
-    align-items: flex-start;
-    gap: 0.75rem;
-    text-align: left;
-    transition: border-color 120ms ease, background 120ms ease;
-    -webkit-user-select: none;
-    user-select: none;
-    -webkit-touch-callout: none;
-    touch-action: manipulation;
-  }
-  .card-row:hover,
-  .card-row:focus-visible {
-    border-color: var(--accent);
-    outline: none;
-  }
-  .card-row.selected {
-    border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 10%, var(--bg-elev-1));
-  }
 
-  .checkbox {
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    border: 2px solid var(--text-muted);
-    background: var(--bg);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    margin-top: 2px;
-    color: #fff;
-    transition: background 120ms ease, border-color 120ms ease;
-  }
-  .checkbox.checked {
-    background: var(--accent);
-    border-color: var(--accent);
-  }
 
-  .card-main {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-  }
-  .card-title {
-    font-size: 0.95rem;
-    font-weight: 500;
-    color: var(--text);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    -webkit-box-orient: vertical;
-  }
-  .tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.3rem;
-  }
-  .tag {
-    font-size: 0.7rem;
-    color: #fff;
-    padding: 0.1rem 0.45rem;
-    border-radius: 4px;
-  }
-  .card-type {
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    padding: 0.2rem 0.5rem;
-    border-radius: 4px;
-    font-weight: 500;
-    flex-shrink: 0;
-  }
 
   .empty {
     text-align: center;

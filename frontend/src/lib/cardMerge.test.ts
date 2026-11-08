@@ -182,6 +182,7 @@ describe('mergeCardFromJson', () => {
       addCardComment: async (id, author, text) => { rec('addCardComment', id, author, text) },
       listCardComments: async () => [{ id: 'c1', author: 'Harvey', text: 'existing', created_at: '', updated_at: '' }],
       signAttachmentURL: async () => '',
+      importTrelloCard: async () => { throw new Error('merge must not import Trello cards') },
     }
     return { api, calls }
   }

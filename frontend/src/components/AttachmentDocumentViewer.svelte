@@ -1,20 +1,24 @@
 <script lang="ts">
-  import type { Attachment } from '@shared/types'
+  import type { Attachment, Card } from '@shared/types'
   import { focusTrap, portal } from '../lib/actions'
-  import { attachmentDocumentSource } from '../lib/editor/documentSource'
+  import { attachmentDocumentSource, type DocumentSource } from '../lib/editor/documentSource'
   import DocumentEditor from './workspace/editor/DocumentEditor.svelte'
 
   // A text attachment in the document editor. Same overlay shape as
   // WorkspaceFileViewer, different DocumentSource: the bytes are a file
   // the card owns in the vault, so there is no folder to reveal and
   // nothing to open externally — those toolbar buttons simply don't show.
-  let { cardId, attachment, onClose }: {
+  let { cardId, attachment, onClose, onCardUpdated }: {
     cardId: string
     attachment: Attachment
     onClose: () => void
+    /** Save as added an attachment — the list should show it. */
+    onCardUpdated?: (card: Card) => void
   } = $props()
 
-  const source = $derived(attachmentDocumentSource(cardId, attachment.id, attachment.name))
+  // Save as moves the editor onto the copy.
+  let savedAs = $state<DocumentSource | null>(null)
+  const source = $derived(savedAs ?? attachmentDocumentSource(cardId, attachment.id, attachment.name))
   let editor = $state<DocumentEditor | null>(null)
 </script>
 
@@ -24,7 +28,7 @@
      don't get in the way. -->
 <div class="viewer-overlay" role="presentation" use:portal onclick={(e) => { if (e.target === e.currentTarget) void editor?.requestClose() }}>
   <div class="viewer" role="dialog" aria-label={attachment.name} tabindex="-1" use:focusTrap onkeydown={(e) => editor?.onKeydown(e)}>
-    <DocumentEditor bind:this={editor} {source} {onClose} />
+    <DocumentEditor bind:this={editor} {source} {onClose} onSavedAs={(s) => { savedAs = s.source; onCardUpdated?.(s.card) }} />
   </div>
 </div>
 

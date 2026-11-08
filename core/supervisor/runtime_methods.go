@@ -51,6 +51,13 @@ type projectChatScope = tools.ProjectChatScope
 func (r *Runtime) CreateCard(cardType, title string) (*model.Card, error) {
 	return r.Card.Create(cardType, title)
 }
+
+// CreateCardWithID creates a card under a client-chosen UUID — how a card
+// made offline reaches home with the id the device already uses for it.
+// Returns the existing card if that id is already taken (retry-safe).
+func (r *Runtime) CreateCardWithID(id, cardType, title string) (*model.Card, error) {
+	return r.Card.CreateWithID(id, cardType, title)
+}
 func (r *Runtime) GetCard(id string) (*model.Card, error) { return r.Card.Get(id) }
 func (r *Runtime) ListCards() ([]model.Card, error)       { return r.Card.List() }
 
@@ -125,6 +132,13 @@ func (r *Runtime) UpdateCardTags(id string, tags []string) (*model.Card, error) 
 }
 func (r *Runtime) UpdateCardDueDate(id, dueDate string) (*model.Card, error) {
 	return r.Card.UpdateDueDate(id, dueDate)
+}
+
+// CommitCardEdit applies a content edit only if the card is still at
+// expectedRev — how a device syncs edits it made offline. On a moved
+// revision nothing is written and the result carries the current card.
+func (r *Runtime) CommitCardEdit(id string, expectedRev int64, edit model.CardEdit) (*model.CardCommitResult, error) {
+	return r.Card.CommitEdit(id, expectedRev, edit)
 }
 
 // --- Category helpers / pins / moves ---
@@ -895,6 +909,28 @@ func (r *Runtime) ImportTrelloBoard(brandSlug, streamSlug, filePath, archiveMode
 
 func (r *Runtime) ImportTrelloBoardFromJSON(brandSlug, streamSlug, jsonContent, archiveMode, apiKey, apiToken string) (*importer.Result, error) {
 	return r.Repository.ImportTrelloBoardFromJSON(brandSlug, streamSlug, jsonContent, archiveMode, apiKey, apiToken)
+}
+
+// ImportTrelloCardFromJSON imports a Trello single-card export into
+// categoryID. The Trello key + token come from this server's preferences
+// (the import runs here, whichever surface asked). Tags are then set
+// through the card service so they join the project's tag list, like
+// any tag edit.
+func (r *Runtime) ImportTrelloCardFromJSON(categoryID, jsonContent string) (*importer.CardResult, error) {
+	prefs, err := r.Settings.GetPreferences()
+	if err != nil {
+		slog.Warn("trello card import: preferences unreadable, importing without credentials", "err", err)
+	}
+	result, err := r.Repository.ImportTrelloCardFromJSON(categoryID, jsonContent, prefs.TrelloAPIKey, prefs.TrelloAPIToken)
+	if err != nil {
+		return nil, err
+	}
+	if len(result.Tags) > 0 {
+		if _, err := r.Card.UpdateTags(result.CardID, result.Tags); err != nil {
+			return nil, fmt.Errorf("set imported tags: %w", err)
+		}
+	}
+	return result, nil
 }
 
 // ExportProjectToFile writes a project export to the given absolute path.

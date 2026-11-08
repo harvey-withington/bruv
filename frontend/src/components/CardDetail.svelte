@@ -24,9 +24,15 @@
   import CreateTypeFromCardDialog from './CreateTypeFromCardDialog.svelte'
   import PromoteCardDialog from './PromoteCardDialog.svelte'
   import SaveIndicator from './SaveIndicator.svelte'
+  import OfflineToggle from './OfflineToggle.svelte'
+  import OfflineCardBanner from './OfflineCardBanner.svelte'
+  import { offline } from '../lib/offline.svelte'
   import { draggable } from '../lib/draggable'
   import { fade } from 'svelte/transition'
-  import { setContext } from 'svelte'
+  import { setContext, untrack } from 'svelte'
+  import LoadErrorState from './LoadErrorState.svelte'
+  import { errorDetail } from '@shared/errors'
+  import { withTimeout, CARD_LOAD_TIMEOUT_MS } from '@shared/timeout'
   import { focusTrap } from '../lib/actions'
   import { modalOpen } from '../lib/keyLayer'
   import { createCardBlockSaves } from '../lib/cardBlockSaves.svelte'
@@ -51,7 +57,11 @@
 
   let card = $state<Card | null>(null)
   let loading = $state(true)
-  let notFound = $state(false)
+  let loadError = $state<unknown>(null)
+  // Backend returns "card %q not found" for a missing card (the common
+  // case from a stale Inbox / Activity link); anything else is shown as
+  // the error it is, with Retry.
+  const notFound = $derived(loadError !== null && /not found/i.test(errorDetail(loadError)))
   let pinBreadcrumbs = $state<CardPin[]>([])
   let projectMembers = $state<ProjectMember[]>([])
   let assignedMembers = $derived(
@@ -83,6 +93,8 @@
   const CHAT_OUT_DURATION = 240
   // svelte-ignore state_referenced_locally
   let chatInDom = $state(showChat)
+  // Working offline there's no chat panel at all (it needs the server).
+  const chatLayout = $derived(chatInDom && !offline.working)
   $effect(() => {
     if (showChat) {
       chatInDom = true
@@ -217,8 +229,11 @@
   })
 
 
+  // Keyed on the card id alone: whatever loadCard reads on the way (the
+  // block-save queue, the offline engine's state) must not re-run it.
   $effect(() => {
-    loadCard()
+    void cardId
+    untrack(() => loadCard())
   })
 
   // Reload the open card when the backend signals it was modified out-of-band
@@ -258,11 +273,14 @@
 
   async function loadCard(silent: boolean = false) {
     const seq = ++cardLoadSeq
-    if (!silent) loading = true
+    if (!silent) {
+      loading = true
+      loadError = null
+    }
     const saves = blockSaves
     const saveGeneration = saves.generation
     try {
-      const loaded = await GetCard(cardId) as Card
+      const loaded = await withTimeout(GetCard(cardId) as Promise<Card>, CARD_LOAD_TIMEOUT_MS, t('card.load_timeout'))
       if (seq !== cardLoadSeq) return
       // A block save was requested while this fetch was out: the snapshot
       // may predate it, and applying it would drop that local edit (and the
@@ -272,8 +290,8 @@
         return
       }
       card = loaded
-      notFound = false
-      const crumbs = await GetCardPinBreadcrumbs(cardId) || []
+      loadError = null
+      const crumbs = await withTimeout(GetCardPinBreadcrumbs(cardId), CARD_LOAD_TIMEOUT_MS, t('card.load_timeout')) || []
       if (seq !== cardLoadSeq) return // check BEFORE the write — a stale assign can't be undone
       pinBreadcrumbs = crumbs
       titleDraft = card.title
@@ -291,6 +309,8 @@
       // Initial open only — a silent reload after a cancelled title edit
       // must not re-open the editor and steal focus.
       if (!silent && autoEditTitle) editingTitle = true
+      // The card is up; what follows only decorates it.
+      loading = false
       // Check if card has an agent configured
       try { const af = await GetAgentConfig(cardId); hasAgent = af?.config?.enabled ?? false } catch { hasAgent = false }
       // Refresh project tags so new tags (e.g. added by AI) get their colors
@@ -300,14 +320,8 @@
       }
     } catch (e) {
       if (seq !== cardLoadSeq) return
-      // Backend returns "card %q not found" for missing cards (the
-      // common case from a stale Inbox / Activity link). Treat any
-      // failed load as not-found from the user's perspective —
-      // network / auth blips are rare and the not-found panel
-      // points the user at the same recovery action (close + try
-      // something else) for both cases.
       card = null
-      notFound = true
+      loadError = e
     }
     if (seq === cardLoadSeq) loading = false
   }
@@ -632,16 +646,18 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div class="modal-backdrop" role="presentation" onclick={handleBackdropClick} out:fade={{ duration: 150 }} use:modalOpen>
-  <div class="modal" class:chat-open={chatInDom} class:splitter-dragging={splitterDragging} style:--modal-base="{mainWidth}px" use:draggable={{ handle: '.modal-header' }} use:focusTrap>
-   <div class="modal-main" style={chatInDom ? `width: ${mainWidth}px;` : ''}>
+  <div class="modal" class:chat-open={chatLayout} class:splitter-dragging={splitterDragging} style:--modal-base="{mainWidth}px" use:draggable={{ handle: '.modal-header' }} use:focusTrap>
+   <div class="modal-main" style={chatLayout ? `width: ${mainWidth}px;` : ''}>
     {#if loading}
-      <div class="modal-loading">{t('app.loading')}</div>
+      <div class="modal-loading">{t('card.loading')}</div>
     {:else if notFound}
       <div class="modal-not-found">
         <h2>{t('error.card_not_found_title')}</h2>
         <p>{t('error.card_not_found_body')}</p>
         <button class="btn-primary" onclick={() => onClose?.()}>{t('error.card_not_found_close')}</button>
       </div>
+    {:else if loadError}
+      <LoadErrorState message={t('card.load_failed')} error={loadError} onRetry={() => loadCard()} />
     {:else if card}
       <CardHeader
         {card}
@@ -661,7 +677,11 @@
       />
 
       <PendingClipBanner {card} onCardUpdated={applyCardUpdate} />
+      <OfflineCardBanner {cardId} />
 
+      <!-- Working offline the dialog is content only: placement, agents,
+           runs and chat need the server. -->
+      {#if !offline.working}
       <PinPanel
         {pinBreadcrumbs}
         {currentPin}
@@ -705,7 +725,8 @@
       <div class="modal-body" hidden={activeTab !== 'runs'}>
         <AgentRunsTab {cardId} />
       </div>
-      <div class="modal-body" hidden={activeTab !== 'details'}>
+      {/if}
+      <div class="modal-body" hidden={!offline.working && activeTab !== 'details'}>
         <!-- Standard fields: compact flex layout for responsiveness -->
         <div class="fields-grid">
           <div class="field-cell">
@@ -759,7 +780,7 @@
       </div>
 
       <!-- Card-level attachments & comments tabbed panel (pinned between scrollable body and footer) -->
-      {#if activeTab === 'details'}
+      {#if activeTab === 'details' || offline.working}
         <CardMetaPanel {cardId} {card} onAttachmentsUpdated={applyCardUpdate} onCommentsChanged={onUpdated} onAddBlock={(type, label) => cardBlocksRef?.addBlock(type, label)} />
       {/if}
 
@@ -769,18 +790,21 @@
         </span>
         <span class="modal-footer-right">
           <SaveIndicator {saving} />
+          <OfflineToggle {cardId} title={card.title} />
+          {#if !offline.working}
           <button class="btn-promote" onclick={() => showPromoteDialog = true} title={t('tooltip.promote_card')}><ArrowUpRight size={14} /> {t('promote.action')}</button>
           <CardShareMenu {card} onMerged={onUpdated} />
           <button class="btn-delete" onclick={handleDelete} title={t('tooltip.delete_card')}><Trash2 size={14} /> {t('common.delete')}</button>
+          {/if}
         </span>
       </div>
     {/if}
-    {#if showChat}
+    {#if showChat && !offline.working}
       <button class="chat-toggle-btn chat-toggle-docked active" onclick={() => showChat = !showChat} title={t('tooltip.toggle_chat')}><BotMessageSquare size={16} /></button>
     {/if}
    </div>
 
-    {#if !loading && card}
+    {#if !loading && card && !offline.working}
       <!-- Silent reload on LLM replies — otherwise `loading` flips
            true, the outer {#if !loading && card} tears ChatSection
            out of the DOM, and its slide-in animation replays every
@@ -808,7 +832,7 @@
     {/if}
 
     <div class="modal-actions">
-      {#if !showChat}
+      {#if !showChat && !offline.working}
         <button class="chat-toggle-btn" onclick={() => showChat = !showChat} title={t('tooltip.toggle_chat')}><BotMessageSquare size={16} /></button>
       {/if}
       <button class="close-btn" onclick={() => onClose()} title={t('tooltip.close_card')}><X size={18} /></button>

@@ -34,6 +34,8 @@
   import RemoteUnreachableScreen from './components/RemoteUnreachableScreen.svelte'
   import ConnectionOverlay from './components/ConnectionOverlay.svelte'
   import ServerOutdatedBanner from './components/ServerOutdatedBanner.svelte'
+  import OfflineWorkspace from './components/OfflineWorkspace.svelte'
+  import { installOffline, attachOffline, offline, offlineView, workOffline } from './lib/offline.svelte'
   import { loadConnections } from './lib/connections.svelte'
   import { probeBackend } from './lib/repos.svelte'
   import { installResilience } from './lib/connectivity.svelte'
@@ -48,6 +50,9 @@
   // Install runtime connection-loss handling before any RPC. Only arms
   // for remote connections — the local backend can't drop.
   installResilience()
+  // Offline cards ride the same adapter: every RPC passes through the
+  // engine, which answers from the device's copy when it has to.
+  installOffline()
 
   // Restore sidebar width
   const savedWidth = localStorage.getItem('bruv-sidebar-width')
@@ -70,6 +75,9 @@
     await loadConnections()
 
     const info = await resolveTransportInfo()
+    // Before the probe: an unreachable server can still offer the cards
+    // kept on this device.
+    await attachOffline(info)
 
     // Probe /healthz before any RPC. Cheap, sub-second on healthy
     // network; surfaces "backend down" as a friendly screen rather
@@ -123,6 +131,8 @@
         nav.repoName = current.name || ''
         loadCardTypes()
         loadGlobalTagColors()
+        // Edits made offline last session go home; kept copies freshen.
+        void offline.afterReconnect()
       }
       bootPhase = 'ready'
     } catch {
@@ -421,10 +431,14 @@
   <div class="loading-screen">
     <span class="loading-text">{t('app.starting')}</span>
   </div>
+{:else if offlineView.open}
+  <OfflineWorkspace />
 {:else if bootPhase === 'unreachable'}
   <RemoteUnreachableScreen
     onOpenConnections={() => showConnections = true}
     onProbeOk={() => bootApp()}
+    offlineCount={offline.cards.length}
+    onWorkOffline={offline.scope ? workOffline : undefined}
   />
 {:else if !nav.repoOpen}
   <!-- bootPhase is 'ready' but no repo is open — first-launch

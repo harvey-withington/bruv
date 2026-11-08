@@ -7,7 +7,7 @@
   import { t } from '../../lib/i18n.svelte'
   import type { Block, MediaItem } from '@shared/types'
   import { parseAttachmentRef } from '@shared/attachmentRefs'
-  import { repoRPC, readEnrolment } from '../../lib/auth'
+  import { signAttachmentURL } from '../../lib/attachmentURL'
   import { asMedia } from './narrow'
 
   let { block }: { block: Block } = $props()
@@ -24,10 +24,9 @@
       const ref = parseAttachmentRef(item.url)
       if (!ref || item.url in signedRefUrls) continue
       const key = item.url
-      repoRPC<string>('SignAttachmentURL', [ref.cardID, ref.attachmentID])
-        .then((path) => {
-          const enrol = readEnrolment()
-          signedRefUrls = { ...signedRefUrls, [key]: enrol ? `${enrol.serverURL}${path}` : path }
+      signAttachmentURL(ref.cardID, ref.attachmentID)
+        .then((url) => {
+          signedRefUrls = { ...signedRefUrls, [key]: url }
         })
         .catch(() => {})
     }

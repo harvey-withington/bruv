@@ -21,10 +21,11 @@ import type {
 } from '../types'
 import { KNOWN_TOPICS } from './topics'
 import { fetchServerBuild } from '../serverSkew'
+import { absoluteAttachmentURL } from '../download'
 
 // --- Bootstrap: get the HTTP transport addr + token ---
 
-type TransportInfo = {
+export type TransportInfo = {
   addr: string
   token: string
   scheme?: string  // "http" (default) or "https" — for TLS-fronted remote servers
@@ -178,13 +179,40 @@ export interface NetworkResilience {
 }
 
 // A remote RPC still pending after this long triggers an early
-// reachability probe. Comfortably above normal CRUD latency, so a
-// healthy-but-slow request just probes-and-continues.
-const SLOW_REQUEST_MS = 5000
+// reachability probe. Above normal CRUD latency, so a healthy-but-slow
+// request just probes-and-continues; short enough that a dead link
+// offers Work offline within a few seconds instead of freezing.
+const SLOW_REQUEST_MS = 2500
 
 let resilience: NetworkResilience | null = null
 export function setNetworkResilience(r: NetworkResilience | null): void {
   resilience = r
+}
+
+// --- RPC interceptor (offline cards) ----------------------------------
+//
+// One hook every adapter RPC passes through, so the offline layer
+// (shared/offline) can answer from the device's copy of a card instead of
+// the server. `send` is the real transport call.
+export type RpcInterceptor = (method: string, params: unknown[], send: (method: string, params: unknown[]) => Promise<unknown>) => Promise<unknown>
+
+let interceptor: RpcInterceptor | null = null
+export function setRpcInterceptor(i: RpcInterceptor | null): void {
+  interceptor = i
+}
+
+/** The transport call itself, past the interceptor. */
+export function sendRpc(method: string, params: unknown[]): Promise<unknown> {
+  return rpcClient!.call(method, params)
+}
+
+function callRpc(method: string, params: unknown[]): Promise<unknown> {
+  return interceptor ? interceptor(method, params, sendRpc) : sendRpc(method, params)
+}
+
+/** What the offline cache is keyed by: the server and the vault on it. */
+export function offlineScope(info: TransportInfo): string | null {
+  return info.repoID ? `${httpBase(info)}|${info.repoID}` : null
 }
 
 // --- JSON-RPC 2.0 client ---
@@ -545,7 +573,7 @@ async function getCardProjectContextCached(cardID: string): Promise<string> {
   const now = Date.now()
   const hit = contextCache.get(cardID)
   if (hit && now - hit.at < CONTEXT_TTL_MS) return hit.value
-  const value = (await rpcClient!.call('GetCardProjectContext', [cardID])) as string
+  const value = (await callRpc('GetCardProjectContext', [cardID])) as string
   contextCache.set(cardID, { value, at: now })
   return value
 }
@@ -556,10 +584,12 @@ async function getCardProjectContextCached(cardID: string): Promise<string> {
 // the active connection's scheme://host so consumers can drop the
 // result straight into <img src> / <a href>. Keeps the HMAC secret
 // server-side — the client never sees it.
+// Goes through the interceptor: for a card kept offline the answer may be
+// the device copy's blob: URL, which is already absolute.
 async function signAttachmentURLFull(cardID: string, attachmentID: string): Promise<string> {
   const info = await resolveTransportInfo()
-  const path = (await rpcClient!.call('SignAttachmentURL', [cardID, attachmentID])) as string
-  return `${httpBase(info)}${path}`
+  const path = (await callRpc('SignAttachmentURL', [cardID, attachmentID])) as string
+  return absoluteAttachmentURL(httpBase(info), path)
 }
 
 // signPresentURLFull — same URL-completing contract as signAttachmentURLFull,
@@ -618,7 +648,7 @@ function buildAdapter(): BackendAdapter {
         return undefined
       }
       // Return a function that forwards positional args to RPC.
-      return (...args: unknown[]) => rpcClient!.call(prop, args)
+      return (...args: unknown[]) => callRpc(prop, args)
     },
   }
 

@@ -22,6 +22,7 @@
   import { renderInline } from '@shared/markdown'
   import { getCardTypeColor, getCardTypeTextColor } from '@shared/cardTypes'
   import type { Card, CardTypeInfo } from '@shared/types'
+  import OfflineMark from './OfflineMark.svelte'
 
   let {
     card,
@@ -97,6 +98,7 @@
       </div>
     {/if}
   </div>
+  <OfflineMark cardId={card.id} size={14} />
 
   {#if editingTitle}
     <input
